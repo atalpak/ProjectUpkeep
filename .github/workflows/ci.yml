@@ -1,0 +1,51 @@
+# Pull-request checks: lint, typecheck, unit tests, production build, and the
+# migrations applied to a real Postgres.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build
+        # The build only needs these to be present and well-formed, not real:
+        # nothing is fetched from Supabase at build time.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+        run: npm run build
+
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations and run schema tests
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: ./scripts/verify-migrations.sh

@@ -1,0 +1,57 @@
+# Scheduled Scryfall sync.
+#
+# This is what makes the sync "a real repeatable job, not a hack": it runs
+# unattended on a schedule, and a failure is visible in the Actions tab and in
+# public.scryfall_sync_runs rather than only in someone's terminal history.
+#
+# Scryfall regenerates the bulk exports roughly daily. Running a little after
+# their usual refresh means we normally pick up a fresh export; when the export
+# has not changed, the job notices via its stored bulk_updated_at and exits
+# without downloading anything.
+#
+# Setup: add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as repository
+# secrets (Settings -> Secrets and variables -> Actions).
+
+name: Scryfall sync
+
+on:
+  schedule:
+    # 09:15 UTC daily. Off the hour on purpose — scheduled jobs on the hour
+    # queue behind everyone else's cron on GitHub's shared runners.
+    - cron: "15 9 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-download even if the export has not changed upstream"
+        type: boolean
+        default: false
+
+concurrency:
+  # Two syncs upserting the same table at once buys nothing and can trip
+  # statement timeouts on the free tier.
+  group: scryfall-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # The full default_cards export is a few hundred MB; a slow run should fail
+    # loudly rather than burn Actions minutes for six hours.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run sync
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SCRYFALL_CONTACT: "mtgmanager (+https://github.com/${{ github.repository }})"
+        run: npm run sync:scryfall ${{ inputs.force && '-- --force' || '' }}
