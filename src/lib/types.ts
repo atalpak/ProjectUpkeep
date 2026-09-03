@@ -143,7 +143,59 @@ export type Location = {
   parent_location_id: string | null;
   created_at: string;
   updated_at: string;
+
+  // Deck details (migration 00000000000021). Only ever set for type 'deck';
+  // null / empty on a box or binder.
+  notes: string | null;
+  format: string | null;
+  tags: string[];
 };
+
+/** Formats offered in the deck details editor. Free text is still accepted. */
+export const DECK_FORMATS = [
+  "Commander",
+  "Modern",
+  "Standard",
+  "Pioneer",
+  "Legacy",
+  "Vintage",
+  "Pauper",
+  "Historic",
+  "Brawl",
+  "Limited",
+  "Other",
+] as const;
+
+/**
+ * Common archetype tags offered as suggestions in the deck details editor.
+ * Custom tags are allowed too — this is a starting point, not a whitelist.
+ */
+export const DECK_ARCHETYPES = [
+  "Aggro",
+  "Midrange",
+  "Control",
+  "Combo",
+  "Tempo",
+  "Ramp",
+  "Aggro-Control",
+  "Prison",
+  "Stax",
+  "Tribal",
+  "Toolbox",
+  "Voltron",
+  "Aristocrats",
+  "Superfriends",
+  "Group Hug",
+  "Landfall",
+  "Spellslinger",
+  "Reanimator",
+  "Storm",
+  "Mill",
+  "Tokens",
+  "Lifegain",
+  "Counters",
+  "Blink",
+] as const;
 
 export type CardInstance = {
   id: string;

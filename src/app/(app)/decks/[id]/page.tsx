@@ -11,11 +11,13 @@ import {
   type DeckListEntry,
 } from "@/lib/collection/queries";
 import { cardKey } from "@/lib/collection/availability";
+import { computeDeckStats } from "@/lib/collection/deck-stats";
 import { groupDeck } from "@/lib/collection/deck-view";
 import { deckToDecklistText, toCsv, type ExportRow } from "@/lib/collection/export";
 import { matchSuppliersFor } from "@/lib/social/queries";
 import type { WantRow } from "@/lib/social/wants";
 import type { CardInstanceWithCard } from "@/lib/types";
+import { DeckDetails } from "@/components/decks/DeckDetails";
 import { DeckWorkspace, type WishSupplierView } from "@/components/decks/DeckWorkspace";
 import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/ui";
@@ -142,6 +144,8 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
   // this is what is actually sleeved in the box for it.
   const deckCsv = toCsv(contents.map(contentRowToExportRow), { includeLocation: false });
 
+  const stats = computeDeckStats(entries, commanderEntryId);
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -158,6 +162,8 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
           ) : null
         }
       />
+
+      <DeckDetails deck={deck} stats={stats} hasCards={entries.length > 0} />
 
       <DeckWorkspace
         deckId={id}
