@@ -1,10 +1,13 @@
 -- ---------------------------------------------------------------------------
 -- Schema tests. Run via scripts/verify-migrations.sh.
 --
--- These assert the behaviour the Phase 1 brief and data model actually care
--- about: that ownership and location stay decoupled, that the Phase 2 transfer
--- shape works today, that RLS really isolates two users, and that the audit log
--- cannot be edited. Failures raise, so the script exits non-zero.
+-- These assert the behaviour the charter and data model actually care about:
+-- that ownership and location stay decoupled, that the atomic transfer shape
+-- works, that RLS really isolates two users while opening up exactly the Phase 2
+-- trade / ownership_history reads it is meant to (own trades and their items,
+-- own + accepted friends' history) and nothing more, that a client still cannot
+-- write those tables directly, and that the audit log cannot be edited.
+-- Failures raise, so the script exits non-zero.
 -- ---------------------------------------------------------------------------
 
 \set ON_ERROR_STOP on
@@ -227,10 +230,40 @@ begin
 end $$;
 
 -- --------------------------------------------------------------------------
--- 8. RLS actually isolates users.
+-- 8. RLS actually isolates users, and opens up exactly the Phase 2 reads.
 -- --------------------------------------------------------------------------
-insert into public.card_instances (owner_user_id, card_id)
-values ('22222222-2222-2222-2222-222222222222', 'aaaaaaaa-0000-0000-0000-000000000003');
+insert into public.card_instances (id, owner_user_id, card_id)
+values ('cccccccc-0000-0000-0000-000000000002',
+        '22222222-2222-2222-2222-222222222222', 'aaaaaaaa-0000-0000-0000-000000000003');
+
+-- Phase 2 fixtures, inserted as the table owner (RLS does not apply here):
+--
+--   * alice and bob are accepted friends;
+--   * one trade alice proposed to bob, with an item, plus a trade between two
+--     users alice is not party to and not friends with;
+--   * ownership_history rows for alice (her own, from section 6), for bob (a
+--     friend's inbound transfer), and one between the two strangers.
+--
+-- Neither friendship nor a bare trade exposes anyone's collection: card_instances
+-- and locations still need an is_tradable container, which none of these have, so
+-- the "alice sees only her own" counts below are unchanged.
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222', 'accepted');
+
+insert into public.trades (id, proposer_id, recipient_id, status) values
+  ('dddddddd-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   '22222222-2222-2222-2222-222222222222', 'proposed'),
+  ('dddddddd-0000-0000-0000-000000000002', '33333333-3333-3333-3333-333333333333',
+   '44444444-4444-4444-4444-444444444444', 'proposed');
+
+insert into public.trade_items (trade_id, card_instance_id, direction, quantity) values
+  ('dddddddd-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001', 'from_proposer', 1),
+  ('dddddddd-0000-0000-0000-000000000002', 'cccccccc-0000-0000-0000-000000000002', 'from_proposer', 1);
+
+insert into public.ownership_history (card_instance_id, from_user_id, to_user_id) values
+  ('cccccccc-0000-0000-0000-000000000002', null, '22222222-2222-2222-2222-222222222222'),
+  ('cccccccc-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333',
+   '44444444-4444-4444-4444-444444444444');
 
 set local role authenticated;
 set local "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
@@ -257,11 +290,92 @@ begin
   exception when insufficient_privilege then null;
   end;
 
-  -- Trading tables are deny-all until Phase 2.
+  -- ----------------------------------------------------------------------
+  -- Phase 2 posture on trades / trade_items / ownership_history.
+  --
+  -- Derived from the policies in migration 9 ("trades: read own" L190-194,
+  -- "trade_items: read own trades" L219-229, "ownership_history: read own and
+  -- friends'" L267-276) and migration 12 ("trades: close own" L56-64).
+  -- ----------------------------------------------------------------------
+
+  -- A party reads their own trade and its items...
+  select count(*) into visible from public.trades
+   where id = 'dddddddd-0000-0000-0000-000000000001';
+  assert visible = 1, 'a party should see their own trade, saw ' || visible;
+  select count(*) into visible from public.trade_items
+   where trade_id = 'dddddddd-0000-0000-0000-000000000001';
+  assert visible = 1, 'a party should see their own trade''s items, saw ' || visible;
+
+  -- ...but a stranger's trade and its items are invisible.
+  select count(*) into visible from public.trades
+   where id = 'dddddddd-0000-0000-0000-000000000002';
+  assert visible = 0, 'a non-party must not see a stranger''s trade, saw ' || visible;
+  select count(*) into visible from public.trade_items
+   where trade_id = 'dddddddd-0000-0000-0000-000000000002';
+  assert visible = 0, 'a non-party must not see a stranger''s trade items, saw ' || visible;
+
   select count(*) into visible from public.trades;
-  assert visible = 0, 'trades must be deny-all in Phase 1';
+  assert visible = 1, 'alice should see exactly her one trade, saw ' || visible;
+  select count(*) into visible from public.trade_items;
+  assert visible = 1, 'alice should see exactly her one trade item, saw ' || visible;
+
+  -- ownership_history: own rows and accepted friends' rows are readable; a
+  -- transfer between two strangers is not.
+  select count(*) into visible from public.ownership_history
+   where to_user_id = '11111111-1111-1111-1111-111111111111';
+  assert visible = 1, 'a user should see their own ownership_history row, saw ' || visible;
+  select count(*) into visible from public.ownership_history
+   where to_user_id = '22222222-2222-2222-2222-222222222222';
+  assert visible = 1, 'a user should see an accepted friend''s ownership_history row, saw ' || visible;
+  select count(*) into visible from public.ownership_history
+   where from_user_id = '33333333-3333-3333-3333-333333333333';
+  assert visible = 0, 'a user must not see a stranger''s ownership_history row, saw ' || visible;
   select count(*) into visible from public.ownership_history;
-  assert visible = 0, 'ownership_history must be deny-all in Phase 1';
+  assert visible = 2, 'alice should see exactly own + friend history, saw ' || visible;
+
+  -- Ownership still only moves via accept_trade(): a client cannot complete a
+  -- trade itself (WITH CHECK on "trades: close own" allows only the terminal
+  -- non-settling statuses), nor insert a trade it did not propose.
+  begin
+    update public.trades set status = 'completed'
+     where id = 'dddddddd-0000-0000-0000-000000000001';
+    assert false, 'a client must not be able to mark a trade completed';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into public.trades (proposer_id, recipient_id, status)
+    values ('22222222-2222-2222-2222-222222222222',
+            '11111111-1111-1111-1111-111111111111', 'proposed');
+    assert false, 'a client must not insert a trade it did not propose';
+  exception when insufficient_privilege then null;
+  end;
+
+  begin
+    insert into public.trade_items (trade_id, card_instance_id, direction)
+    values ('dddddddd-0000-0000-0000-000000000002',
+            'cccccccc-0000-0000-0000-000000000001', 'from_proposer');
+    assert false, 'a client must not add items to a trade it does not own';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- ownership_history has no client write policy at all: INSERT is refused
+  -- outright, and (section 6) UPDATE/DELETE stay blocked by the append-only
+  -- trigger for every role.
+  begin
+    insert into public.ownership_history (card_instance_id, to_user_id)
+    values ('cccccccc-0000-0000-0000-000000000001',
+            '11111111-1111-1111-1111-111111111111');
+    assert false, 'a client must not insert into ownership_history';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- trades / trade_items expose no DELETE policy, so a delete simply matches no
+  -- rows rather than erroring — the row must survive.
+  delete from public.trades where id = 'dddddddd-0000-0000-0000-000000000001';
+  select count(*) into visible from public.trades
+   where id = 'dddddddd-0000-0000-0000-000000000001';
+  assert visible = 1, 'trades has no client DELETE policy; the row must survive';
 end $$;
 
 reset role;
