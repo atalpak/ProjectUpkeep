@@ -7,9 +7,16 @@ reality.
 No pricing, no marketplace, no valuation. That is a deliberate scope decision,
 not a gap; see [`docs/CHARTER.md`](docs/CHARTER.md).
 
-**Status: Phase 1 (core build).** Collection and location management are
-implemented. Trading is Phase 2 — the tables exist for forward-compatibility but
-nothing reads or writes them yet.
+**Status: Phase 1 and Phase 2 are shipped, along with most of roadmap Tier 2.**
+Collection and location management, peer-to-peer trading with counter-offers and
+an atomic transfer on acceptance, decks-as-locations, friends and public profiles are all
+implemented. Also in: CSV / decklist import, bulk actions, collection
+search / filter / sort, the "where is my card" lookup, Scryfall-sourced
+reference pricing (display only), a want list that matches against friends'
+trade binders, in-app trade notifications, trade-proposal expiry, and a
+terms-of-service acceptance flow. See
+[`docs/feature-roadmap.md`](docs/feature-roadmap.md) for what is still
+deliberately out of scope.
 
 ---
 
@@ -78,8 +85,17 @@ npm run dev
 src/
   app/
     (app)/                  signed-in pages; the route group gets the nav shell
-      collection/           collection view, add-card flow, instance actions
+      collection/           collection view, add-card flow, bulk actions, import
       locations/            container management
+      decks/                decks as a location type, with a per-deck workspace
+      find/                  "where is my card?" collection lookup
+      dashboard/            collection stats and anything awaiting a decision
+      friends/              friends, trade offers and the trade feed
+      trades/               settled-trade archive
+      wants/                want list + which friends have each card
+      notifications/        in-app trade alerts
+      settings/             account, appearance, ToS status
+      u/[username]/         public profile + tradable binder
     api/cards/              name autocomplete + printing lookup
     auth/                   sign in / sign up / sign out actions
   components/               UI, including the add-card and collection widgets
@@ -87,6 +103,12 @@ src/
     auth/redirect.ts        open-redirect guard for the post-login bounce
     collection/queries.ts   read helpers (RLS does the ownership filtering)
     collection/stacking.ts  >>> the quantity/stacking policy, in one place <<<
+    collection/filters.ts   collection search / filter / sort
+    collection/locate.ts    "where is my card?" matching
+    collection/pricing.ts   Scryfall reference-price formatting (display only)
+    collection/deck-view.ts deck-vs-binder view derivation
+    social/                 trades, friends, want-list matching, notifications, ToS
+    import/                 decklist + CSV parse, resolve, plan, commit
     scryfall.ts             bulk-export types and the mapping into `cards`
     scryfall-stream.ts      streaming reader for the bulk export
     supabase/               browser, server, admin and session clients
@@ -101,11 +123,16 @@ scripts/
 
 ### Data model in one paragraph
 
-`cards` is Scryfall's data, one row per printing, read-only to users.
-`card_instances` are the copies you own — each with a condition, finish,
-language, quantity and a location. `locations` are your containers, nestable one
-level deep. `location_id` being null means "unsorted", which is a real and
-expected state, not a missing value. Full detail in
+`cards` is Scryfall's data, one row per printing, read-only to users — including
+the reference price columns the sync job refreshes. `card_instances` are the
+copies you own — each with a condition, finish, language, quantity and a
+location. `locations` are your containers, nestable one level deep; a deck is
+just a location type, so a card sleeved into one stops counting as available.
+`location_id` being null means "unsorted", which is a real and expected state,
+not a missing value. On the social side, `friendships` are the trade circle,
+`trades` / `trade_items` model a proposal in both directions, `ownership_history`
+is the append-only record of every transfer, and `want_list` plus `notifications`
+drive want-matching and alerts. Full detail in
 [`docs/data-model-v1.md`](docs/data-model-v1.md).
 
 ---
@@ -130,7 +157,7 @@ gives you flat locations. No business logic reads the column.
 
 ## Ownership and location are deliberately decoupled
 
-Phase 2's atomic trade transfer needs to be a single statement:
+The atomic trade transfer is a single statement per card:
 
 ```sql
 update card_instances
@@ -142,6 +169,13 @@ Nothing else on the row needs touching. There is no composite foreign key, no
 owner denormalised from `locations`, no generated column tying the two together.
 The only rule spanning them — you cannot park a card in someone else's binder —
 is a trigger, and nulling the location on transfer satisfies it for free.
+
+That transfer lives in `public.accept_trade(p_trade_id)`, a `SECURITY DEFINER`
+function (migrations 9 → 12 → 13). It re-checks that the caller is the
+recipient, that the trade is still open and that every item is still owned by
+the side that offered it, then moves each card — splitting partial stacks — in
+one transaction. Trade completion changes go there, or into a new numbered
+migration; never into a loosened RLS policy.
 
 `supabase/tests/schema_test.sql` asserts this shape directly. If that test starts
 failing, ownership and location have become coupled and the trade engine just
@@ -156,7 +190,8 @@ npm run dev          # dev server
 npm run build        # production build
 npm run lint         # eslint
 npm run typecheck    # tsc --noEmit
-npm test             # unit tests (mapping, streaming, stacking, redirect guard)
+npm test             # unit tests over the pure logic in src/lib/** (mapping,
+                     # streaming, stacking, filters, import, pricing, wants, …)
 npm run test:db      # apply migrations to a throwaway Postgres and assert on them
 ```
 
@@ -196,9 +231,11 @@ data is only regenerated about that often anyway.
   database does it, so there is one place to get it wrong instead of two.
 - The `card_instances` update policy pins `owner_user_id` in both `USING` and
   `WITH CHECK`, so a user cannot give a card away (or take one) by editing the
-  column directly. Phase 2's transfer should be a `SECURITY DEFINER` function
-  rather than a loosened policy.
-- `trades`, `trade_items` and `ownership_history` have RLS enabled with **no
-  policies** — deny-all until Phase 2 opens them deliberately.
+  column directly. The transfer is done by the `public.accept_trade`
+  `SECURITY DEFINER` function, not by a loosened policy.
+- `trades` and `trade_items` have party-only SELECT policies — a friend who is
+  not a party to a trade still cannot read it. `ownership_history` is readable
+  by the two parties to a transfer and by their friends (the feed is the point),
+  and stays append-only — see below.
 - `ownership_history` rejects `UPDATE` and `DELETE` at the trigger level. An
   audit log you can quietly edit is not an audit log.

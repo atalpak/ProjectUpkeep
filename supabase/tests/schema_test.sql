@@ -239,11 +239,33 @@ values ('cccccccc-0000-0000-0000-000000000002',
 -- Phase 2 fixtures, inserted as the table owner (RLS does not apply here):
 --
 --   * alice and bob are accepted friends;
---   * one trade alice proposed to bob, with an item, plus a trade between two
---     users alice is not party to and not friends with;
---   * ownership_history rows for alice (her own, from section 6), for bob (a
---     friend's inbound transfer), and one between the two strangers.
+--   * one trade alice proposed to bob, with an item (alice is a party);
+--   * one trade bob proposed to a third party — bob is a party, alice is bob's
+--     accepted friend but NOT a party. The trades / trade_items SELECT policies
+--     are party-only (no are_friends arm), so alice must see none of it. This
+--     guards against a regression that wrongly adds are_friends() there;
+--   * one trade between two strangers alice is neither party to nor friends with;
+--   * ownership_history rows exercising every arm of migration 9's
+--     "read own and friends'" policy: alice's own (to_user_id), a friend's
+--     inbound transfer (are_friends(to_user_id)), a row where a friend is the
+--     *sender* (are_friends(from_user_id)), and a stranger→stranger row (no arm).
 --
+-- Dedicated stranger pair (carol / dave) so this section does not piggyback on
+-- the signup-fallback rows 33333333 / 44444444 created by the username tests
+-- above, and does not break if someone edits those tests.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('55555555-5555-5555-5555-555555555555', 'carol@example.com', '{"username":"carol"}'),
+  ('66666666-6666-6666-6666-666666666666', 'dave@example.com',  '{"username":"dave"}');
+
+-- A throwaway instance owned by a stranger (null location is fine). Gives the
+-- stranger trade's item and the stranger ownership_history row a card that a
+-- party actually owns — the old fixture pointed the stranger trade_items row at
+-- cccccccc-...02, which is bob's card, and read as a mistake even though no
+-- CHECK rejects it.
+insert into public.card_instances (id, owner_user_id, card_id)
+values ('cccccccc-0000-0000-0000-000000000003',
+        '55555555-5555-5555-5555-555555555555', 'aaaaaaaa-0000-0000-0000-000000000003');
+
 -- Neither friendship nor a bare trade exposes anyone's collection: card_instances
 -- and locations still need an is_tradable container, which none of these have, so
 -- the "alice sees only her own" counts below are unchanged.
@@ -253,17 +275,27 @@ insert into public.friendships (requester_id, addressee_id, status) values
 insert into public.trades (id, proposer_id, recipient_id, status) values
   ('dddddddd-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
    '22222222-2222-2222-2222-222222222222', 'proposed'),
-  ('dddddddd-0000-0000-0000-000000000002', '33333333-3333-3333-3333-333333333333',
-   '44444444-4444-4444-4444-444444444444', 'proposed');
+  -- bob -> a third party: bob is a party, alice is bob's friend but not a party.
+  ('dddddddd-0000-0000-0000-000000000003', '22222222-2222-2222-2222-222222222222',
+   '55555555-5555-5555-5555-555555555555', 'proposed'),
+  -- stranger -> stranger: alice is neither a party nor a friend of either side.
+  ('dddddddd-0000-0000-0000-000000000002', '55555555-5555-5555-5555-555555555555',
+   '66666666-6666-6666-6666-666666666666', 'proposed');
 
 insert into public.trade_items (trade_id, card_instance_id, direction, quantity) values
   ('dddddddd-0000-0000-0000-000000000001', 'cccccccc-0000-0000-0000-000000000001', 'from_proposer', 1),
-  ('dddddddd-0000-0000-0000-000000000002', 'cccccccc-0000-0000-0000-000000000002', 'from_proposer', 1);
+  ('dddddddd-0000-0000-0000-000000000003', 'cccccccc-0000-0000-0000-000000000002', 'from_proposer', 1),
+  ('dddddddd-0000-0000-0000-000000000002', 'cccccccc-0000-0000-0000-000000000003', 'from_proposer', 1);
 
 insert into public.ownership_history (card_instance_id, from_user_id, to_user_id) values
+  -- friend (bob) is the recipient  -> are_friends(to_user_id, alice) arm
   ('cccccccc-0000-0000-0000-000000000002', null, '22222222-2222-2222-2222-222222222222'),
-  ('cccccccc-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333',
-   '44444444-4444-4444-4444-444444444444');
+  -- friend (bob) is the sender     -> are_friends(from_user_id, alice) arm
+  ('cccccccc-0000-0000-0000-000000000003', '22222222-2222-2222-2222-222222222222',
+   '55555555-5555-5555-5555-555555555555'),
+  -- stranger -> stranger           -> no arm matches, invisible to alice
+  ('cccccccc-0000-0000-0000-000000000003', '55555555-5555-5555-5555-555555555555',
+   '66666666-6666-6666-6666-666666666666');
 
 set local role authenticated;
 set local "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
@@ -314,24 +346,46 @@ begin
    where trade_id = 'dddddddd-0000-0000-0000-000000000002';
   assert visible = 0, 'a non-party must not see a stranger''s trade items, saw ' || visible;
 
+  -- ...and so is a trade where an accepted friend (bob) is a party but alice is
+  -- not. The trades / trade_items SELECT policies are party-only — no
+  -- are_friends() arm — so friendship buys no visibility here. If this ever
+  -- returns > 0, someone has widened the trade read policy.
+  select count(*) into visible from public.trades
+   where id = 'dddddddd-0000-0000-0000-000000000003';
+  assert visible = 0, 'a friend who is not a party must not see the trade, saw ' || visible;
+  select count(*) into visible from public.trade_items
+   where trade_id = 'dddddddd-0000-0000-0000-000000000003';
+  assert visible = 0, 'a friend who is not a party must not see the trade items, saw ' || visible;
+
   select count(*) into visible from public.trades;
   assert visible = 1, 'alice should see exactly her one trade, saw ' || visible;
   select count(*) into visible from public.trade_items;
   assert visible = 1, 'alice should see exactly her one trade item, saw ' || visible;
 
-  -- ownership_history: own rows and accepted friends' rows are readable; a
-  -- transfer between two strangers is not.
+  -- ownership_history: migration 9's "read own and friends'" policy has four
+  -- arms; alice's three visible rows exercise three of them, the invisible row
+  -- exercises none.
+  --   arm 1: to_user_id = auth.uid()                       -> alice's own row (section 6)
   select count(*) into visible from public.ownership_history
    where to_user_id = '11111111-1111-1111-1111-111111111111';
   assert visible = 1, 'a user should see their own ownership_history row, saw ' || visible;
+  --   arm 3: are_friends(to_user_id, auth.uid())           -> friend bob received
   select count(*) into visible from public.ownership_history
    where to_user_id = '22222222-2222-2222-2222-222222222222';
-  assert visible = 1, 'a user should see an accepted friend''s ownership_history row, saw ' || visible;
+  assert visible = 1, 'a user should see an accepted friend''s inbound ownership_history row, saw ' || visible;
+  --   arm 4: from_user_id is not null and are_friends(from_user_id, auth.uid())
+  --          -> friend bob sent; this arm had no fixture before.
   select count(*) into visible from public.ownership_history
-   where from_user_id = '33333333-3333-3333-3333-333333333333';
-  assert visible = 0, 'a user must not see a stranger''s ownership_history row, saw ' || visible;
+   where from_user_id = '22222222-2222-2222-2222-222222222222'
+     and to_user_id = '55555555-5555-5555-5555-555555555555';
+  assert visible = 1, 'a user should see a row where an accepted friend is the sender, saw ' || visible;
+  --   no arm: a transfer between two strangers stays invisible.
+  select count(*) into visible from public.ownership_history
+   where from_user_id = '55555555-5555-5555-5555-555555555555'
+     and to_user_id = '66666666-6666-6666-6666-666666666666';
+  assert visible = 0, 'a user must not see a stranger-to-stranger ownership_history row, saw ' || visible;
   select count(*) into visible from public.ownership_history;
-  assert visible = 2, 'alice should see exactly own + friend history, saw ' || visible;
+  assert visible = 3, 'alice should see own + friend-inbound + friend-outbound history, saw ' || visible;
 
   -- Ownership still only moves via accept_trade(): a client cannot complete a
   -- trade itself (WITH CHECK on "trades: close own" allows only the terminal

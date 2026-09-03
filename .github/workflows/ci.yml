@@ -28,6 +28,19 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
         run: npm run build
 
+      - name: NEXT_PUBLIC_ env is inlined into the server bundle
+        # scripts/env.test.ts pins the loud-failure behaviour but cannot catch a
+        # regression from static process.env.NEXT_PUBLIC_* access back to dynamic
+        # process.env[name] — the two behave identically under tsx. Next only
+        # inlines the static form, so the placeholder URL from the Build step
+        # must appear literally in the built server/Edge output. If it does not,
+        # src/lib/env.ts has gone back to dynamic access.
+        run: |
+          grep -rqF "placeholder.supabase.co" .next/server/ || {
+            echo "NEXT_PUBLIC_ env not inlined into server bundle — check src/lib/env.ts uses static process.env access"
+            exit 1
+          }
+
   migrations:
     runs-on: ubuntu-latest
     services:
