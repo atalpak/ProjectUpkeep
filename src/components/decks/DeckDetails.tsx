@@ -4,276 +4,44 @@ import { useActionState, useEffect, useState } from "react";
 
 import { updateDeckDetails } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
-import { ManaSymbol } from "@/components/ManaCost";
-import { Price, useShowPrices } from "@/components/PriceToggle";
-import { Badge, Banner, Button, Input, cx } from "@/components/ui";
-import type { CurveBucket, DeckStats } from "@/lib/collection/deck-stats";
-import type { DeckSection } from "@/lib/collection/deck-view";
+import { Badge, Banner, Button, Input } from "@/components/ui";
 import { DECK_ARCHETYPES, DECK_FORMATS, type Location } from "@/lib/types";
 
 /**
- * A deck's Details section: what it is (name, format, archetype tags, notes)
- * and what it looks like (price by section, mana curve by card type, colour
- * spread). Everything but the name is editable in place.
+ * The deck's identity, sat under its name: format, archetype tags, a
+ * description, and when it was last touched. Edit swaps the whole block for the
+ * form. Everything analytical (price, curve, colours) lives elsewhere on the
+ * page — this is just what the deck *is*.
  */
-export function DeckDetails({
-  deck,
-  stats,
-  hasCards,
-}: {
-  deck: Location;
-  stats: DeckStats;
-  hasCards: boolean;
-}) {
-  const [open, setOpen] = useState(true);
+export function DeckHeaderMeta({ deck }: { deck: Location }) {
   const [editing, setEditing] = useState(false);
-
-  return (
-    <section className="space-y-3 rounded-lg border border-border bg-surface p-4">
-      <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="flex items-center gap-2 text-sm font-semibold"
-        >
-          Details
-          <span aria-hidden="true" className="text-ink-muted">
-            {open ? "▾" : "▸"}
-          </span>
-        </button>
-
-        {open && !editing ? (
-          <Button
-            type="button"
-            variant="secondary"
-            className="text-xs"
-            onClick={() => setEditing(true)}
-          >
-            Edit
-          </Button>
-        ) : null}
-      </div>
-
-      {!open ? null : editing ? (
-        <DeckDetailsForm deck={deck} onDone={() => setEditing(false)} />
-      ) : (
-        <DeckDetailsView deck={deck} stats={stats} hasCards={hasCards} />
-      )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Read view
-// ---------------------------------------------------------------------------
-
-function DeckDetailsView({
-  deck,
-  stats,
-  hasCards,
-}: {
-  deck: Location;
-  stats: DeckStats;
-  hasCards: boolean;
-}) {
-  const showPrices = useShowPrices();
-  // Tolerate a database where migration 21 has not run yet.
   const tags = deck.tags ?? [];
 
+  if (editing) {
+    return <DeckDetailsEditor deck={deck} onDone={() => setEditing(false)} />;
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="space-y-1.5 text-xs text-ink-muted">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {deck.format ? <Badge>{deck.format}</Badge> : null}
-          {tags.map((tag) => (
-            <Badge key={tag}>{tag}</Badge>
-          ))}
-          {!deck.format && tags.length === 0 ? <span>No format or tags yet.</span> : null}
-        </div>
-        <p>
-          Created {formatDate(deck.created_at)} · Updated {formatDate(deck.updated_at)}
-        </p>
+    <div className="space-y-2 text-sm text-ink-muted">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {deck.format ? <Badge>{deck.format}</Badge> : null}
+        {tags.map((tag) => (
+          <Badge key={tag}>{tag}</Badge>
+        ))}
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="rounded border border-dashed border-border px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
+        >
+          {deck.format || tags.length > 0 ? "Edit details" : "Add format, tags, notes"}
+        </button>
       </div>
 
       {deck.notes ? (
-        <p className="whitespace-pre-line rounded-md bg-surface-muted px-3 py-2 text-sm">
-          {deck.notes}
-        </p>
+        <p className="max-w-2xl whitespace-pre-line text-sm text-ink">{deck.notes}</p>
       ) : null}
 
-      {hasCards ? (
-        <>
-          {showPrices ? <PriceBreakdown stats={stats} /> : null}
-          <ManaCurve curve={stats.curve} />
-          <ColorSpread stats={stats} />
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-function PriceBreakdown({ stats }: { stats: DeckStats }) {
-  const { price } = stats;
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between">
-        <h3 className="text-xs font-semibold">Price</h3>
-        {price.unpriced > 0 ? (
-          <span className="text-[11px] text-ink-muted">
-            {price.priced} of {price.priced + price.unpriced} cards priced
-          </span>
-        ) : null}
-      </div>
-
-      <dl className="space-y-1 text-xs">
-        {price.sections.map((s) => (
-          <div key={s.section} className="flex items-center justify-between gap-2">
-            <dt className="text-ink-muted">
-              {s.label}{" "}
-              <span className="tabular-nums">
-                ({s.cards})
-              </span>
-            </dt>
-            <dd>
-              <Price value={s.priced > 0 ? s.total : null} />
-            </dd>
-          </div>
-        ))}
-        <div className="flex items-center justify-between gap-2 border-t border-border pt-1 font-semibold">
-          <dt>Deck total ({price.cards})</dt>
-          <dd>
-            <Price value={price.total} />
-          </dd>
-        </div>
-      </dl>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Mana curve
-// ---------------------------------------------------------------------------
-
-/** Fixed, non-themed tones — one per card type, so a bar reads at a glance. */
-const SECTION_TONE: Record<DeckSection, string> = {
-  commander: "bg-amber-400",
-  planeswalkers: "bg-pink-400",
-  creatures: "bg-emerald-500",
-  sorceries: "bg-violet-400",
-  instants: "bg-sky-400",
-  artifacts: "bg-zinc-400",
-  enchantments: "bg-yellow-300",
-  battles: "bg-orange-400",
-  lands: "bg-lime-600",
-  other: "bg-slate-400",
-};
-
-const BAR_MAX_PX = 120;
-
-function ManaCurve({ curve }: { curve: CurveBucket[] }) {
-  const peak = Math.max(1, ...curve.map((b) => b.total));
-  const total = curve.reduce((sum, b) => sum + b.total, 0);
-
-  // The card types actually present, for the legend.
-  const legend: DeckSection[] = [];
-  for (const b of curve) {
-    for (const seg of b.segments) {
-      if (!legend.includes(seg.section)) legend.push(seg.section);
-    }
-  }
-
-  if (total === 0) {
-    return (
-      <div className="space-y-1.5">
-        <h3 className="text-xs font-semibold">Mana curve</h3>
-        <p className="text-xs text-ink-muted">No non-land cards on the list yet.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-semibold">Mana curve</h3>
-
-      <div className="flex items-end gap-1.5">
-        {curve.map((b) => (
-          <div key={b.label} className="flex flex-1 flex-col items-center gap-1">
-            <span className="text-[10px] tabular-nums text-ink-muted">{b.total || ""}</span>
-            <div
-              className="flex w-full flex-col-reverse overflow-hidden rounded-t bg-surface-muted"
-              style={{ height: b.total > 0 ? Math.max(3, (b.total / peak) * BAR_MAX_PX) : 2 }}
-            >
-              {b.segments.map((seg) => (
-                <div
-                  key={seg.section}
-                  className={SECTION_TONE[seg.section]}
-                  style={{ flexGrow: seg.count, flexBasis: 0 }}
-                  title={`${seg.count} ${seg.label} at ${b.label} mana`}
-                />
-              ))}
-            </div>
-            <span className="text-[10px] tabular-nums text-ink-muted">{b.label}</span>
-          </div>
-        ))}
-      </div>
-
-      {legend.length > 0 ? (
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-ink-muted">
-          {legend.map((section) => (
-            <span key={section} className="flex items-center gap-1">
-              <span className={cx("size-2.5 rounded-sm", SECTION_TONE[section])} />
-              {sectionLabel(curve, section)}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Pull a section's display label out of whichever bucket carries it. */
-function sectionLabel(curve: CurveBucket[], section: DeckSection): string {
-  for (const b of curve) {
-    const seg = b.segments.find((s) => s.section === section);
-    if (seg) return seg.label;
-  }
-  return section;
-}
-
-// ---------------------------------------------------------------------------
-// Colour spread
-// ---------------------------------------------------------------------------
-
-function ColorSpread({ stats }: { stats: DeckStats }) {
-  const { colors } = stats;
-  if (colors.length === 0) return null;
-  const peak = Math.max(1, ...colors.map((c) => c.count));
-
-  return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-semibold">Colors</h3>
-      <p className="text-[11px] text-ink-muted">
-        Cards by color identity — a multicolor card counts under each of its colors.
-      </p>
-      <div className="space-y-1">
-        {colors.map((c) => (
-          <div key={c.code} className="flex items-center gap-2 text-xs">
-            <span className="flex w-20 items-center gap-1 text-ink-muted">
-              <ManaSymbol code={c.code} size="xs" />
-              {c.label}
-            </span>
-            <div className="h-3 flex-1 overflow-hidden rounded bg-surface-muted">
-              <div
-                className="h-full rounded bg-accent"
-                style={{ width: `${(c.count / peak) * 100}%` }}
-              />
-            </div>
-            <span className="w-8 text-right tabular-nums">{c.count}</span>
-          </div>
-        ))}
-      </div>
+      <p className="text-xs">Updated {formatDate(deck.updated_at)}</p>
     </div>
   );
 }
@@ -282,7 +50,7 @@ function ColorSpread({ stats }: { stats: DeckStats }) {
 // Edit form
 // ---------------------------------------------------------------------------
 
-function DeckDetailsForm({ deck, onDone }: { deck: Location; onDone: () => void }) {
+export function DeckDetailsEditor({ deck, onDone }: { deck: Location; onDone: () => void }) {
   const [state, action, pending] = useActionState(updateDeckDetails, EMPTY_DECK_STATE);
   const [tags, setTags] = useState<string[]>(deck.tags ?? []);
   const [tagDraft, setTagDraft] = useState("");
@@ -294,12 +62,19 @@ function DeckDetailsForm({ deck, onDone }: { deck: Location; onDone: () => void 
   function addTag(raw: string) {
     const value = raw.trim().slice(0, 40);
     if (!value) return;
-    setTags((prev) => (prev.some((t) => t.toLowerCase() === value.toLowerCase()) ? prev : [...prev, value].slice(0, 20)));
+    setTags((prev) =>
+      prev.some((t) => t.toLowerCase() === value.toLowerCase())
+        ? prev
+        : [...prev, value].slice(0, 20),
+    );
     setTagDraft("");
   }
 
   return (
-    <form action={action} className="space-y-3">
+    <form
+      action={action}
+      className="space-y-3 rounded-lg border border-border bg-surface p-3"
+    >
       <input type="hidden" name="deck_id" value={deck.id} />
       <input type="hidden" name="tags" value={tags.join("\n")} />
 
@@ -362,7 +137,12 @@ function DeckDetailsForm({ deck, onDone }: { deck: Location; onDone: () => void 
             maxLength={40}
             className="max-w-xs"
           />
-          <Button type="button" variant="secondary" className="text-xs" onClick={() => addTag(tagDraft)}>
+          <Button
+            type="button"
+            variant="secondary"
+            className="text-xs"
+            onClick={() => addTag(tagDraft)}
+          >
             Add
           </Button>
         </div>

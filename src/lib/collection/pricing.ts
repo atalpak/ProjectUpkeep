@@ -50,6 +50,30 @@ export function priceFor(
   }
 }
 
+/**
+ * The price to *show* for one copy of a given finish.
+ *
+ * Unlike `priceFor`, this falls back to the non-foil price for a foil or etched
+ * copy that has no finish-specific listing. Scryfall often prices only one
+ * finish — Secret Lair and many Universes Beyond printings especially — and a
+ * card that plainly has a value showing no price at all reads as a bug. The
+ * fallback is flagged `approximate` so the UI can mark it (a `~`); anything
+ * that must not be overstated, like the collection-value total, keeps using
+ * `priceFor`.
+ */
+export function displayPrice(
+  card: PriceableCard | null | undefined,
+  finish: Finish | string,
+): { value: number | null; approximate: boolean } {
+  const exact = priceFor(card, finish);
+  if (exact !== null) return { value: exact, approximate: false };
+
+  if ((finish === "foil" || finish === "etched") && card?.price_usd != null) {
+    return { value: card.price_usd, approximate: true };
+  }
+  return { value: null, approximate: false };
+}
+
 /** What one row of a collection is worth: price × how many. */
 export function rowValue(row: {
   cards: PriceableCard | null;

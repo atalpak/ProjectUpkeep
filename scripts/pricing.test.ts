@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  displayPrice,
   formatPrice,
   priceFor,
   rowValue,
@@ -156,4 +157,47 @@ test("prices format as currency", () => {
 test("large totals drop the cents", () => {
   const formatted = formatPrice(12345.67);
   assert.ok(!formatted.includes(".67"), `expected no cents in ${formatted}`);
+});
+
+// ---------------------------------------------------------------------------
+// displayPrice — the fallback for a finish Scryfall does not price
+// ---------------------------------------------------------------------------
+
+test("displayPrice returns the exact finish price when there is one", () => {
+  assert.deepEqual(displayPrice(priced(3.84, 6.53), "foil"), {
+    value: 6.53,
+    approximate: false,
+  });
+  assert.deepEqual(displayPrice(priced(3.84, 6.53), "nonfoil"), {
+    value: 3.84,
+    approximate: false,
+  });
+});
+
+test("displayPrice falls back to non-foil for an unpriced foil, flagged approximate", () => {
+  // The Black Panther SLD case: non-foil $16.84, no foil listing.
+  assert.deepEqual(displayPrice(priced(16.84, null), "foil"), {
+    value: 16.84,
+    approximate: true,
+  });
+  assert.deepEqual(displayPrice(priced(16.84, null), "etched"), {
+    value: 16.84,
+    approximate: true,
+  });
+});
+
+test("displayPrice does not invent a non-foil price that isn't there", () => {
+  assert.deepEqual(displayPrice(priced(null, null), "foil"), {
+    value: null,
+    approximate: false,
+  });
+  assert.deepEqual(displayPrice(priced(null, null), "nonfoil"), {
+    value: null,
+    approximate: false,
+  });
+});
+
+test("displayPrice leaves priceFor's collection-value semantics untouched", () => {
+  // priceFor still returns null for the unpriced foil — totals stay honest.
+  assert.equal(priceFor(priced(16.84, null), "foil"), null);
 });

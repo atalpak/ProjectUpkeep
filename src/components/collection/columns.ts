@@ -9,7 +9,7 @@
 import type { CardInstanceWithCard } from "@/lib/types";
 import { statToNumber } from "@/lib/collection/filters";
 import { availabilityFor, type Availability } from "@/lib/collection/availability";
-import { priceFor } from "@/lib/collection/pricing";
+import { displayPrice } from "@/lib/collection/pricing";
 
 /**
  * What a column may need beyond the row itself.
@@ -127,7 +127,7 @@ export const COLUMNS: ColumnDef[] = [
     // Columns menu is how someone who does not want prices hides them.
     default: true,
     numeric: true,
-    sortBy: (r) => priceFor(r.cards, r.finish),
+    sortBy: (r) => displayPrice(r.cards, r.finish).value,
   },
   {
     id: "available",

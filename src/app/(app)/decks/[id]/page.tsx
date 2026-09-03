@@ -17,7 +17,8 @@ import { deckToDecklistText, toCsv, type ExportRow } from "@/lib/collection/expo
 import { matchSuppliersFor } from "@/lib/social/queries";
 import type { WantRow } from "@/lib/social/wants";
 import type { CardInstanceWithCard } from "@/lib/types";
-import { DeckDetails } from "@/components/decks/DeckDetails";
+import { DeckCharts } from "@/components/decks/DeckCharts";
+import { DeckHeaderMeta } from "@/components/decks/DeckDetails";
 import { DeckWorkspace, type WishSupplierView } from "@/components/decks/DeckWorkspace";
 import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/ui";
@@ -148,22 +149,24 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title={deck.name}
-        backHref="/decks"
-        backLabel="All decks"
-        actions={
-          entries.length > 0 || contents.length > 0 ? (
-            <ExportButtons
-              decklistText={deckDecklistText}
-              csv={deckCsv}
-              filenameBase={`deck-${slugify(deck.name)}`}
-            />
-          ) : null
-        }
-      />
+      <div className="space-y-3">
+        <PageHeader
+          title={deck.name}
+          backHref="/decks"
+          backLabel="All decks"
+          actions={
+            entries.length > 0 || contents.length > 0 ? (
+              <ExportButtons
+                decklistText={deckDecklistText}
+                csv={deckCsv}
+                filenameBase={`deck-${slugify(deck.name)}`}
+              />
+            ) : null
+          }
+        />
 
-      <DeckDetails deck={deck} stats={stats} hasCards={entries.length > 0} />
+        <DeckHeaderMeta deck={deck} />
+      </div>
 
       <DeckWorkspace
         deckId={id}
@@ -172,9 +175,12 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         availability={availability}
         spareLocations={spareLocations}
         commanderEntryId={commanderEntryId}
+        price={stats.price}
         wishList={wishList}
         wishMatches={wishMatchesView}
       />
+
+      {entries.length > 0 ? <DeckCharts stats={stats} /> : null}
     </div>
   );
 }

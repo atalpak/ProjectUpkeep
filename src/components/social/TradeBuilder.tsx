@@ -8,7 +8,7 @@ import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle } from "@/components/PriceToggle";
-import { priceFor } from "@/lib/collection/pricing";
+import { displayPrice } from "@/lib/collection/pricing";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
 import { CONDITION_LABELS, type CardInstanceWithCard } from "@/lib/types";
 
@@ -214,7 +214,10 @@ function OfferRow({
           <span>{card?.set_name ?? card?.set_code?.toUpperCase()}</span>
           <Badge>{CONDITION_LABELS[row.condition] ?? row.condition}</Badge>
           <span>{row.quantity} available</span>
-          <Price value={priceFor(card, row.finish)} className="text-[11px]" />
+          {(() => {
+            const dp = displayPrice(card, row.finish);
+            return <Price value={dp.value} approximate={dp.approximate} className="text-[11px]" />;
+          })()}
         </div>
       </div>
 

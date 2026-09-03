@@ -20,9 +20,9 @@ import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
-import { Price, PriceToggle } from "@/components/PriceToggle";
+import { Price, PriceToggle, useShowPrices } from "@/components/PriceToggle";
 import { SetSymbol } from "@/components/SetSymbol";
-import { priceFor } from "@/lib/collection/pricing";
+import { displayPrice } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
 import { DeckStateMark } from "@/components/decks/DeckStateMark";
@@ -37,6 +37,7 @@ import {
   type DeckSection,
   type DeckSort,
 } from "@/lib/collection/deck-view";
+import { priceFinishFor, type DeckPrice } from "@/lib/collection/deck-stats";
 import type { DeckListEntry, WishListEntry } from "@/lib/collection/queries";
 import type { CardInstanceWithCard } from "@/lib/types";
 
@@ -68,6 +69,7 @@ export function DeckWorkspace({
   availability,
   spareLocations,
   commanderEntryId,
+  price,
   wishList,
   wishMatches,
 }: {
@@ -79,6 +81,8 @@ export function DeckWorkspace({
   /** oracle key -> containers holding spare copies, for the "in Box 3" tag. */
   spareLocations: Map<string, string[]>;
   commanderEntryId: string | null;
+  /** Deck value, by section and overall — see computeDeckStats. */
+  price: DeckPrice;
   /** Want-list entries tagged to this deck (migration 00000000000017). */
   wishList: WishListEntry[];
   /** want-row id -> friends who already have it open for trade. */
@@ -109,6 +113,14 @@ export function DeckWorkspace({
   // Stable so the child effects that watch them fire on the state change, not
   // on every render.
   const stopAdding = useCallback(() => setAdding(false), []);
+
+  const showPrices = useShowPrices();
+  // section -> priced total, or null when nothing in it carried a price.
+  const priceBySection = useMemo(() => {
+    const map = new Map<DeckSection, number | null>();
+    for (const s of price.sections) map.set(s.section, s.priced > 0 ? s.total : null);
+    return map;
+  }, [price]);
 
   const [sleeveState, sleeve, sleeving] = useActionState(sleeveCard, EMPTY_DECK_STATE);
   const [commanderState, commanderAction, commanderPending] = useActionState(
@@ -180,6 +192,15 @@ export function DeckWorkspace({
             sleeved · {progress.entries} card{progress.entries === 1 ? "" : "s"} on the list
             {progress.missingEntries > 0 ? (
               <> · {progress.missingEntries} you do not own</>
+            ) : null}
+            {showPrices ? (
+              <>
+                {" · "}
+                <Price value={price.total} className="text-ink" />
+                {price.unpriced > 0 ? (
+                  <span className="text-ink-muted"> ({price.unpriced} unpriced)</span>
+                ) : null}
+              </>
             ) : null}
           </p>
         </div>
@@ -282,6 +303,7 @@ export function DeckWorkspace({
           selectable={multiSelect}
           selectedIds={selected}
           onToggleSelected={toggleSelected}
+          priceBySection={priceBySection}
         />
       ) : (
         <div className="columns-1 gap-6 lg:columns-2 [&>*]:break-inside-avoid">
@@ -298,6 +320,7 @@ export function DeckWorkspace({
               selectable={multiSelect}
               selectedIds={selected}
               onToggleSelected={toggleSelected}
+              sectionTotal={priceBySection.get(group.section) ?? null}
             />
           ))}
         </div>
@@ -355,6 +378,7 @@ function ListSection({
   selectable,
   selectedIds,
   onToggleSelected,
+  sectionTotal,
 }: {
   group: DeckGroup<StatefulEntry>;
   deckId: string;
@@ -366,12 +390,19 @@ function ListSection({
   selectable: boolean;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
+  /** Priced value of this section, null when nothing in it is priced. Hidden
+   *  by the Price component unless the $ Prices toggle is on. */
+  sectionTotal?: number | null;
 }) {
   return (
     <section className="mb-6 break-inside-avoid">
       <h2 className="mb-1.5 flex items-baseline gap-2 border-b border-border pb-1.5 text-sm font-semibold">
         {group.label}
         <span className="text-xs font-normal text-ink-muted">({group.cardCount})</span>
+        <Price
+          value={sectionTotal ?? null}
+          className="ml-auto text-xs font-normal text-ink-muted"
+        />
       </h2>
 
       {group.rows.length === 0 ? (
@@ -452,7 +483,7 @@ function ListRow({
   // are all one non-plain finish, show that: the mark next to the name and the
   // price at that finish. Mixed finishes fall back to non-foil for the price.
   const markFinish = entry.sleevedFinishes.find((f) => f !== "nonfoil");
-  const priceFinish = entry.sleevedFinishes.length === 1 ? entry.sleevedFinishes[0] : "nonfoil";
+  const rowPrice = displayPrice(card, priceFinishFor(entry));
 
   return (
     <li
@@ -497,7 +528,11 @@ function ListRow({
       <div className="flex shrink-0 items-center gap-4">
         <ManaCost cost={card?.mana_cost} size="sm" />
 
-        <Price value={priceFor(card, priceFinish)} className="text-sm text-ink-muted" />
+        <Price
+          value={rowPrice.value}
+          approximate={rowPrice.approximate}
+          className="text-sm text-ink-muted"
+        />
 
         {/* Where a spare copy is, for a row you could sleeve but have not. */}
         {state.state === "available" && entry.spareIn.length > 0 ? (
@@ -792,6 +827,7 @@ function Gallery({
   selectable,
   selectedIds,
   onToggleSelected,
+  priceBySection,
 }: {
   groups: Array<DeckGroup<StatefulEntry>>;
   deckId: string;
@@ -803,6 +839,7 @@ function Gallery({
   selectable: boolean;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
+  priceBySection: Map<DeckSection, number | null>;
 }) {
   return (
     <div className="space-y-6">
@@ -811,6 +848,10 @@ function Gallery({
           <h2 className="mb-2 flex items-baseline gap-2 border-b border-border pb-1.5 text-sm font-semibold">
             {group.label}
             <span className="text-xs font-normal text-ink-muted">({group.cardCount})</span>
+            <Price
+              value={priceBySection.get(group.section) ?? null}
+              className="ml-auto text-xs font-normal text-ink-muted"
+            />
           </h2>
 
           {group.rows.length === 0 ? (
