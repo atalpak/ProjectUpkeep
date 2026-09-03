@@ -544,6 +544,83 @@ begin
   assert deck_still_there = 1, 'the deck itself must survive its commander card being deleted';
 end $$;
 
+-- --------------------------------------------------------------------------
+-- 11. The deck list reconciles by oracle id (migration 19). Filing a
+--     different printing of a card already on the list bumps that entry
+--     rather than adding a second one, and the entry keeps its own printing.
+-- --------------------------------------------------------------------------
+insert into public.locations (id, user_id, name, type) values
+  ('bbbbbbbb-0000-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111',
+   'Bolt Deck', 'deck');
+
+-- The list wants one Lightning Bolt, drawn as the LEA printing (...0001).
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('bbbbbbbb-0000-0000-0000-000000000006', 'aaaaaaaa-0000-0000-0000-000000000001', 1);
+
+do $$
+declare entry_count int; entry_printing uuid; entry_qty int;
+begin
+  -- Sleeve a *different* printing (M10, ...0002) of the same card.
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'bbbbbbbb-0000-0000-0000-000000000006', 'NM', 'nonfoil', 'en', 1);
+
+  select count(*) into entry_count
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000006';
+  assert entry_count = 1,
+    'filing a sibling printing must not add a second list entry (got ' || entry_count || ')';
+
+  select card_id, quantity into entry_printing, entry_qty
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000006';
+  assert entry_printing = 'aaaaaaaa-0000-0000-0000-000000000001',
+    'the entry must keep the printing it already named';
+  assert entry_qty = 1, 'one copy sleeved against a want of one leaves quantity 1';
+end $$;
+
+do $$
+declare entry_count int; entry_qty int;
+begin
+  -- A second sibling copy: still one entry, quantity rises to cover it.
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'bbbbbbbb-0000-0000-0000-000000000006', 'LP', 'nonfoil', 'en', 1);
+
+  select count(*) into entry_count
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000006';
+  assert entry_count = 1, 'still one entry after a second sibling copy';
+
+  select quantity into entry_qty
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000006';
+  assert entry_qty = 2,
+    'quantity should rise to cover 2 sleeved copies (got ' || entry_qty || ')';
+end $$;
+
+do $$
+declare entry_count int;
+begin
+  -- A card with no list entry yet: the first copy filed creates one.
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000003',
+     'bbbbbbbb-0000-0000-0000-000000000006', 'NM', 'nonfoil', 'en', 1);
+
+  select count(*) into entry_count
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000006'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+  assert entry_count = 1, 'filing a card with no list entry should create exactly one';
+end $$;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

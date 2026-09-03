@@ -14,7 +14,7 @@ import type { CardNameSuggestion } from "@/lib/types";
  * (`addWant` in src/app/(app)/wants/actions.ts, via `pickRepresentative`),
  * with `deck_id` riding along as one extra hidden field. That is also what
  * makes tagging an already-wanted card work from here: the same submission
- * that would fail as "already on your want list" on /wants instead tags the
+ * that would fail as "already on your wish list" on /wants instead tags the
  * existing row to this deck — see that action's doc comment.
  */
 export function AddToWishList({ deckId }: { deckId: string }) {
@@ -82,7 +82,7 @@ export function AddToWishList({ deckId }: { deckId: string }) {
               if (next.trim().length < 2) setResults([]);
             }}
             placeholder="Card name"
-            aria-label="Search for a card to want for this deck"
+            aria-label="Search for a card to add to this deck's wish list"
             className="max-w-xs"
           />
 
@@ -91,7 +91,7 @@ export function AddToWishList({ deckId }: { deckId: string }) {
             <Select
               value={String(quantity)}
               onChange={(e) => setQuantity(Number(e.target.value))}
-              aria-label="How many to want"
+              aria-label="How many"
               className="w-16 text-xs"
             >
               {[1, 2, 3, 4].map((n) => (

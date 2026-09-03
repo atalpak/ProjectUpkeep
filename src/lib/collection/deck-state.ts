@@ -27,7 +27,7 @@ export type DeckCardState = (typeof DECK_CARD_STATES)[number];
 export const DECK_STATE_LABELS: Record<DeckCardState, string> = {
   sleeved: "Sleeved",
   available: "Available",
-  missing: "None available",
+  missing: "Not available",
 };
 
 export type EntryCounts = {
