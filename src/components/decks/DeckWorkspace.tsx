@@ -27,7 +27,7 @@ import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
 import { DeckStateMark } from "@/components/decks/DeckStateMark";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Select, cx } from "@/components/ui";
-import { availabilityFor, type Availability } from "@/lib/collection/availability";
+import { availabilityFor, cardKey, type Availability } from "@/lib/collection/availability";
 import { countsFor, deckProgress, type EntryState } from "@/lib/collection/deck-state";
 import {
   DECK_SORTS,
@@ -55,13 +55,18 @@ export type WishSupplierView = { username: string; available: number };
 type ViewMode = "list" | "gallery";
 
 /** A list entry with its state worked out. */
-type StatefulEntry = DeckListEntry & { entryState: EntryState };
+type StatefulEntry = DeckListEntry & {
+  entryState: EntryState;
+  /** Containers holding spare copies — shown on rows that are only Available. */
+  spareIn: string[];
+};
 
 export function DeckWorkspace({
   deckId,
   entries,
   stranded,
   availability,
+  spareLocations,
   commanderEntryId,
   wishList,
   wishMatches,
@@ -71,6 +76,8 @@ export function DeckWorkspace({
   /** Sleeved cards the list does not mention. */
   stranded: CardInstanceWithCard[];
   availability: Map<string, Availability>;
+  /** oracle key -> containers holding spare copies, for the "in Box 3" tag. */
+  spareLocations: Map<string, string[]>;
   commanderEntryId: string | null;
   /** Want-list entries tagged to this deck (migration 00000000000017). */
   wishList: WishListEntry[];
@@ -107,8 +114,9 @@ export function DeckWorkspace({
           entry.sleeved,
           availabilityFor(availability, entry.cards),
         ),
+        spareIn: spareLocations.get(cardKey(entry.cards) ?? "") ?? [],
       })),
-    [entries, availability],
+    [entries, availability, spareLocations],
   );
 
   const groups = useMemo(
@@ -428,6 +436,12 @@ function ListRow({
   const preview = useCardPreview(card);
   const state = entry.entryState;
 
+  // A list entry has no finish of its own — but if the copies sleeved for it
+  // are all one non-plain finish, show that: the mark next to the name and the
+  // price at that finish. Mixed finishes fall back to non-foil for the price.
+  const markFinish = entry.sleevedFinishes.find((f) => f !== "nonfoil");
+  const priceFinish = entry.sleevedFinishes.length === 1 ? entry.sleevedFinishes[0] : "nonfoil";
+
   return (
     <li
       className={cx(
@@ -463,14 +477,23 @@ function ListRow({
           </span>
         ) : null}
         <span className="truncate">{card?.name ?? "Unknown card"}</span>
+        {markFinish ? <FoilMark finish={markFinish} /> : null}
       </span>
 
       <div className="flex shrink-0 items-center gap-4">
         <ManaCost cost={card?.mana_cost} size="sm" />
 
-        {/* Non-foil price: a list entry names a card, not a specific copy, so
-            there is no finish to be more precise about. */}
-        <Price value={priceFor(card, "nonfoil")} className="text-sm text-ink-muted" />
+        <Price value={priceFor(card, priceFinish)} className="text-sm text-ink-muted" />
+
+        {/* Where a spare copy is, for a row you could sleeve but have not. */}
+        {state.state === "available" && entry.spareIn.length > 0 ? (
+          <span
+            className="max-w-32 truncate text-xs text-ink-muted"
+            title={`Spare copies in: ${entry.spareIn.join(", ")}`}
+          >
+            in {entry.spareIn.join(", ")}
+          </span>
+        ) : null}
 
         <DeckStateMark entry={state} />
 

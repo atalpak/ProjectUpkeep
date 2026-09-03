@@ -9,6 +9,8 @@ import {
 } from "@/lib/social/queries";
 import { LOCATION_TYPE_LABELS } from "@/lib/types";
 import { CardPreviewLink } from "@/components/CardPanel";
+import { ManaSymbol } from "@/components/ManaCost";
+import { SetSymbol } from "@/components/SetSymbol";
 import { formatPrice } from "@/lib/collection/pricing";
 import { Badge, Card, EmptyState, PageHeader, Stat } from "@/components/ui";
 
@@ -124,10 +126,86 @@ export default async function DashboardPage() {
           </section>
 
           <RecentlyAdded summary={summary} />
+          <CollectionShape summary={summary} />
           <LocationBreakdown summary={summary} />
         </>
       )}
     </div>
+  );
+}
+
+/** How many sets to list before "+ N more". */
+const SET_ROWS = 8;
+
+function CollectionShape({ summary }: { summary: Summary }) {
+  const { colours, sets } = summary.breakdown;
+  if (colours.length === 0 && sets.length === 0) return null;
+
+  const shownSets = sets.slice(0, SET_ROWS);
+  const largestSet = Math.max(1, ...shownSets.map((s) => s.count));
+
+  return (
+    <section className="grid gap-6 sm:grid-cols-2">
+      {colours.length > 0 ? (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold">By colour</h2>
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            {colours.map(({ bucket, label, count }) => (
+              <span key={bucket} className="flex items-center gap-1.5 text-sm" title={label}>
+                {bucket === "M" ? (
+                  <span
+                    aria-hidden="true"
+                    className="inline-block size-4 shrink-0 rounded-full bg-[linear-gradient(135deg,#e9d27a,#c9a227)]"
+                  />
+                ) : (
+                  <ManaSymbol code={bucket} />
+                )}
+                <span className="tabular-nums font-medium">{count.toLocaleString()}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {shownSets.length > 0 ? (
+        <div className="space-y-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-semibold">By set</h2>
+            {sets.length > SET_ROWS ? (
+              <span className="text-xs text-ink-muted">+{sets.length - SET_ROWS} more</span>
+            ) : null}
+          </div>
+          <Card className="divide-y divide-border p-0">
+            {shownSets.map((s) => (
+              <Link
+                key={s.code}
+                href={`/collection?set=${encodeURIComponent(s.code)}`}
+                className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-muted"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <SetSymbol code={s.code} size={12} />
+                    <span className="truncate text-sm">{s.name}</span>
+                  </div>
+                  <div
+                    className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-muted"
+                    aria-hidden="true"
+                  >
+                    <div
+                      className="h-full rounded-full bg-accent"
+                      style={{ width: `${Math.max(2, (s.count / largestSet) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <span className="shrink-0 text-sm font-semibold tabular-nums">
+                  {s.count.toLocaleString()}
+                </span>
+              </Link>
+            ))}
+          </Card>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

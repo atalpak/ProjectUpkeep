@@ -6,6 +6,7 @@ import {
   getDeckContents,
   getDeckList,
   getDeckWishList,
+  getSpareLocations,
   strandedInDeck,
   type DeckListEntry,
 } from "@/lib/collection/queries";
@@ -30,7 +31,9 @@ function listEntryToExportRow(entry: DeckListEntry): ExportRow {
       ? { name: entry.cards.name, setCode: entry.cards.set_code, collectorNumber: entry.cards.collector_number }
       : null,
     quantity: entry.quantity,
-    finish: null,
+    // A list entry has no finish, but if every sleeved copy is one non-plain
+    // finish the export should say so (`*F*` / `*E*`).
+    finish: entry.sleevedFinishes.length === 1 ? entry.sleevedFinishes[0] : null,
     condition: null,
     language: null,
     locationName: null,
@@ -77,10 +80,11 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
   const deck = await getDeck(id);
   if (!deck) notFound();
 
-  const [entries, contents, availability, wishList] = await Promise.all([
+  const [entries, contents, availability, spareLocations, wishList] = await Promise.all([
     getDeckList(id),
     getDeckContents(id),
     getAvailability(),
+    getSpareLocations(),
     getDeckWishList(id),
   ]);
 
@@ -160,6 +164,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         entries={entries}
         stranded={strandedInDeck(contents, entries)}
         availability={availability}
+        spareLocations={spareLocations}
         commanderEntryId={commanderEntryId}
         wishList={wishList}
         wishMatches={wishMatchesView}

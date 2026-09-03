@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import type { Card, CardInstanceWithCard, Location, LocationNode } from "@/lib/types";
+import type { Card, CardInstanceWithCard, Finish, Location, LocationNode } from "@/lib/types";
 import {
   MAX_ROWS,
   UNSORTED,
@@ -17,6 +17,11 @@ import {
 } from "@/lib/collection/availability";
 import { locateCards, MIN_TERM, type LocatableRow, type LocatedCard } from "@/lib/collection/locate";
 import { summariseValue, type ValueSummary } from "@/lib/collection/pricing";
+import {
+  summariseBreakdown,
+  type BreakdownRow,
+  type CollectionBreakdown,
+} from "@/lib/collection/breakdown";
 
 /**
  * Read helpers for the signed-in user's collection.
@@ -223,6 +228,8 @@ export type DashboardSummary = {
   locations: LocationNode[];
   /** Most recently added stacks, newest first. */
   recent: CardInstanceWithCard[];
+  /** The collection split by colour and by set. */
+  breakdown: CollectionBreakdown;
 };
 
 /**
@@ -245,6 +252,7 @@ export async function getDashboardSummary(
     { data: locations, error: locError },
     { data: instances, error: instError },
     { data: priceable, error: priceError },
+    { data: shape, error: shapeError },
     { data: recent, error: recentError },
   ] = await Promise.all([
     supabase.from("locations").select("*").order("name", { ascending: true }),
@@ -252,6 +260,10 @@ export async function getDashboardSummary(
     supabase
       .from("card_instances")
       .select("quantity, finish, cards ( name, price_usd, price_usd_foil, price_usd_etched )")
+      .limit(MAX_ROWS),
+    supabase
+      .from("card_instances")
+      .select("quantity, cards ( colors, set_code, set_name )")
       .limit(MAX_ROWS),
     supabase
       .from("card_instances")
@@ -268,6 +280,9 @@ export async function getDashboardSummary(
   // A pricing failure must not take the dashboard down with it: prices are a
   // nice-to-have on this page, the counts are not.
   if (priceError) console.error("Could not value the collection:", priceError.message);
+  // The breakdown is decoration, like the value — a failed read leaves it empty
+  // rather than taking the page down.
+  if (shapeError) console.error("Could not break the collection down:", shapeError.message);
   if (recentError) {
     throw new Error(`Could not load recent additions: ${recentError.message}`);
   }
@@ -291,6 +306,7 @@ export async function getDashboardSummary(
     unsortedCount: summary.unsortedCount,
     locations: ranked,
     recent: (recent ?? []) as unknown as CardInstanceWithCard[],
+    breakdown: summariseBreakdown((shape ?? []) as unknown as BreakdownRow[]),
   };
 }
 
@@ -315,6 +331,47 @@ export async function getAvailability(): Promise<Map<string, Availability>> {
   if (error) throw new Error(`Could not work out availability: ${error.message}`);
 
   return computeAvailability((data ?? []) as unknown as CountableRow[]);
+}
+
+/**
+ * For every card, the containers its spare copies sit in.
+ *
+ * "Spare" means not already sleeved in a deck — the same rule availability
+ * uses. Keyed on oracle id so a deck line for Lightning Bolt finds any
+ * Lightning Bolt. Feeds the "in Box 3" tag on a deck's available rows: knowing
+ * a copy is free is only half the answer, the other half is which binder.
+ */
+export async function getSpareLocations(): Promise<Map<string, string[]>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("card_instances")
+    .select("cards ( oracle_id, name ), locations!location_id ( name, type )")
+    .limit(MAX_ROWS);
+
+  if (error) throw new Error(`Could not locate spare copies: ${error.message}`);
+
+  const rows = (data ?? []) as unknown as Array<{
+    cards: { oracle_id: string | null; name: string } | null;
+    locations: { name: string; type: string } | null;
+  }>;
+
+  const byCard = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.locations?.type === "deck") continue; // sleeved somewhere already
+    const key = cardKey(row.cards);
+    if (!key) continue;
+    const name = row.locations?.name ?? "Unsorted";
+    const set = byCard.get(key) ?? new Set<string>();
+    set.add(name);
+    byCard.set(key, set);
+  }
+
+  return new Map(
+    [...byCard.entries()].map(([key, names]) => [
+      key,
+      [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    ]),
+  );
 }
 
 /**
@@ -486,6 +543,12 @@ export type DeckListEntry = {
   cards: Card | null;
   /** Copies of this card physically in this deck, across every printing. */
   sleeved: number;
+  /**
+   * The distinct finishes of those sleeved copies. A list entry has no finish
+   * of its own — it names a card, not a copy — so this is the only place the
+   * page can learn that the Sol Ring in this deck is the foil one.
+   */
+  sleevedFinishes: Finish[];
 };
 
 /**
@@ -509,12 +572,17 @@ export async function getDeckList(deckId: string): Promise<DeckListEntry[]> {
 
   if (entryError) throw new Error(`Could not load the decklist: ${entryError.message}`);
 
-  // Physically-sleeved copies, keyed the same way availability is.
+  // Physically-sleeved copies, keyed the same way availability is: count, and
+  // the set of finishes among them.
   const sleevedByCard = new Map<string, number>();
+  const finishesByCard = new Map<string, Set<Finish>>();
   for (const row of contents) {
     const key = cardKey(row.cards);
     if (!key) continue;
     sleevedByCard.set(key, (sleevedByCard.get(key) ?? 0) + row.quantity);
+    const set = finishesByCard.get(key) ?? new Set<Finish>();
+    set.add(row.finish as Finish);
+    finishesByCard.set(key, set);
   }
 
   const rows = (entries ?? []) as unknown as Array<{
@@ -525,14 +593,18 @@ export async function getDeckList(deckId: string): Promise<DeckListEntry[]> {
     cards: Card | null;
   }>;
 
-  return rows.map((row) => ({
-    id: row.id,
-    deck_id: row.deck_id,
-    card_id: row.card_id,
-    quantity: row.quantity,
-    cards: row.cards,
-    sleeved: sleevedByCard.get(cardKey(row.cards) ?? "") ?? 0,
-  }));
+  return rows.map((row) => {
+    const key = cardKey(row.cards) ?? "";
+    return {
+      id: row.id,
+      deck_id: row.deck_id,
+      card_id: row.card_id,
+      quantity: row.quantity,
+      cards: row.cards,
+      sleeved: sleevedByCard.get(key) ?? 0,
+      sleevedFinishes: [...(finishesByCard.get(key) ?? [])],
+    };
+  });
 }
 
 /**
