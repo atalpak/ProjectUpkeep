@@ -108,6 +108,8 @@ export type ColorCount = {
   pips: number;
   /** Share of all coloured pips that are this colour, 0–1. */
   pipShare: number;
+  /** This colour's non-land cards by mana value — 8 buckets, 0–6 then 7+. */
+  curve: number[];
 };
 
 // ---------------------------------------------------------------------------
@@ -150,6 +152,12 @@ export function computeDeckStats(
   // --- colours -------------------------------------------------------
   const colorCounts = new Map<DeckColor, number>();
   const pipCounts = new Map<DeckColor, number>();
+  const colorCurves = new Map<DeckColor, number[]>();
+  const bumpColorCurve = (c: DeckColor, idx: number, by: number) => {
+    const arr = colorCurves.get(c) ?? Array(8).fill(0);
+    arr[idx] += by;
+    colorCurves.set(c, arr);
+  };
 
   for (const entry of entries) {
     const card = entry.cards;
@@ -187,7 +195,15 @@ export function computeDeckStats(
     }
     priceBySection.set(priceSection, bucket);
 
-    // Curve: real card type (ignore the commander role), lands excluded.
+    // Colours (cards): by colour identity, a multicolour card counts under each.
+    const identity = (card?.color_identity ?? []).filter((c): c is DeckColor =>
+      (DECK_COLORS as readonly string[]).includes(c),
+    );
+    const identityKeys: DeckColor[] = identity.length === 0 ? ["C"] : identity;
+    for (const c of identityKeys) colorCounts.set(c, (colorCounts.get(c) ?? 0) + qty);
+
+    // Curve: real card type (ignore the commander role), lands excluded. The
+    // per-colour mini curves use the same bucket for each of the card's colours.
     const typeSection = sectionFor(card?.type_line);
     if (typeSection !== "lands") {
       const mv = card?.cmc ?? 0;
@@ -195,16 +211,7 @@ export function computeDeckStats(
       curveBuckets[idx].total += qty;
       const seg = curveByBucketSection[idx];
       seg.set(typeSection, (seg.get(typeSection) ?? 0) + qty);
-    }
-
-    // Colours (cards): by colour identity, a multicolour card counts under each.
-    const identity = (card?.color_identity ?? []).filter((c): c is DeckColor =>
-      (DECK_COLORS as readonly string[]).includes(c),
-    );
-    if (identity.length === 0) {
-      colorCounts.set("C", (colorCounts.get("C") ?? 0) + qty);
-    } else {
-      for (const c of identity) colorCounts.set(c, (colorCounts.get(c) ?? 0) + qty);
+      for (const c of identityKeys) bumpColorCurve(c, idx, qty);
     }
 
     // Pips: every coloured symbol in the mana cost, once per copy. A hybrid
@@ -258,6 +265,7 @@ export function computeDeckStats(
         cardShare: totalCards > 0 ? count / totalCards : 0,
         pips,
         pipShare: totalPips > 0 ? pips / totalPips : 0,
+        curve: colorCurves.get(c) ?? Array(8).fill(0),
       };
     }),
   };

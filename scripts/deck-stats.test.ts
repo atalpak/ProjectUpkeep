@@ -167,6 +167,29 @@ test("colour shares: card identity vs mana pips", () => {
   assert.equal(Math.round(by.B.pipShare * 100), 38);
 });
 
+test("each colour gets its own non-land mini curve", () => {
+  const stats = computeDeckStats(
+    [
+      entry({ color_identity: ["G"], cmc: 1, quantity: 3 }),
+      entry({ color_identity: ["B", "G"], cmc: 3, quantity: 2 }), // counts for B and G
+      entry({ color_identity: ["G"], type_line: "Land", cmc: null, quantity: 10 }), // excluded
+    ],
+    null,
+  );
+  const by = Object.fromEntries(stats.colors.map((c) => [c.code, c]));
+
+  assert.equal(by.G.curve.length, 8);
+  assert.equal(by.G.curve[1], 3, "3 one-drops");
+  assert.equal(by.G.curve[3], 2, "2 three-drops (the golgari card)");
+  assert.equal(by.B.curve[3], 2);
+  assert.equal(by.B.curve[1], 0);
+  assert.equal(
+    by.G.curve.reduce((a: number, b: number) => a + b, 0),
+    5,
+    "lands do not appear",
+  );
+});
+
 test("hybrid pips count toward each colour", () => {
   const stats = computeDeckStats([entry({ mana_cost: "{R/G}", color_identity: ["R", "G"] })], null);
   const by = Object.fromEntries(stats.colors.map((c) => [c.code, c]));

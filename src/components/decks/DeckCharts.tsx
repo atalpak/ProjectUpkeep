@@ -3,24 +3,23 @@
 import Image from "next/image";
 
 import { cx } from "@/components/ui";
-import type { CurveBucket, DeckStats } from "@/lib/collection/deck-stats";
+import type { ColorCount, CurveBucket, DeckStats } from "@/lib/collection/deck-stats";
 import type { DeckSection } from "@/lib/collection/deck-view";
 
 /**
- * The deck's shape, at the foot of the page: its mana curve on the left, its
- * colour spread on the right.
+ * The deck's shape, at the foot of the page: the mana curve, then a per-colour
+ * breakdown beneath it — card share, pip share, and a mini curve for each
+ * colour.
  */
 export function DeckCharts({ stats }: { stats: DeckStats }) {
   const curveTotal = stats.curve.reduce((sum, b) => sum + b.total, 0);
   if (curveTotal === 0 && stats.colors.length === 0) return null;
 
   return (
-    <section className="space-y-3 border-t border-border pt-4">
+    <section className="space-y-4 border-t border-border pt-4">
       <h2 className="text-sm font-semibold">Shape</h2>
-      <div className="grid gap-8 md:grid-cols-2">
-        <ManaCurve curve={stats.curve} />
-        <ColorSpread stats={stats} />
-      </div>
+      <ManaCurve curve={stats.curve} />
+      <ColorSpread colors={stats.colors} />
     </section>
   );
 }
@@ -113,48 +112,81 @@ function sectionLabel(curve: CurveBucket[], section: DeckSection): string {
 }
 
 // ---------------------------------------------------------------------------
-// Colour spread
+// Colour spread — one column per colour, across the page
 // ---------------------------------------------------------------------------
 
-function ColorSpread({ stats }: { stats: DeckStats }) {
-  const { colors } = stats;
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+function ColorSpread({ colors }: { colors: ColorCount[] }) {
+  if (colors.length === 0) return null;
 
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-semibold text-ink-muted">Colors</h3>
+      <div className="grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-6">
+        {colors.map((c) => (
+          <ColorCell key={c.code} color={c} />
+        ))}
+      </div>
+      <p className="text-[11px] text-ink-muted">
+        Big number is the share of cards with this color in their identity (a multicolor card
+        counts under each); the line below is its share of all colored mana symbols.
+      </p>
+    </div>
+  );
+}
 
-      {colors.length === 0 ? (
-        <p className="text-xs text-ink-muted">Nothing on the list yet.</p>
-      ) : (
-        <>
-          <div className="grid grid-cols-3 gap-x-3 gap-y-4 sm:grid-cols-6 md:grid-cols-3">
-            {colors.map((c) => (
-              <div key={c.code} className="flex flex-col items-center gap-0.5 text-center">
-                <Image
-                  src={`https://svgs.scryfall.io/card-symbols/${c.code}.svg`}
-                  alt={c.label}
-                  width={34}
-                  height={34}
-                  unoptimized
-                  className="shrink-0"
-                />
-                <span className="text-lg font-semibold tabular-nums">
-                  {Math.round(c.cardShare * 100)}%
-                </span>
-                <span className="text-[11px] tabular-nums text-ink-muted">
-                  {c.count} card{c.count === 1 ? "" : "s"}
-                </span>
-                <span className="text-[11px] tabular-nums text-ink-muted">
-                  {Math.round(c.pipShare * 100)}% of pips
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-ink-muted">
-            % of cards is by color identity — a multicolor card counts under each of its colors.
-          </p>
-        </>
-      )}
+function ColorCell({ color }: { color: ColorCount }) {
+  return (
+    <div className="flex flex-col items-center gap-1 text-center">
+      <Image
+        src={`https://svgs.scryfall.io/card-symbols/${color.code}.svg`}
+        alt={color.label}
+        width={40}
+        height={40}
+        unoptimized
+        className="shrink-0"
+      />
+      <span className="text-2xl font-semibold leading-none tabular-nums">
+        {pct(color.cardShare)}
+      </span>
+      <span className="text-[11px] tabular-nums text-ink-muted">
+        {pct(color.pipShare)} of all symbols
+      </span>
+
+      <MiniCurve buckets={color.curve} />
+
+      <span className="text-[11px] font-medium">{color.label}</span>
+      <span className="text-[11px] tabular-nums text-ink-muted">
+        {color.count} card{color.count === 1 ? "" : "s"}
+      </span>
+    </div>
+  );
+}
+
+const MINI_MAX_PX = 26;
+
+function MiniCurve({ buckets }: { buckets: number[] }) {
+  const peak = Math.max(1, ...buckets);
+  const total = buckets.reduce((a, b) => a + b, 0);
+
+  return (
+    <div
+      className="mt-1 flex h-7 items-end gap-px border-b border-border"
+      aria-hidden="true"
+      title={
+        total > 0
+          ? buckets.map((n, i) => `${i === 7 ? "7+" : i}: ${n}`).join("  ")
+          : "no non-land cards of this color"
+      }
+    >
+      {buckets.map((n, i) => (
+        <div
+          key={i}
+          className="w-1.5 rounded-t bg-ink-muted/60"
+          style={{ height: n > 0 ? Math.max(2, (n / peak) * MINI_MAX_PX) : 0 }}
+        />
+      ))}
     </div>
   );
 }
