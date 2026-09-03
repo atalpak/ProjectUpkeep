@@ -84,6 +84,65 @@ export async function renameDeck(_prev: DeckState, formData: FormData): Promise<
 }
 
 /**
+ * The deck page's editor: name plus the details columns from migration 21
+ * (format, archetype tags, notes). One round trip so a save is atomic.
+ */
+export async function updateDeckDetails(
+  _prev: DeckState,
+  formData: FormData,
+): Promise<DeckState> {
+  if (!(await getCurrentUser())) return fail("You need to be signed in.");
+
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  if (!deckId) return fail("Which deck?");
+
+  const name = String(formData.get("name") ?? "").trim();
+  if (name === "") return fail("Give the deck a name.");
+  if (name.length > 80) return fail("That name is too long.");
+
+  const rawFormat = String(formData.get("format") ?? "").trim();
+  if (rawFormat.length > 40) return fail("That format name is too long.");
+  const format = rawFormat === "" ? null : rawFormat;
+
+  const rawNotes = String(formData.get("notes") ?? "");
+  if (rawNotes.length > 5000) {
+    return fail("Those notes are too long (5000 characters max).");
+  }
+  const notes = rawNotes.trim() === "" ? null : rawNotes;
+
+  // Tags arrive newline- (or comma-) separated from the chip editor. Trim,
+  // clamp each, drop blanks and case-insensitive duplicates, cap the count.
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const part of String(formData.get("tags") ?? "").split(/[\n,]/)) {
+    const tag = part.trim().slice(0, 40);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length >= 20) break;
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("locations")
+    .update({ name, format, notes, tags })
+    .eq("id", deckId)
+    .eq("type", "deck");
+
+  if (error) {
+    if (error.message.includes("duplicate key")) {
+      return fail("You already have a deck called that.");
+    }
+    return fail(error.message);
+  }
+
+  revalidate(deckId);
+  return ok("Details saved.");
+}
+
+/**
  * Deletes a deck.
  *
  * The cards in it are not deleted. `locations.location_id` is ON DELETE SET
