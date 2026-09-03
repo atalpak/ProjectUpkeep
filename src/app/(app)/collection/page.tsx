@@ -7,9 +7,26 @@ import {
   getLocations,
 } from "@/lib/collection/queries";
 import { filterFromParams, isFilterActive } from "@/lib/collection/filters";
+import { stacksToDecklistText, toCsv, type ExportRow } from "@/lib/collection/export";
 import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { CollectionTable } from "@/components/collection/CollectionTable";
+import { ExportButtons } from "@/components/ExportButtons";
 import { Button, EmptyState, PageHeader } from "@/components/ui";
+import type { CardInstanceWithCard } from "@/lib/types";
+
+/** One stack, as `getCollection` returns it, ready for src/lib/collection/export.ts. */
+function toExportRow(row: CardInstanceWithCard): ExportRow {
+  return {
+    card: row.cards
+      ? { name: row.cards.name, setCode: row.cards.set_code, collectorNumber: row.cards.collector_number }
+      : null,
+    quantity: row.quantity,
+    finish: row.finish,
+    condition: row.condition,
+    language: row.language,
+    locationName: row.locations?.name ?? null,
+  };
+}
 
 export const metadata = { title: "Collection · Project Upkeep" };
 
@@ -46,6 +63,13 @@ export default async function CollectionPage({
         }
         actions={
           <>
+            {collection.rows.length > 0 ? (
+              <ExportButtons
+                decklistText={stacksToDecklistText(collection.rows.map(toExportRow))}
+                csv={toCsv(collection.rows.map(toExportRow), { includeLocation: true })}
+                filenameBase={filtered ? "collection-filtered" : "collection"}
+              />
+            ) : null}
             <Link href="/collection/import">
               <Button variant="secondary">Import</Button>
             </Link>

@@ -43,7 +43,8 @@ export default async function DashboardPage() {
     {
       count: wantView.matches.size,
       href: "/wants",
-      label: (n: number) => `${n} want${n === 1 ? "" : "s"} available from a friend`,
+      label: (n: number) =>
+        `${n} wish-list card${n === 1 ? "" : "s"} available from a friend`,
     },
     {
       count: summary.unsortedCount,

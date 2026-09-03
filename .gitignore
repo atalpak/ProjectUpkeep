@@ -35,3 +35,6 @@ supabase/.env
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Personal permission rules (Supabase pushes with your credentials)
+.claude/settings.local.json

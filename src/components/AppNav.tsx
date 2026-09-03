@@ -13,7 +13,7 @@ import { Button, cx } from "@/components/ui";
  * The signed-in navigation, at both sizes.
  *
  * One list of destinations, rendered two ways: inline from `lg` up, and behind
- * a drawer below it. Seven destinations plus the alerts badge and the account
+ * a drawer below it. Six destinations plus the alerts badge and the account
  * controls do not fit a phone's top bar, and they are tight even on a tablet —
  * hence `lg` rather than `md` for the switch.
  *
@@ -27,8 +27,7 @@ export const NAV_LINKS = [
   { href: "/collection", label: "Collection" },
   { href: "/locations", label: "Locations" },
   { href: "/decks", label: "Decks" },
-  { href: "/find", label: "Find" },
-  { href: "/wants", label: "Wants" },
+  { href: "/wants", label: "Wish List" },
   { href: "/friends", label: "Friends" },
 ] as const;
 
@@ -104,7 +103,7 @@ export function AppNavDrawer({ username }: { username: string | null }) {
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <span className="text-sm font-semibold tracking-tight">
-              MTG<span className="text-accent">Manager</span>
+              Project<span className="text-accent">Upkeep</span>
             </span>
             <button
               type="button"

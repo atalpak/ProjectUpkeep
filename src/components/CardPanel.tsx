@@ -18,6 +18,7 @@ import { createPortal } from "react-dom";
 import type { Card, CardFace } from "@/lib/types";
 import { languageLabel } from "@/lib/types";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
+import { ManaCost } from "@/components/ManaCost";
 import { Badge } from "@/components/ui";
 
 /**
@@ -826,30 +827,5 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <dt className="w-20 shrink-0 text-ink-muted">{label}</dt>
       <dd className="min-w-0 flex-1">{children}</dd>
     </div>
-  );
-}
-
-/**
- * Renders "{2}{U}{U}" as discrete pips.
- *
- * Text rather than Scryfall's symbol images: it keeps the panel self-contained,
- * stays legible in both themes, and a cost is short enough that letters read
- * fine at this size.
- */
-function ManaCost({ cost }: { cost: string }) {
-  const symbols = cost.match(/\{[^}]+\}/g);
-  if (!symbols) return null;
-
-  return (
-    <span className="flex shrink-0 gap-0.5">
-      {symbols.map((symbol, i) => (
-        <span
-          key={`${symbol}-${i}`}
-          className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-muted px-1 text-[10px] font-semibold"
-        >
-          {symbol.slice(1, -1)}
-        </span>
-      ))}
-    </span>
   );
 }

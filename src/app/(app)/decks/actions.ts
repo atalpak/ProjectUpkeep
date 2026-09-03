@@ -253,38 +253,52 @@ export async function removeFromDeck(formData: FormData): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Nominates one card in the deck as its commander, or clears the nomination.
+ * Nominates one card on the deck's list as its commander, or clears the
+ * nomination.
  *
  * Stored on the deck rather than the card: the same Atarka is a plain legendary
  * creature in a binder, and only a commander in the deck that named it.
+ *
+ * Keyed on the card (`cards.scryfall_id`, via migration 00000000000018), not a
+ * physical copy — a commander has to be nominable before you own one, the
+ * same way any other line on the decklist can be. The previous shape keyed
+ * this on `card_instances.id`, which meant the FK rejected every attempt to
+ * nominate a card you had not yet sleeved, and the caller swallowed that
+ * error instead of surfacing it; nominations silently did nothing. This
+ * returns DeckState now specifically so that cannot happen again unnoticed.
  *
  * Nothing checks legality here — not that the card is legendary, not that the
  * deck is Commander format. Format validation is out of scope by charter, and a
  * rule that argued with the user about their own deck would be worse than none.
  */
-export async function setCommander(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
+export async function setCommander(_prev: DeckState, formData: FormData): Promise<DeckState> {
+  if (!(await getCurrentUser())) return fail("You need to be signed in.");
 
   const deckId = String(formData.get("deck_id") ?? "").trim();
-  const raw = String(formData.get("instance_id") ?? "").trim();
-  if (!deckId) return;
+  const raw = String(formData.get("card_id") ?? "").trim();
+  if (!deckId) return fail("Which deck?");
 
-  // An empty instance id clears the designation.
-  const instanceId = raw === "" ? null : raw;
+  // An empty card id clears the designation.
+  const cardId = raw === "" ? null : raw;
 
   const supabase = await createClient();
   const { error } = await supabase
     .from("locations")
-    .update({ commander_instance_id: instanceId })
+    .update({ commander_card_id: cardId })
     .eq("id", deckId)
     .eq("type", "deck");
 
-  // A missing column means migration 00000000000008 has not been applied. The
-  // page keeps working without a commander section rather than breaking, so
-  // there is nothing useful to do here but leave it alone.
-  if (error) return;
+  if (error) {
+    // A missing column means migration 00000000000018 has not been applied.
+    // Naming the fix beats a generic Postgres error.
+    if (error.message.includes("commander_card_id")) {
+      return fail("Commander needs migration 00000000000018 applied to this database.");
+    }
+    return fail(error.message);
+  }
 
   revalidate(deckId);
+  return ok(cardId ? "Commander set." : "Commander cleared.");
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +439,19 @@ export async function removeDeckCard(formData: FormData): Promise<void> {
   if (entry) {
     const cardId = (entry as { card_id: string }).card_id;
 
+    // If this card was the deck's commander, the nomination goes with it.
+    // commander_card_id points at cards.scryfall_id, and card rows are never
+    // deleted, so there is no ON DELETE SET NULL to lean on the way the old
+    // instance-keyed column could — it has to be cleared here. Without this,
+    // re-adding the same card later silently re-nominates it (a fresh
+    // deck_cards row whose card_id still matches the stale commander_card_id).
+    await supabase
+      .from("locations")
+      .update({ commander_card_id: null })
+      .eq("id", deckId)
+      .eq("type", "deck")
+      .eq("commander_card_id", cardId);
+
     const { data: listed } = await supabase
       .from("cards")
       .select("oracle_id, name")
@@ -460,6 +487,102 @@ export async function removeDeckCard(formData: FormData): Promise<void> {
   revalidate(deckId);
 }
 
+/**
+ * Repoints a list entry at a different printing of the same card.
+ *
+ * The list line names a printing (`deck_cards.card_id` is a `cards.scryfall_id`)
+ * purely so the page can show the right art and set — copies are still counted
+ * across every printing by oracle id, so this changes what the row *looks* like,
+ * not what satisfies it.
+ *
+ * Guarded to the same card: the picked printing must share an oracle id (or,
+ * lacking one, a name) with the entry's current printing, so this can never be
+ * used to swap one card on the list for another.
+ *
+ * Any copies sleeved for this entry come back out to Unsorted — a printing
+ * change resets the entry to unsleeved, the same way a freshly added card
+ * starts, so its status goes back to Available / Not available.
+ */
+export async function setDeckCardPrinting(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const entryId = String(formData.get("entry_id") ?? "").trim();
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  const newCardId = String(formData.get("card_id") ?? "").trim();
+  if (!entryId || !deckId || !newCardId) return;
+
+  const supabase = await createClient();
+
+  const { data: entryRow } = await supabase
+    .from("deck_cards")
+    .select("id, card_id, quantity")
+    .eq("id", entryId)
+    .maybeSingle();
+  if (!entryRow) return;
+  const entry = entryRow as { id: string; card_id: string; quantity: number };
+  if (entry.card_id === newCardId) return;
+
+  // Both printings, looked up by scryfall id — the switch is only allowed
+  // between two printings of the same card (same oracle id, or same name when
+  // a card predates oracle ids in our data).
+  const { data: cardRows } = await supabase
+    .from("cards")
+    .select("scryfall_id, oracle_id, name")
+    .in("scryfall_id", [entry.card_id, newCardId]);
+
+  const cards = (cardRows ?? []) as Array<{
+    scryfall_id: string;
+    oracle_id: string | null;
+    name: string;
+  }>;
+  const from = cards.find((c) => c.scryfall_id === entry.card_id);
+  const to = cards.find((c) => c.scryfall_id === newCardId);
+  if (!to) return;
+
+  const sameCard =
+    from?.oracle_id && to.oracle_id
+      ? from.oracle_id === to.oracle_id
+      : from?.name?.toLowerCase() === to.name.toLowerCase();
+  if (!sameCard) return;
+
+  // Reset the entry to unsleeved: pull any copies in the deck box for this
+  // card back out to Unsorted before the printing moves.
+  await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+
+  // deck_cards is unique on (deck_id, card_id): if the chosen printing is
+  // already its own line on this deck, fold this entry's quantity into it
+  // rather than colliding.
+  const { data: dupRow } = await supabase
+    .from("deck_cards")
+    .select("id, quantity")
+    .eq("deck_id", deckId)
+    .eq("card_id", newCardId)
+    .maybeSingle();
+
+  if (dupRow) {
+    const dup = dupRow as { id: string; quantity: number };
+    await supabase
+      .from("deck_cards")
+      .update({ quantity: dup.quantity + entry.quantity })
+      .eq("id", dup.id);
+    await supabase.from("deck_cards").delete().eq("id", entry.id);
+  } else {
+    await supabase.from("deck_cards").update({ card_id: newCardId }).eq("id", entry.id);
+  }
+
+  // A commander nomination points at the printing, so move it with the entry —
+  // otherwise it goes stale the same way the sticky-commander bug did.
+  await supabase
+    .from("locations")
+    .update({ commander_card_id: newCardId })
+    .eq("id", deckId)
+    .eq("type", "deck")
+    .eq("commander_card_id", entry.card_id);
+
+  revalidate(deckId);
+}
+
 // ---------------------------------------------------------------------------
 // Sleeving
 // ---------------------------------------------------------------------------
@@ -476,37 +599,36 @@ type SleeveCandidate = {
   locations: { type: string } | null;
 };
 
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
 /**
- * Pulls physical copies out of the collection and into the deck.
+ * Moves up to `wanted` spare copies of one card from the collection into the
+ * deck, and reports how many actually moved.
  *
  * Any printing of the same card satisfies a list entry, so this matches on
- * oracle id rather than on the exact printing the entry names.
+ * oracle id rather than on the exact printing the entry names. Smallest
+ * suitable stacks are used first, so a playset kept together in a binder is not
+ * broken up while a loose single sits elsewhere; splitting only happens when it
+ * must, and copies arriving in the deck merge with an identical stack already
+ * there through the same policy the add form and importer use.
  *
- * Smallest suitable stacks are used first, so a playset kept together in a
- * binder is not broken up while a loose single sits elsewhere. Splitting only
- * happens when it must, and copies arriving in the deck merge with an identical
- * stack already there through the same policy the add form and importer use.
+ * The shared core of `sleeveCard` (one card) and `bulkSleeveEntries` (a
+ * selection) — both parse their input and then call this.
  */
-export async function sleeveCard(_prev: DeckState, formData: FormData): Promise<DeckState> {
-  const user = await getCurrentUser();
-  if (!user) return fail("You need to be signed in.");
-
-  const deckId = String(formData.get("deck_id") ?? "").trim();
-  const cardId = String(formData.get("card_id") ?? "").trim();
-  const wanted = Number.parseInt(String(formData.get("quantity") ?? "1"), 10);
-
-  if (!deckId || !cardId) return fail("Which card?");
-  if (!Number.isFinite(wanted) || wanted < 1) return fail("Choose at least one copy.");
-
-  const supabase = await createClient();
-
+async function sleeveCopies(
+  supabase: SupabaseClient,
+  userId: string,
+  deckId: string,
+  cardId: string,
+  wanted: number,
+): Promise<{ sleeved: number; error: string | null }> {
   const { data: listed } = await supabase
     .from("cards")
     .select("oracle_id, name")
     .eq("scryfall_id", cardId)
     .maybeSingle();
 
-  if (!listed) return fail("That card is not in the database.");
+  if (!listed) return { sleeved: 0, error: "That card is not in the database." };
   const target = listed as { oracle_id: string | null; name: string };
 
   const { data: owned, error } = await supabase
@@ -514,9 +636,9 @@ export async function sleeveCard(_prev: DeckState, formData: FormData): Promise<
     .select(
       "id, card_id, condition, finish, language, quantity, notes, cards ( oracle_id, name ), locations!location_id ( type )",
     )
-    .eq("owner_user_id", user.id);
+    .eq("owner_user_id", userId);
 
-  if (error) return fail(error.message);
+  if (error) return { sleeved: 0, error: error.message };
 
   const candidates = ((owned ?? []) as unknown as SleeveCandidate[])
     .filter((row) => {
@@ -530,7 +652,7 @@ export async function sleeveCard(_prev: DeckState, formData: FormData): Promise<
     .sort((a, b) => a.quantity - b.quantity);
 
   const availableTotal = candidates.reduce((sum, c) => sum + c.quantity, 0);
-  if (availableTotal === 0) return fail("You have no spare copies of that card.");
+  if (availableTotal === 0) return { sleeved: 0, error: "You have no spare copies of that card." };
 
   const taking = Math.min(wanted, availableTotal);
   let remaining = taking;
@@ -566,20 +688,20 @@ export async function sleeveCard(_prev: DeckState, formData: FormData): Promise<
         .from("card_instances")
         .update({ location_id: deckId })
         .eq("id", source.id);
-      if (moveError) return fail(moveError.message);
+      if (moveError) return { sleeved: taking - remaining, error: moveError.message };
     } else {
       if (take === source.quantity) {
         const { error: dropError } = await supabase
           .from("card_instances")
           .delete()
           .eq("id", source.id);
-        if (dropError) return fail(dropError.message);
+        if (dropError) return { sleeved: taking - remaining, error: dropError.message };
       } else {
         const { error: splitError } = await supabase
           .from("card_instances")
           .update({ quantity: source.quantity - take })
           .eq("id", source.id);
-        if (splitError) return fail(splitError.message);
+        if (splitError) return { sleeved: taking - remaining, error: splitError.message };
       }
 
       if (decision.action === "merge") {
@@ -587,10 +709,10 @@ export async function sleeveCard(_prev: DeckState, formData: FormData): Promise<
           .from("card_instances")
           .update({ quantity: decision.newQuantity })
           .eq("id", decision.instanceId);
-        if (mergeError) return fail(mergeError.message);
+        if (mergeError) return { sleeved: taking - remaining, error: mergeError.message };
       } else {
         const { error: insertError } = await supabase.from("card_instances").insert({
-          owner_user_id: user.id,
+          owner_user_id: userId,
           card_id: source.card_id,
           location_id: deckId,
           condition: source.condition,
@@ -599,42 +721,59 @@ export async function sleeveCard(_prev: DeckState, formData: FormData): Promise<
           quantity: take,
           notes: source.notes,
         });
-        if (insertError) return fail(insertError.message);
+        if (insertError) return { sleeved: taking - remaining, error: insertError.message };
       }
     }
 
     remaining -= take;
   }
 
-  revalidate(deckId);
-  return ok(
-    taking < wanted
-      ? `Sleeved ${taking} — that was all you had spare.`
-      : `Sleeved ${taking} ${taking === 1 ? "copy" : "copies"}.`,
-  );
+  return { sleeved: taking, error: null };
 }
 
 /**
- * Sends sleeved copies back to the collection.
- *
- * They land unsorted rather than back where they came from: nothing records
- * where a card was before it was sleeved, and inventing a binder would be a
- * guess about a physical action the user still has to perform.
- *
- * The list entry stays. Unsleeving is "I took these out of the box", not "I no
- * longer want this card in the deck" — the entry simply becomes Available again.
+ * Pulls physical copies out of the collection and into the deck.
  */
-export async function unsleeveCard(formData: FormData): Promise<void> {
+export async function sleeveCard(_prev: DeckState, formData: FormData): Promise<DeckState> {
   const user = await getCurrentUser();
-  if (!user) return;
+  if (!user) return fail("You need to be signed in.");
 
   const deckId = String(formData.get("deck_id") ?? "").trim();
   const cardId = String(formData.get("card_id") ?? "").trim();
   const wanted = Number.parseInt(String(formData.get("quantity") ?? "1"), 10);
-  if (!deckId || !cardId) return;
+
+  if (!deckId || !cardId) return fail("Which card?");
+  if (!Number.isFinite(wanted) || wanted < 1) return fail("Choose at least one copy.");
 
   const supabase = await createClient();
+  const { sleeved, error } = await sleeveCopies(supabase, user.id, deckId, cardId, wanted);
+  if (error) return fail(error);
 
+  revalidate(deckId);
+  return ok(
+    sleeved < wanted
+      ? `Sleeved ${sleeved} — that was all you had spare.`
+      : `Sleeved ${sleeved} ${sleeved === 1 ? "copy" : "copies"}.`,
+  );
+}
+
+/**
+ * Moves sleeved copies of one card back out of the deck to Unsorted.
+ *
+ * `wanted` undefined means "all of them" — which is what a printing change and
+ * a bulk unsleeve both want. Copies land unsorted rather than back where they
+ * came from: nothing records where a card was before it was sleeved.
+ *
+ * The shared core of `unsleeveCard`, `bulkUnsleeveEntries` and the un-sleeve
+ * step of `setDeckCardPrinting`.
+ */
+async function unsleeveCopies(
+  supabase: SupabaseClient,
+  userId: string,
+  deckId: string,
+  cardId: string,
+  wanted?: number,
+): Promise<void> {
   const { data: listed } = await supabase
     .from("cards")
     .select("oracle_id, name")
@@ -660,7 +799,11 @@ export async function unsleeveCard(formData: FormData): Promise<void> {
     )
     .sort((a, b) => a.quantity - b.quantity);
 
-  let remaining = Number.isFinite(wanted) && wanted > 0 ? wanted : 1;
+  // Undefined `wanted` (or a non-positive one) means every sleeved copy.
+  let remaining =
+    wanted === undefined || !Number.isFinite(wanted) || wanted <= 0
+      ? matching.reduce((sum, r) => sum + r.quantity, 0)
+      : wanted;
 
   for (const row of matching) {
     if (remaining <= 0) break;
@@ -690,7 +833,7 @@ export async function unsleeveCard(formData: FormData): Promise<void> {
           notes: string | null;
         };
         await supabase.from("card_instances").insert({
-          owner_user_id: user.id,
+          owner_user_id: userId,
           card_id: source.card_id,
           location_id: null,
           condition: source.condition,
@@ -704,6 +847,162 @@ export async function unsleeveCard(formData: FormData): Promise<void> {
 
     remaining -= take;
   }
+}
+
+/**
+ * Sends sleeved copies back to the collection.
+ *
+ * The list entry stays. Unsleeving is "I took these out of the box", not "I no
+ * longer want this card in the deck" — the entry simply becomes Available again.
+ */
+export async function unsleeveCard(formData: FormData): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) return;
+
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  const cardId = String(formData.get("card_id") ?? "").trim();
+  const wanted = Number.parseInt(String(formData.get("quantity") ?? "1"), 10);
+  if (!deckId || !cardId) return;
+
+  const supabase = await createClient();
+  await unsleeveCopies(supabase, user.id, deckId, cardId, wanted);
 
   revalidate(deckId);
+}
+
+// ---------------------------------------------------------------------------
+// Bulk sleeve / unsleeve over a selection of list entries
+// ---------------------------------------------------------------------------
+
+type BulkEntry = {
+  id: string;
+  card_id: string;
+  quantity: number;
+  cards: { oracle_id: string | null; name: string } | null;
+};
+
+/** Loads the selected deck_cards rows, scoped to the one deck. */
+async function loadSelectedEntries(
+  supabase: SupabaseClient,
+  deckId: string,
+  entryIds: string[],
+): Promise<BulkEntry[]> {
+  if (entryIds.length === 0) return [];
+  const { data } = await supabase
+    .from("deck_cards")
+    .select("id, card_id, quantity, cards ( oracle_id, name )")
+    .eq("deck_id", deckId)
+    .in("id", entryIds);
+  return ((data ?? []) as unknown as BulkEntry[]);
+}
+
+function parseEntryIds(formData: FormData): string[] {
+  return String(formData.get("entry_ids") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Sleeves every selected entry that can be *completed* from spare copies.
+ *
+ * "Completed" is per the user's call on this: an entry is sleeved only when the
+ * spare copies owned cover everything it still needs. An entry that would stay
+ * short is left untouched and counted, so the result can say why nothing
+ * happened for it.
+ */
+export async function bulkSleeveEntries(
+  _prev: DeckState,
+  formData: FormData,
+): Promise<DeckState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  const entryIds = parseEntryIds(formData);
+  if (!deckId || entryIds.length === 0) return fail("Nothing selected.");
+
+  const supabase = await createClient();
+  const entries = await loadSelectedEntries(supabase, deckId, entryIds);
+
+  // Sleeved-here and spare counts, per oracle key, from one read of the
+  // collection — the same shape sleeveCopies filters, just tallied up front so
+  // the "can it be completed" test does not need a query per entry.
+  const { data: owned } = await supabase
+    .from("card_instances")
+    .select("quantity, location_id, cards ( oracle_id, name ), locations!location_id ( type )")
+    .eq("owner_user_id", user.id);
+
+  const sleevedHere = new Map<string, number>();
+  const spare = new Map<string, number>();
+  for (const raw of (owned ?? []) as unknown as Array<{
+    quantity: number;
+    location_id: string | null;
+    cards: { oracle_id: string | null; name: string } | null;
+    locations: { type: string } | null;
+  }>) {
+    const key = raw.cards?.oracle_id ?? raw.cards?.name?.toLowerCase();
+    if (!key) continue;
+    if (raw.location_id === deckId) {
+      sleevedHere.set(key, (sleevedHere.get(key) ?? 0) + raw.quantity);
+    } else if (raw.locations?.type !== "deck") {
+      spare.set(key, (spare.get(key) ?? 0) + raw.quantity);
+    }
+  }
+
+  let completed = 0;
+  let skipped = 0;
+
+  for (const entry of entries) {
+    const key = entry.cards?.oracle_id ?? entry.cards?.name?.toLowerCase();
+    const outstanding = Math.max(0, entry.quantity - (key ? (sleevedHere.get(key) ?? 0) : 0));
+    if (outstanding === 0) continue; // already there
+
+    if (!key || (spare.get(key) ?? 0) < outstanding) {
+      skipped += 1;
+      continue;
+    }
+
+    const { sleeved } = await sleeveCopies(supabase, user.id, deckId, entry.card_id, outstanding);
+    if (sleeved > 0) {
+      completed += 1;
+      spare.set(key, (spare.get(key) ?? 0) - sleeved);
+    } else {
+      skipped += 1;
+    }
+  }
+
+  revalidate(deckId);
+
+  if (completed === 0 && skipped === 0) return ok("Those entries were already sleeved.");
+  const parts = [
+    completed > 0 ? `Sleeved ${completed} ${completed === 1 ? "card" : "cards"}` : null,
+    skipped > 0 ? `skipped ${skipped} (not enough spare copies)` : null,
+  ].filter(Boolean);
+  return ok(`${parts.join(" · ")}.`);
+}
+
+/** Returns every sleeved copy of each selected entry to Unsorted. */
+export async function bulkUnsleeveEntries(
+  _prev: DeckState,
+  formData: FormData,
+): Promise<DeckState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  const entryIds = parseEntryIds(formData);
+  if (!deckId || entryIds.length === 0) return fail("Nothing selected.");
+
+  const supabase = await createClient();
+  const entries = await loadSelectedEntries(supabase, deckId, entryIds);
+
+  for (const entry of entries) {
+    await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+  }
+
+  revalidate(deckId);
+  return ok(
+    `Returned ${entries.length} ${entries.length === 1 ? "entry" : "entries"} to your collection.`,
+  );
 }

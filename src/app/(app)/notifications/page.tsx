@@ -24,7 +24,7 @@ export default async function NotificationsPage() {
   const hasUnread = notifications.some((n) => n.read_at === null);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div className="mx-auto max-w-4xl space-y-5">
       <MarkNotificationsRead hasUnread={hasUnread} />
 
       <PageHeader

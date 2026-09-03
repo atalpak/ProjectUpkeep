@@ -549,3 +549,52 @@ export function strandedInDeck(
   const listed = new Set(entries.map((e) => cardKey(e.cards)).filter(Boolean));
   return contents.filter((row) => !listed.has(cardKey(row.cards) ?? ""));
 }
+
+// ---------------------------------------------------------------------------
+// Deck wish list
+// ---------------------------------------------------------------------------
+
+/**
+ * One want-list entry tagged to this deck (migration 17).
+ *
+ * Shaped to satisfy `GroupableRow` (id, quantity, cards) so the deck page can
+ * group it into the same Creatures/Lands/etc. sections as the decklist itself
+ * through `groupDeck` — see src/lib/collection/deck-view.ts — rather than
+ * inventing a second grouping rule for what is, on screen, a second list.
+ */
+export type WishListEntry = {
+  id: string;
+  card_id: string;
+  quantity: number;
+  cards: Card | null;
+  note: string | null;
+};
+
+/**
+ * The subset of the signed-in user's want list tagged to one deck.
+ *
+ * Not filtered by user id for the usual reason (RLS does that), but there is
+ * a second reason it is safe to skip here specifically: migration 17's
+ * enforce_want_deck_owner trigger means a row can only carry this deck_id if
+ * its user_id already matches the deck's owner, so nothing but this user's
+ * own rows can ever match `.eq("deck_id", deckId)`.
+ */
+export async function getDeckWishList(deckId: string): Promise<WishListEntry[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("want_list")
+    .select(`id, card_id, quantity, note, ${CARD_FIELDS}`)
+    .eq("deck_id", deckId)
+    .order("created_at", { ascending: false })
+    .limit(MAX_ROWS);
+
+  if (error) {
+    // PGRST205: want_list itself is not migrated in yet (migration 15).
+    // 42703: deck_id specifically is missing (migration 17 not applied yet).
+    // Either way, an empty wish list is the honest answer, not a broken page.
+    if (error.code === "PGRST205" || error.code === "42703") return [];
+    throw new Error(`Could not load the deck's wish list: ${error.message}`);
+  }
+
+  return (data ?? []) as unknown as WishListEntry[];
+}

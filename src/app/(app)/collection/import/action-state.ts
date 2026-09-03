@@ -34,6 +34,15 @@ export type ImportPreview = {
   matchedRows: number;
   /** card_instances rows that will be created or bumped. */
   stackCount: number;
+  /** Stacks that land as a brand-new collection entry. */
+  newEntries: number;
+  /**
+   * Stacks that add quantity to an entry already in the collection. When this
+   * is the whole import and `newEntries` is 0, the run is almost certainly a
+   * re-import of an earlier export — which doubles quantities rather than being
+   * a no-op. The preview warns on it.
+   */
+  mergedEntries: number;
   /** A capped sample for the table; `matchedRows` is the true count. */
   rows: ImportRowView[];
   rowsTruncated: boolean;
