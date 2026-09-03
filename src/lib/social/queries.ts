@@ -297,7 +297,7 @@ export async function getWantList(): Promise<WantRow[]> {
     if (error.message.includes("deck_id") || error.message.includes("locations")) {
       return getWantListWithoutDeckTag(user.id);
     }
-    throw new Error(`Could not load your want list: ${error.message}`);
+    throw new Error(`Could not load your wish list: ${error.message}`);
   }
 
   return ((data ?? []) as unknown as RawOwnWant[]).map(toOwnWantRow);
@@ -311,7 +311,7 @@ async function getWantListWithoutDeckTag(userId: string): Promise<WantRow[]> {
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) throw new Error(`Could not load your want list: ${error.message}`);
+  if (error) throw new Error(`Could not load your wish list: ${error.message}`);
   return ((data ?? []) as unknown as RawWant[]).map(toWantRow);
 }
 
@@ -326,7 +326,7 @@ export async function getFriendWants(friendId: string): Promise<WantRow[]> {
 
   if (error) {
     if (error.code === "PGRST205") return [];
-    throw new Error(`Could not load their want list: ${error.message}`);
+    throw new Error(`Could not load their wish list: ${error.message}`);
   }
 
   return ((data ?? []) as unknown as RawWant[]).map(toWantRow);

@@ -23,7 +23,7 @@ export type SupplierView = {
 export type DeckOption = { id: string; name: string };
 
 /**
- * The want list, and who can fill it.
+ * The wish list, and who can fill it.
  *
  * Adding is by card name — the same autocomplete the add-card form uses — and
  * the server picks a printing. Each row then says which friends have that card
@@ -45,7 +45,7 @@ export function WantListManager({
       <AddWant />
 
       {wants.length === 0 ? (
-        <EmptyState title="Your want list is empty.">
+        <EmptyState title="Your wish list is empty.">
           Add cards you are chasing, and this page will show which friends have them open
           for trade.
         </EmptyState>
@@ -122,7 +122,7 @@ function AddWant() {
 
         <div className="flex flex-wrap items-end gap-2">
           <label className="min-w-56 flex-1 space-y-1">
-            <span className="text-xs font-medium text-ink-muted">Add a card you want</span>
+            <span className="text-xs font-medium text-ink-muted">Add a card to your wish list</span>
             <Input
               value={query}
               onChange={(e) => {
@@ -329,11 +329,11 @@ function QuantityStepper({ want }: { want: WantRow }) {
           value={want.quantity - 1}
           disabled={want.quantity <= 1}
           className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
-          aria-label={`Want one fewer ${want.name}`}
+          aria-label={`One fewer ${want.name}`}
         >
           −
         </button>
-        <span className="w-5 text-center text-xs tabular-nums" title="How many you want">
+        <span className="w-5 text-center text-xs tabular-nums" title="How many you want on your wish list">
           {want.quantity}
         </span>
         <button
@@ -341,7 +341,7 @@ function QuantityStepper({ want }: { want: WantRow }) {
           name="quantity"
           value={want.quantity + 1}
           className="size-6 rounded border border-border text-xs coarse:size-9"
-          aria-label={`Want one more ${want.name}`}
+          aria-label={`One more ${want.name}`}
         >
           +
         </button>

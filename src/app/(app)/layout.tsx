@@ -32,12 +32,12 @@ export default async function AppLayout({
     <div className="min-h-screen">
       {/* Sticky so the nav stays reachable down a long collection list. */}
       <header className="sticky top-0 z-10 border-b border-border bg-surface/85 backdrop-blur">
-        <nav className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3 sm:px-6">
+        <nav className="flex w-full items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <Link
             href="/dashboard"
             className="text-sm font-semibold tracking-tight whitespace-nowrap"
           >
-            MTG<span className="text-accent">Manager</span>
+            Project<span className="text-accent">Upkeep</span>
           </Link>
 
           {/* The destination list lives in one place; AppNav renders it inline
@@ -73,9 +73,11 @@ export default async function AppLayout({
           because `main` is `flex-1`, the width comes straight back in each of
           those cases. */}
       <CardPanelProvider>
-        {/* Same container as the nav above, so page content and the nav share
-            left and right edges at every width. */}
-        <div className="mx-auto flex w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+        {/* Same padding as the nav above, so page content and the nav share
+            left and right edges at every width. Full-bleed rather than a
+            centred column — wide pages (the collection table especially) use
+            the whole window; individual narrow pages cap their own width. */}
+        <div className="flex w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
           <main className="min-w-0 flex-1">{children}</main>
           <CardPanelOutlet />
         </div>

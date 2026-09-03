@@ -29,7 +29,7 @@ export default async function FindPage({
   const results = active ? await locateInCollection(query) : [];
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div className="mx-auto max-w-4xl space-y-5">
       <PageHeader
         title="Find a card"
         subtitle="Search your collection and see exactly where every copy lives."

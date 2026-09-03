@@ -6,10 +6,10 @@ import {
 } from "@/components/social/WantListManager";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Want list · Project Upkeep" };
+export const metadata = { title: "Wish List · Project Upkeep" };
 
 /**
- * The want list.
+ * The wish list.
  *
  * Cards you are chasing, each annotated with which friends have it sitting in a
  * trade binder right now — the difference between a trade tool you have to
@@ -37,19 +37,19 @@ export default async function WantsPage() {
   const availableCount = matches.size;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5">
+    <div className="mx-auto max-w-4xl space-y-5">
       <PageHeader
-        title="Want list"
+        title="Wish List"
         subtitle={
           wants.length === 0
             ? "Track the cards you are after."
             : availableCount > 0
-              ? `${availableCount} of your ${wants.length} want${
+              ? `${availableCount} of the ${wants.length} card${
                   wants.length === 1 ? "" : "s"
-                } ${availableCount === 1 ? "is" : "are"} available from a friend right now.`
-              : `None of your ${wants.length} want${
+                } on your wish list ${availableCount === 1 ? "is" : "are"} available from a friend right now.`
+              : `None of the ${wants.length} card${
                   wants.length === 1 ? "" : "s"
-                } are open for trade in your circle yet.`
+                } on your wish list are open for trade in your circle yet.`
         }
       />
 

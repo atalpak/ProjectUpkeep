@@ -7,9 +7,9 @@ import { isMissingColumnError } from "@/lib/supabase/errors";
 import type { SocialState } from "@/app/(app)/social-state";
 
 /**
- * Want-list writes.
+ * Wish-list writes.
  *
- * A want names a card, not a printing — so "add" takes a card name and this
+ * A wish names a card, not a printing — so "add" takes a card name and this
  * layer picks a representative printing for the art and the oracle id. Matching
  * against friends' binders is by oracle id later, so the choice here only
  * affects what the row looks like, not what can fill it.
@@ -63,7 +63,7 @@ function pickRepresentative(rows: PrintingPick[]): string | null {
 }
 
 /**
- * Adds a card to the want list, optionally tagged to a deck.
+ * Adds a card to the wish list, optionally tagged to a deck.
  *
  * `deck_id` is how the deck page's "add to wish list" reuses this rather than
  * reimplementing the name -> representative-printing lookup: it submits the
@@ -121,12 +121,12 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
           .eq("card_id", cardId);
         if (tagError) return fail(tagError.message);
         revalidate(deckId);
-        return ok(`${name} was already on your want list — tagged it to this deck.`);
+        return ok(`${name} was already on your wish list — tagged it to this deck.`);
       }
-      return fail(`${name} is already on your want list.`);
+      return fail(`${name} is already on your wish list.`);
     }
     if (error.code === "PGRST205") {
-      return fail("The want list is not set up on the database yet — apply migration 00000000000015.");
+      return fail("The wish list is not set up on the database yet — apply migration 00000000000015.");
     }
     if (isMissingColumnError(error.code) && deckId) {
       return fail("Deck tags are not set up on the database yet — apply migration 00000000000017.");
@@ -135,7 +135,7 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
   }
 
   revalidate(deckId);
-  return ok(`Added ${name} to your want list.`);
+  return ok(`Added ${name} to your wish list.`);
 }
 
 export async function setWantQuantity(_prev: SocialState, formData: FormData): Promise<SocialState> {
@@ -144,7 +144,7 @@ export async function setWantQuantity(_prev: SocialState, formData: FormData): P
 
   const id = String(formData.get("want_id") ?? "").trim();
   const quantity = Number.parseInt(String(formData.get("quantity") ?? ""), 10);
-  if (!id) return fail("Which want?");
+  if (!id) return fail("Which card?");
   if (!Number.isFinite(quantity) || quantity < 1) return fail("Quantity must be at least one.");
 
   const supabase = await createClient();
@@ -166,7 +166,7 @@ export async function removeWant(_prev: SocialState, formData: FormData): Promis
   if (!user) return fail("You need to be signed in.");
 
   const id = String(formData.get("want_id") ?? "").trim();
-  if (!id) return fail("Which want?");
+  if (!id) return fail("Which card?");
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -194,7 +194,7 @@ export async function setWantDeck(_prev: SocialState, formData: FormData): Promi
   if (!user) return fail("You need to be signed in.");
 
   const id = String(formData.get("want_id") ?? "").trim();
-  if (!id) return fail("Which want?");
+  if (!id) return fail("Which card?");
 
   const raw = String(formData.get("deck_id") ?? "").trim();
   const deckId = raw === "" ? null : raw;
