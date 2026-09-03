@@ -41,7 +41,7 @@ const unmatched = (line: number, raw: string, reason: string): ResolvedRow => ({
   reason,
 });
 
-test("folds duplicate lines of the same card into one, summing quantity", () => {
+test("folds duplicate lines of the same printing into one, summing quantity", () => {
   const plan = planDeckImport([
     matched({ line: 1, id: "sol-c21", quantity: 1 }),
     matched({ line: 5, id: "sol-c21", quantity: 3 }),
@@ -53,25 +53,18 @@ test("folds duplicate lines of the same card into one, summing quantity", () => 
   assert.equal(plan.totalCards, 4);
 });
 
-test("different printings of one name fold into a single entry", () => {
+test("different printings of one name stay as separate rows", () => {
   const plan = planDeckImport([
-    matched({ id: "bolt-2x2", name: "Lightning Bolt", quantity: 2, line: 1 }),
-    matched({ id: "bolt-mh2", name: "Lightning Bolt", quantity: 1, line: 4 }),
+    matched({ id: "forest-fdn", name: "Forest", quantity: 14, line: 1 }),
+    matched({ id: "forest-m21", name: "Forest", quantity: 6, line: 4 }),
   ]);
 
-  assert.equal(plan.lines.length, 1, "one decklist entry per card name");
-  assert.equal(plan.lines[0].quantity, 3);
-  assert.equal(plan.lines[0].cardId, "bolt-2x2", "keeps the first printing seen");
-});
-
-test("name folding ignores case", () => {
-  const plan = planDeckImport([
-    matched({ id: "a", name: "Forest", quantity: 10 }),
-    matched({ id: "b", name: "forest", quantity: 4 }),
-  ]);
-
-  assert.equal(plan.lines.length, 1);
-  assert.equal(plan.lines[0].quantity, 14);
+  assert.equal(plan.lines.length, 2, "one row per printing");
+  assert.deepEqual(
+    plan.lines.map((l) => l.quantity),
+    [14, 6],
+  );
+  assert.equal(plan.totalCards, 20);
 });
 
 test("builds a human label and carries the image + set code", () => {
@@ -94,14 +87,13 @@ test("unmatched rows are collected with their reason, not counted", () => {
   ]);
 });
 
-test("splitAgainstDeck counts new vs already-listed by card name", () => {
+test("splitAgainstDeck counts new vs already-listed by printing id", () => {
   const { lines } = planDeckImport([
     matched({ id: "sol-c21", name: "Sol Ring" }),
     matched({ id: "bolt-2x2", name: "Lightning Bolt" }),
     matched({ id: "rift-mh2", name: "Cyclonic Rift" }),
   ]);
 
-  // Deck already lists these two, by whatever printing — matched by name.
-  const split = splitAgainstDeck(lines, ["Lightning Bolt", "cyclonic rift"]);
+  const split = splitAgainstDeck(lines, ["bolt-2x2", "rift-mh2"]);
   assert.deepEqual(split, { newEntries: 1, mergedEntries: 2 });
 });
