@@ -440,38 +440,71 @@ export async function locateInCollection(term: string): Promise<LocatedCard[]> {
 }
 
 export type DeckSummary = Location & {
-  /** Physical cards sleeved into this deck. */
+  /** Total cards the decklist asks for (sum of deck_cards.quantity). */
   cardCount: number;
-  /** Distinct entries, which is what the table shows. */
-  entryCount: number;
+  /** Distinct card names on the list. */
+  uniqueCount: number;
+  /** The nominated commander's name, if one is set. */
+  commanderName: string | null;
 };
 
-/** Every deck, with how much is in it. */
+/**
+ * Every deck, with its list size and commander.
+ *
+ * The size is the decklist (deck_cards), not what is physically sleeved — a
+ * freshly imported list has 0 cards in the box but is not an empty deck.
+ */
 export async function getDecks(): Promise<DeckSummary[]> {
   const supabase = await createClient();
 
-  const [{ data: decks, error: deckError }, { data: instances, error: instError }] =
+  const [{ data: decks, error: deckError }, { data: deckCards, error: dcError }] =
     await Promise.all([
       supabase.from("locations").select("*").eq("type", "deck").order("name"),
-      supabase.from("card_instances").select("location_id, quantity").limit(MAX_ROWS),
+      supabase.from("deck_cards").select("deck_id, quantity, cards ( name )").limit(MAX_ROWS),
     ]);
 
   if (deckError) throw new Error(`Could not load decks: ${deckError.message}`);
-  if (instError) throw new Error(`Could not load collection: ${instError.message}`);
+  if (dcError) throw new Error(`Could not load decklists: ${dcError.message}`);
 
-  const cards = new Map<string, number>();
-  const entries = new Map<string, number>();
-  for (const raw of instances ?? []) {
-    const { location_id, quantity } = raw as { location_id: string | null; quantity: number };
-    if (!location_id) continue;
-    cards.set(location_id, (cards.get(location_id) ?? 0) + quantity);
-    entries.set(location_id, (entries.get(location_id) ?? 0) + 1);
+  const totalByDeck = new Map<string, number>();
+  const namesByDeck = new Map<string, Set<string>>();
+  for (const raw of (deckCards ?? []) as unknown as Array<{
+    deck_id: string;
+    quantity: number;
+    cards: { name: string } | null;
+  }>) {
+    totalByDeck.set(raw.deck_id, (totalByDeck.get(raw.deck_id) ?? 0) + raw.quantity);
+    if (raw.cards?.name) {
+      const set = namesByDeck.get(raw.deck_id) ?? new Set<string>();
+      set.add(raw.cards.name.toLowerCase());
+      namesByDeck.set(raw.deck_id, set);
+    }
   }
 
-  return ((decks ?? []) as Location[]).map((deck) => ({
+  const deckRows = (decks ?? []) as Location[];
+
+  // Commander names in one lookup, not one per deck.
+  const commanderIds = [
+    ...new Set(deckRows.map((d) => d.commander_card_id).filter((v): v is string => !!v)),
+  ];
+  const commanderNames = new Map<string, string>();
+  if (commanderIds.length > 0) {
+    const { data: cmdCards } = await supabase
+      .from("cards")
+      .select("scryfall_id, name")
+      .in("scryfall_id", commanderIds);
+    for (const c of (cmdCards ?? []) as Array<{ scryfall_id: string; name: string }>) {
+      commanderNames.set(c.scryfall_id, c.name);
+    }
+  }
+
+  return deckRows.map((deck) => ({
     ...deck,
-    cardCount: cards.get(deck.id) ?? 0,
-    entryCount: entries.get(deck.id) ?? 0,
+    cardCount: totalByDeck.get(deck.id) ?? 0,
+    uniqueCount: namesByDeck.get(deck.id)?.size ?? 0,
+    commanderName: deck.commander_card_id
+      ? (commanderNames.get(deck.commander_card_id) ?? null)
+      : null,
   }));
 }
 

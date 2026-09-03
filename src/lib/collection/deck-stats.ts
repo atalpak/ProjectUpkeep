@@ -20,6 +20,7 @@ import { priceFor } from "@/lib/collection/pricing";
 import {
   DECK_SECTIONS,
   SECTION_LABELS,
+  manaSymbols,
   sectionFor,
   type DeckSection,
 } from "@/lib/collection/deck-view";
@@ -86,7 +87,18 @@ export const DECK_COLOR_LABELS: Record<DeckColor, string> = {
   C: "Colorless",
 };
 
-export type ColorCount = { code: DeckColor; label: string; count: number };
+export type ColorCount = {
+  code: DeckColor;
+  label: string;
+  /** Cards with this colour in their identity (a gold card counts under each). */
+  count: number;
+  /** Share of all cards on the list that carry this colour, 0–1. */
+  cardShare: number;
+  /** Mana pips of this colour across every mana cost on the list. */
+  pips: number;
+  /** Share of all coloured pips that are this colour, 0–1. */
+  pipShare: number;
+};
 
 // ---------------------------------------------------------------------------
 
@@ -94,6 +106,7 @@ export type DeckStats = {
   totalCards: number;
   price: DeckPrice;
   curve: CurveBucket[];
+  /** Only colours that appear, in WUBRG-then-colourless order. */
   colors: ColorCount[];
 };
 
@@ -126,6 +139,7 @@ export function computeDeckStats(
 
   // --- colours -------------------------------------------------------
   const colorCounts = new Map<DeckColor, number>();
+  const pipCounts = new Map<DeckColor, number>();
 
   for (const entry of entries) {
     const card = entry.cards;
@@ -173,7 +187,7 @@ export function computeDeckStats(
       seg.set(typeSection, (seg.get(typeSection) ?? 0) + qty);
     }
 
-    // Colours: by colour identity, a multicolour card counts under each.
+    // Colours (cards): by colour identity, a multicolour card counts under each.
     const identity = (card?.color_identity ?? []).filter((c): c is DeckColor =>
       (DECK_COLORS as readonly string[]).includes(c),
     );
@@ -182,7 +196,20 @@ export function computeDeckStats(
     } else {
       for (const c of identity) colorCounts.set(c, (colorCounts.get(c) ?? 0) + qty);
     }
+
+    // Pips: every coloured symbol in the mana cost, once per copy. A hybrid
+    // pip ("R/G") counts toward each of its colours; generic ("2") counts for
+    // none. "{C}" is a colourless pip, distinct from having no colour.
+    for (const sym of manaSymbols(card?.mana_cost)) {
+      for (const letter of sym.toUpperCase().split("/")) {
+        if ((DECK_COLORS as readonly string[]).includes(letter)) {
+          pipCounts.set(letter as DeckColor, (pipCounts.get(letter as DeckColor) ?? 0) + qty);
+        }
+      }
+    }
   }
+
+  const totalPips = [...pipCounts.values()].reduce((a, b) => a + b, 0);
 
   // Finalise curve segments.
   curveBuckets.forEach((b, i) => {
@@ -209,11 +236,20 @@ export function computeDeckStats(
       sections: sections.map((s) => ({ ...s, total: round2(s.total) })),
     },
     curve: curveBuckets,
-    colors: DECK_COLORS.filter((c) => (colorCounts.get(c) ?? 0) > 0).map((c) => ({
-      code: c,
-      label: DECK_COLOR_LABELS[c],
-      count: colorCounts.get(c) ?? 0,
-    })),
+    colors: DECK_COLORS.filter(
+      (c) => (colorCounts.get(c) ?? 0) > 0 || (pipCounts.get(c) ?? 0) > 0,
+    ).map((c) => {
+      const count = colorCounts.get(c) ?? 0;
+      const pips = pipCounts.get(c) ?? 0;
+      return {
+        code: c,
+        label: DECK_COLOR_LABELS[c],
+        count,
+        cardShare: totalCards > 0 ? count / totalCards : 0,
+        pips,
+        pipShare: totalPips > 0 ? pips / totalPips : 0,
+      };
+    }),
   };
 }
 

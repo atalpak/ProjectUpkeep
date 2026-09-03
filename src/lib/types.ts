@@ -144,8 +144,10 @@ export type Location = {
   created_at: string;
   updated_at: string;
 
-  // Deck details (migration 00000000000021). Only ever set for type 'deck';
-  // null / empty on a box or binder.
+  // Deck-only columns. commander_card_id points at cards.scryfall_id
+  // (migration 00000000000008); notes / format / tags are migration
+  // 00000000000021. All null / empty on a box or binder.
+  commander_card_id: string | null;
   notes: string | null;
   format: string | null;
   tags: string[];

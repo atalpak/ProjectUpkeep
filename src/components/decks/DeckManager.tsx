@@ -5,7 +5,7 @@ import { useActionState, useState } from "react";
 
 import { createDeck, deleteDeck } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
-import { Banner, Button, Card as Panel, EmptyState, Input } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, EmptyState, Input } from "@/components/ui";
 import type { DeckSummary } from "@/lib/collection/queries";
 
 /** The deck list, plus the form for starting a new one. */
@@ -41,24 +41,39 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
         </EmptyState>
       ) : (
         <Panel className="divide-y divide-border p-0">
-          {decks.map((deck) => (
-            <div key={deck.id} className="flex items-center gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                <Link
-                  href={`/decks/${deck.id}`}
-                  className="font-medium hover:underline"
-                >
-                  {deck.name}
-                </Link>
-                <p className="text-xs text-ink-muted">
-                  {deck.cardCount} card{deck.cardCount === 1 ? "" : "s"} in {deck.entryCount} entr
-                  {deck.entryCount === 1 ? "y" : "ies"}
-                </p>
-              </div>
+          {decks.map((deck) => {
+            const tags = deck.tags ?? [];
+            return (
+              <div key={deck.id} className="flex items-start gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Link href={`/decks/${deck.id}`} className="font-medium hover:underline">
+                    {deck.name}
+                  </Link>
 
-              <DeleteDeckButton deckId={deck.id} deckName={deck.name} />
-            </div>
-          ))}
+                  <p className="text-xs text-ink-muted">
+                    {deck.cardCount} card{deck.cardCount === 1 ? "" : "s"} ({deck.uniqueCount}{" "}
+                    unique)
+                    {deck.commanderName ? <> · {deck.commanderName}</> : null}
+                  </p>
+
+                  {deck.format || tags.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {deck.format ? <Badge>{deck.format}</Badge> : null}
+                      {tags.map((tag) => (
+                        <Badge key={tag}>{tag}</Badge>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {deck.notes ? (
+                    <p className="line-clamp-2 text-xs text-ink-muted">{deck.notes}</p>
+                  ) : null}
+                </div>
+
+                <DeleteDeckButton deckId={deck.id} deckName={deck.name} />
+              </div>
+            );
+          })}
         </Panel>
       )}
     </div>
