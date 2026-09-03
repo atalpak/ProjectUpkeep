@@ -7,7 +7,7 @@ import { CONDITIONS, FINISHES, type Condition, type Finish } from "@/lib/types";
 import { parseImport } from "@/lib/import/parse";
 import { resolveRows } from "@/lib/import/resolve";
 import { planImport, type ImportDefaults, type ImportPlan } from "@/lib/import/plan";
-import { commitImport } from "@/lib/import/commit";
+import { commitImport, projectImport } from "@/lib/import/commit";
 import {
   MAX_INPUT_BYTES,
   PREVIEW_ROW_LIMIT,
@@ -76,6 +76,7 @@ async function buildPlan(
 function toPreview(
   plan: ImportPlan,
   parsed: ReturnType<typeof parseImport>,
+  split: { newEntries: number; mergedEntries: number },
 ): ImportPreview {
   const shown = plan.rows.filter((r) => r.card).slice(0, PREVIEW_ROW_LIMIT);
 
@@ -85,6 +86,8 @@ function toPreview(
     totalCards: plan.totalCards,
     matchedRows: plan.matchedRows,
     stackCount: plan.stacks.length,
+    newEntries: split.newEntries,
+    mergedEntries: split.mergedEntries,
     rowsTruncated: plan.matchedRows > shown.length,
     rows: shown.map((r) => ({
       line: r.line,
@@ -129,7 +132,11 @@ export async function previewImport(
     return fail("Nothing to import — no card lines were found.");
   }
 
-  const preview = toPreview(plan, parsed);
+  const projection = await projectImport(plan.stacks);
+  const preview = toPreview(plan, parsed, {
+    newEntries: projection.inserts,
+    mergedEntries: projection.merges,
+  });
 
   return {
     error: null,
@@ -162,7 +169,7 @@ export async function runImport(
   if (plan.stacks.length === 0) {
     return {
       ...fail("Nothing here could be matched to a card, so nothing was imported."),
-      preview: toPreview(plan, parsed),
+      preview: toPreview(plan, parsed, { newEntries: 0, mergedEntries: 0 }),
     };
   }
 
@@ -172,7 +179,11 @@ export async function runImport(
   revalidatePath("/locations");
   revalidatePath("/dashboard");
 
-  const preview = toPreview(plan, parsed);
+  // After the write these are facts, not a projection.
+  const preview = toPreview(plan, parsed, {
+    newEntries: result.inserted,
+    mergedEntries: result.merged,
+  });
 
   if (result.error) {
     return {

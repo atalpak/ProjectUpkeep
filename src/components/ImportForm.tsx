@@ -270,6 +270,27 @@ function Preview({
         />
       </div>
 
+      {!committed && preview.mergedEntries > 0 ? (
+        <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-ink">
+          {preview.newEntries === 0 ? (
+            <>
+              <span className="font-semibold">Every entry here is already in your collection.</span>{" "}
+              Importing <span className="font-semibold">adds these quantities on top</span> of what
+              you have — it does not replace them. Re-importing a list you previously exported will
+              double your counts.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold">
+                {preview.mergedEntries} of these {preview.stackCount} entries already exist
+              </span>{" "}
+              and will have their quantities increased; the other {preview.newEntries} will be added
+              as new.
+            </>
+          )}
+        </div>
+      ) : null}
+
       {Object.keys(preview.mappedColumns).length > 0 ? (
         <p className="text-xs text-ink-muted">
           Columns used:{" "}
