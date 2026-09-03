@@ -1,7 +1,6 @@
-import Link from "next/link";
-
 import { getLocations } from "@/lib/collection/queries";
 import { AddCardForm } from "@/components/AddCardForm";
+import { PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Add a card · MTGManager" };
 
@@ -10,18 +9,12 @@ export default async function AddCardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Add a card</h1>
-          <p className="text-sm text-[--color-ink-muted]">
-            Search your synced card database, pick the exact printing, then describe
-            the copy you own.
-          </p>
-        </div>
-        <Link href="/collection" className="text-sm text-[--color-accent] underline">
-          Back to collection
-        </Link>
-      </div>
+      <PageHeader
+        title="Add a card"
+        subtitle="Search your synced card database, pick the exact printing, then describe the copy you own."
+        backHref="/collection"
+        backLabel="Back to collection"
+      />
 
       <AddCardForm locations={locations} />
     </div>

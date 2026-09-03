@@ -5,22 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { decideStacking } from "@/lib/collection/stacking";
 import { CONDITIONS, FINISHES, type Condition, type Finish } from "@/lib/types";
-
-export type ActionState = {
-  error: string | null;
-  notice: string | null;
-  /**
-   * Changes on every successful action. The add form watches this to know when
-   * to reset itself — comparing the notice text alone would miss the case where
-   * you add the same card twice and get a byte-identical message.
-   *
-   * Random rather than a counter: server actions can run on a fresh instance
-   * each time, so a module-level counter would restart at 1 and collide.
-   */
-  nonce?: string;
-};
-
-export const EMPTY_STATE: ActionState = { error: null, notice: null };
+import type { ActionState } from "@/app/(app)/collection/action-state";
 
 function fail(message: string): ActionState {
   return { error: message, notice: null };

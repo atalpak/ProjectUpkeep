@@ -102,3 +102,107 @@ test("preserves digital-only printings but marks them", () => {
   assert.ok(row);
   assert.equal(row.digital, true);
 });
+
+// ---------------------------------------------------------------------------
+// Detail columns (migration 00000000000007)
+// ---------------------------------------------------------------------------
+
+test("maps the detail columns off a single-faced card", () => {
+  const row = toCardRow(
+    {
+      id: "11111111-1111-1111-1111-111111111111",
+      name: "Lightning Bolt",
+      set: "lea",
+      set_name: "Limited Edition Alpha",
+      set_type: "core",
+      collector_number: "161",
+      layout: "normal",
+      mana_cost: "{R}",
+      cmc: 1,
+      oracle_text: "Lightning Bolt deals 3 damage to any target.",
+      flavor_text: "The sparkmage shrieked…",
+      colors: ["R"],
+      color_identity: ["R"],
+      keywords: [],
+      artist: "Christopher Rush",
+    },
+    SYNCED_AT,
+  );
+
+  assert.ok(row);
+  assert.equal(row.mana_cost, "{R}");
+  assert.equal(row.cmc, 1);
+  assert.equal(row.oracle_text, "Lightning Bolt deals 3 damage to any target.");
+  assert.deepEqual(row.colors, ["R"]);
+  assert.deepEqual(row.color_identity, ["R"]);
+  assert.equal(row.artist, "Christopher Rush");
+  assert.equal(row.set_type, "core");
+  assert.equal(row.layout, "normal");
+  assert.equal(row.card_faces, null, "a single-faced card stores no faces");
+});
+
+test("takes cost and rules text from the front face of a transform card", () => {
+  // Transform cards carry no top-level mana_cost, oracle_text, colors or stats
+  // at all — verified against Scryfall's own data for this card.
+  const row = toCardRow(
+    {
+      id: "22222222-2222-2222-2222-222222222222",
+      name: "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki",
+      set: "neo",
+      collector_number: "141",
+      layout: "transform",
+      cmc: 3,
+      color_identity: ["R"],
+      artist: "Joseph Meehan",
+      card_faces: [
+        {
+          name: "Fable of the Mirror-Breaker",
+          mana_cost: "{2}{R}",
+          oracle_text: "Create a 2/2 red Goblin Shaman creature token.",
+          colors: ["R"],
+          type_line: "Enchantment — Saga",
+        },
+        {
+          name: "Reflection of Kiki-Jiki",
+          mana_cost: "",
+          oracle_text: "{1}, {T}: Create a token that's a copy…",
+          power: "2",
+          toughness: "2",
+          type_line: "Enchantment Creature — Goblin Shaman",
+        },
+      ],
+    },
+    SYNCED_AT,
+  );
+
+  assert.ok(row);
+  assert.equal(row.mana_cost, "{2}{R}", "front face's cost");
+  assert.match(row.oracle_text ?? "", /Goblin Shaman creature token/);
+  assert.deepEqual(row.colors, ["R"], "colours come from the face too");
+  assert.equal(row.cmc, 3, "but cmc stays top-level");
+  assert.equal(row.power, null, "the front face is not a creature");
+  assert.equal(row.card_faces?.length, 2, "both faces are kept for the panel");
+});
+
+test("keeps a planeswalker's loyalty", () => {
+  const row = toCardRow(
+    {
+      id: "33333333-3333-3333-3333-333333333333",
+      name: "Jace, the Mind Sculptor",
+      set: "wwk",
+      collector_number: "31",
+      loyalty: "3",
+      mana_cost: "{2}{U}{U}",
+    },
+    SYNCED_AT,
+  );
+  assert.equal(row?.loyalty, "3");
+});
+
+test("a zero mana value is kept, not turned into null", () => {
+  const row = toCardRow(
+    { id: "44444444-4444-4444-4444-444444444444", name: "Ornithopter", set: "atq", collector_number: "83", cmc: 0 },
+    SYNCED_AT,
+  );
+  assert.equal(row?.cmc, 0, "0 is a real mana value");
+});

@@ -3,7 +3,10 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 
-import { addCardInstance, EMPTY_STATE } from "@/app/(app)/collection/actions";
+import { addCardInstance } from "@/app/(app)/collection/actions";
+import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
+import { CardPreviewTarget } from "@/components/CardPanel";
+import { LocationSelect } from "@/components/LocationSelect";
 import {
   Banner,
   Button,
@@ -166,7 +169,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
         </Field>
 
         {searching ? (
-          <p className="mt-2 text-sm text-[--color-ink-muted]">Searching…</p>
+          <p className="mt-2 text-sm text-ink-muted">Searching…</p>
         ) : null}
 
         {searchError ? (
@@ -176,13 +179,13 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
         ) : null}
 
         {suggestions.length > 0 ? (
-          <ul className="mt-3 divide-y divide-[--color-border] rounded-md border border-[--color-border]">
+          <ul className="mt-3 divide-y divide-border rounded-md border border-border">
             {suggestions.map((s) => (
               <li key={s.name}>
                 <button
                   type="button"
                   onClick={() => chooseName(s.name)}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-[--color-surface-muted]"
+                  className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-muted"
                 >
                   {s.sample_image_uri ? (
                     <Image
@@ -194,10 +197,10 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                       unoptimized
                     />
                   ) : (
-                    <span className="h-[42px] w-[30px] rounded-sm bg-[--color-surface-muted]" />
+                    <span className="h-[42px] w-[30px] rounded-sm bg-surface-muted" />
                   )}
                   <span className="font-medium">{s.name}</span>
-                  <span className="ml-auto text-xs text-[--color-ink-muted]">
+                  <span className="ml-auto text-xs text-ink-muted">
                     {s.printing_count} printing{s.printing_count === 1 ? "" : "s"}
                   </span>
                 </button>
@@ -216,20 +219,25 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
           <Panel>
             <div className="flex items-start gap-4">
               {printing.image_uri ? (
-                <Image
-                  src={printing.image_uri}
-                  alt={printing.name}
-                  width={146}
-                  height={204}
-                  className="rounded-md"
-                  unoptimized
-                />
+                // The picker holds a trimmed printing, not a full card row, so
+                // this one still resolves by id rather than handing over an
+                // object that would render a half-empty panel.
+                <CardPreviewTarget card={printing.scryfall_id} className="shrink-0">
+                  <Image
+                    src={printing.image_uri}
+                    alt={printing.name}
+                    width={146}
+                    height={204}
+                    className="rounded-md"
+                    unoptimized
+                  />
+                </CardPreviewTarget>
               ) : null}
 
               <div className="flex-1 space-y-3">
                 <div>
                   <h2 className="font-medium">{printing.name}</h2>
-                  <p className="text-sm text-[--color-ink-muted]">
+                  <p className="text-sm text-ink-muted">
                     {printing.set_name ?? printing.set_code.toUpperCase()} ·{" "}
                     {printing.collector_number}
                     {printing.rarity ? ` · ${printing.rarity}` : ""}
@@ -258,7 +266,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                 <button
                   type="button"
                   onClick={reset}
-                  className="text-xs text-[--color-accent] underline"
+                  className="text-xs text-accent underline"
                 >
                   Search for a different card
                 </button>
@@ -315,14 +323,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
               </Field>
 
               <Field label="Location" hint="Leave unsorted if you haven't filed it yet.">
-                <Select name="location_id" defaultValue="">
-                  <option value="">Unsorted</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </Select>
+                <LocationSelect name="location_id" locations={locations} />
               </Field>
 
               <Field label="Notes" hint="Optional. A card with a note is never merged into a stack.">

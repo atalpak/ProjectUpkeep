@@ -3,11 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import { LOCATION_TYPES, type LocationType } from "@/lib/types";
-
-export type LocationActionState = { error: string | null; notice: string | null };
-
-export const EMPTY_LOCATION_STATE: LocationActionState = { error: null, notice: null };
+import { LOCATION_TYPES, type Location, type LocationType } from "@/lib/types";
+import type { LocationActionState } from "@/app/(app)/locations/action-state";
 
 function fail(message: string): LocationActionState {
   return { error: message, notice: null };
@@ -67,6 +64,55 @@ export async function createLocation(
   revalidatePath("/locations");
   revalidatePath("/collection");
   return { error: null, notice: `Created "${name}".` };
+}
+
+/**
+ * Create a location from inside another form, and hand the row back.
+ *
+ * Filing a card is where you discover you need a container, and going to the
+ * locations page to make one means abandoning whatever you were half-way
+ * through typing. This exists so a destination dropdown can offer "New
+ * location…" and select the result on the spot.
+ *
+ * Returns the row rather than a notice: the caller has a <select> to point at
+ * the new id, and waiting for the page to revalidate before it can do that
+ * would leave the field blank in the meantime.
+ *
+ * Not `useActionState`-shaped on purpose — it is awaited directly from an event
+ * handler, so the result can be applied without an effect.
+ */
+export async function createLocationInline(
+  formData: FormData,
+): Promise<{ error: string | null; location: Location | null }> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "You need to be signed in.", location: null };
+
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) return { error: "Give the location a name.", location: null };
+
+  const type = String(formData.get("type") ?? "other") as LocationType;
+  if (!LOCATION_TYPES.includes(type)) {
+    return { error: "Unknown location type.", location: null };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("locations")
+    .insert({
+      user_id: user.id,
+      name,
+      type,
+      parent_location_id: optionalId(formData.get("parent_location_id")),
+    })
+    .select("*")
+    .single();
+
+  if (error) return { error: friendly(error.message), location: null };
+
+  revalidatePath("/locations");
+  revalidatePath("/collection");
+  revalidatePath("/decks");
+  return { error: null, location: data as Location };
 }
 
 export async function renameLocation(

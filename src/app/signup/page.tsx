@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 
 import { signUp, type AuthState } from "@/app/auth/actions";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Banner, Button, Field, Input } from "@/components/ui";
 
 const INITIAL: AuthState = { error: null, notice: null };
@@ -13,8 +14,12 @@ export default function SignupPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6 py-12">
+      <div className="absolute right-6 top-6">
+        <ThemeToggle />
+      </div>
+
       <h1 className="text-2xl font-semibold">Create an account</h1>
-      <p className="mt-1 mb-6 text-sm text-[--color-ink-muted]">
+      <p className="mt-1 mb-6 text-sm text-ink-muted">
         Track where every card actually lives.
       </p>
 
@@ -53,9 +58,9 @@ export default function SignupPage() {
         </Button>
       </form>
 
-      <p className="mt-6 text-sm text-[--color-ink-muted]">
+      <p className="mt-6 text-sm text-ink-muted">
         Already have one?{" "}
-        <Link href="/login" className="text-[--color-accent] underline">
+        <Link href="/login" className="text-accent underline">
           Sign in
         </Link>
       </p>

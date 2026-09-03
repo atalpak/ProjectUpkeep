@@ -2,38 +2,105 @@
 
 /*
  * Theme tokens. Deliberately small: this is a functional inventory tool, and
- * Phase 1's job is to be legible and fast, not branded. Claude Design owns the
- * real visual pass (charter §4) — keep this neutral so that handoff is a
- * restyle, not a rewrite.
+ * Phase 1's job is to be legible and fast, not branded.
+ *
+ * Two layers on purpose:
+ *   - `:root` / `.dark` below hold the actual colours, so they can be swapped
+ *     at runtime by the theme toggle.
+ *   - `@theme inline` maps them onto Tailwind's colour namespace, which is what
+ *     generates `bg-surface`, `text-ink-muted`, `border-border`, and friends.
+ *
+ * `inline` matters: without it Tailwind emits `var(--color-surface)` frozen at
+ * build time, and flipping `.dark` would change nothing.
  */
-@theme {
-  --color-surface: #ffffff;
-  --color-surface-muted: #f6f7f9;
-  --color-border: #e3e6ea;
-  --color-ink: #16191d;
-  --color-ink-muted: #5c646e;
-  --color-accent: #4a5bd6;
-  --color-accent-ink: #ffffff;
-  --color-danger: #b4232c;
+@theme inline {
+  /* The page behind everything. Never pure white / pure black — a full-screen
+     #fff is the thing that makes a bright room feel brighter. */
+  --color-canvas: var(--canvas);
+  /* "Paper": cards, the header, inputs. Sits gently above the canvas. */
+  --color-surface: var(--surface);
+  /* One step recessed: hovers, table headers, insets, thumbnails. */
+  --color-surface-muted: var(--surface-muted);
+  /* One step elevated: menus, popovers, stat tiles — usually with a shadow. */
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  /* The dim behind a modal. A token rather than a literal black so dark mode
+     can go heavier — the same 50% that reads as a scrim over a white page is
+     barely visible over a dark one. */
+  --color-scrim: var(--scrim);
 }
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-surface: #14161a;
-    --color-surface-muted: #1c1f25;
-    --color-border: #2c313a;
-    --color-ink: #eceef1;
-    --color-ink-muted: #9aa3ae;
-    --color-accent: #7c8cf0;
-    --color-accent-ink: #10131a;
-    --color-danger: #f08a8a;
-  }
+/*
+ * Light: a soft cool-grey canvas with near-white paper on top. Text is a dark
+ * slate rather than near-black, so a full page of a list is not maximum
+ * contrast on every row.
+ */
+:root {
+  --canvas: #edeef1;
+  --surface: #fbfbfc;
+  --surface-muted: #e3e5ea;
+  --surface-raised: #ffffff;
+  --border: #dbdee4;
+  --ink: #242830;
+  --ink-muted: #616a76;
+  --accent: #4f5ecb;
+  --accent-ink: #ffffff;
+  --accent-soft: #e9ecfb;
+  --danger: #bb2d2d;
+  --scrim: rgb(24 27 33 / 0.45);
+
+  color-scheme: light;
 }
+
+/*
+ * Dark: the canvas floor is lifted off true black and the paper sits a notch
+ * above it; text is dimmed from near-white to cut the halation you get from
+ * #fff glyphs on a very dark field.
+ */
+.dark {
+  --canvas: #131519;
+  --surface: #191c22;
+  --surface-muted: #262b34;
+  --surface-raised: #22272f;
+  --border: #313742;
+  --ink: #dee1e7;
+  --ink-muted: #98a1ad;
+  --accent: #828ff2;
+  --accent-ink: #12141c;
+  --accent-soft: #232a3f;
+  --danger: #ee9090;
+  --scrim: rgb(0 0 0 / 0.65);
+
+  color-scheme: dark;
+}
+
+/*
+ * Drives the `dark:` variant off the class the toggle sets, rather than off the
+ * media query. The class is applied before first paint (see ThemeScript), and
+ * is seeded from prefers-color-scheme when the visitor has no stored choice.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Touch-sized targets, without guessing from viewport width.
+ *
+ * A narrow window on a laptop still has a mouse and does not need 36px steppers;
+ * a wide tablet does. `pointer: coarse` asks the question that actually matters,
+ * so controls that are comfortable with a cursor can grow only where a finger is
+ * doing the pointing.
+ */
+@custom-variant coarse (@media (pointer: coarse));
 
 html,
 body {
-  background: var(--color-surface);
-  color: var(--color-ink);
+  background: var(--canvas);
+  color: var(--ink);
 }
 
 body {
@@ -43,6 +110,57 @@ body {
 
 /* Visible focus everywhere. Card management is keyboard-heavy data entry. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/*
+ * Foil marker.
+ *
+ * A finish is a property of one physical copy, not of the printing, and it is
+ * the thing people most want to spot while scanning a list. As its own column
+ * it was a word repeated down the page saying "Non-foil"; as a mark beside the
+ * name it is visible without costing a column.
+ *
+ * The gradient is clipped to the glyph and drifts across it, which is as close
+ * to the way foil catches the light as flat CSS gets. Colours are fixed rather
+ * than themed — foil looks the same under either background, and the drop
+ * shadow supplies the glow.
+ */
+.foil-mark {
+  background-image: linear-gradient(
+    100deg,
+    #ff6b6b,
+    #ffd93d,
+    #6bf178,
+    #4ecdc4,
+    #7c8cf0,
+    #e07bf0,
+    #ff6b6b
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Two shadows: a tight bright one for the glow, a wider soft one for bloom. */
+  filter: drop-shadow(0 0 2px rgb(255 255 255 / 0.55))
+    drop-shadow(0 0 5px rgb(160 120 255 / 0.45));
+  animation: foil-shimmer 6s linear infinite;
+}
+
+@keyframes foil-shimmer {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 300% 50%;
+  }
+}
+
+/* A shimmering glyph on every foil row is exactly the sort of motion that
+   should stop when someone has asked for less of it. The gradient stays. */
+@media (prefers-reduced-motion: reduce) {
+  .foil-mark {
+    animation: none;
+  }
 }

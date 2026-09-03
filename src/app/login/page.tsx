@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { signIn, type AuthState } from "@/app/auth/actions";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Banner, Button, Field, Input } from "@/components/ui";
 
 const INITIAL: AuthState = { error: null, notice: null };
@@ -38,8 +39,12 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6 py-12">
+      <div className="absolute right-6 top-6">
+        <ThemeToggle />
+      </div>
+
       <h1 className="text-2xl font-semibold">Sign in</h1>
-      <p className="mt-1 mb-6 text-sm text-[--color-ink-muted]">
+      <p className="mt-1 mb-6 text-sm text-ink-muted">
         Welcome back to MTGManager.
       </p>
 
@@ -48,9 +53,9 @@ export default function LoginPage() {
         <LoginForm />
       </Suspense>
 
-      <p className="mt-6 text-sm text-[--color-ink-muted]">
+      <p className="mt-6 text-sm text-ink-muted">
         No account?{" "}
-        <Link href="/signup" className="text-[--color-accent] underline">
+        <Link href="/signup" className="text-accent underline">
           Create one
         </Link>
       </p>

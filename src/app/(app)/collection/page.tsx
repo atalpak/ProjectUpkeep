@@ -1,100 +1,97 @@
 import Link from "next/link";
 
-import { getCollection, getLocations, UNSORTED } from "@/lib/collection/queries";
-import { CollectionList } from "@/components/CollectionList";
-import { Button, EmptyState, Input, Select } from "@/components/ui";
+import {
+  getAvailability,
+  getCollection,
+  getCollectionSets,
+  getLocations,
+} from "@/lib/collection/queries";
+import { filterFromParams, isFilterActive } from "@/lib/collection/filters";
+import { CollectionFilters } from "@/components/collection/CollectionFilters";
+import { CollectionTable } from "@/components/collection/CollectionTable";
+import { Button, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Collection · MTGManager" };
 
-type SearchParams = Promise<{ location?: string; q?: string }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 export default async function CollectionPage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
-  const { location, q } = await searchParams;
+  const filter = filterFromParams(await searchParams);
 
-  const [instances, locations] = await Promise.all([
-    getCollection({ location, q }),
+  const [collection, locations, sets, availability] = await Promise.all([
+    getCollection(filter),
     getLocations(),
+    getCollectionSets(),
+    getAvailability(),
   ]);
 
   // Physical cards, not rows — a stack of 12 should read as 12.
-  const totalCards = instances.reduce((sum, i) => sum + i.quantity, 0);
-  const filtered = Boolean(location || q);
+  const totalCards = collection.rows.reduce((sum, i) => sum + i.quantity, 0);
+  const filtered = isFilterActive(filter);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Collection</h1>
-          <p className="text-sm text-[--color-ink-muted]">
-            {totalCards} card{totalCards === 1 ? "" : "s"} in {instances.length} entr
-            {instances.length === 1 ? "y" : "ies"}
-            {filtered ? " (filtered)" : ""}
-          </p>
-        </div>
+    <div className="space-y-5">
+      <PageHeader
+        title="Collection"
+        subtitle={
+          <>
+            {totalCards} card{totalCards === 1 ? "" : "s"} in {collection.rows.length} entr
+            {collection.rows.length === 1 ? "y" : "ies"}
+            {filtered ? ` (filtered from ${collection.total})` : ""}
+          </>
+        }
+        actions={
+          <>
+            <Link href="/collection/import">
+              <Button variant="secondary">Import</Button>
+            </Link>
+            <Link href="/collection/add">
+              <Button>Add a card</Button>
+            </Link>
+          </>
+        }
+      />
 
-        <Link href="/collection/add">
-          <Button>Add a card</Button>
-        </Link>
-      </div>
+      <CollectionFilters initial={filter} locations={locations} sets={sets} />
 
-      {/* A plain GET form: filters end up in the URL, so they survive a refresh
-          and can be linked to. */}
-      <form className="flex flex-wrap items-end gap-3" method="get">
-        <label className="flex-1 min-w-48 space-y-1">
-          <span className="text-xs font-medium text-[--color-ink-muted]">Search</span>
-          <Input name="q" defaultValue={q ?? ""} placeholder="Card name" />
-        </label>
+      {collection.truncated ? (
+        <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-ink-muted">
+          Showing the first {collection.total} entries. Filtering beyond that needs the query to
+          move into the database — see the note in src/lib/collection/filters.ts.
+        </p>
+      ) : null}
 
-        <label className="space-y-1">
-          <span className="text-xs font-medium text-[--color-ink-muted]">Location</span>
-          <Select name="location" defaultValue={location ?? ""} className="w-52">
-            <option value="">Everywhere</option>
-            <option value={UNSORTED}>Unsorted</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </Select>
-        </label>
-
-        <Button variant="secondary" type="submit">
-          Apply
-        </Button>
-        {filtered ? (
-          <Link href="/collection" className="text-sm text-[--color-accent] underline">
-            Clear
-          </Link>
-        ) : null}
-      </form>
-
-      {instances.length === 0 ? (
+      {collection.rows.length === 0 ? (
         filtered ? (
           <EmptyState title="Nothing matches those filters.">
-            <Link href="/collection" className="text-[--color-accent] underline">
+            <Link href="/collection" className="text-accent underline">
               Clear the filters
             </Link>
           </EmptyState>
         ) : (
           <EmptyState title="Your collection is empty.">
             <p>
-              <Link href="/collection/add" className="text-[--color-accent] underline">
+              <Link href="/collection/add" className="text-accent underline">
                 Add your first card
               </Link>{" "}
+              or{" "}
+              <Link href="/collection/import" className="text-accent underline">
+                import a list
+              </Link>{" "}
               to get started.
-            </p>
-            <p className="mt-2 text-xs">
-              Nothing to search? The card database is populated by the Scryfall sync —
-              run <code>npm run sync:scryfall</code>.
             </p>
           </EmptyState>
         )
       ) : (
-        <CollectionList instances={instances} locations={locations} />
+        <CollectionTable
+          rows={collection.rows}
+          locations={locations}
+          availability={availability}
+        />
       )}
     </div>
   );

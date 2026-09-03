@@ -11,14 +11,17 @@
 
 ## 1. Positioning
 
-**MVP is not a pricing or marketplace tool.** No TCGPlayer/Cardmarket integration, no valuation, no reseller features in v1. This is a deliberate scope cut to keep the build small, free-tier-hostable, and shippable solo.
+**MVP is not a marketplace or reseller tool.** No TCGPlayer/Cardmarket API integration, no cross-listing, no active buy/sell transactions in v1. This is a deliberate scope cut to keep the build small, free-tier-hostable, and shippable solo.
 
-**The MVP is two things done well:**
+**MVP does include reference pricing**, but only because it's essentially free to add: Scryfall's own bulk data already bundles market price fields (sourced from TCGPlayer/Cardmarket/Cardhoarder) alongside every card printing. Displaying that as informational reference — per card and as a rough estimated collection value — costs nothing extra in API calls or budget, since it rides on the same sync job as everything else. This is explicitly *not* a valuation engine: no editable pricing, no price history/tracking, no arbitrage tooling. Outbound links to TCGPlayer/Card Kingdom listing pages (so a user can go buy/sell elsewhere) are a planned v2 addition, not v1 — see the roadmap.
+
+**The MVP is three things done well:**
 
 1. **Physical location tracking** — not just "which cards do I own" but *where each copy actually is* (this specific binder, that specific box, this deck) so a collection mirrors reality.
 2. **Frictionless peer-to-peer trading** — when two users complete a trade, the traded cards move automatically between their inventories (and update each card's location) with no manual delete/re-add on either side.
+3. **Reference pricing, at zero marginal cost** — since Scryfall already gives it to us for free alongside card data, show it, but don't build a business around it.
 
-**Competitive reality check (from market scan):** location tagging exists in a few apps (e.g. free-text location tags), and a couple of niche trade tools do move cards between accounts automatically on trade completion. Neither is universal — most major players (ManaBox, Deckbox, Moxfield) still treat trading as a valuation/matching tool, not a real inventory-transfer event, and location tracking is usually a single flat "binder" field, not structured containers. So the individual pieces aren't unprecedented — the wedge is doing **both, well, for free/cheap, without dragging in a pricing engine** most users don't need for this use case.
+**Competitive reality check (from market scan):** location tagging exists in a few apps (e.g. free-text location tags), and a couple of niche trade tools do move cards between accounts automatically on trade completion. Neither is universal — most major players (ManaBox, Deckbox, Moxfield) still treat trading as a valuation/matching tool, not a real inventory-transfer event, and location tracking is usually a single flat "binder" field, not structured containers. Reference pricing itself is table-stakes elsewhere, so it's not a differentiator — the wedge is still location tracking + real trade transfer, done **both, well, for free/cheap, without building a full pricing/marketplace engine** most users don't need for this use case.
 
 **Target user (hypothesis, validate in Phase 0):** Players/collectors who trade semi-regularly with a known circle (LGS regulars, playgroups, local Discord/Facebook trade groups) and want their digital inventory to actually reflect physical reality without re-entering data after every trade.
 
@@ -31,9 +34,12 @@
 - User collection: individual card *instances* (not just quantities) — each instance has condition, foil/finish, language, and a **location**
 - **Locations** are user-defined containers: decks, binders, boxes — flexible, nestable if reasonable (e.g. "Box 3" as a container, "Commander Binder" as another), reassignable by drag-or-select
 - **Trading:** propose a trade to another user (specific instances offered/requested) → other user accepts/declines/counters → on acceptance, the system atomically transfers the specific card instances between both users' inventories and updates location on both sides → trade history log for both parties
+- **Reference pricing:** display Scryfall's bundled market price (USD nonfoil/foil) per card instance, plus a simple estimated total collection value — read-only, refreshed on the regular Scryfall sync, clearly labeled as an estimate
 
 **Explicitly out of scope for v1:**
-- Any marketplace pricing (TCGPlayer, Cardmarket, etc.)
+- Marketplace integration, active buy/sell transactions, or cross-listing to TCGPlayer/Cardmarket
+- Outbound purchase links to TCGPlayer/Card Kingdom (planned v2 — see roadmap)
+- Price history/tracking over time, or any valuation engine beyond Scryfall's bundled snapshot
 - Deck legality/format validation
 - Mobile app (Phase 5+)
 - Payments/subscriptions (evaluate after there's a real user base — v1 can be free to build the base)

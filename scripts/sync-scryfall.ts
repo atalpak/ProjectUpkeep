@@ -22,6 +22,9 @@
  *   npm run sync:scryfall -- --limit 5000   # for a quick smoke test
  */
 
+import { Readable } from "node:stream";
+import { createGunzip } from "node:zlib";
+
 import { config as loadEnv } from "dotenv";
 
 import { createClient } from "@supabase/supabase-js";
@@ -112,7 +115,9 @@ async function main() {
 
   log(
     `export updated_at=${entry.updated_at} size=${
-      entry.size ? `${(entry.size / 1_000_000).toFixed(0)}MB` : "unknown"
+      entry.compressed_size
+        ? `${(entry.compressed_size / 1_000_000).toFixed(0)}MB compressed`
+        : "unknown"
     }`,
   );
 
@@ -164,11 +169,20 @@ async function main() {
 
   try {
     // ---- 4. Stream, map, batch-upsert -------------------------------------
-    log(`downloading ${entry.download_uri}`);
-    const download = await fetch(entry.download_uri, { headers: scryfallHeaders(contact) });
+    log(`downloading ${entry.jsonl_download_uri}`);
+    const download = await fetch(entry.jsonl_download_uri, {
+      headers: scryfallHeaders(contact),
+    });
     if (!download.ok || !download.body) {
       throw new Error(`Bulk download returned ${download.status} ${download.statusText}`);
     }
+
+    // The export is served as application/gzip with no content-encoding header,
+    // so fetch hands back the compressed bytes as-is. Decompress here, on the
+    // transport side, and let streamCardRows deal only in plain JSON Lines.
+    const cards = Readable.fromWeb(
+      download.body as Parameters<typeof Readable.fromWeb>[0],
+    ).pipe(createGunzip());
 
     const upsertBatch = async (rows: CardRow[]) => {
       // Upsert on the primary key: new printings insert, existing ones refresh.
@@ -185,7 +199,7 @@ async function main() {
       }
     };
 
-    const result = await streamCardRows(download.body, {
+    const result = await streamCardRows(cards, {
       batchSize,
       syncedAt,
       limit,

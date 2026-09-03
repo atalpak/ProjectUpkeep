@@ -7,8 +7,8 @@ import {
   createLocation,
   deleteLocation,
   renameLocation,
-  EMPTY_LOCATION_STATE,
 } from "@/app/(app)/locations/actions";
+import { EMPTY_LOCATION_STATE } from "@/app/(app)/locations/action-state";
 import { Banner, Button, Card as Panel, Input, Select } from "@/components/ui";
 import {
   LOCATION_TYPES,
@@ -30,7 +30,7 @@ function LocationRow({
   const [state, action, pending] = useActionState(renameLocation, EMPTY_LOCATION_STATE);
 
   return (
-    <div className={nested ? "border-t border-[--color-border] py-2 pl-6" : "py-2"}>
+    <div className={nested ? "border-t border-border py-2 pl-6" : "py-2"}>
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <Link
@@ -39,7 +39,7 @@ function LocationRow({
           >
             {location.name}
           </Link>
-          <span className="ml-2 text-xs text-[--color-ink-muted]">
+          <span className="ml-2 text-xs text-ink-muted">
             {LOCATION_TYPE_LABELS[location.type]}
             {typeof count === "number"
               ? ` · ${count} card${count === 1 ? "" : "s"}`
@@ -63,11 +63,11 @@ function LocationRow({
         <form action={action} className="mt-2 flex flex-wrap items-end gap-2">
           <input type="hidden" name="location_id" value={location.id} />
           <label className="space-y-1">
-            <span className="text-xs font-medium text-[--color-ink-muted]">Name</span>
+            <span className="text-xs font-medium text-ink-muted">Name</span>
             <Input name="name" defaultValue={location.name} maxLength={80} required />
           </label>
           <label className="space-y-1">
-            <span className="text-xs font-medium text-[--color-ink-muted]">Type</span>
+            <span className="text-xs font-medium text-ink-muted">Type</span>
             <Select name="type" defaultValue={location.type}>
               {LOCATION_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -104,12 +104,12 @@ export function LocationManager({
         <h2 className="mb-3 text-sm font-medium">New location</h2>
         <form action={action} className="flex flex-wrap items-end gap-3">
           <label className="min-w-48 flex-1 space-y-1">
-            <span className="text-xs font-medium text-[--color-ink-muted]">Name</span>
+            <span className="text-xs font-medium text-ink-muted">Name</span>
             <Input name="name" placeholder="Commander Binder" maxLength={80} required />
           </label>
 
           <label className="space-y-1">
-            <span className="text-xs font-medium text-[--color-ink-muted]">Type</span>
+            <span className="text-xs font-medium text-ink-muted">Type</span>
             <Select name="type" defaultValue="binder">
               {LOCATION_TYPES.map((t) => (
                 <option key={t} value={t}>
@@ -120,7 +120,7 @@ export function LocationManager({
           </label>
 
           <label className="space-y-1">
-            <span className="text-xs font-medium text-[--color-ink-muted]">Inside</span>
+            <span className="text-xs font-medium text-ink-muted">Inside</span>
             <Select name="parent_location_id" defaultValue="" className="w-52">
               <option value="">Nothing (top level)</option>
               {topLevel.map((l) => (
@@ -142,7 +142,7 @@ export function LocationManager({
         </form>
       </Panel>
 
-      <div className="divide-y divide-[--color-border] rounded-lg border border-[--color-border] px-4">
+      <div className="divide-y divide-border rounded-lg border border-border px-4">
         {tree.map((node) => (
           <div key={node.id} className="py-1">
             <LocationRow location={node} count={node.instance_count} />

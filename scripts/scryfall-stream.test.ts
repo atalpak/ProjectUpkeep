@@ -37,10 +37,18 @@ function fakeCard(i: number) {
   };
 }
 
+/**
+ * Renders cards the way the bulk export ships them: one JSON object per line,
+ * newline-separated, rather than a single JSON array.
+ */
+function jsonl(cards: unknown[]): string {
+  return cards.map((c) => JSON.stringify(c)).join("\n") + "\n";
+}
+
 /** Serves `body` once, then shuts down. Returns the URL. */
 async function serveOnce(body: string): Promise<{ url: string; close: () => Promise<void> }> {
   const server = http.createServer((_req, res) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
+    res.writeHead(200, { "Content-Type": "application/x-ndjson" });
     // Write in small chunks so the consumer really has to reassemble a stream
     // rather than getting one convenient buffer.
     for (let i = 0; i < body.length; i += 1024) res.write(body.slice(i, i + 1024));
@@ -50,7 +58,7 @@ async function serveOnce(body: string): Promise<{ url: string; close: () => Prom
   await once(server, "listening");
   const { port } = server.address() as { port: number };
   return {
-    url: `http://127.0.0.1:${port}/bulk.json`,
+    url: `http://127.0.0.1:${port}/bulk.jsonl`,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());
@@ -59,9 +67,9 @@ async function serveOnce(body: string): Promise<{ url: string; close: () => Prom
   };
 }
 
-test("streams a large array over HTTP in batches, preserving every record", async () => {
+test("streams a large JSONL export over HTTP in batches, preserving every record", async () => {
   const total = 2500;
-  const body = JSON.stringify(Array.from({ length: total }, (_, i) => fakeCard(i)));
+  const body = jsonl(Array.from({ length: total }, (_, i) => fakeCard(i)));
   const { url, close } = await serveOnce(body);
 
   try {
@@ -93,7 +101,7 @@ test("streams a large array over HTTP in batches, preserving every record", asyn
 });
 
 test("emits a final partial batch", async () => {
-  const body = JSON.stringify(Array.from({ length: 7 }, (_, i) => fakeCard(i)));
+  const body = jsonl(Array.from({ length: 7 }, (_, i) => fakeCard(i)));
   const { url, close } = await serveOnce(body);
   try {
     const sizes: number[] = [];
@@ -112,7 +120,7 @@ test("emits a final partial batch", async () => {
 });
 
 test("counts unusable records instead of writing half-rows", async () => {
-  const body = JSON.stringify([
+  const body = jsonl([
     fakeCard(1),
     { id: "", name: "No id", set: "tst", collector_number: "2" },
     { ...fakeCard(3), set: "" },
@@ -137,7 +145,7 @@ test("counts unusable records instead of writing half-rows", async () => {
 });
 
 test("--limit stops early without erroring on the unread remainder", async () => {
-  const body = JSON.stringify(Array.from({ length: 5000 }, (_, i) => fakeCard(i)));
+  const body = jsonl(Array.from({ length: 5000 }, (_, i) => fakeCard(i)));
   const { url, close } = await serveOnce(body);
   try {
     const result = await streamCardRows((await fetch(url)).body!, {
@@ -154,7 +162,7 @@ test("--limit stops early without erroring on the unread remainder", async () =>
 });
 
 test("applies backpressure: a slow sink does not race ahead", async () => {
-  const body = JSON.stringify(Array.from({ length: 1000 }, (_, i) => fakeCard(i)));
+  const body = jsonl(Array.from({ length: 1000 }, (_, i) => fakeCard(i)));
   const { url, close } = await serveOnce(body);
   try {
     let inFlight = 0;
@@ -176,7 +184,7 @@ test("applies backpressure: a slow sink does not race ahead", async () => {
 });
 
 test("a failing sink aborts the run rather than silently continuing", async () => {
-  const body = JSON.stringify(Array.from({ length: 1000 }, (_, i) => fakeCard(i)));
+  const body = jsonl(Array.from({ length: 1000 }, (_, i) => fakeCard(i)));
   const { url, close } = await serveOnce(body);
   try {
     let calls = 0;
@@ -198,7 +206,7 @@ test("a failing sink aborts the run rather than silently continuing", async () =
 });
 
 test("accepts a plain Node stream as well as a web stream", async () => {
-  const body = JSON.stringify([fakeCard(1), fakeCard(2)]);
+  const body = jsonl([fakeCard(1), fakeCard(2)]);
   const rows: CardRow[] = [];
   const result = await streamCardRows(Readable.from([body]), {
     batchSize: 10,

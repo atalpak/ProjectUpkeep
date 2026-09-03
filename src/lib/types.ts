@@ -89,6 +89,50 @@ export type Card = {
   lang: string;
   digital: boolean;
   last_synced_at: string;
+
+  // Detail columns (migration 00000000000007). Null on any row that has not
+  // been through a sync since that migration was applied.
+  mana_cost: string | null;
+  cmc: number | null;
+  colors: string[] | null;
+  color_identity: string[] | null;
+  oracle_text: string | null;
+  flavor_text: string | null;
+  keywords: string[] | null;
+  power: string | null;
+  toughness: string | null;
+  loyalty: string | null;
+  artist: string | null;
+  layout: string | null;
+  card_faces: CardFace[] | null;
+  set_type: string | null;
+
+  // Price columns (migration 00000000000011). Null on any row that has not
+  // been through a sync since that migration was applied, and null for any
+  // finish with no recent sale — which is not the same as free.
+  price_usd: number | null;
+  price_usd_foil: number | null;
+  price_usd_etched: number | null;
+  price_eur: number | null;
+  price_eur_foil: number | null;
+  tcgplayer_id: number | null;
+  purchase_uri: string | null;
+  prices_updated_at: string | null;
+};
+
+/** One face of a multi-faced card, as stored in `cards.card_faces`. */
+export type CardFace = {
+  name?: string;
+  mana_cost?: string;
+  type_line?: string;
+  oracle_text?: string;
+  flavor_text?: string;
+  colors?: string[];
+  power?: string;
+  toughness?: string;
+  loyalty?: string;
+  artist?: string;
+  image_uris?: { small?: string; normal?: string; large?: string };
 };
 
 export type Location = {

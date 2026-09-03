@@ -8,9 +8,10 @@
 export type ScryfallBulkEntry = {
   type: string;
   updated_at: string;
-  download_uri: string;
-  size?: number;
-  content_encoding?: string;
+  // Scryfall serves the bulk exports as gzipped JSON Lines. The uncompressed
+  // JSON-array form (download_uri/size) was retired; these replace it.
+  jsonl_download_uri: string;
+  compressed_size?: number;
 };
 
 type ScryfallImageUris = {
@@ -19,12 +20,49 @@ type ScryfallImageUris = {
   large?: string;
 };
 
-export type ScryfallCard = {
+/**
+ * One face of a card.
+ *
+ * Single-faced cards carry these fields at the top level. Transform and modal
+ * double-faced cards do not: they have no top-level mana cost, oracle text,
+ * colours or stats at all, only a `card_faces` array. Anything reading a cost
+ * or a rules text therefore has to fall back to the front face.
+ */
+export type ScryfallFace = {
+  oracle_id?: string;
+  name?: string;
+  mana_cost?: string;
+  type_line?: string;
+  oracle_text?: string;
+  flavor_text?: string;
+  colors?: string[];
+  power?: string;
+  toughness?: string;
+  loyalty?: string;
+  artist?: string;
+  image_uris?: ScryfallImageUris;
+};
+
+/**
+ * Prices as Scryfall publishes them: strings, or null where that finish does
+ * not exist or has no recent sale. USD is TCGplayer-derived, EUR is Cardmarket.
+ */
+export type ScryfallPrices = {
+  usd?: string | null;
+  usd_foil?: string | null;
+  usd_etched?: string | null;
+  eur?: string | null;
+  eur_foil?: string | null;
+  tix?: string | null;
+};
+
+export type ScryfallCard = ScryfallFace & {
   id: string;
   oracle_id?: string;
   name: string;
   set: string;
   set_name?: string;
+  set_type?: string;
   collector_number: string;
   rarity?: string;
   type_line?: string;
@@ -33,12 +71,16 @@ export type ScryfallCard = {
   digital?: boolean;
   finishes?: string[];
   scryfall_uri?: string;
+  layout?: string;
+  cmc?: number;
+  color_identity?: string[];
+  keywords?: string[];
   image_uris?: ScryfallImageUris;
-  /** Present on double-faced/split cards, which carry images per face. */
-  card_faces?: Array<{
-    oracle_id?: string;
-    image_uris?: ScryfallImageUris;
-  }>;
+  /** Present on double-faced/split cards, which carry their detail per face. */
+  card_faces?: ScryfallFace[];
+  prices?: ScryfallPrices;
+  tcgplayer_id?: number;
+  purchase_uris?: { tcgplayer?: string; cardmarket?: string; cardhoarder?: string };
 };
 
 /** A row shaped for `insert into public.cards`. */
@@ -59,6 +101,32 @@ export type CardRow = {
   lang: string;
   digital: boolean;
   last_synced_at: string;
+
+  // Detail columns, added in migration 00000000000007.
+  mana_cost: string | null;
+  cmc: number | null;
+  colors: string[] | null;
+  color_identity: string[] | null;
+  oracle_text: string | null;
+  flavor_text: string | null;
+  keywords: string[] | null;
+  power: string | null;
+  toughness: string | null;
+  loyalty: string | null;
+  artist: string | null;
+  layout: string | null;
+  card_faces: ScryfallFace[] | null;
+  set_type: string | null;
+
+  // Price columns, added in migration 00000000000011.
+  price_usd: number | null;
+  price_usd_foil: number | null;
+  price_usd_etched: number | null;
+  price_eur: number | null;
+  price_eur_foil: number | null;
+  tcgplayer_id: number | null;
+  purchase_uri: string | null;
+  prices_updated_at: string;
 };
 
 /**
@@ -90,6 +158,25 @@ export function toCardRow(card: ScryfallCard, syncedAt: string): CardRow | null 
 
   const finishes = (card.finishes ?? []).filter((f) => KNOWN_FINISHES.has(f));
 
+  /**
+   * Scryfall sends prices as strings, and null where a finish has no recent
+   * sale. Number("") is 0, which would claim a card is free, so anything that
+   * is not a finite positive number becomes null and is reported as "no price"
+   * rather than as zero.
+   */
+  const price = (raw: string | null | undefined): number | null => {
+    if (raw === null || raw === undefined || raw === "") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  };
+
+  // Transform and modal double-faced cards carry no top-level cost, rules text,
+  // colours or stats — only faces. Fall back to the front face, which is the
+  // same face the image already comes from, so the panel stays self-consistent.
+  const front = card.card_faces?.[0];
+  const faceOr = <K extends keyof ScryfallFace>(key: K): NonNullable<ScryfallFace[K]> | null =>
+    (card[key] as ScryfallFace[K]) ?? front?.[key] ?? null;
+
   return {
     scryfall_id: card.id,
     oracle_id: oracleId,
@@ -109,6 +196,33 @@ export function toCardRow(card: ScryfallCard, syncedAt: string): CardRow | null 
     lang: card.lang ?? "en",
     digital: card.digital ?? false,
     last_synced_at: syncedAt,
+
+    mana_cost: faceOr("mana_cost"),
+    // A real 0 is meaningful, so only undefined becomes null.
+    cmc: card.cmc ?? null,
+    colors: card.colors ?? front?.colors ?? null,
+    color_identity: card.color_identity ?? null,
+    oracle_text: faceOr("oracle_text"),
+    flavor_text: faceOr("flavor_text"),
+    keywords: card.keywords ?? null,
+    power: faceOr("power"),
+    toughness: faceOr("toughness"),
+    loyalty: faceOr("loyalty"),
+    artist: card.artist ?? front?.artist ?? null,
+    layout: card.layout ?? null,
+    // Only stored when there is genuinely more than one face to show.
+    card_faces: card.card_faces && card.card_faces.length > 1 ? card.card_faces : null,
+    set_type: card.set_type ?? null,
+
+    price_usd: price(card.prices?.usd),
+    price_usd_foil: price(card.prices?.usd_foil),
+    price_usd_etched: price(card.prices?.usd_etched),
+    price_eur: price(card.prices?.eur),
+    price_eur_foil: price(card.prices?.eur_foil),
+    tcgplayer_id: card.tcgplayer_id ?? null,
+    purchase_uri: card.purchase_uris?.tcgplayer ?? null,
+    // Stamped with the run, so the UI can say how old a number is.
+    prices_updated_at: syncedAt,
   };
 }
 

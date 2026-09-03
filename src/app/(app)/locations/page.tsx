@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { getLocationTree, UNSORTED } from "@/lib/collection/queries";
 import { LocationManager } from "@/components/LocationManager";
-import { Card as Panel, EmptyState } from "@/components/ui";
+import { Card as Panel, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Locations · MTGManager" };
 
@@ -11,13 +11,10 @@ export default async function LocationsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Locations</h1>
-        <p className="text-sm text-[--color-ink-muted]">
-          Where your cards physically live. Deleting a location never deletes cards —
-          they become unsorted, and anything nested inside moves up a level.
-        </p>
-      </div>
+      <PageHeader
+        title="Locations"
+        subtitle="Where your cards physically live. Deleting a location never deletes cards — they become unsorted, and anything nested inside moves up a level."
+      />
 
       {/* Unsorted is a first-class place, not an error state, so it gets a real
           row rather than being hidden behind a filter. */}
@@ -26,11 +23,11 @@ export default async function LocationsPage() {
           <Link href={`/collection?location=${UNSORTED}`} className="font-medium hover:underline">
             Unsorted
           </Link>
-          <p className="text-xs text-[--color-ink-muted]">
+          <p className="text-xs text-ink-muted">
             Cards you own but haven&apos;t filed anywhere yet.
           </p>
         </div>
-        <span className="text-sm text-[--color-ink-muted]">
+        <span className="text-sm text-ink-muted">
           {unsortedCount} card{unsortedCount === 1 ? "" : "s"}
         </span>
       </Panel>

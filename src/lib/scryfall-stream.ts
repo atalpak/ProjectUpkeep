@@ -1,9 +1,10 @@
 /**
  * Streaming reader for Scryfall's bulk export.
  *
- * The `default_cards` export is a single JSON array a few hundred megabytes
- * large. Buffering it would blow the memory budget of any free-tier runner, so
- * it is parsed incrementally and handed to the caller in batches.
+ * The `default_cards` export is JSON Lines — one card object per line — a few
+ * hundred megabytes uncompressed. Buffering it would blow the memory budget of
+ * any free-tier runner, so it is parsed incrementally and handed to the caller
+ * in batches.
  *
  * Kept out of scripts/sync-scryfall.ts so this — the part most likely to break
  * quietly — can be tested against a fixture without a network or a database.
@@ -12,8 +13,7 @@
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
-import { parser } from "stream-json";
-import { streamArray } from "stream-json/streamers/StreamArray";
+import { parser } from "stream-json/jsonl/Parser";
 
 import { toCardRow, type CardRow, type ScryfallCard } from "./scryfall";
 
@@ -41,11 +41,12 @@ export type StreamCardRowsResult = {
 };
 
 /**
- * Parses a JSON array of Scryfall cards from `source`, mapping and batching
- * them into `onBatch`.
+ * Parses JSON Lines of Scryfall cards from `source`, mapping and batching them
+ * into `onBatch`.
  *
- * Accepts a Node stream or a web ReadableStream, so it takes `response.body`
- * from fetch directly as well as a file handle in tests.
+ * Expects decompressed bytes: the bulk export ships gzipped, and unwrapping it
+ * is the caller's job (see scripts/sync-scryfall.ts). Accepts a Node stream or
+ * a web ReadableStream, so a fixture or a file handle works in tests.
  */
 export async function streamCardRows(
   source: Readable | ReadableStream<Uint8Array>,
@@ -93,7 +94,6 @@ export async function streamCardRows(
     await pipeline(
       nodeStream,
       parser(),
-      streamArray(),
       async function consume(records: AsyncIterable<{ value: ScryfallCard }>) {
         for await (const { value } of records) {
           // Drain rather than break: breaking out of a for-await inside a
