@@ -7,10 +7,13 @@ import { acceptTrade, closeTrade } from "@/app/(app)/trades/actions";
 import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
+import { Price } from "@/components/PriceToggle";
 import { Badge, Banner, Button, Card as Panel, EmptyState } from "@/components/ui";
+import { displayPrice } from "@/lib/collection/pricing";
 import { TRADE_STATUS_LABELS, type TradeDetail } from "@/lib/social/types";
 import { expiryLabel, isExpired } from "@/lib/social/trade-status";
-import type { CardInstanceWithCard } from "@/lib/types";
+
+type TradeSideItem = TradeDetail["items"][number];
 
 /**
  * Your trades, open and settled.
@@ -178,22 +181,34 @@ function TradeCard({
   );
 }
 
-function ItemColumn({
-  title,
-  items,
-}: {
-  title: string;
-  items: Array<{ id: string; quantity: number; instance: CardInstanceWithCard | null }>;
-}) {
+/** Value of one side, priced by the snapshot finish. Null when nothing priced. */
+function sideValue(items: TradeSideItem[]): number | null {
+  let total = 0;
+  let any = false;
+  for (const item of items) {
+    const unit = displayPrice(item.card, item.finish ?? "nonfoil").value;
+    if (unit !== null) {
+      total += unit * item.quantity;
+      any = true;
+    }
+  }
+  return any ? Math.round(total * 100) / 100 : null;
+}
+
+function ItemColumn({ title, items }: { title: string; items: TradeSideItem[] }) {
+  const value = sideValue(items);
   return (
     <div>
-      <h3 className="mb-1 text-xs font-medium text-ink-muted">{title}</h3>
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <h3 className="text-xs font-medium text-ink-muted">{title}</h3>
+        <Price value={value} className="text-xs text-ink-muted" />
+      </div>
       {items.length === 0 ? (
         <p className="text-xs text-ink-muted">Nothing</p>
       ) : (
         <ul className="space-y-0.5">
           {items.map((item) => (
-            <ItemRow key={item.id} quantity={item.quantity} instance={item.instance} />
+            <ItemRow key={item.id} item={item} />
           ))}
         </ul>
       )}
@@ -201,27 +216,30 @@ function ItemColumn({
   );
 }
 
-function ItemRow({
-  quantity,
-  instance,
-}: {
-  quantity: number;
-  instance: CardInstanceWithCard | null;
-}) {
-  const card = instance?.cards ?? null;
+function ItemRow({ item }: { item: TradeSideItem }) {
+  // The snapshot is the identity; the live instance only adds nothing new here.
+  const card = item.card;
   const preview = useCardPreview(card);
+  const dp = displayPrice(card, item.finish ?? "nonfoil");
 
   return (
     <li className="flex items-center gap-1.5 text-sm">
       <span className="w-5 shrink-0 text-right text-xs tabular-nums text-ink-muted">
-        {quantity}
+        {item.quantity}
       </span>
-      <span {...preview} tabIndex={0} className="cursor-default truncate hover:underline">
-        {/* A completed trade's card may since have moved or been split, so the
-            row can outlive what it pointed at. */}
+      <span
+        {...preview}
+        tabIndex={0}
+        className="min-w-0 flex-1 cursor-default truncate hover:underline"
+      >
         {card?.name ?? "a card"}
       </span>
-      {instance ? <FoilMark finish={instance.finish} /> : null}
+      {item.finish && item.finish !== "nonfoil" ? <FoilMark finish={item.finish} /> : null}
+      <Price
+        value={dp.value}
+        approximate={dp.approximate}
+        className="shrink-0 text-xs text-ink-muted"
+      />
     </li>
   );
 }
