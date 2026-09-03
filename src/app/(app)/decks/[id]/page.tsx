@@ -11,7 +11,7 @@ import { cardKey } from "@/lib/collection/availability";
 import { DeckWorkspace } from "@/components/decks/DeckWorkspace";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Deck · MTGManager" };
+export const metadata = { title: "Deck · Project Upkeep" };
 
 /**
  * Never prerendered.

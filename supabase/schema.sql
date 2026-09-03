@@ -1,5 +1,5 @@
 -- ===========================================================================
--- MTGManager — complete schema, Phase 1
+-- Project Upkeep — complete schema, Phase 1
 --
 -- HOW TO USE THIS FILE
 --   1. Open your Supabase project.

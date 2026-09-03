@@ -43,7 +43,7 @@ export function TradingTerms({ accepted }: { accepted: boolean }) {
       </div>
 
       <ul className="list-disc space-y-1 pl-5 text-sm">
-        <li>A trade is an agreement with another user. MTGManager is not a party to it.</li>
+        <li>A trade is an agreement with another user. Project Upkeep is not a party to it.</li>
         <li>
           We are not liable for a trade — delivery, condition, and disputes are between the
           two of you. The app is provided as-is.

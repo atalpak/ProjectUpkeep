@@ -53,5 +53,5 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SCRYFALL_CONTACT: "mtgmanager (+https://github.com/${{ github.repository }})"
+          SCRYFALL_CONTACT: "project-upkeep (+https://github.com/${{ github.repository }})"
         run: npm run sync:scryfall ${{ inputs.force && '-- --force' || '' }}

@@ -12,7 +12,7 @@ import {
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { Card as Panel, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Settings · MTGManager" };
+export const metadata = { title: "Settings · Project Upkeep" };
 
 /**
  * Account maintenance.

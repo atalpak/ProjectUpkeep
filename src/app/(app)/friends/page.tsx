@@ -18,7 +18,7 @@ import { TradingTerms } from "@/components/social/TradingTerms";
 import { PageHeader } from "@/components/ui";
 import type { Location } from "@/lib/types";
 
-export const metadata = { title: "Friends · MTGManager" };
+export const metadata = { title: "Friends · Project Upkeep" };
 
 /**
  * The social hub.

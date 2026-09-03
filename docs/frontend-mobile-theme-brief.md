@@ -1,4 +1,4 @@
-# MTGManager — Frontend brief: mobile support, theme, layout
+# Project Upkeep — Frontend brief: mobile support, theme, layout
 
 **For:** a fresh coding-agent session (any capable model) working in this repo.
 **Goal:** make the app pleasant to use in a mobile browser, keep the eye-comfortable
@@ -260,7 +260,7 @@ using `useCardPreview`).
 2. **The preference.** New per-browser setting, same `useSyncExternalStore` +
    `localStorage` pattern as the price and column preferences (no flash risk — it
    only gates an `xl`-only element; server snapshot = default).
-   - Key: `mtgmanager-card-preview`. Values: `"sidebar"` (default) | `"tooltip"`.
+   - Key: `project-upkeep-card-preview`. Values: `"sidebar"` (default) | `"tooltip"`.
    - Expose `useCardPreviewMode()` returning the current value, and a setter.
    - Wrap read/write in `try/catch` (private mode) with an in-memory fallback,
      exactly like the existing preference modules.

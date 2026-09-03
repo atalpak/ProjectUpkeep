@@ -2,7 +2,7 @@ import { getLocations } from "@/lib/collection/queries";
 import { AddCardForm } from "@/components/AddCardForm";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Add a card · MTGManager" };
+export const metadata = { title: "Add a card · Project Upkeep" };
 
 export default async function AddCardPage() {
   const locations = await getLocations();

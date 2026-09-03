@@ -1,4 +1,4 @@
-# MTGManager — Phase 0 Discovery Interview Script
+# Project Upkeep — Phase 0 Discovery Interview Script
 
 **Goal:** Talk to 5-10 people who trade Magic cards semi-regularly. Confirm two things before we lock the data model:
 1. "My digital inventory drifts from reality after trades" is a real, felt pain — not just a theoretical one.

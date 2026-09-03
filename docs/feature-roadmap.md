@@ -1,4 +1,4 @@
-# MTGManager — Full Feature Roadmap
+# Project Upkeep — Full Feature Roadmap
 
 **Purpose:** the complete feature landscape, not just what's currently in build. Use this to sequence work after Phase 1/2 and to keep scope-creep conversations grounded — anything not in Tier 1-2 needs a deliberate decision to add, not a drift.
 

@@ -17,7 +17,7 @@ import { matchWants } from "@/lib/social/wants";
 import { ProfileTradables } from "@/components/social/ProfileTradables";
 import { EmptyState, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Profile · MTGManager" };
+export const metadata = { title: "Profile · Project Upkeep" };
 
 /**
  * Never prerendered: the page depends on who is signed in and who they are

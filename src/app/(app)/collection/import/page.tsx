@@ -2,7 +2,7 @@ import { getLocations } from "@/lib/collection/queries";
 import { ImportForm } from "@/components/ImportForm";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Import · MTGManager" };
+export const metadata = { title: "Import · Project Upkeep" };
 
 export default async function ImportPage() {
   const locations = await getLocations();

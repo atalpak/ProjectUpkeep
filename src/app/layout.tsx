@@ -4,7 +4,7 @@ import "./globals.css";
 import { ThemeScript } from "@/components/ThemeScript";
 
 export const metadata: Metadata = {
-  title: "MTGManager",
+  title: "Project Upkeep",
   description:
     "Track where every card in your Magic: The Gathering collection physically lives.",
 };

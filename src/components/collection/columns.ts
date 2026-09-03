@@ -147,7 +147,7 @@ export const COLUMN_BY_ID = new Map(COLUMNS.map((c) => [c.id, c]));
 export const DEFAULT_COLUMNS: ColumnId[] = COLUMNS.filter((c) => c.default).map((c) => c.id);
 
 /** Where the column choice is remembered. Per browser, not per account. */
-export const COLUMNS_STORAGE_KEY = "mtgmanager-collection-columns";
+export const COLUMNS_STORAGE_KEY = "project-upkeep-collection-columns";
 
 export type SortState = { column: ColumnId; direction: "asc" | "desc" };
 

@@ -10,7 +10,7 @@ import { clearNotifications } from "@/app/(app)/notifications/actions";
 import { MarkNotificationsRead } from "@/components/social/MarkNotificationsRead";
 import { Button, EmptyState, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Alerts · MTGManager" };
+export const metadata = { title: "Alerts · Project Upkeep" };
 
 /**
  * The notification inbox.

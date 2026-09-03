@@ -130,4 +130,4 @@ export function formatPrice(value: number | null | undefined): string {
 }
 
 /** Where the price is remembered as shown or hidden. Per browser. */
-export const PRICES_STORAGE_KEY = "mtgmanager-show-prices";
+export const PRICES_STORAGE_KEY = "project-upkeep-show-prices";

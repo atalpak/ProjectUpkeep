@@ -1,4 +1,4 @@
-# MTGManager
+# Project Upkeep
 
 A Magic: The Gathering collection manager that tracks **where each copy physically
 lives** — which binder, which box, which deck — so a digital inventory mirrors

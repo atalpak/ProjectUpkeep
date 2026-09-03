@@ -1,4 +1,4 @@
-# MTGManager — Data Model (First Pass)
+# Project Upkeep — Data Model (First Pass)
 
 **Status:** Draft for review. Treat as a starting point for Phase 0 conversations, not a final schema — location granularity in particular (Locations section) should flex based on interview findings before Claude Code builds against this.
 

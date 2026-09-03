@@ -11,7 +11,7 @@ import { CollectionFilters } from "@/components/collection/CollectionFilters";
 import { CollectionTable } from "@/components/collection/CollectionTable";
 import { Button, EmptyState, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Collection · MTGManager" };
+export const metadata = { title: "Collection · Project Upkeep" };
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 

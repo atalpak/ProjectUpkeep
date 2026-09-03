@@ -3,7 +3,7 @@ import Link from "next/link";
 import { CURRENT_TOS_VERSION } from "@/lib/social/tos";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Trading terms · MTGManager" };
+export const metadata = { title: "Trading terms · Project Upkeep" };
 
 /**
  * The trading terms.
@@ -22,7 +22,7 @@ export default function TermsPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
         title="Trading terms"
-        subtitle={`Version ${CURRENT_TOS_VERSION}. These cover peer-to-peer trades arranged through MTGManager.`}
+        subtitle={`Version ${CURRENT_TOS_VERSION}. These cover peer-to-peer trades arranged through Project Upkeep.`}
         backHref="/friends"
         backLabel="Friends"
       />
@@ -30,14 +30,14 @@ export default function TermsPage() {
       <ol className="space-y-4 text-sm leading-relaxed">
         <li>
           <strong className="font-semibold">Trades are between users, not with us.</strong>{" "}
-          MTGManager records an agreement you reach with another user and moves the
+          Project Upkeep records an agreement you reach with another user and moves the
           matching cards between your collections when the recipient accepts. We are not a
           buyer, a seller, a broker, or an escrow agent for any trade.
         </li>
         <li>
           <strong className="font-semibold">We are not liable for a trade.</strong> Whether
           the physical cards actually change hands, and in what condition, is between you
-          and the other user. MTGManager is provided as-is, with no warranty, and we are
+          and the other user. Project Upkeep is provided as-is, with no warranty, and we are
           not responsible for loss, non-delivery, misgraded cards, counterfeits, or any
           dispute arising from a trade.
         </li>
@@ -62,7 +62,7 @@ export default function TermsPage() {
         <li>
           <strong className="font-semibold">Card data and images</strong> come from
           Scryfall and Wizards of the Coast. Magic: The Gathering is a trademark of Wizards
-          of the Coast. MTGManager is unofficial and not affiliated with or endorsed by
+          of the Coast. Project Upkeep is unofficial and not affiliated with or endorsed by
           Wizards of the Coast. Prices shown are a stale third-party estimate, not a quote.
         </li>
         <li>

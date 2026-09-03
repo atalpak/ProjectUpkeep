@@ -8,7 +8,7 @@ import { CardLocator } from "@/components/collection/CardLocator";
 import { CardPreviewLink } from "@/components/CardPanel";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Find a card · MTGManager" };
+export const metadata = { title: "Find a card · Project Upkeep" };
 
 const one = (v: string | string[] | undefined): string => (Array.isArray(v) ? v[0] : v) ?? "";
 

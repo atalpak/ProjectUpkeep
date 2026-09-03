@@ -19,7 +19,7 @@ export default async function HomePage() {
       </div>
 
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">MTGManager</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Project Upkeep</h1>
         <p className="mt-3 text-ink-muted">
           A Magic: The Gathering collection tracker that knows{" "}
           <em>where each copy actually is</em> — which binder, which box, which

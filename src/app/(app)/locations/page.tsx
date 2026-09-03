@@ -4,7 +4,7 @@ import { getLocationTree, UNSORTED } from "@/lib/collection/queries";
 import { LocationManager } from "@/components/LocationManager";
 import { Card as Panel, EmptyState, PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Locations · MTGManager" };
+export const metadata = { title: "Locations · Project Upkeep" };
 
 export default async function LocationsPage() {
   const { tree, unsortedCount } = await getLocationTree();

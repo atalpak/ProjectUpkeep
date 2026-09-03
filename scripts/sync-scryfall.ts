@@ -81,7 +81,7 @@ async function main() {
   const bulkType = process.env.SCRYFALL_BULK_TYPE || "default_cards";
   const batchSize = Number.parseInt(process.env.SCRYFALL_BATCH_SIZE || "500", 10);
   const contact =
-    process.env.SCRYFALL_CONTACT || "mtgmanager (https://github.com/atalpak/MTGManager)";
+    process.env.SCRYFALL_CONTACT || "project-upkeep (https://github.com/atalpak/ProjectUpkeep)";
 
   if (!Number.isFinite(batchSize) || batchSize <= 0) {
     throw new Error("SCRYFALL_BATCH_SIZE must be a positive integer");

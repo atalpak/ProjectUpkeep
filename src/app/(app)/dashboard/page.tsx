@@ -12,7 +12,7 @@ import { CardPreviewLink } from "@/components/CardPanel";
 import { formatPrice } from "@/lib/collection/pricing";
 import { Badge, Card, EmptyState, PageHeader, Stat } from "@/components/ui";
 
-export const metadata = { title: "Dashboard · MTGManager" };
+export const metadata = { title: "Dashboard · Project Upkeep" };
 
 export default async function DashboardPage() {
   const [summary, wantView, tradeCounts, unread] = await Promise.all([

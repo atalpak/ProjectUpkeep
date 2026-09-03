@@ -1,4 +1,4 @@
-# MTGManager — Claude Code Brief: Phase 1 (Core Build)
+# Project Upkeep — Claude Code Brief: Phase 1 (Core Build)
 
 **Before starting:** read `/docs/CHARTER.md` and `/docs/data-model-v1.md` in this repo for full context. This brief is the scoped instruction set for this build phase — don't re-derive strategy, it's already decided.
 

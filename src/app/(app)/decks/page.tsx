@@ -2,7 +2,7 @@ import { getDecks } from "@/lib/collection/queries";
 import { DeckManager } from "@/components/decks/DeckManager";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Decks · MTGManager" };
+export const metadata = { title: "Decks · Project Upkeep" };
 
 export default async function DecksPage() {
   const decks = await getDecks();

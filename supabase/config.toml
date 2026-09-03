@@ -1,7 +1,7 @@
 # Supabase local development config. Used by `supabase start` / `supabase db reset`.
 # Production settings live in the Supabase dashboard, not here.
 
-project_id = "mtgmanager"
+project_id = "project-upkeep"
 
 [api]
 enabled = true

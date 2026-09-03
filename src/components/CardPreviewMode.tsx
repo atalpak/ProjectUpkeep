@@ -17,7 +17,7 @@ import { cx } from "@/components/ui";
  * behaviour off, so they get a sheet on tap regardless. See CardPanel.tsx.
  */
 
-export const CARD_PREVIEW_STORAGE_KEY = "mtgmanager-card-preview";
+export const CARD_PREVIEW_STORAGE_KEY = "project-upkeep-card-preview";
 
 export const CARD_PREVIEW_MODES = ["sidebar", "tooltip"] as const;
 export type CardPreviewMode = (typeof CARD_PREVIEW_MODES)[number];

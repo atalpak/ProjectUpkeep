@@ -3,7 +3,7 @@ import { getMyTrades } from "@/lib/social/queries";
 import { TradeList } from "@/components/social/TradeList";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Past trades · MTGManager" };
+export const metadata = { title: "Past trades · Project Upkeep" };
 
 /**
  * Settled trades only.

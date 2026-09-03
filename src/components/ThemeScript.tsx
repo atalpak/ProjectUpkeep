@@ -18,7 +18,7 @@ import Script from "next/script";
  * so a first visit still looks right. The toggle itself is a plain two-state
  * switch, so once a choice is made it sticks until they change it.
  */
-export const THEME_STORAGE_KEY = "mtgmanager-theme";
+export const THEME_STORAGE_KEY = "project-upkeep-theme";
 
 const SCRIPT = `
 (function () {
@@ -43,7 +43,7 @@ export function ThemeScript() {
     // is what keeps the theme from flashing.
     // eslint-disable-next-line @next/next/no-before-interactive-script-outside-document
     <Script
-      id="mtgmanager-theme"
+      id="project-upkeep-theme"
       strategy="beforeInteractive"
       dangerouslySetInnerHTML={{ __html: SCRIPT }}
     />

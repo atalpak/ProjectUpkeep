@@ -1,4 +1,4 @@
-# MTGManager — Project Charter
+# Project Upkeep — Project Charter
 
 **Client:** Anthony
 **PM:** Claude (this conversation / project)

@@ -5,7 +5,7 @@ import {
 } from "@/components/social/WantListManager";
 import { PageHeader } from "@/components/ui";
 
-export const metadata = { title: "Want list · MTGManager" };
+export const metadata = { title: "Want list · Project Upkeep" };
 
 /**
  * The want list.
