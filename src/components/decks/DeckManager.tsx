@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import { createDeck, deleteDeck } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
@@ -56,18 +56,55 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
                 </p>
               </div>
 
-              {/* Deleting a deck unsorts its cards rather than destroying them,
-                  so this needs no confirmation of its own. */}
-              <form action={deleteDeck}>
-                <input type="hidden" name="deck_id" value={deck.id} />
-                <Button variant="danger" type="submit" className="text-xs">
-                  Delete
-                </Button>
-              </form>
+              <DeleteDeckButton deckId={deck.id} deckName={deck.name} />
             </div>
           ))}
         </Panel>
       )}
+    </div>
+  );
+}
+
+/**
+ * Delete, behind one confirmation click.
+ *
+ * Deleting a deck unsorts its cards rather than destroying them, so this is
+ * reversible in substance — but a stray click still loses the list and any
+ * commander nomination, which is annoying enough to guard.
+ */
+function DeleteDeckButton({ deckId, deckName }: { deckId: string; deckName: string }) {
+  const [armed, setArmed] = useState(false);
+
+  if (!armed) {
+    return (
+      <Button
+        variant="danger"
+        type="button"
+        onClick={() => setArmed(true)}
+        className="shrink-0 text-xs"
+      >
+        Delete
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5">
+      <span className="hidden text-xs text-ink-muted sm:inline">Delete “{deckName}”?</span>
+      <form action={deleteDeck}>
+        <input type="hidden" name="deck_id" value={deckId} />
+        <Button variant="danger" type="submit" className="text-xs">
+          Delete
+        </Button>
+      </form>
+      <Button
+        variant="ghost"
+        type="button"
+        onClick={() => setArmed(false)}
+        className="text-xs"
+      >
+        Cancel
+      </Button>
     </div>
   );
 }

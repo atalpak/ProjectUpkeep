@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   createContext,
+  useActionState,
   useCallback,
   useContext,
   useEffect,
@@ -15,12 +16,17 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import type { Card, CardFace } from "@/lib/types";
-import { languageLabel } from "@/lib/types";
+import { addCardInstance } from "@/app/(app)/collection/actions";
+import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
+import { addDeckCard } from "@/app/(app)/decks/actions";
+import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
+import type { Card, CardFace, LocationType } from "@/lib/types";
+import { CONDITIONS, CONDITION_LABELS, FINISHES, FINISH_LABELS, LANGUAGES, languageLabel } from "@/lib/types";
+import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
 import { ManaCost } from "@/components/ManaCost";
 import { SetSymbol } from "@/components/SetSymbol";
-import { Badge } from "@/components/ui";
+import { Badge, Button, Field, Input, Select } from "@/components/ui";
 
 /**
  * Card details, delivered three ways.
@@ -397,6 +403,22 @@ export function useCardPreview(
 }
 
 /**
+ * Open the card popup as a modal, on any device, by card id or object.
+ *
+ * `useCardPreview` picks its presentation from the viewport (hover sidebar on a
+ * wide screen, tooltip, tap sheet). This is the deliberate "show me this card
+ * and let me act on it" path — the search results use it — so it always opens
+ * the sheet, which is the presentation that carries the action panel.
+ */
+export function useCardPanel(): { open: (source: Card | string) => void } {
+  const ctx = useContext(Ctx);
+  return useMemo(
+    () => ({ open: (source) => ctx?.show(source, "sheet") }),
+    [ctx],
+  );
+}
+
+/**
  * A thumbnail that feeds the panel, for use from server components.
  *
  * Focusable by default so keyboard users get the same behaviour as pointer
@@ -465,10 +487,16 @@ function CardDetails({
   card,
   state,
   idleMessage = "Hover a card to see it here.",
+  interactive = false,
+  wide = false,
 }: {
   card: Card | null;
   state: "idle" | "loading" | "ready" | "missing";
   idleMessage?: string;
+  /** Show the printing switcher and the add-to-collection / add-to-deck panel. */
+  interactive?: boolean;
+  /** Two-column layout: image and links left, everything else right. */
+  wide?: boolean;
 }) {
   if (state === "idle") {
     return (
@@ -487,10 +515,24 @@ function CardDetails({
   }
 
   if (card) {
-    // Keyed so a new card remounts: the flipped-face state belongs to the card
-    // being shown, and resetting it in an effect would render the old face for
-    // a frame first.
-    return <CardDetail key={card.scryfall_id} card={card} />;
+    // The wide sheet lays the same pieces out in two columns. Keyed on the
+    // name so switching printing keeps it (and its fetches) mounted while a
+    // different card remounts clean — the face state and CardActions both
+    // live inside.
+    if (wide) {
+      return <CardWide key={card.name} card={card} />;
+    }
+    return (
+      <>
+        {/* Keyed so a new card remounts: the flipped-face state belongs to the
+            card being shown, and resetting it in an effect would render the old
+            face for a frame first. */}
+        <CardDetail key={card.scryfall_id} card={card} />
+        {/* Keyed on the name, not the printing: switching printing keeps this
+            mounted (same fetches), a different card remounts it clean. */}
+        {interactive ? <CardActions key={card.name} card={card} /> : null}
+      </>
+    );
   }
 
   return (
@@ -660,7 +702,7 @@ function CardSheet() {
         if (event.target === dialog.current) ctx.hide();
       }}
       aria-label="Card detail"
-      className="m-0 mt-auto max-h-[85dvh] w-full max-w-none rounded-t-2xl bg-surface p-0 text-ink backdrop:bg-scrim sm:mx-auto sm:my-auto sm:max-w-sm sm:rounded-2xl"
+      className="m-0 mt-auto max-h-[85dvh] w-full max-w-none rounded-t-2xl bg-surface p-0 text-ink backdrop:bg-scrim sm:mx-auto sm:my-auto sm:max-w-2xl sm:rounded-2xl"
     >
       <div className="max-h-[85dvh] overflow-y-auto p-4">
         <div className="mb-3 flex justify-end">
@@ -683,7 +725,7 @@ function CardSheet() {
             </svg>
           </button>
         </div>
-        <CardDetails card={ctx.card} state={ctx.state} idleMessage="Loading…" />
+        <CardDetails card={ctx.card} state={ctx.state} idleMessage="Loading…" interactive wide />
       </div>
     </dialog>
   );
@@ -810,15 +852,448 @@ function CardDetail({ card }: { card: Card }) {
         {card.digital ? <Row label="Digital">Not a paper printing</Row> : null}
       </dl>
 
-      {card.scryfall_uri ? (
-        <a
-          href={card.scryfall_uri}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="inline-block text-xs text-accent underline"
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {card.scryfall_uri ? (
+          <ExternalLink href={card.scryfall_uri}>Scryfall</ExternalLink>
+        ) : null}
+        {card.purchase_uri ? (
+          <ExternalLink href={card.purchase_uri}>Buy on TCGplayer</ExternalLink>
+        ) : null}
+        <ExternalLink
+          href={`https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${encodeURIComponent(
+            card.name,
+          )}`}
         >
-          View on Scryfall
-        </a>
+          Buy on Card Kingdom
+        </ExternalLink>
+      </div>
+    </div>
+  );
+}
+
+function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="text-accent underline"
+    >
+      {children}
+    </a>
+  );
+}
+
+/**
+ * The wide, two-column form of the card popup.
+ *
+ * Left: the image, the flip control for a double-faced card, and the three
+ * places to look it up or buy it. Right: the name and mana cost, the price,
+ * the rules and set detail, then the printing switcher and the
+ * add-to-collection / add-to-deck panel beneath it. Below `sm` the grid
+ * collapses and it reads top to bottom like the narrow sheet it replaced.
+ *
+ * Owns `faceIndex` because a flip changes both columns at once — the image on
+ * the left and the type line and rules text on the right.
+ */
+function CardWide({ card }: { card: Card }) {
+  const faces = card.card_faces ?? null;
+  const [faceIndex, setFaceIndex] = useState(0);
+
+  const face: CardFace | null = faces?.[faceIndex] ?? null;
+  const image =
+    face?.image_uris?.normal ?? face?.image_uris?.large ?? card.image_uri ?? card.image_uri_small;
+
+  const manaCost = face?.mana_cost ?? card.mana_cost;
+  const typeLine = face?.type_line ?? card.type_line;
+  const oracleText = face?.oracle_text ?? card.oracle_text;
+  const flavorText = face?.flavor_text ?? card.flavor_text;
+  const power = face?.power ?? card.power;
+  const toughness = face?.toughness ?? card.toughness;
+  const loyalty = face?.loyalty ?? card.loyalty;
+  const artist = face?.artist ?? card.artist;
+  const name = face?.name ?? card.name;
+
+  const priceNonfoil = priceFor(card, "nonfoil");
+  const priceFoil = priceFor(card, "foil");
+  const priceEtched = priceFor(card, "etched");
+  const hasPrice = priceNonfoil !== null || priceFoil !== null || priceEtched !== null;
+
+  const cardKingdomHref = `https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${encodeURIComponent(
+    card.name,
+  )}`;
+
+  return (
+    <div className="sm:grid sm:grid-cols-[13rem_minmax(0,1fr)] sm:gap-5">
+      {/* Left column: image + where to look it up. The image is capped so it
+          stays a normal card size when the grid collapses on a narrow screen. */}
+      <div className="mx-auto w-full max-w-[13rem] space-y-2 sm:mx-0 sm:max-w-none">
+        <div className="relative aspect-[488/680] overflow-hidden rounded-xl border border-border bg-surface-muted">
+          {image ? (
+            <Image
+              src={image}
+              alt={name}
+              fill
+              sizes="13rem"
+              className="object-cover"
+              loading="eager"
+              unoptimized
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-ink-muted">
+              No image
+            </div>
+          )}
+        </div>
+
+        {faces && faces.length > 1 ? (
+          <button
+            type="button"
+            onClick={() => setFaceIndex((i) => (i + 1) % faces.length)}
+            className="w-full rounded-md border border-border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-surface-muted"
+          >
+            Flip to {faces[(faceIndex + 1) % faces.length]?.name ?? "other face"}
+          </button>
+        ) : null}
+
+        <div className="flex flex-col gap-1 pt-1 text-xs">
+          {card.scryfall_uri ? (
+            <ExternalLink href={card.scryfall_uri}>Scryfall</ExternalLink>
+          ) : null}
+          {card.purchase_uri ? (
+            <ExternalLink href={card.purchase_uri}>Buy on TCGplayer</ExternalLink>
+          ) : null}
+          <ExternalLink href={cardKingdomHref}>Buy on Card Kingdom</ExternalLink>
+        </div>
+      </div>
+
+      {/* Right column: name, price, detail, then the ways to act on it. */}
+      <div className="mt-4 space-y-3 sm:mt-0">
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-base font-semibold leading-snug">{name}</h2>
+            {manaCost ? <ManaCost cost={manaCost} /> : null}
+          </div>
+          {typeLine ? <p className="mt-0.5 text-xs text-ink-muted">{typeLine}</p> : null}
+        </div>
+
+        {hasPrice ? (
+          <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+            {priceNonfoil !== null ? (
+              <span className="font-semibold tabular-nums">{formatPrice(priceNonfoil)}</span>
+            ) : null}
+            {priceFoil !== null ? (
+              <span className="text-ink-muted tabular-nums">{formatPrice(priceFoil)} foil</span>
+            ) : null}
+            {priceEtched !== null ? (
+              <span className="text-ink-muted tabular-nums">{formatPrice(priceEtched)} etched</span>
+            ) : null}
+          </p>
+        ) : null}
+
+        {oracleText ? (
+          <p className="whitespace-pre-line text-xs leading-relaxed">{oracleText}</p>
+        ) : null}
+
+        {flavorText ? (
+          <p className="whitespace-pre-line border-l-2 border-border pl-2 text-xs italic text-ink-muted">
+            {flavorText}
+          </p>
+        ) : null}
+
+        {power || loyalty ? (
+          <p className="text-sm font-semibold tabular-nums">
+            {loyalty ? `Loyalty ${loyalty}` : `${power} / ${toughness}`}
+          </p>
+        ) : null}
+
+        {/* The printing switcher sits directly under the rules text, above the
+            set/number detail it belongs with. CardWide itself is keyed on the
+            name, so paging through printings keeps this (and its fetch) mounted;
+            a different card remounts the lot. */}
+        <CardPrintingPicker card={card} />
+
+        <dl className="space-y-1.5 border-t border-border pt-3 text-xs">
+          <Row label="Set">
+            <span className="block">{card.set_name ?? card.set_code.toUpperCase()}</span>
+            <span className="mt-0.5 flex items-center gap-1.5 text-ink-muted">
+              <SetSymbol code={card.set_code} />({card.set_code.toUpperCase()})
+            </span>
+          </Row>
+          <Row label="Number">#{card.collector_number}</Row>
+          {card.rarity ? (
+            <Row label="Rarity">{RARITY_LABEL[card.rarity] ?? card.rarity}</Row>
+          ) : null}
+          {card.released_at ? <Row label="Released">{card.released_at}</Row> : null}
+          {artist ? <Row label="Artist">{artist}</Row> : null}
+          {card.cmc !== null && card.cmc !== undefined ? (
+            <Row label="Mana value">{card.cmc}</Row>
+          ) : null}
+          <Row label="Language">{languageLabel(card.lang)}</Row>
+          <Row label="Finishes">
+            <span className="flex flex-wrap gap-1">
+              {card.available_finishes.map((f) => (
+                <Badge key={f}>{f}</Badge>
+              ))}
+            </span>
+          </Row>
+          {card.keywords && card.keywords.length > 0 ? (
+            <Row label="Keywords">{card.keywords.join(", ")}</Row>
+          ) : null}
+          {card.digital ? <Row label="Digital">Not a paper printing</Row> : null}
+        </dl>
+
+        <CardActions card={card} />
+      </div>
+    </div>
+  );
+}
+
+type PrintingRow = {
+  scryfall_id: string;
+  set_name: string | null;
+  set_code: string | null;
+  collector_number: string | null;
+  released_at: string | null;
+};
+
+type ActionsData = {
+  decks: Array<{ id: string; name: string }>;
+  locations: Array<{ id: string; name: string; type: LocationType }>;
+  owned: { total: number; available: number; places: Array<{ name: string; quantity: number }> };
+};
+
+const EMPTY_ACTIONS: ActionsData = {
+  decks: [],
+  locations: [],
+  owned: { total: 0, available: 0, places: [] },
+};
+
+/**
+ * The printing switcher.
+ *
+ * Split out from CardActions so the wide popup can place it directly under the
+ * rules text — above the set/number detail it belongs with — while the
+ * add-to-collection panel stays at the bottom. Fetches its own list (the popup
+ * opens over any card, owned or not) and re-opens the popup on the chosen id,
+ * which is what makes every other field follow the choice.
+ */
+function CardPrintingPicker({ card }: { card: Card }) {
+  const ctx = useContext(Ctx);
+  const [printings, setPrintings] = useState<PrintingRow[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const p = await fetch(
+          `/api/cards/printings?name=${encodeURIComponent(card.name)}`,
+        ).then((r) => r.json());
+        if (alive) setPrintings((p?.printings ?? []) as PrintingRow[]);
+      } catch {
+        if (alive) setPrintings([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [card.name]);
+
+  if (!printings || printings.length <= 1) return null;
+
+  return (
+    <div className="pt-1">
+      <Field label={`Printing (${printings.length})`}>
+        <Select
+          value={card.scryfall_id}
+          onChange={(event) => {
+            const id = event.target.value;
+            if (id !== card.scryfall_id) ctx?.show(id, ctx.presentation ?? "sheet");
+          }}
+          className="text-xs"
+        >
+          {printings.map((p) => (
+            <option key={p.scryfall_id} value={p.scryfall_id}>
+              {p.set_name ?? p.set_code?.toUpperCase() ?? "Unknown set"}
+              {p.collector_number ? ` · #${p.collector_number}` : ""}
+              {p.released_at ? ` · ${p.released_at.slice(0, 4)}` : ""}
+            </option>
+          ))}
+        </Select>
+      </Field>
+    </div>
+  );
+}
+
+/**
+ * The interactive tail of the card popup: what you own and the two ways to act
+ * on it. The printing switcher is its own component (CardPrintingPicker) so it
+ * can sit higher up.
+ *
+ * The popup opens over any card, owned or not, so this fetches its own context
+ * (`/api/card-actions`) rather than leaning on page-loaded data.
+ */
+function CardActions({ card }: { card: Card }) {
+  const [data, setData] = useState<ActionsData | null>(null);
+  const [showOptions, setShowOptions] = useState(false);
+  const [mode, setMode] = useState<"collection" | "deck" | null>(null);
+
+  const [addState, addAction, adding] = useActionState(addCardInstance, EMPTY_STATE);
+  const [deckState, deckAction, addingDeck] = useActionState(addDeckCard, EMPTY_DECK_STATE);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const a = await fetch(
+          `/api/card-actions?name=${encodeURIComponent(card.name)}`,
+        ).then((r) => r.json());
+        if (alive) setData(a && !a.error ? (a as ActionsData) : EMPTY_ACTIONS);
+      } catch {
+        if (alive) setData(EMPTY_ACTIONS);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [card.name]);
+
+  const owned = data?.owned;
+  const decks = data?.decks ?? [];
+  const locations = data?.locations ?? [];
+
+  return (
+    <div className="space-y-3 border-t border-border pt-3">
+      {owned ? (
+        owned.total > 0 ? (
+          <p className="text-xs text-ink-muted">
+            You own {owned.total}
+            {owned.places.length > 0
+              ? ` — ${owned.places.map((pl) => `${pl.name} ×${pl.quantity}`).join(", ")}`
+              : ""}
+          </p>
+        ) : (
+          <p className="text-xs text-ink-muted">Not in your collection yet.</p>
+        )
+      ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant={mode === "collection" ? "primary" : "secondary"}
+          className="text-xs"
+          onClick={() => setMode((m) => (m === "collection" ? null : "collection"))}
+        >
+          Add to collection
+        </Button>
+        {decks.length > 0 ? (
+          <Button
+            type="button"
+            variant={mode === "deck" ? "primary" : "secondary"}
+            className="text-xs"
+            onClick={() => setMode((m) => (m === "deck" ? null : "deck"))}
+          >
+            Add to a deck
+          </Button>
+        ) : null}
+      </div>
+
+      {mode === "collection" ? (
+        <form action={addAction} className="space-y-2 rounded-md border border-border p-2.5">
+          <input type="hidden" name="card_id" value={card.scryfall_id} />
+
+          {showOptions ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Quantity">
+                  <Input name="quantity" type="number" min={1} defaultValue={1} className="text-xs" />
+                </Field>
+                <Field label="Finish">
+                  <Select name="finish" defaultValue="nonfoil" className="text-xs">
+                    {FINISHES.map((f) => (
+                      <option key={f} value={f}>
+                        {FINISH_LABELS[f]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Condition">
+                  <Select name="condition" defaultValue="NM" className="text-xs">
+                    {CONDITIONS.map((c) => (
+                      <option key={c} value={c}>
+                        {CONDITION_LABELS[c]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Language">
+                  <Select name="language" defaultValue="en" className="text-xs">
+                    {LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <Field label="Location">
+                <Select name="location_id" defaultValue="" className="text-xs">
+                  <option value="">Unsorted</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </>
+          ) : (
+            <>
+              <input type="hidden" name="quantity" value="1" />
+              <input type="hidden" name="finish" value="nonfoil" />
+              <input type="hidden" name="condition" value="NM" />
+              <input type="hidden" name="language" value="en" />
+              <input type="hidden" name="location_id" value="" />
+              <div className="flex items-center justify-between gap-2 text-xs text-ink-muted">
+                <span>1 · NM · non-foil · English · Unsorted</span>
+                <button
+                  type="button"
+                  className="text-accent underline"
+                  onClick={() => setShowOptions(true)}
+                >
+                  Options
+                </button>
+              </div>
+            </>
+          )}
+
+          <Button type="submit" disabled={adding} className="w-full text-xs">
+            {adding ? "Adding…" : "Add to collection"}
+          </Button>
+          {addState.error ? <p className="text-xs text-danger">{addState.error}</p> : null}
+          {addState.notice ? <p className="text-xs text-ink-muted">{addState.notice}</p> : null}
+        </form>
+      ) : null}
+
+      {mode === "deck" && decks.length > 0 ? (
+        <form action={deckAction} className="space-y-2 rounded-md border border-border p-2.5">
+          <input type="hidden" name="card_id" value={card.scryfall_id} />
+          <input type="hidden" name="quantity" value="1" />
+          <Field label="Deck">
+            <Select name="deck_id" defaultValue={decks[0]?.id} className="text-xs">
+              {decks.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Button type="submit" disabled={addingDeck} className="w-full text-xs">
+            {addingDeck ? "Adding…" : "Add to decklist"}
+          </Button>
+          {deckState.error ? <p className="text-xs text-danger">{deckState.error}</p> : null}
+          {deckState.notice ? <p className="text-xs text-ink-muted">{deckState.notice}</p> : null}
+        </form>
       ) : null}
     </div>
   );
