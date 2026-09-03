@@ -4,7 +4,8 @@ import { useActionState, useEffect, useRef, useState } from "react";
 
 import { addDeckCard } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
-import { Banner, Button, Card as Panel, Input, Select } from "@/components/ui";
+import { DeckImportPanel } from "@/components/decks/DeckImportPanel";
+import { Banner, Button, Card as Panel, Input, Select, cx } from "@/components/ui";
 import type { CardNameSuggestion } from "@/lib/types";
 
 /**
@@ -14,7 +15,15 @@ import type { CardNameSuggestion } from "@/lib/types";
  * intend the deck to be, so a card you have never owned has to be addable.
  * Whether you own it shows up afterwards, as the entry's state.
  */
-export function AddToDeckList({ deckId }: { deckId: string }) {
+export function AddToDeckList({
+  deckId,
+  onImported,
+}: {
+  deckId: string;
+  /** Called after a list import succeeds cleanly, so the panel can close. */
+  onImported?: () => void;
+}) {
+  const [mode, setMode] = useState<"search" | "import">("search");
   const [state, add, adding] = useActionState(addDeckCard, EMPTY_DECK_STATE);
 
   const [query, setQuery] = useState("");
@@ -61,71 +70,96 @@ export function AddToDeckList({ deckId }: { deckId: string }) {
 
   return (
     <Panel className="space-y-3">
-      <div>
-        <h2 className="text-sm font-semibold">Add to the list</h2>
-        <p className="mt-0.5 text-xs text-ink-muted">
-          Any card, whether or not you own it. What you own decides the state it shows in,
-          not whether it can be on the list.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Card name"
-          aria-label="Search for a card"
-          className="max-w-xs"
-        />
-        <label className="flex items-center gap-1.5 text-xs text-ink-muted">
-          Quantity
-          <Select
-            value={String(quantity)}
-            onChange={(e) => setQuantity(Number(e.target.value))}
-            aria-label="How many to add"
-            className="w-16 text-xs"
-          >
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
-        </label>
-      </div>
-
-      <Banner kind="error">{state.error}</Banner>
-      <Banner kind="success">{state.notice}</Banner>
-
-      {query.trim().length >= 2 ? (
-        shown.length === 0 ? (
-          <p className="text-xs text-ink-muted">
-            {searching ? "Searching…" : "No cards match that."}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Add to the list</h2>
+          <p className="mt-0.5 text-xs text-ink-muted">
+            Any card, whether or not you own it. What you own decides the state it shows in,
+            not whether it can be on the list.
           </p>
-        ) : (
-          <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
-            {shown.map((result) => (
-              <li key={result.sample_card_id} className="flex items-center gap-3 px-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-sm">{result.name}</span>
-                <span className="shrink-0 text-[11px] text-ink-muted">
-                  {result.printing_count} printing{result.printing_count === 1 ? "" : "s"}
-                </span>
+        </div>
 
-                <form action={add}>
-                  <input type="hidden" name="deck_id" value={deckId} />
-                  {/* The search returns one representative printing per name,
-                      which is all a list entry needs — any printing satisfies it. */}
-                  <input type="hidden" name="card_id" value={result.sample_card_id} />
-                  <input type="hidden" name="quantity" value={quantity} />
-                  <Button type="submit" variant="secondary" disabled={adding} className="text-xs">
-                    Add {quantity}
-                  </Button>
-                </form>
-              </li>
-            ))}
-          </ul>
-        )
-      ) : null}
+        <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-border">
+          {(["search", "import"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setMode(option)}
+              aria-pressed={mode === option}
+              className={cx(
+                "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                mode === option ? "bg-accent text-accent-ink" : "hover:bg-surface-muted",
+              )}
+            >
+              {option === "search" ? "Search" : "Import a list"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {mode === "import" ? (
+        <DeckImportPanel deckId={deckId} onImported={onImported} />
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Card name"
+              aria-label="Search for a card"
+              className="max-w-xs"
+            />
+            <label className="flex items-center gap-1.5 text-xs text-ink-muted">
+              Quantity
+              <Select
+                value={String(quantity)}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                aria-label="How many to add"
+                className="w-16 text-xs"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </div>
+
+          <Banner kind="error">{state.error}</Banner>
+          <Banner kind="success">{state.notice}</Banner>
+
+          {query.trim().length >= 2 ? (
+            shown.length === 0 ? (
+              <p className="text-xs text-ink-muted">
+                {searching ? "Searching…" : "No cards match that."}
+              </p>
+            ) : (
+              <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
+                {shown.map((result) => (
+                  <li key={result.sample_card_id} className="flex items-center gap-3 px-3 py-2">
+                    <span className="min-w-0 flex-1 truncate text-sm">{result.name}</span>
+                    <span className="shrink-0 text-[11px] text-ink-muted">
+                      {result.printing_count} printing{result.printing_count === 1 ? "" : "s"}
+                    </span>
+
+                    <form action={add}>
+                      <input type="hidden" name="deck_id" value={deckId} />
+                      {/* The search returns one representative printing per name,
+                          which is all a list entry needs — any printing satisfies it. */}
+                      <input type="hidden" name="card_id" value={result.sample_card_id} />
+                      <input type="hidden" name="quantity" value={quantity} />
+                      <Button type="submit" variant="secondary" disabled={adding} className="text-xs">
+                        Add {quantity}
+                      </Button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : null}
+        </>
+      )}
     </Panel>
   );
 }
