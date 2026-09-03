@@ -259,3 +259,70 @@ export function parseStoredColumns(raw: string | null): ColumnId[] {
     return DEFAULT_COLUMNS;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Persisted sort choice
+// ---------------------------------------------------------------------------
+
+/**
+ * The sort is remembered the same way the columns are, and for the same
+ * reason: someone who sorts their collection by set expects it still sorted by
+ * set when they come back, not reset to the load order. localStorage, so it is
+ * per browser and outlives the tab; the server snapshot is null (unsorted) and
+ * the client re-sorts on hydration.
+ */
+export const SORT_STORAGE_KEY = "project-upkeep-collection-sort";
+
+const sortListeners = new Set<() => void>();
+let unsavedSort: string | null = null;
+
+export function subscribeToSort(onChange: () => void): () => void {
+  sortListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    sortListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+export function readStoredSort(): string | null {
+  try {
+    return unsavedSort ?? localStorage.getItem(SORT_STORAGE_KEY);
+  } catch {
+    return unsavedSort;
+  }
+}
+
+export const readStoredSortOnServer = (): string | null => null;
+
+export function writeStoredSort(sort: SortState | null): void {
+  const serialised = JSON.stringify(sort);
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, serialised);
+    unsavedSort = null;
+  } catch {
+    unsavedSort = serialised;
+  }
+  for (const listener of sortListeners) listener();
+}
+
+/** Parses a stored sort, dropping anything that no longer names a real column. */
+export function parseStoredSort(raw: string | null): SortState | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null) return null;
+    if (
+      typeof parsed === "object" &&
+      "column" in parsed &&
+      "direction" in parsed &&
+      COLUMN_BY_ID.has((parsed as SortState).column) &&
+      ((parsed as SortState).direction === "asc" || (parsed as SortState).direction === "desc")
+    ) {
+      return { column: (parsed as SortState).column, direction: (parsed as SortState).direction };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

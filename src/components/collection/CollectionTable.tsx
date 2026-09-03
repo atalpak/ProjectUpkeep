@@ -18,13 +18,17 @@ import {
   COLUMNS,
   DEFAULT_COLUMNS,
   parseStoredColumns,
+  parseStoredSort,
   readStoredColumns,
   readStoredColumnsOnServer,
+  readStoredSort,
+  readStoredSortOnServer,
   sortRows,
   subscribeToColumns,
+  subscribeToSort,
   writeStoredColumns,
+  writeStoredSort,
   type ColumnId,
-  type SortState,
 } from "@/components/collection/columns";
 import {
   Badge,
@@ -80,7 +84,14 @@ export function CollectionTable({
   );
   const visible = useMemo(() => parseStoredColumns(storedColumns), [storedColumns]);
 
-  const [sort, setSort] = useState<SortState | null>(null);
+  // The sort is persisted the same way, so it survives leaving and returning.
+  const storedSort = useSyncExternalStore(
+    subscribeToSort,
+    readStoredSort,
+    readStoredSortOnServer,
+  );
+  const sort = useMemo(() => parseStoredSort(storedSort), [storedSort]);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -141,9 +152,9 @@ export function CollectionTable({
 
   function headerClick(id: ColumnId) {
     setPage(0);
-    setSort((prev) =>
-      prev?.column === id
-        ? { column: id, direction: prev.direction === "asc" ? "desc" : "asc" }
+    writeStoredSort(
+      sort?.column === id
+        ? { column: id, direction: sort.direction === "asc" ? "desc" : "asc" }
         : { column: id, direction: "asc" },
     );
   }
@@ -171,9 +182,9 @@ export function CollectionTable({
               onChange={(event) => {
                 setPage(0);
                 const value = event.currentTarget.value;
-                if (!value) return setSort(null);
+                if (!value) return writeStoredSort(null);
                 const [column, direction] = value.split(":");
-                setSort({
+                writeStoredSort({
                   column: column as ColumnId,
                   direction: direction as "asc" | "desc",
                 });
