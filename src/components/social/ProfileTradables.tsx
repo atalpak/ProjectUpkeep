@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
@@ -7,8 +8,10 @@ import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { TradeBuilder } from "@/components/social/TradeBuilder";
-import { Badge, Button, Card as Panel, EmptyState, Input } from "@/components/ui";
+import { Badge, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
 import { CONDITION_LABELS, type CardInstanceWithCard } from "@/lib/types";
+
+type BinderView = "list" | "gallery";
 
 /**
  * Someone's trade binder, and the way into a trade.
@@ -43,6 +46,7 @@ export function ProfileTradables({
 }) {
   const [trading, setTrading] = useState(startTrading && tosAccepted);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<BinderView>("list");
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -114,15 +118,40 @@ export function ProfileTradables({
         </p>
       ) : null}
 
-      <Input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Filter their binder"
-        aria-label="Filter their binder"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter their binder"
+          aria-label="Filter their binder"
+          className="min-w-48 flex-1"
+        />
+        <div className="inline-flex overflow-hidden rounded-md border border-border">
+          {(["list", "gallery"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setView(option)}
+              aria-pressed={view === option}
+              className={cx(
+                "px-2.5 py-1.5 text-xs font-medium transition-colors",
+                view === option ? "bg-accent text-accent-ink" : "hover:bg-surface-muted",
+              )}
+            >
+              {option === "list" ? "List" : "Images"}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {rows.length === 0 ? (
         <EmptyState title="Nothing matches that." />
+      ) : view === "gallery" ? (
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {rows.map((row) => (
+            <GalleryTradable key={row.id} row={row} />
+          ))}
+        </ul>
       ) : (
         <Panel className="divide-y divide-border p-0">
           {rows.map((row) => (
@@ -131,6 +160,44 @@ export function ProfileTradables({
         </Panel>
       )}
     </div>
+  );
+}
+
+function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
+  const card = row.cards;
+  const preview = useCardPreview(card);
+  const image = card?.image_uri ?? card?.image_uri_small;
+
+  return (
+    <li className="space-y-1">
+      <div
+        {...preview}
+        tabIndex={0}
+        className="relative aspect-[488/680] cursor-default overflow-hidden rounded-lg border border-border bg-surface-muted"
+      >
+        {image ? (
+          <Image
+            src={image}
+            alt={card?.name ?? "Card"}
+            fill
+            sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
+            className="object-cover"
+            unoptimized
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
+            {card?.name ?? "No image"}
+          </div>
+        )}
+        <span className="absolute bottom-1 right-1 rounded bg-surface/90 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
+          {row.quantity}×
+        </span>
+      </div>
+      <div className="flex items-center gap-1 text-xs">
+        <span className="min-w-0 truncate text-ink-muted">{card?.name ?? "Unknown"}</span>
+        <FoilMark finish={row.finish} />
+      </div>
+    </li>
   );
 }
 

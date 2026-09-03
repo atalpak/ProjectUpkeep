@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import type { CardInstanceWithCard } from "@/lib/types";
+import type { Card, CardInstanceWithCard } from "@/lib/types";
 import type {
   FeedEntry,
   FriendEdge,
@@ -33,14 +33,18 @@ import {
  * be trusted.
  */
 
-const CARD_FIELDS = `cards ( scryfall_id, oracle_id, name, set_code, set_name,
+/** The card columns, as a bare list for a direct `from("cards")` select. */
+const CARD_COLUMNS = `scryfall_id, oracle_id, name, set_code, set_name,
            collector_number, rarity, type_line, released_at, image_uri,
            image_uri_small, scryfall_uri, available_finishes, lang, digital,
            last_synced_at, mana_cost, cmc, colors, color_identity, oracle_text,
            flavor_text, keywords, power, toughness, loyalty, artist, layout,
            card_faces, set_type, price_usd, price_usd_foil, price_usd_etched,
            price_eur, price_eur_foil, tcgplayer_id, purchase_uri,
-           prices_updated_at )`;
+           prices_updated_at`;
+
+/** The same columns as an embedded relation, for `card_instances` joins. */
+const CARD_FIELDS = `cards ( ${CARD_COLUMNS} )`;
 
 const INSTANCE_FIELDS = `id, owner_user_id, card_id, location_id, condition,
    finish, language, quantity, notes, acquired_at, created_at, updated_at`;
@@ -439,9 +443,21 @@ async function hydrateTrades(trades: Trade[]): Promise<TradeDetail[]> {
 
   const items = (itemRows ?? []) as TradeItem[];
 
-  // The instances behind the items. A completed trade's cards may since have
-  // moved or been split, so anything missing renders as "a card" rather than
-  // failing the page.
+  // Two lookups, one authoritative:
+  //  - `cards` by the snapshot card_id (migration 23). Immutable and world-
+  //    readable, so this is always the right identity, even for a card you
+  //    gave away in a completed trade.
+  //  - `card_instances` by id, for the live detail (location, condition) an
+  //    open trade still has. Anything moved or split since is simply absent.
+  const cardIds = [...new Set(items.map((i) => i.card_id).filter((v): v is string => !!v))];
+  const { data: cardRows } =
+    cardIds.length > 0
+      ? await supabase.from("cards").select(CARD_COLUMNS).in("scryfall_id", cardIds)
+      : { data: [] };
+  const cards = new Map(
+    ((cardRows ?? []) as unknown as Card[]).map((c) => [c.scryfall_id, c]),
+  );
+
   const { data: instanceRows } = await supabase
     .from("card_instances")
     .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
@@ -460,7 +476,15 @@ async function hydrateTrades(trades: Trade[]): Promise<TradeDetail[]> {
     recipient: profiles.get(trade.recipient_id) ?? null,
     items: items
       .filter((i) => i.trade_id === trade.id)
-      .map((i) => ({ ...i, instance: instances.get(i.card_instance_id) ?? null })),
+      .map((i) => {
+        const instance = instances.get(i.card_instance_id) ?? null;
+        return {
+          ...i,
+          instance,
+          card: (i.card_id ? cards.get(i.card_id) : null) ?? instance?.cards ?? null,
+          finish: i.finish ?? instance?.finish ?? null,
+        };
+      }),
   }));
 }
 
@@ -616,8 +640,7 @@ export async function getFeed(limit = 30): Promise<FeedEntry[]> {
 
     const out = naming("from_proposer");
     const back = naming("from_recipient");
-    const names = (list: typeof out) =>
-      list.map((i) => i.instance?.cards?.name ?? "a card");
+    const names = (list: typeof out) => list.map((i) => i.card?.name ?? "a card");
 
     return {
       trade,

@@ -19,6 +19,10 @@ export function notificationSentence(type: NotificationType, actor: string): str
       return `${actor} declined your trade offer.`;
     case "trade_cancelled":
       return `${actor} cancelled a trade offer.`;
+    case "friend_request":
+      return `${actor} sent you a friend request.`;
+    case "friend_accepted":
+      return `${actor} accepted your friend request.`;
   }
 }
 
@@ -38,6 +42,8 @@ export function notificationHref(type: NotificationType): string {
       return "/trades";
     case "trade_proposed":
     case "trade_countered":
+    case "friend_request":
+    case "friend_accepted":
       return "/friends";
   }
 }

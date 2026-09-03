@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import type { Card, CardInstanceWithCard, Finish, Location, LocationNode } from "@/lib/types";
 import {
   MAX_ROWS,
@@ -26,10 +26,17 @@ import {
 /**
  * Read helpers for the signed-in user's collection.
  *
- * Every query here runs as the user through RLS, so none of them filter by
- * user id themselves — the database does it. Adding a redundant `.eq('owner_
- * user_id', ...)` would only create a second place to get it wrong.
+ * These used to rely on RLS alone to scope to the current user. That stopped
+ * being enough in migration 9: a friend's *tradable* binder and the cards in
+ * it are readable through RLS on purpose (so their profile can show them), so
+ * an unscoped `select` over `locations` / `card_instances` now returns a
+ * friend's trade binder alongside your own. Every collection query below is
+ * therefore filtered by owner explicitly. `ownerId()` is "" when somehow
+ * unauthenticated, which turns every query into an empty result, never a leak.
  */
+async function ownerId(): Promise<string> {
+  return (await getCurrentUser())?.id ?? "";
+}
 
 // Re-exported so pages can keep importing the sentinel from one place.
 export { UNSORTED };
@@ -77,6 +84,7 @@ export async function getCollection(filter: CollectionFilter): Promise<Collectio
   let query = supabase
     .from("card_instances")
     .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
+    .eq("owner_user_id", await ownerId())
     .order("created_at", { ascending: false })
     .limit(MAX_ROWS);
 
@@ -106,6 +114,7 @@ export async function getCollectionSets(): Promise<Array<{ code: string; name: s
   const { data, error } = await supabase
     .from("card_instances")
     .select("cards ( set_code, set_name )")
+    .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
 
   if (error) throw new Error(`Could not load sets: ${error.message}`);
@@ -131,6 +140,7 @@ export async function getLocations(): Promise<Location[]> {
   const { data, error } = await supabase
     .from("locations")
     .select("*")
+    .eq("user_id", await ownerId())
     .order("name", { ascending: true });
 
   if (error) throw new Error(`Could not load locations: ${error.message}`);
@@ -200,10 +210,11 @@ export async function getLocationTree(): Promise<{
 }> {
   const supabase = await createClient();
 
+  const owner = await ownerId();
   const [{ data: locations, error: locError }, { data: instances, error: instError }] =
     await Promise.all([
-      supabase.from("locations").select("*").order("name", { ascending: true }),
-      supabase.from("card_instances").select("location_id, quantity"),
+      supabase.from("locations").select("*").eq("user_id", owner).order("name", { ascending: true }),
+      supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
     ]);
 
   if (locError) throw new Error(`Could not load locations: ${locError.message}`);
@@ -247,6 +258,7 @@ export async function getDashboardSummary(
   recentLimit = 6,
 ): Promise<DashboardSummary> {
   const supabase = await createClient();
+  const owner = await ownerId();
 
   const [
     { data: locations, error: locError },
@@ -255,15 +267,17 @@ export async function getDashboardSummary(
     { data: shape, error: shapeError },
     { data: recent, error: recentError },
   ] = await Promise.all([
-    supabase.from("locations").select("*").order("name", { ascending: true }),
-    supabase.from("card_instances").select("location_id, quantity"),
+    supabase.from("locations").select("*").eq("user_id", owner).order("name", { ascending: true }),
+    supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
     supabase
       .from("card_instances")
       .select("quantity, finish, cards ( name, price_usd, price_usd_foil, price_usd_etched )")
+      .eq("owner_user_id", owner)
       .limit(MAX_ROWS),
     supabase
       .from("card_instances")
       .select("quantity, cards ( colors, set_code, set_name )")
+      .eq("owner_user_id", owner)
       .limit(MAX_ROWS),
     supabase
       .from("card_instances")
@@ -271,6 +285,7 @@ export async function getDashboardSummary(
       // feed the card panel on hover, and the panel can only be instant if the
       // row already carries every column it renders.
       .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
+      .eq("owner_user_id", owner)
       .order("created_at", { ascending: false })
       .limit(recentLimit),
   ]);
@@ -326,6 +341,7 @@ export async function getAvailability(): Promise<Map<string, Availability>> {
   const { data, error } = await supabase
     .from("card_instances")
     .select("quantity, cards ( oracle_id, name ), locations!location_id ( type )")
+    .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
 
   if (error) throw new Error(`Could not work out availability: ${error.message}`);
@@ -346,6 +362,7 @@ export async function getSpareLocations(): Promise<Map<string, string[]>> {
   const { data, error } = await supabase
     .from("card_instances")
     .select("cards ( oracle_id, name ), locations!location_id ( name, type )")
+    .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
 
   if (error) throw new Error(`Could not locate spare copies: ${error.message}`);
@@ -416,6 +433,7 @@ export async function locateInCollection(term: string): Promise<LocatedCard[]> {
       // than merely nulling the embedded object.
       "quantity, card_id, cards!inner ( oracle_id, name, image_uri_small ), locations!location_id ( id, name, type )",
     )
+    .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
 
   if (probe.length >= MIN_TERM) query = query.ilike("cards.name", `%${probe}%`);
@@ -459,7 +477,12 @@ export async function getDecks(): Promise<DeckSummary[]> {
 
   const [{ data: decks, error: deckError }, { data: deckCards, error: dcError }] =
     await Promise.all([
-      supabase.from("locations").select("*").eq("type", "deck").order("name"),
+      supabase
+        .from("locations")
+        .select("*")
+        .eq("user_id", await ownerId())
+        .eq("type", "deck")
+        .order("name"),
       supabase.from("deck_cards").select("deck_id, quantity, cards ( name )").limit(MAX_ROWS),
     ]);
 
@@ -516,6 +539,7 @@ export async function getDeck(deckId: string): Promise<Location | null> {
     .select("*")
     .eq("id", deckId)
     .eq("type", "deck")
+    .eq("user_id", await ownerId())
     .maybeSingle();
 
   if (error) throw new Error(`Could not load deck: ${error.message}`);
@@ -529,6 +553,7 @@ export async function getDeckContents(deckId: string): Promise<CardInstanceWithC
     .from("card_instances")
     .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
     .eq("location_id", deckId)
+    .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
 
   if (error) throw new Error(`Could not load deck contents: ${error.message}`);
@@ -547,6 +572,7 @@ export async function getAvailableStacks(search: string): Promise<CardInstanceWi
   const { data, error } = await supabase
     .from("card_instances")
     .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
+    .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
 
   if (error) throw new Error(`Could not load your collection: ${error.message}`);

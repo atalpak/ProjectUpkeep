@@ -6,7 +6,7 @@
  * the import path.
  */
 
-import type { CardInstanceWithCard } from "@/lib/types";
+import type { Card, CardInstanceWithCard } from "@/lib/types";
 
 export type Profile = {
   id: string;
@@ -77,13 +77,25 @@ export type TradeItem = {
   direction: TradeDirection;
   quantity: number;
   created_at: string;
+  /** Snapshot taken when the item was added (migration 23) — survives the
+   *  instance being moved to the other owner on completion. */
+  card_id: string | null;
+  finish: string | null;
 };
 
-/** A trade with everything needed to render it. */
+/**
+ * A trade with everything needed to render it.
+ *
+ * `card` is the snapshot and is always the right identity; `instance` is the
+ * live row and is present only while it is still visible (an open trade, or one
+ * the viewer received).
+ */
 export type TradeDetail = Trade & {
   proposer: Profile | null;
   recipient: Profile | null;
-  items: Array<TradeItem & { instance: CardInstanceWithCard | null }>;
+  items: Array<
+    TradeItem & { instance: CardInstanceWithCard | null; card: Card | null }
+  >;
 };
 
 export const NOTIFICATION_TYPES = [
@@ -92,6 +104,8 @@ export const NOTIFICATION_TYPES = [
   "trade_declined",
   "trade_cancelled",
   "trade_countered",
+  "friend_request",
+  "friend_accepted",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
@@ -101,6 +115,7 @@ export type Notification = {
   actor_id: string | null;
   type: NotificationType;
   trade_id: string | null;
+  friendship_id: string | null;
   read_at: string | null;
   created_at: string;
 };
