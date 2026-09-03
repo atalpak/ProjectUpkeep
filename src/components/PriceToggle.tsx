@@ -86,26 +86,39 @@ export function Price({
   value,
   className,
   title,
+  approximate = false,
 }: {
   value: number | null;
   className?: string;
   title?: string;
+  /** Value is a non-foil fallback for a finish Scryfall does not price. */
+  approximate?: boolean;
 }) {
   const showing = useShowPrices();
   if (!showing) return null;
 
+  const formatted =
+    value === null
+      ? "—"
+      : new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: "USD",
+          maximumFractionDigits: value >= 1000 ? 0 : 2,
+        }).format(value);
+
   return (
     <span
       className={cx("shrink-0 tabular-nums", value === null ? "text-ink-muted" : "", className)}
-      title={title ?? (value === null ? "No recent sale for this finish" : undefined)}
+      title={
+        title ??
+        (value === null
+          ? "No recent sale for this finish"
+          : approximate
+            ? "No separate foil price — showing the non-foil price"
+            : undefined)
+      }
     >
-      {value === null
-        ? "—"
-        : new Intl.NumberFormat(undefined, {
-            style: "currency",
-            currency: "USD",
-            maximumFractionDigits: value >= 1000 ? 0 : 2,
-          }).format(value)}
+      {approximate && value !== null ? `~${formatted}` : formatted}
     </span>
   );
 }

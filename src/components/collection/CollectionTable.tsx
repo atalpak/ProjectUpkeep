@@ -11,7 +11,7 @@ import { useActionState } from "react";
 import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { SetSymbol } from "@/components/SetSymbol";
-import { formatPrice, priceFor } from "@/lib/collection/pricing";
+import { displayPrice, formatPrice } from "@/lib/collection/pricing";
 import { BulkBar } from "@/components/collection/BulkBar";
 import { LocationSelect } from "@/components/LocationSelect";
 import {
@@ -551,8 +551,9 @@ function Cell({
  * consulting a second preference would mean a "Price" column that shows dashes.
  */
 function PriceCell({ row }: { row: CardInstanceWithCard }) {
-  const unit = priceFor(row.cards, row.finish);
+  const { value: unit, approximate } = displayPrice(row.cards, row.finish);
   const stack = unit === null ? null : unit * row.quantity;
+  const shown = unit === null ? "—" : `${approximate ? "~" : ""}${formatPrice(unit)}`;
 
   return (
     <span
@@ -560,10 +561,12 @@ function PriceCell({ row }: { row: CardInstanceWithCard }) {
       title={
         unit === null
           ? "No recent sale for this finish"
-          : `${row.quantity} × ${formatPrice(unit)} = ${formatPrice(stack)}`
+          : approximate
+            ? `No separate foil price — showing non-foil. ${row.quantity} × ${formatPrice(unit)} = ${formatPrice(stack)}`
+            : `${row.quantity} × ${formatPrice(unit)} = ${formatPrice(stack)}`
       }
     >
-      {formatPrice(unit)}
+      {shown}
     </span>
   );
 }

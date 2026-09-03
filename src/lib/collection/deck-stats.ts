@@ -16,7 +16,7 @@
  */
 
 import type { DeckListEntry } from "@/lib/collection/queries";
-import { priceFor } from "@/lib/collection/pricing";
+import { displayPrice } from "@/lib/collection/pricing";
 import {
   DECK_SECTIONS,
   SECTION_LABELS,
@@ -165,7 +165,7 @@ export function computeDeckStats(
       } satisfies SectionPrice);
     bucket.cards += qty;
 
-    const unit = priceFor(card, priceFinishFor(entry));
+    const unit = displayPrice(card, priceFinishFor(entry)).value;
     if (unit === null) {
       bucket.unpriced += qty;
       unpricedCards += qty;

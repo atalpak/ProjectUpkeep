@@ -22,7 +22,7 @@ import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle, useShowPrices } from "@/components/PriceToggle";
 import { SetSymbol } from "@/components/SetSymbol";
-import { priceFor } from "@/lib/collection/pricing";
+import { displayPrice } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
 import { DeckStateMark } from "@/components/decks/DeckStateMark";
@@ -484,6 +484,7 @@ function ListRow({
   // price at that finish. Mixed finishes fall back to non-foil for the price.
   const markFinish = entry.sleevedFinishes.find((f) => f !== "nonfoil");
   const priceFinish = entry.sleevedFinishes.length === 1 ? entry.sleevedFinishes[0] : "nonfoil";
+  const rowPrice = displayPrice(card, priceFinish);
 
   return (
     <li
@@ -528,7 +529,11 @@ function ListRow({
       <div className="flex shrink-0 items-center gap-4">
         <ManaCost cost={card?.mana_cost} size="sm" />
 
-        <Price value={priceFor(card, priceFinish)} className="text-sm text-ink-muted" />
+        <Price
+          value={rowPrice.value}
+          approximate={rowPrice.approximate}
+          className="text-sm text-ink-muted"
+        />
 
         {/* Where a spare copy is, for a row you could sleeve but have not. */}
         {state.state === "available" && entry.spareIn.length > 0 ? (
