@@ -231,8 +231,22 @@ export function groupDeck<T extends GroupableRow>(
  *
  * Returns the inner text of each: "2", "G", "G". Hybrid and Phyrexian symbols
  * come back whole ("R/G", "U/P") for the renderer to deal with.
+ *
+ * Only the FIRST face's cost is read. Transform and MDFC layouts already give
+ * `cards.mana_cost` as just the front face (see `faceOr` in
+ * src/lib/scryfall.ts), but split, adventure and flip layouts pack both halves
+ * into one string separated by " // ", e.g. "{2}{R} // {1}{U}" — without this,
+ * every adventure creature on a decklist would print a double-width pip run.
+ *
+ * The tradeoff, deliberately accepted: on a true split card such as
+ * Fire // Ice, both halves are independently castable, and this shows only
+ * the first — less than the full printed cost — in exchange for the common
+ * case (adventures, which vastly outnumber true splits in most decks) not
+ * carrying a cost twice as wide as everything else on the list. Product's
+ * call; revisit if split cards turn out to matter more than adventures do.
  */
 export function manaSymbols(cost: string | null | undefined): string[] {
   if (!cost) return [];
-  return (cost.match(/\{([^}]+)\}/g) ?? []).map((s) => s.slice(1, -1));
+  const [front] = cost.split("//");
+  return (front.match(/\{([^}]+)\}/g) ?? []).map((s) => s.slice(1, -1));
 }

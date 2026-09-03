@@ -434,6 +434,116 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 9. want_list.deck_id: must be the same user's deck, and must be a deck.
+--    (migration 17)
+-- --------------------------------------------------------------------------
+insert into public.locations (id, user_id, name, type) values
+  ('bbbbbbbb-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111',
+   'Alice Deck', 'deck');
+
+insert into public.want_list (id, user_id, card_id) values
+  ('eeeeeeee-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000001');
+
+do $$
+begin
+  -- Tagging to your own deck works.
+  update public.want_list set deck_id = 'bbbbbbbb-0000-0000-0000-000000000004'
+   where id = 'eeeeeeee-0000-0000-0000-000000000001';
+
+  -- Tagging to someone else's location is rejected, even though it exists.
+  begin
+    update public.want_list set deck_id = 'bbbbbbbb-0000-0000-0000-000000000002' -- Bob's box
+     where id = 'eeeeeeee-0000-0000-0000-000000000001';
+    assert false, 'tagging a want to another user''s location should have been rejected';
+  exception when check_violation then null;
+  end;
+
+  -- Tagging to your own location that is not a deck is rejected -- a binder
+  -- tag would not mean anything.
+  begin
+    update public.want_list set deck_id = (
+      select id from public.locations
+       where user_id = '11111111-1111-1111-1111-111111111111' and name = 'Binder B'
+    )
+     where id = 'eeeeeeee-0000-0000-0000-000000000001';
+    assert false, 'tagging a want to a binder should have been rejected';
+  exception when check_violation then null;
+  end;
+end $$;
+
+-- Deleting the tagged deck detags the want; it does not delete it.
+do $$
+declare deck_after uuid; still_there int;
+begin
+  delete from public.locations where id = 'bbbbbbbb-0000-0000-0000-000000000004';
+
+  select deck_id into deck_after from public.want_list
+   where id = 'eeeeeeee-0000-0000-0000-000000000001';
+  assert deck_after is null, 'deleting a tagged deck should clear deck_id, not the want';
+
+  select count(*) into still_there from public.want_list
+   where id = 'eeeeeeee-0000-0000-0000-000000000001';
+  assert still_there = 1, 'the want itself must survive its deck being deleted';
+end $$;
+
+-- --------------------------------------------------------------------------
+-- 10. Commander is keyed on the card, not a physical copy (migration 18) --
+--     nominable with zero card_instances, and cleared (not cascaded) when the
+--     card goes away.
+-- --------------------------------------------------------------------------
+insert into public.locations (id, user_id, name, type) values
+  ('bbbbbbbb-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111',
+   'Commander Deck', 'deck');
+
+-- A throwaway printing, not referenced by any card_instances/deck_cards/
+-- want_list row, so it can be deleted below without hitting one of those
+-- tables' ON DELETE RESTRICT.
+insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+                          available_finishes, lang, released_at, image_uri_small)
+values
+  ('aaaaaaaa-0000-0000-0000-000000000004', 'ffffffff-0000-0000-0000-000000000003',
+   'Atarka, World Render', 'ktk', '219', '{nonfoil}', 'en', '2014-09-26', 'https://img/4');
+
+do $$
+declare commander_after uuid;
+begin
+  -- A commander is nominated by naming a card directly. No card_instance for
+  -- it exists anywhere in these fixtures, which is the point: this is the bug
+  -- migration 18 fixes -- the old commander_instance_id could not do this.
+  update public.locations set commander_card_id = 'aaaaaaaa-0000-0000-0000-000000000004'
+   where id = 'bbbbbbbb-0000-0000-0000-000000000005';
+
+  select commander_card_id into commander_after from public.locations
+   where id = 'bbbbbbbb-0000-0000-0000-000000000005';
+  assert commander_after = 'aaaaaaaa-0000-0000-0000-000000000004',
+    'a card with no card_instance should be nominable as commander';
+
+  -- A card id that does not exist is rejected by the FK.
+  begin
+    update public.locations set commander_card_id = '99999999-9999-9999-9999-999999999999'
+     where id = 'bbbbbbbb-0000-0000-0000-000000000005';
+    assert false, 'nominating a nonexistent card should have been rejected';
+  exception when foreign_key_violation then null;
+  end;
+end $$;
+
+-- Deleting the nominated card clears the nomination; the deck survives.
+do $$
+declare commander_after uuid; deck_still_there int;
+begin
+  delete from public.cards where scryfall_id = 'aaaaaaaa-0000-0000-0000-000000000004';
+
+  select commander_card_id into commander_after from public.locations
+   where id = 'bbbbbbbb-0000-0000-0000-000000000005';
+  assert commander_after is null, 'deleting the commander card should clear the nomination';
+
+  select count(*) into deck_still_there from public.locations
+   where id = 'bbbbbbbb-0000-0000-0000-000000000005';
+  assert deck_still_there = 1, 'the deck itself must survive its commander card being deleted';
+end $$;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

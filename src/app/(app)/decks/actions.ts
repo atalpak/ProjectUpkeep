@@ -253,38 +253,52 @@ export async function removeFromDeck(formData: FormData): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Nominates one card in the deck as its commander, or clears the nomination.
+ * Nominates one card on the deck's list as its commander, or clears the
+ * nomination.
  *
  * Stored on the deck rather than the card: the same Atarka is a plain legendary
  * creature in a binder, and only a commander in the deck that named it.
+ *
+ * Keyed on the card (`cards.scryfall_id`, via migration 00000000000018), not a
+ * physical copy — a commander has to be nominable before you own one, the
+ * same way any other line on the decklist can be. The previous shape keyed
+ * this on `card_instances.id`, which meant the FK rejected every attempt to
+ * nominate a card you had not yet sleeved, and the caller swallowed that
+ * error instead of surfacing it; nominations silently did nothing. This
+ * returns DeckState now specifically so that cannot happen again unnoticed.
  *
  * Nothing checks legality here — not that the card is legendary, not that the
  * deck is Commander format. Format validation is out of scope by charter, and a
  * rule that argued with the user about their own deck would be worse than none.
  */
-export async function setCommander(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
+export async function setCommander(_prev: DeckState, formData: FormData): Promise<DeckState> {
+  if (!(await getCurrentUser())) return fail("You need to be signed in.");
 
   const deckId = String(formData.get("deck_id") ?? "").trim();
-  const raw = String(formData.get("instance_id") ?? "").trim();
-  if (!deckId) return;
+  const raw = String(formData.get("card_id") ?? "").trim();
+  if (!deckId) return fail("Which deck?");
 
-  // An empty instance id clears the designation.
-  const instanceId = raw === "" ? null : raw;
+  // An empty card id clears the designation.
+  const cardId = raw === "" ? null : raw;
 
   const supabase = await createClient();
   const { error } = await supabase
     .from("locations")
-    .update({ commander_instance_id: instanceId })
+    .update({ commander_card_id: cardId })
     .eq("id", deckId)
     .eq("type", "deck");
 
-  // A missing column means migration 00000000000008 has not been applied. The
-  // page keeps working without a commander section rather than breaking, so
-  // there is nothing useful to do here but leave it alone.
-  if (error) return;
+  if (error) {
+    // A missing column means migration 00000000000018 has not been applied.
+    // Naming the fix beats a generic Postgres error.
+    if (error.message.includes("commander_card_id")) {
+      return fail("Commander needs migration 00000000000018 applied to this database.");
+    }
+    return fail(error.message);
+  }
 
   revalidate(deckId);
+  return ok(cardId ? "Commander set." : "Commander cleared.");
 }
 
 // ---------------------------------------------------------------------------

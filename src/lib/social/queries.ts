@@ -242,6 +242,21 @@ type RawWant = {
   } | null;
 };
 
+/**
+ * A want row with its deck tag joined in (migration 17) — own list only.
+ *
+ * `getFriendWants` deliberately keeps selecting the plain `RawWant` shape
+ * above, without this join, so a friend's payload never carries deck_id or a
+ * deck name no matter what RLS on `locations` would have allowed through. See
+ * migration 17's closing comment for why that matters even though the
+ * friends'-tradable-locations policy (migration 9) makes it not quite free at
+ * the database layer.
+ */
+type RawOwnWant = RawWant & {
+  deck_id: string | null;
+  locations: { id: string; name: string } | null;
+};
+
 function toWantRow(raw: RawWant): WantRow {
   return {
     id: raw.id,
@@ -254,7 +269,15 @@ function toWantRow(raw: RawWant): WantRow {
   };
 }
 
-/** The signed-in user's want list. */
+function toOwnWantRow(raw: RawOwnWant): WantRow {
+  return {
+    ...toWantRow(raw),
+    deckId: raw.deck_id,
+    deckName: raw.locations?.name ?? null,
+  };
+}
+
+/** The signed-in user's want list, each entry carrying its deck tag if any. */
 export async function getWantList(): Promise<WantRow[]> {
   const user = await getCurrentUser();
   if (!user) return [];
@@ -262,15 +285,33 @@ export async function getWantList(): Promise<WantRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("want_list")
-    .select(`id, card_id, quantity, note, ${WANT_CARD_FIELDS}`)
+    .select(`id, card_id, quantity, note, deck_id, locations!deck_id ( id, name ), ${WANT_CARD_FIELDS}`)
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
   if (error) {
     if (error.code === "PGRST205") return []; // table not created yet
+    // deck_id/locations!deck_id do not exist until migration 17 is applied.
+    // Fall back to the plain shape rather than breaking the page over a tag
+    // that simply is not there yet.
+    if (error.message.includes("deck_id") || error.message.includes("locations")) {
+      return getWantListWithoutDeckTag(user.id);
+    }
     throw new Error(`Could not load your want list: ${error.message}`);
   }
 
+  return ((data ?? []) as unknown as RawOwnWant[]).map(toOwnWantRow);
+}
+
+async function getWantListWithoutDeckTag(userId: string): Promise<WantRow[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("want_list")
+    .select(`id, card_id, quantity, note, ${WANT_CARD_FIELDS}`)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`Could not load your want list: ${error.message}`);
   return ((data ?? []) as unknown as RawWant[]).map(toWantRow);
 }
 
@@ -343,9 +384,22 @@ export type WantListView = {
   suppliers: Map<string, Profile>;
 };
 
-/** The want list plus, for each entry, which friends have it open for trade. */
-export async function getWantListView(): Promise<WantListView> {
-  const [wants, tradables] = await Promise.all([getWantList(), getFriendTradables()]);
+/**
+ * Who can supply an arbitrary set of want rows, plus their profiles.
+ *
+ * Factored out of `getWantListView` so a page that only cares about a subset
+ * of the want list — the deck page's wish list, tagged to one deck — can get
+ * the same friend-matching without loading (or paying the query cost of) the
+ * whole thing. An empty input skips the friend-tradables query entirely: it
+ * is the one query here with no `.eq` to narrow it, so there is no reason to
+ * run it for a deck with nothing tagged.
+ */
+export async function matchSuppliersFor(
+  wants: WantRow[],
+): Promise<{ matches: Map<string, WantSupplier[]>; suppliers: Map<string, Profile> }> {
+  if (wants.length === 0) return { matches: new Map(), suppliers: new Map() };
+
+  const tradables = await getFriendTradables();
   const matches = matchWants(wants, tradables);
 
   const supplierIds = new Set<string>();
@@ -353,6 +407,14 @@ export async function getWantListView(): Promise<WantListView> {
     for (const s of suppliers) supplierIds.add(s.ownerId);
   }
   const suppliers = await profilesByIds([...supplierIds]);
+
+  return { matches, suppliers };
+}
+
+/** The want list plus, for each entry, which friends have it open for trade. */
+export async function getWantListView(): Promise<WantListView> {
+  const wants = await getWantList();
+  const { matches, suppliers } = await matchSuppliersFor(wants);
 
   return { wants, matches, suppliers };
 }

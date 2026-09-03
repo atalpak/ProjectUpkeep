@@ -12,14 +12,17 @@ import {
   unsleeveCard,
 } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
+import { removeWant, setWantDeck } from "@/app/(app)/wants/actions";
+import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle } from "@/components/PriceToggle";
 import { priceFor } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
+import { AddToWishList } from "@/components/decks/AddToWishList";
 import { DeckStateMark } from "@/components/decks/DeckStateMark";
-import { Banner, Button, Card as Panel, EmptyState, Select, cx } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, EmptyState, Select, cx } from "@/components/ui";
 import { availabilityFor, type Availability } from "@/lib/collection/availability";
 import { countsFor, deckProgress, type EntryState } from "@/lib/collection/deck-state";
 import {
@@ -30,8 +33,11 @@ import {
   type DeckSection,
   type DeckSort,
 } from "@/lib/collection/deck-view";
-import type { DeckListEntry } from "@/lib/collection/queries";
+import type { DeckListEntry, WishListEntry } from "@/lib/collection/queries";
 import type { CardInstanceWithCard } from "@/lib/types";
+
+/** A friend who already has a wish-list card open for trade. */
+export type WishSupplierView = { username: string; available: number };
 
 /**
  * One deck: the list it is meant to be, and how much of it is really in the box.
@@ -53,6 +59,8 @@ export function DeckWorkspace({
   stranded,
   availability,
   commanderEntryId,
+  wishList,
+  wishMatches,
 }: {
   deckId: string;
   entries: DeckListEntry[];
@@ -60,12 +68,20 @@ export function DeckWorkspace({
   stranded: CardInstanceWithCard[];
   availability: Map<string, Availability>;
   commanderEntryId: string | null;
+  /** Want-list entries tagged to this deck (migration 00000000000017). */
+  wishList: WishListEntry[];
+  /** want-row id -> friends who already have it open for trade. */
+  wishMatches: Record<string, WishSupplierView[]>;
 }) {
   const [view, setView] = useState<ViewMode>("list");
   const [sort, setSort] = useState<DeckSort>("name");
   const [adding, setAdding] = useState(false);
 
   const [sleeveState, sleeve, sleeving] = useActionState(sleeveCard, EMPTY_DECK_STATE);
+  const [commanderState, commanderAction, commanderPending] = useActionState(
+    setCommander,
+    EMPTY_DECK_STATE,
+  );
 
   const stateful = useMemo<StatefulEntry[]>(
     () =>
@@ -134,6 +150,8 @@ export function DeckWorkspace({
 
       <Banner kind="error">{sleeveState.error}</Banner>
       <Banner kind="success">{sleeveState.notice}</Banner>
+      <Banner kind="error">{commanderState.error}</Banner>
+      <Banner kind="success">{commanderState.notice}</Banner>
 
       {adding ? <AddToDeckList deckId={deckId} /> : null}
 
@@ -146,7 +164,10 @@ export function DeckWorkspace({
           <ListSection
             group={{ section: "commander", label: "Commander", rows: [], cardCount: 0 }}
             deckId={deckId}
+            allEntries={stateful}
             commanderEntryId={commanderEntryId}
+            commanderAction={commanderAction}
+            commanderPending={commanderPending}
             sleeve={sleeve}
             sleeving={sleeving}
           />
@@ -157,7 +178,15 @@ export function DeckWorkspace({
           </EmptyState>
         </>
       ) : view === "gallery" ? (
-        <Gallery groups={groups} deckId={deckId} sleeve={sleeve} sleeving={sleeving} />
+        <Gallery
+          groups={groups}
+          deckId={deckId}
+          allEntries={stateful}
+          commanderAction={commanderAction}
+          commanderPending={commanderPending}
+          sleeve={sleeve}
+          sleeving={sleeving}
+        />
       ) : (
         <div className="columns-1 gap-6 lg:columns-2 [&>*]:break-inside-avoid">
           {groups.map((group) => (
@@ -165,7 +194,10 @@ export function DeckWorkspace({
               key={group.section}
               group={group}
               deckId={deckId}
+              allEntries={stateful}
               commanderEntryId={commanderEntryId}
+              commanderAction={commanderAction}
+              commanderPending={commanderPending}
               sleeve={sleeve}
               sleeving={sleeving}
             />
@@ -174,6 +206,8 @@ export function DeckWorkspace({
       )}
 
       {stranded.length > 0 ? <Stranded deckId={deckId} rows={stranded} /> : null}
+
+      <WishList deckId={deckId} wishList={wishList} matches={wishMatches} sort={sort} />
     </div>
   );
 }
@@ -206,13 +240,20 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode
 function ListSection({
   group,
   deckId,
+  allEntries,
   commanderEntryId,
+  commanderAction,
+  commanderPending,
   sleeve,
   sleeving,
 }: {
   group: DeckGroup<StatefulEntry>;
   deckId: string;
+  /** The whole decklist, for the commander picker — see EmptySection. */
+  allEntries: StatefulEntry[];
   commanderEntryId: string | null;
+  commanderAction: (formData: FormData) => void;
+  commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
 }) {
@@ -224,7 +265,13 @@ function ListSection({
       </h2>
 
       {group.rows.length === 0 ? (
-        <EmptySection section={group.section} />
+        <EmptySection
+          section={group.section}
+          deckId={deckId}
+          allEntries={allEntries}
+          commanderAction={commanderAction}
+          commanderPending={commanderPending}
+        />
       ) : (
         <ul>
           {group.rows.map((entry) => (
@@ -233,6 +280,8 @@ function ListSection({
               entry={entry}
               deckId={deckId}
               isCommander={entry.id === commanderEntryId}
+              commanderAction={commanderAction}
+              commanderPending={commanderPending}
               sleeve={sleeve}
               sleeving={sleeving}
             />
@@ -247,16 +296,91 @@ function ListSection({
  * What an empty section says.
  *
  * Only Commander can be empty and still shown, so this is really the "no
- * commander yet" line — written as a prompt rather than a statement, because it
- * is a decision waiting to be made rather than a fact about the deck.
+ * commander yet" line. It doubles as the way to nominate one: clicking it
+ * opens a picker over the whole decklist — every card, not just creatures and
+ * planeswalkers, because whether a card can legally be a commander is
+ * explicitly not this app's call to make (docs/CHARTER.md).
  */
-function EmptySection({ section }: { section: DeckSection }) {
+function EmptySection({
+  section,
+  deckId,
+  allEntries,
+  commanderAction,
+  commanderPending,
+}: {
+  section: DeckSection;
+  deckId?: string;
+  allEntries?: StatefulEntry[];
+  commanderAction?: (formData: FormData) => void;
+  commanderPending?: boolean;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  if (section !== "commander") {
+    return <p className="py-1 text-sm text-ink-muted">Nothing here yet.</p>;
+  }
+
   return (
-    <p className="py-1 text-sm text-ink-muted">
-      {section === "commander"
-        ? "Please choose a commander."
-        : "Nothing here yet."}
-    </p>
+    <div className="space-y-2 py-1">
+      <button
+        type="button"
+        onClick={() => setPickerOpen((v) => !v)}
+        aria-expanded={pickerOpen}
+        className="text-sm text-ink-muted underline decoration-dotted hover:text-ink"
+      >
+        Please choose a commander.
+      </button>
+
+      {pickerOpen ? (
+        <CommanderPicker
+          deckId={deckId ?? ""}
+          entries={allEntries ?? []}
+          action={commanderAction ?? (() => {})}
+          pending={commanderPending ?? false}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** Every card on the decklist, pick one to nominate as commander. */
+function CommanderPicker({
+  deckId,
+  entries,
+  action,
+  pending,
+}: {
+  deckId: string;
+  entries: StatefulEntry[];
+  action: (formData: FormData) => void;
+  pending: boolean;
+}) {
+  if (entries.length === 0) {
+    return (
+      <p className="text-xs text-ink-muted">Add cards to the list before nominating a commander.</p>
+    );
+  }
+
+  const sorted = [...entries].sort((a, b) =>
+    (a.cards?.name ?? "").localeCompare(b.cards?.name ?? ""),
+  );
+
+  return (
+    <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border">
+      {sorted.map((entry) => (
+        <li key={entry.id} className="flex items-center gap-2 px-3 py-1.5">
+          <span className="min-w-0 flex-1 truncate text-sm">{entry.cards?.name ?? "Unknown card"}</span>
+          <ManaCost cost={entry.cards?.mana_cost} size="xs" />
+          <form action={action}>
+            <input type="hidden" name="deck_id" value={deckId} />
+            <input type="hidden" name="card_id" value={entry.card_id} />
+            <Button type="submit" variant="secondary" disabled={pending} className="text-xs">
+              Nominate
+            </Button>
+          </form>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -264,12 +388,16 @@ function ListRow({
   entry,
   deckId,
   isCommander,
+  commanderAction,
+  commanderPending,
   sleeve,
   sleeving,
 }: {
   entry: StatefulEntry;
   deckId: string;
   isCommander: boolean;
+  commanderAction: (formData: FormData) => void;
+  commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
 }) {
@@ -366,11 +494,12 @@ function ListRow({
           </button>
         </form>
 
-        <form action={setCommander}>
+        <form action={commanderAction}>
           <input type="hidden" name="deck_id" value={deckId} />
-          <input type="hidden" name="instance_id" value={isCommander ? "" : entry.card_id} />
+          <input type="hidden" name="card_id" value={isCommander ? "" : entry.card_id} />
           <button
             type="submit"
+            disabled={commanderPending}
             title={isCommander ? "Clear commander" : "Set as commander"}
             className={cx(
               "rounded px-1 text-xs",
@@ -405,11 +534,17 @@ function ListRow({
 function Gallery({
   groups,
   deckId,
+  allEntries,
+  commanderAction,
+  commanderPending,
   sleeve,
   sleeving,
 }: {
   groups: Array<DeckGroup<StatefulEntry>>;
   deckId: string;
+  allEntries: StatefulEntry[];
+  commanderAction: (formData: FormData) => void;
+  commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
 }) {
@@ -423,7 +558,13 @@ function Gallery({
           </h2>
 
           {group.rows.length === 0 ? (
-            <EmptySection section={group.section} />
+            <EmptySection
+              section={group.section}
+              deckId={deckId}
+              allEntries={allEntries}
+              commanderAction={commanderAction}
+              commanderPending={commanderPending}
+            />
           ) : (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {group.rows.map((entry) => (
@@ -577,5 +718,171 @@ function Stranded({ deckId, rows }: { deckId: string; rows: CardInstanceWithCard
         ))}
       </Panel>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Wish list
+// ---------------------------------------------------------------------------
+
+/**
+ * Cards wanted for this deck (migration 00000000000017): the want list,
+ * filtered to whatever is tagged with `deck_id = deckId`.
+ *
+ * Grouped through the same `groupDeck`/`sectionFor` the decklist above uses —
+ * see the note on `GroupableRow` in src/lib/collection/deck-view.ts, which
+ * exists specifically so a second list does not need a second grouping rule.
+ * There is no commander concept for a wish, so this never passes a
+ * `commanderRowId` and the Commander heading never appears here.
+ *
+ * Collapsed by default when there is nothing to show, expanded when there
+ * is — a deck with an empty wish list should not open on an empty box.
+ */
+function WishList({
+  deckId,
+  wishList,
+  matches,
+  sort,
+}: {
+  deckId: string;
+  wishList: WishListEntry[];
+  matches: Record<string, WishSupplierView[]>;
+  sort: DeckSort;
+}) {
+  const [open, setOpen] = useState(wishList.length > 0);
+  const [adding, setAdding] = useState(false);
+
+  const groups = useMemo(() => groupDeck(wishList, sort), [wishList, sort]);
+  const totalWanted = useMemo(
+    () => wishList.reduce((sum, w) => sum + w.quantity, 0),
+    [wishList],
+  );
+
+  return (
+    <section className="space-y-2 border-t border-border pt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold"
+      >
+        <span>
+          Wish list
+          {wishList.length > 0 ? (
+            <span className="ml-1.5 font-normal text-ink-muted">
+              ({totalWanted} card{totalWanted === 1 ? "" : "s"})
+            </span>
+          ) : null}
+        </span>
+        <span aria-hidden="true" className="text-ink-muted">
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="space-y-4">
+          <p className="text-xs text-ink-muted">
+            Cards you want for this deck specifically. Tagging is optional — a card can be on
+            your want list without being tied to any deck — and a card stays on your global{" "}
+            <a href="/wants" className="text-accent underline">
+              want list
+            </a>{" "}
+            whether or not it is tagged here.
+          </p>
+
+          <Button type="button" variant="secondary" onClick={() => setAdding((v) => !v)} className="text-xs">
+            {adding ? "Done adding" : "Add to wish list"}
+          </Button>
+
+          {adding ? <AddToWishList deckId={deckId} /> : null}
+
+          {wishList.length === 0 ? (
+            <p className="py-1 text-sm text-ink-muted">Nothing on this deck&rsquo;s wish list yet.</p>
+          ) : (
+            <div className="columns-1 gap-6 lg:columns-2 [&>*]:break-inside-avoid">
+              {groups.map((group) => (
+                <section key={group.section} className="mb-6 break-inside-avoid">
+                  <h3 className="mb-1.5 flex items-baseline gap-2 border-b border-border pb-1.5 text-sm font-semibold">
+                    {group.label}
+                    <span className="text-xs font-normal text-ink-muted">({group.cardCount})</span>
+                  </h3>
+                  <ul>
+                    {group.rows.map((entry) => (
+                      <WishRow key={entry.id} entry={entry} suppliers={matches[entry.id] ?? []} />
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function WishRow({
+  entry,
+  suppliers,
+}: {
+  entry: WishListEntry;
+  suppliers: WishSupplierView[];
+}) {
+  const card = entry.cards;
+  const preview = useCardPreview(card);
+  const [untagState, untagAction] = useActionState(setWantDeck, EMPTY_SOCIAL_STATE);
+  const [removeState, removeAction] = useActionState(removeWant, EMPTY_SOCIAL_STATE);
+
+  return (
+    <li className="group flex flex-wrap items-center gap-2 rounded px-1 py-1 hover:bg-surface-muted">
+      <span className="w-6 shrink-0 text-right text-xs tabular-nums text-ink-muted">
+        {entry.quantity}
+      </span>
+
+      <span {...preview} tabIndex={0} className="min-w-0 flex-1 cursor-default truncate text-sm">
+        {card?.name ?? "Unknown card"}
+      </span>
+
+      <ManaCost cost={card?.mana_cost} size="xs" />
+
+      {suppliers.length > 0 ? (
+        <Badge>
+          {suppliers[0].username}
+          {suppliers.length > 1 ? ` +${suppliers.length - 1}` : ""} has it
+        </Badge>
+      ) : null}
+
+      <div className="flex shrink-0 items-center gap-1 opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+        {/* Untag: the want survives, it just stops being "for this deck". */}
+        <form action={untagAction}>
+          <input type="hidden" name="want_id" value={entry.id} />
+          <input type="hidden" name="deck_id" value="" />
+          <button
+            type="submit"
+            title="Untag from this deck (stays on your want list)"
+            aria-label={`Untag ${card?.name ?? "card"} from this deck`}
+            className="rounded px-1 text-xs text-ink-muted hover:text-ink"
+          >
+            Untag
+          </button>
+        </form>
+
+        {/* Remove entirely: takes it off the want list altogether. */}
+        <form action={removeAction}>
+          <input type="hidden" name="want_id" value={entry.id} />
+          <button
+            type="submit"
+            title="Remove from your want list"
+            aria-label={`Remove ${card?.name ?? "card"} from your want list`}
+            className="rounded px-1 text-xs text-ink-muted hover:text-danger"
+          >
+            ✕
+          </button>
+        </form>
+      </div>
+
+      {untagState.error ? <p className="w-full text-xs text-danger">{untagState.error}</p> : null}
+      {removeState.error ? <p className="w-full text-xs text-danger">{removeState.error}</p> : null}
+    </li>
   );
 }

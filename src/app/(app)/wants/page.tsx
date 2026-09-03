@@ -1,4 +1,5 @@
 import { getWantListView } from "@/lib/social/queries";
+import { getDecks } from "@/lib/collection/queries";
 import {
   WantListManager,
   type SupplierView,
@@ -15,7 +16,12 @@ export const metadata = { title: "Want list · Project Upkeep" };
  * drive and one that tells you when there is something to do.
  */
 export default async function WantsPage() {
-  const { wants, matches, suppliers } = await getWantListView();
+  // Decks, for the "which deck is this for" tag on each row — the same list
+  // the deck picker on a deck's own wish list draws from.
+  const [{ wants, matches, suppliers }, decks] = await Promise.all([
+    getWantListView(),
+    getDecks(),
+  ]);
 
   // Resolve each supplier id to a username here, so the client gets plain data.
   const matchesView: Record<string, SupplierView[]> = {};
@@ -47,7 +53,11 @@ export default async function WantsPage() {
         }
       />
 
-      <WantListManager wants={wants} matches={matchesView} />
+      <WantListManager
+        wants={wants}
+        matches={matchesView}
+        decks={decks.map((d) => ({ id: d.id, name: d.name }))}
+      />
     </div>
   );
 }

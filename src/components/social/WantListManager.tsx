@@ -4,10 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 
-import { addWant, removeWant, setWantQuantity } from "@/app/(app)/wants/actions";
+import { addWant, removeWant, setWantDeck, setWantQuantity } from "@/app/(app)/wants/actions";
 import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { CardPreviewLink } from "@/components/CardPanel";
-import { Badge, Banner, Button, Card as Panel, EmptyState, Input } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select } from "@/components/ui";
 import type { CardNameSuggestion } from "@/lib/types";
 import type { WantRow } from "@/lib/social/wants";
 
@@ -19,6 +19,9 @@ export type SupplierView = {
   locations: string[];
 };
 
+/** Enough of a deck to offer it in the tag picker. */
+export type DeckOption = { id: string; name: string };
+
 /**
  * The want list, and who can fill it.
  *
@@ -29,10 +32,13 @@ export type SupplierView = {
 export function WantListManager({
   wants,
   matches,
+  decks,
 }: {
   wants: WantRow[];
   /** want-row id -> friends who have it open for trade. */
   matches: Record<string, SupplierView[]>;
+  /** For the "which deck is this for" tag on each row. */
+  decks: DeckOption[];
 }) {
   return (
     <div className="space-y-5">
@@ -46,7 +52,12 @@ export function WantListManager({
       ) : (
         <ul className="space-y-2">
           {wants.map((want) => (
-            <WantRowView key={want.id} want={want} suppliers={matches[want.id] ?? []} />
+            <WantRowView
+              key={want.id}
+              want={want}
+              suppliers={matches[want.id] ?? []}
+              decks={decks}
+            />
           ))}
         </ul>
       )}
@@ -211,7 +222,15 @@ function AddWant() {
   );
 }
 
-function WantRowView({ want, suppliers }: { want: WantRow; suppliers: SupplierView[] }) {
+function WantRowView({
+  want,
+  suppliers,
+  decks,
+}: {
+  want: WantRow;
+  suppliers: SupplierView[];
+  decks: DeckOption[];
+}) {
   return (
     <li className="rounded-lg border border-border bg-surface p-3">
       <div className="flex gap-3">
@@ -229,12 +248,7 @@ function WantRowView({ want, suppliers }: { want: WantRow; suppliers: SupplierVi
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium">{want.name}</span>
             <QuantityStepper want={want} />
-            <form action={removeWant} className="ml-auto">
-              <input type="hidden" name="want_id" value={want.id} />
-              <button type="submit" className="text-xs text-ink-muted hover:text-danger">
-                Remove
-              </button>
-            </form>
+            <RemoveWantButton want={want} />
           </div>
 
           <div className="mt-1.5 text-sm">
@@ -258,38 +272,97 @@ function WantRowView({ want, suppliers }: { want: WantRow; suppliers: SupplierVi
               </span>
             )}
           </div>
+
+          {decks.length > 0 ? <DeckTag want={want} decks={decks} /> : null}
         </div>
       </div>
     </li>
   );
 }
 
-function QuantityStepper({ want }: { want: WantRow }) {
+/**
+ * Which deck a want is for, and a picker to change or clear it.
+ *
+ * `want.deckId`/`deckName` are only ever populated for the signed-in user's
+ * own list (src/lib/social/queries.ts never joins them in for a friend's), so
+ * this only renders meaningfully here — this page only ever shows your own
+ * list to begin with.
+ */
+function DeckTag({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
+  const [state, action] = useActionState(setWantDeck, EMPTY_SOCIAL_STATE);
+
   return (
-    <form action={setWantQuantity} className="flex items-center gap-1">
-      <input type="hidden" name="want_id" value={want.id} />
-      <button
-        type="submit"
-        name="quantity"
-        value={want.quantity - 1}
-        disabled={want.quantity <= 1}
-        className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
-        aria-label={`Want one fewer ${want.name}`}
-      >
-        −
-      </button>
-      <span className="w-5 text-center text-xs tabular-nums" title="How many you want">
-        {want.quantity}
-      </span>
-      <button
-        type="submit"
-        name="quantity"
-        value={want.quantity + 1}
-        className="size-6 rounded border border-border text-xs coarse:size-9"
-        aria-label={`Want one more ${want.name}`}
-      >
-        +
-      </button>
-    </form>
+    <div className="mt-1.5 space-y-1">
+      <form action={action} className="flex items-center gap-1.5 text-xs">
+        <input type="hidden" name="want_id" value={want.id} />
+        <span className="text-ink-muted">For</span>
+        <Select
+          name="deck_id"
+          defaultValue={want.deckId ?? ""}
+          onChange={(e) => e.currentTarget.form?.requestSubmit()}
+          aria-label={`Which deck ${want.name} is for`}
+          className="w-40 py-1 text-xs"
+        >
+          <option value="">No particular deck</option>
+          {decks.map((deck) => (
+            <option key={deck.id} value={deck.id}>
+              {deck.name}
+            </option>
+          ))}
+        </Select>
+      </form>
+      {state.error ? <p className="text-xs text-danger">{state.error}</p> : null}
+    </div>
+  );
+}
+
+function QuantityStepper({ want }: { want: WantRow }) {
+  const [state, action] = useActionState(setWantQuantity, EMPTY_SOCIAL_STATE);
+
+  return (
+    <div className="flex items-center gap-1">
+      <form action={action} className="flex items-center gap-1">
+        <input type="hidden" name="want_id" value={want.id} />
+        <button
+          type="submit"
+          name="quantity"
+          value={want.quantity - 1}
+          disabled={want.quantity <= 1}
+          className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
+          aria-label={`Want one fewer ${want.name}`}
+        >
+          −
+        </button>
+        <span className="w-5 text-center text-xs tabular-nums" title="How many you want">
+          {want.quantity}
+        </span>
+        <button
+          type="submit"
+          name="quantity"
+          value={want.quantity + 1}
+          className="size-6 rounded border border-border text-xs coarse:size-9"
+          aria-label={`Want one more ${want.name}`}
+        >
+          +
+        </button>
+      </form>
+      {state.error ? <span className="text-xs text-danger">{state.error}</span> : null}
+    </div>
+  );
+}
+
+function RemoveWantButton({ want }: { want: WantRow }) {
+  const [state, action] = useActionState(removeWant, EMPTY_SOCIAL_STATE);
+
+  return (
+    <div className="ml-auto flex items-center gap-2">
+      {state.error ? <span className="text-xs text-danger">{state.error}</span> : null}
+      <form action={action}>
+        <input type="hidden" name="want_id" value={want.id} />
+        <button type="submit" className="text-xs text-ink-muted hover:text-danger">
+          Remove
+        </button>
+      </form>
+    </div>
   );
 }

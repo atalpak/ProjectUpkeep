@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
+import { isMissingColumnError } from "@/lib/supabase/errors";
 import type { SocialState } from "@/app/(app)/social-state";
 
 /**
@@ -22,9 +23,12 @@ function ok(message: string): SocialState {
   return { error: null, notice: message, nonce: crypto.randomUUID() };
 }
 
-function revalidate() {
+function revalidate(deckId?: string | null) {
   revalidatePath("/wants");
   revalidatePath("/dashboard");
+  // A deck-tagged want shows up on that deck's page too (its wish list
+  // section), so a change here has to invalidate that page as well.
+  if (deckId) revalidatePath(`/decks/${deckId}`);
 }
 
 /** Rank printings so a want row shows a normal copy, not a promo or a token. */
@@ -58,6 +62,20 @@ function pickRepresentative(rows: PrintingPick[]): string | null {
   })[0].scryfall_id;
 }
 
+/**
+ * Adds a card to the want list, optionally tagged to a deck.
+ *
+ * `deck_id` is how the deck page's "add to wish list" reuses this rather than
+ * reimplementing the name -> representative-printing lookup: it submits the
+ * same form this function already handles, plus one extra hidden field.
+ *
+ * A card already on the list is not an error when a deck is given — tagging
+ * an existing want to a deck ("oh, I already wanted this, it's for the Atarka
+ * deck") is a more useful outcome than making the user remove and re-add it,
+ * and it is what the deck page's "add" button should feel like even though
+ * the row was not new. Quantity is left alone in that case: the existing want
+ * already says how many, and tagging it should not silently change that.
+ */
 export async function addWant(_prev: SocialState, formData: FormData): Promise<SocialState> {
   const user = await getCurrentUser();
   if (!user) return fail("You need to be signed in.");
@@ -67,6 +85,9 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
 
   const rawQty = Number.parseInt(String(formData.get("quantity") ?? "1"), 10);
   const quantity = Number.isFinite(rawQty) && rawQty > 0 ? Math.min(rawQty, 10000) : 1;
+
+  const rawDeckId = String(formData.get("deck_id") ?? "").trim();
+  const deckId = rawDeckId === "" ? null : rawDeckId;
 
   const supabase = await createClient();
 
@@ -85,46 +106,121 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
 
   const { error } = await supabase
     .from("want_list")
-    .insert({ user_id: user.id, card_id: cardId, quantity });
+    .insert({ user_id: user.id, card_id: cardId, quantity, deck_id: deckId });
 
   if (error) {
     if (error.code === "23505" || error.message.includes("duplicate key")) {
+      // Already wanted. If this add came with a deck tag, that is still a
+      // useful thing to do — tag the existing row rather than reporting a
+      // failure for a card the user is looking right at on this deck's page.
+      if (deckId) {
+        const { error: tagError } = await supabase
+          .from("want_list")
+          .update({ deck_id: deckId })
+          .eq("user_id", user.id)
+          .eq("card_id", cardId);
+        if (tagError) return fail(tagError.message);
+        revalidate(deckId);
+        return ok(`${name} was already on your want list — tagged it to this deck.`);
+      }
       return fail(`${name} is already on your want list.`);
     }
     if (error.code === "PGRST205") {
       return fail("The want list is not set up on the database yet — apply migration 00000000000015.");
     }
+    if (isMissingColumnError(error.code) && deckId) {
+      return fail("Deck tags are not set up on the database yet — apply migration 00000000000017.");
+    }
     return fail(error.message);
   }
 
-  revalidate();
+  revalidate(deckId);
   return ok(`Added ${name} to your want list.`);
 }
 
-export async function setWantQuantity(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
+export async function setWantQuantity(_prev: SocialState, formData: FormData): Promise<SocialState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
 
   const id = String(formData.get("want_id") ?? "").trim();
   const quantity = Number.parseInt(String(formData.get("quantity") ?? ""), 10);
-  if (!id || !Number.isFinite(quantity) || quantity < 1) return;
+  if (!id) return fail("Which want?");
+  if (!Number.isFinite(quantity) || quantity < 1) return fail("Quantity must be at least one.");
 
   const supabase = await createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("want_list")
     .update({ quantity: Math.min(quantity, 10000) })
-    .eq("id", id);
+    .eq("id", id)
+    .select("deck_id")
+    .maybeSingle();
 
-  revalidate();
+  if (error) return fail(error.message);
+
+  revalidate((data as { deck_id: string | null } | null)?.deck_id ?? null);
+  return ok("Updated.");
 }
 
-export async function removeWant(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
+export async function removeWant(_prev: SocialState, formData: FormData): Promise<SocialState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
 
   const id = String(formData.get("want_id") ?? "").trim();
-  if (!id) return;
+  if (!id) return fail("Which want?");
 
   const supabase = await createClient();
-  await supabase.from("want_list").delete().eq("id", id);
+  const { data, error } = await supabase
+    .from("want_list")
+    .delete()
+    .eq("id", id)
+    .select("deck_id")
+    .maybeSingle();
 
-  revalidate();
+  if (error) return fail(error.message);
+
+  revalidate((data as { deck_id: string | null } | null)?.deck_id ?? null);
+  return ok("Removed.");
+}
+
+/**
+ * Changes or clears which deck a want is tagged to.
+ *
+ * The one-hop version of `addWant`'s tagging branch, for the /wants page:
+ * that page shows a deck picker per row rather than routing every change
+ * through re-adding the card.
+ */
+export async function setWantDeck(_prev: SocialState, formData: FormData): Promise<SocialState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+
+  const id = String(formData.get("want_id") ?? "").trim();
+  if (!id) return fail("Which want?");
+
+  const raw = String(formData.get("deck_id") ?? "").trim();
+  const deckId = raw === "" ? null : raw;
+
+  const supabase = await createClient();
+
+  // The previous tag also needs revalidating: untagging a deck should make
+  // it disappear from that deck's wish list, not just stop appearing tagged
+  // on /wants.
+  const { data: before } = await supabase
+    .from("want_list")
+    .select("deck_id")
+    .eq("id", id)
+    .maybeSingle();
+  const previousDeckId = (before as { deck_id: string | null } | null)?.deck_id ?? null;
+
+  const { error } = await supabase.from("want_list").update({ deck_id: deckId }).eq("id", id);
+
+  if (error) {
+    if (isMissingColumnError(error.code)) {
+      return fail("Deck tags are not set up on the database yet — apply migration 00000000000017.");
+    }
+    return fail(error.message);
+  }
+
+  revalidate(deckId);
+  if (previousDeckId && previousDeckId !== deckId) revalidate(previousDeckId);
+  return ok(deckId ? "Tagged to deck." : "Cleared deck tag.");
 }

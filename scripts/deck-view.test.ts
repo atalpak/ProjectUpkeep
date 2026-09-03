@@ -219,6 +219,15 @@ test("hybrid and Phyrexian symbols survive whole", () => {
   assert.deepEqual(manaSymbols("{R/G}{U/P}"), ["R/G", "U/P"]);
 });
 
+test("split/adventure/flip costs only show the first face", () => {
+  // Adventure: "Bonecrusher Giant // Stomp"-shaped cost.
+  assert.deepEqual(manaSymbols("{2}{R} // {1}{R}"), ["2", "R"]);
+  // True split: "Fire // Ice" -- deliberately less than the full printed cost.
+  assert.deepEqual(manaSymbols("{1}{R} // {1}{U}"), ["1", "R"]);
+  // No space around "//" is still read the same way.
+  assert.deepEqual(manaSymbols("{X}{G}//{G}"), ["X", "G"]);
+});
+
 // ---------------------------------------------------------------------------
 // Commander
 // ---------------------------------------------------------------------------

@@ -22,6 +22,15 @@ export type WantRow = {
   image: string | null;
   quantity: number;
   note: string | null;
+  /**
+   * The deck this want is tagged to (migration 17), own list only. A friend's
+   * want row never carries this — see src/lib/social/queries.ts, which does
+   * not select deck_id when building a friend-facing payload. Undefined for
+   * anything that predates the tag; null once it has been looked at and found
+   * untagged.
+   */
+  deckId?: string | null;
+  deckName?: string | null;
 };
 
 /** One stack sitting in someone's trade binder. */
