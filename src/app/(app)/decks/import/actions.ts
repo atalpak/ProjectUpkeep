@@ -6,7 +6,12 @@ import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { MAX_INPUT_BYTES } from "@/app/(app)/collection/import/action-state";
 import { parseImport } from "@/lib/import/parse";
 import { resolveRows } from "@/lib/import/resolve";
-import { planDeckImport, splitAgainstDeck, type DeckImportPlan } from "@/lib/import/deck-plan";
+import {
+  deckImportKey,
+  planDeckImport,
+  splitAgainstDeck,
+  type DeckImportPlan,
+} from "@/lib/import/deck-plan";
 import {
   DECK_PREVIEW_ROW_LIMIT,
   type DeckImportPreview,
@@ -76,23 +81,31 @@ async function buildPlan(
   return { parsed, plan: planDeckImport(resolved) };
 }
 
-/** The deck's current entries for the printings we are about to touch. */
-async function currentRows(
+/**
+ * The deck's current entries, keyed by card name (via deckImportKey).
+ *
+ * Import lines are matched to existing entries by name, not printing — the same
+ * fold planDeckImport does — so importing "Forest" into a deck that already
+ * lists a Forest bumps that entry rather than adding a second one.
+ */
+async function currentEntriesByName(
   supabase: Supabase,
   deckId: string,
-  cardIds: string[],
 ): Promise<Map<string, { id: string; quantity: number }>> {
   const out = new Map<string, { id: string; quantity: number }>();
-  if (cardIds.length === 0) return out;
 
   const { data } = await supabase
     .from("deck_cards")
-    .select("id, card_id, quantity")
-    .eq("deck_id", deckId)
-    .in("card_id", cardIds);
+    .select("id, quantity, cards ( name )")
+    .eq("deck_id", deckId);
 
-  for (const row of (data ?? []) as Array<{ id: string; card_id: string; quantity: number }>) {
-    out.set(row.card_id, { id: row.id, quantity: row.quantity });
+  for (const row of (data ?? []) as unknown as Array<{
+    id: string;
+    quantity: number;
+    cards: { name: string } | null;
+  }>) {
+    const name = row.cards?.name;
+    if (name) out.set(deckImportKey(name), { id: row.id, quantity: row.quantity });
   }
   return out;
 }
@@ -156,11 +169,7 @@ export async function previewDeckImport(
     return fail("Nothing to import — no card lines were found.");
   }
 
-  const existing = await currentRows(
-    supabase,
-    form.deckId,
-    plan.lines.map((l) => l.cardId),
-  );
+  const existing = await currentEntriesByName(supabase, form.deckId);
   const split = splitAgainstDeck(plan.lines, existing.keys());
 
   return {
@@ -198,11 +207,7 @@ export async function runDeckImport(
     };
   }
 
-  const existing = await currentRows(
-    supabase,
-    form.deckId,
-    plan.lines.map((l) => l.cardId),
-  );
+  const existing = await currentEntriesByName(supabase, form.deckId);
 
   const inserts: Array<{ deck_id: string; card_id: string; quantity: number }> = [];
   let merged = 0;
@@ -210,7 +215,7 @@ export async function runDeckImport(
   let failure: string | null = null;
 
   for (const line of plan.lines) {
-    const current = existing.get(line.cardId);
+    const current = existing.get(deckImportKey(line.name));
     if (!current) {
       inserts.push({ deck_id: form.deckId, card_id: line.cardId, quantity: line.quantity });
       continue;

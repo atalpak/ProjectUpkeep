@@ -15,16 +15,21 @@
 import type { ResolvedRow } from "@/lib/import/resolve";
 
 export type DeckImportLine = {
-  /** First input line this printing appeared on, for display. */
+  /** First input line this card appeared on, for display. */
   line: number;
-  /** cards.scryfall_id — what a deck_cards row points at. */
+  /**
+   * A representative printing's cards.scryfall_id — the one a new deck_cards
+   * row would point at. Lines are folded by card *name*, not by printing (a
+   * decklist wants "Forest", not one specific Forest), so this is just the
+   * first printing seen for the name.
+   */
   cardId: string;
   name: string;
-  /** "Name · SET #123", the same shape the collection preview uses. */
+  /** "Name · SET #123" for the representative printing. */
   matched: string;
   setCode: string | null;
   imageUri: string | null;
-  /** Summed across every line that resolved to this same printing. */
+  /** Summed across every line that resolved to this card, any printing. */
   quantity: number;
 };
 
@@ -37,8 +42,11 @@ export type DeckImportPlan = {
   unmatched: Array<{ line: number; raw: string; reason: string }>;
 };
 
+/** The key two lines share when they are "the same card" for a decklist. */
+export const deckImportKey = (name: string) => name.trim().toLowerCase();
+
 export function planDeckImport(resolved: ResolvedRow[]): DeckImportPlan {
-  const byCard = new Map<string, DeckImportLine>();
+  const byName = new Map<string, DeckImportLine>();
   const unmatched: DeckImportPlan["unmatched"] = [];
 
   for (const row of resolved) {
@@ -52,13 +60,17 @@ export function planDeckImport(resolved: ResolvedRow[]): DeckImportPlan {
     }
 
     const card = row.card;
-    const existing = byCard.get(card.scryfall_id);
+    // Fold by name: "14 Forest (FDN)" and "6 Forest (M21)" are one decklist
+    // entry asking for 20, not two entries. Filing them separately is what let
+    // migration 19's reconcile trigger double-count a basic on sleeve.
+    const key = deckImportKey(card.name);
+    const existing = byName.get(key);
     if (existing) {
       existing.quantity += row.quantity;
       continue;
     }
 
-    byCard.set(card.scryfall_id, {
+    byName.set(key, {
       line: row.line,
       cardId: card.scryfall_id,
       name: card.name,
@@ -69,7 +81,7 @@ export function planDeckImport(resolved: ResolvedRow[]): DeckImportPlan {
     });
   }
 
-  const lines = [...byCard.values()];
+  const lines = [...byName.values()];
   return {
     lines,
     totalCards: lines.reduce((sum, line) => sum + line.quantity, 0),
@@ -78,19 +90,24 @@ export function planDeckImport(resolved: ResolvedRow[]): DeckImportPlan {
 }
 
 /**
- * Against the printings the deck already lists, how many import lines land on
- * an existing entry (quantity added on top) versus a fresh one.
+ * Against the cards the deck already lists (by name), how many import lines land
+ * on an existing entry — quantity added on top — versus a fresh one.
+ *
+ * `existingNames` are the deck's current entry names; they are compared through
+ * `deckImportKey`, so casing does not matter.
  */
 export function splitAgainstDeck(
   lines: DeckImportLine[],
-  existingCardIds: Iterable<string>,
+  existingNames: Iterable<string>,
 ): { newEntries: number; mergedEntries: number } {
-  const have = new Set(existingCardIds);
+  const have = new Set<string>();
+  for (const name of existingNames) have.add(deckImportKey(name));
+
   let newEntries = 0;
   let mergedEntries = 0;
 
   for (const line of lines) {
-    if (have.has(line.cardId)) mergedEntries += 1;
+    if (have.has(deckImportKey(line.name))) mergedEntries += 1;
     else newEntries += 1;
   }
 

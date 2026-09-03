@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 
 import { previewDeckImport, runDeckImport } from "@/app/(app)/decks/import/actions";
 import {
@@ -27,7 +27,14 @@ const PLACEHOLDER = `1 Atraxa, Grand Unifier
  * collection importer there is nothing to configure: paste, optionally Preview,
  * then Add. Quantities are added on top of whatever the deck already lists.
  */
-export function DeckImportPanel({ deckId }: { deckId: string }) {
+export function DeckImportPanel({
+  deckId,
+  onImported,
+}: {
+  deckId: string;
+  /** Called after a clean import (nothing skipped), so the panel can close. */
+  onImported?: () => void;
+}) {
   const [state, preview, previewing] = useActionState<DeckImportState, FormData>(
     previewDeckImport,
     EMPTY_DECK_IMPORT_STATE,
@@ -53,6 +60,24 @@ export function DeckImportPanel({ deckId }: { deckId: string }) {
   function rearm() {
     setLastAction("preview");
   }
+
+  // A clean import — everything matched, nothing skipped — has nothing left to
+  // show, so close the panel. If something needs a look, stay open so the
+  // skipped / unreadable lines can be read and fixed. onImported is a
+  // useCallback in the parent, so this fires on the import result, not every
+  // render.
+  useEffect(() => {
+    const p = commitState.preview;
+    if (
+      commitState.nonce &&
+      !commitState.error &&
+      p &&
+      p.skipped.length === 0 &&
+      p.problems.length === 0
+    ) {
+      onImported?.();
+    }
+  }, [commitState, onImported]);
 
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];

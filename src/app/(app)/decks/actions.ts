@@ -615,32 +615,56 @@ type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
  * The shared core of `sleeveCard` (one card) and `bulkSleeveEntries` (a
  * selection) — both parse their input and then call this.
  */
+/**
+ * A snapshot of the whole collection plus the target card, so a caller
+ * sleeving many entries at once can read it *once* instead of per entry.
+ *
+ * Safe only when the entries do not share a card (distinct oracle ids): the
+ * snapshot is not updated as stacks move, so two entries for the same card
+ * would both plan against copies the first already took. The list importer
+ * folds by name, so a deck has one entry per card and this holds.
+ */
+type SleevePool = {
+  candidates: SleeveCandidate[];
+  target: { oracle_id: string | null; name: string };
+};
+
 async function sleeveCopies(
   supabase: SupabaseClient,
   userId: string,
   deckId: string,
   cardId: string,
   wanted: number,
+  pool?: SleevePool,
 ): Promise<{ sleeved: number; error: string | null }> {
-  const { data: listed } = await supabase
-    .from("cards")
-    .select("oracle_id, name")
-    .eq("scryfall_id", cardId)
-    .maybeSingle();
+  let target: { oracle_id: string | null; name: string };
+  let owned: SleeveCandidate[];
 
-  if (!listed) return { sleeved: 0, error: "That card is not in the database." };
-  const target = listed as { oracle_id: string | null; name: string };
+  if (pool) {
+    target = pool.target;
+    owned = pool.candidates;
+  } else {
+    const { data: listed } = await supabase
+      .from("cards")
+      .select("oracle_id, name")
+      .eq("scryfall_id", cardId)
+      .maybeSingle();
 
-  const { data: owned, error } = await supabase
-    .from("card_instances")
-    .select(
-      "id, card_id, condition, finish, language, quantity, notes, cards ( oracle_id, name ), locations!location_id ( type )",
-    )
-    .eq("owner_user_id", userId);
+    if (!listed) return { sleeved: 0, error: "That card is not in the database." };
+    target = listed as { oracle_id: string | null; name: string };
 
-  if (error) return { sleeved: 0, error: error.message };
+    const { data, error } = await supabase
+      .from("card_instances")
+      .select(
+        "id, card_id, condition, finish, language, quantity, notes, cards ( oracle_id, name ), locations!location_id ( type )",
+      )
+      .eq("owner_user_id", userId);
 
-  const candidates = ((owned ?? []) as unknown as SleeveCandidate[])
+    if (error) return { sleeved: 0, error: error.message };
+    owned = (data ?? []) as unknown as SleeveCandidate[];
+  }
+
+  const candidates = owned
     .filter((row) => {
       const sameCard = target.oracle_id
         ? row.cards?.oracle_id === target.oracle_id
@@ -925,22 +949,24 @@ export async function bulkSleeveEntries(
   const supabase = await createClient();
   const entries = await loadSelectedEntries(supabase, deckId, entryIds);
 
-  // Sleeved-here and spare counts, per oracle key, from one read of the
-  // collection — the same shape sleeveCopies filters, just tallied up front so
-  // the "can it be completed" test does not need a query per entry.
+  // One read of the whole collection, reused two ways: tallied into sleeved-here
+  // and spare counts for the "can this entry be completed" test, and passed
+  // straight to sleeveCopies as its candidate pool so it does not re-read the
+  // collection once per entry — the slow part of a big bulk sleeve.
   const { data: owned } = await supabase
     .from("card_instances")
-    .select("quantity, location_id, cards ( oracle_id, name ), locations!location_id ( type )")
+    .select(
+      "id, card_id, condition, finish, language, quantity, notes, location_id, cards ( oracle_id, name ), locations!location_id ( type )",
+    )
     .eq("owner_user_id", user.id);
+
+  const ownedRows = (owned ?? []) as unknown as Array<
+    SleeveCandidate & { location_id: string | null }
+  >;
 
   const sleevedHere = new Map<string, number>();
   const spare = new Map<string, number>();
-  for (const raw of (owned ?? []) as unknown as Array<{
-    quantity: number;
-    location_id: string | null;
-    cards: { oracle_id: string | null; name: string } | null;
-    locations: { type: string } | null;
-  }>) {
+  for (const raw of ownedRows) {
     const key = raw.cards?.oracle_id ?? raw.cards?.name?.toLowerCase();
     if (!key) continue;
     if (raw.location_id === deckId) {
@@ -950,6 +976,22 @@ export async function bulkSleeveEntries(
     }
   }
 
+  // The pool for sleeveCopies: the same rows, minus the location_id column it
+  // does not use. Still un-mutated, and safe to share across entries because
+  // each entry is a different card (the importer folds by name, so a deck has
+  // one entry per card).
+  const poolCandidates: SleeveCandidate[] = ownedRows.map((r) => ({
+    id: r.id,
+    card_id: r.card_id,
+    condition: r.condition,
+    finish: r.finish,
+    language: r.language,
+    quantity: r.quantity,
+    notes: r.notes,
+    cards: r.cards,
+    locations: r.locations,
+  }));
+
   let completed = 0;
   let skipped = 0;
 
@@ -958,12 +1000,15 @@ export async function bulkSleeveEntries(
     const outstanding = Math.max(0, entry.quantity - (key ? (sleevedHere.get(key) ?? 0) : 0));
     if (outstanding === 0) continue; // already there
 
-    if (!key || (spare.get(key) ?? 0) < outstanding) {
+    if (!key || !entry.cards || (spare.get(key) ?? 0) < outstanding) {
       skipped += 1;
       continue;
     }
 
-    const { sleeved } = await sleeveCopies(supabase, user.id, deckId, entry.card_id, outstanding);
+    const { sleeved } = await sleeveCopies(supabase, user.id, deckId, entry.card_id, outstanding, {
+      candidates: poolCandidates,
+      target: { oracle_id: entry.cards.oracle_id, name: entry.cards.name },
+    });
     if (sleeved > 0) {
       completed += 1;
       spare.set(key, (spare.get(key) ?? 0) - sleeved);

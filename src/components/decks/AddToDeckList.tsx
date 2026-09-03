@@ -15,7 +15,14 @@ import type { CardNameSuggestion } from "@/lib/types";
  * intend the deck to be, so a card you have never owned has to be addable.
  * Whether you own it shows up afterwards, as the entry's state.
  */
-export function AddToDeckList({ deckId }: { deckId: string }) {
+export function AddToDeckList({
+  deckId,
+  onImported,
+}: {
+  deckId: string;
+  /** Called after a list import succeeds cleanly, so the panel can close. */
+  onImported?: () => void;
+}) {
   const [mode, setMode] = useState<"search" | "import">("search");
   const [state, add, adding] = useActionState(addDeckCard, EMPTY_DECK_STATE);
 
@@ -91,7 +98,7 @@ export function AddToDeckList({ deckId }: { deckId: string }) {
       </div>
 
       {mode === "import" ? (
-        <DeckImportPanel deckId={deckId} />
+        <DeckImportPanel deckId={deckId} onImported={onImported} />
       ) : (
         <>
           <div className="flex flex-wrap gap-2">

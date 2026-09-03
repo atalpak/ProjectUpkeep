@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useActionState, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useActionState, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   bulkSleeveEntries,
@@ -98,6 +98,17 @@ export function DeckWorkspace({
       return !on;
     });
   }
+
+  // Force multi-select off — after a bulk action completes, the job is done and
+  // the toolbar should get out of the way.
+  const exitMultiSelect = useCallback(() => {
+    setMultiSelect(false);
+    setSelected(new Set());
+  }, []);
+
+  // Stable so the child effects that watch them fire on the state change, not
+  // on every render.
+  const stopAdding = useCallback(() => setAdding(false), []);
 
   const [sleeveState, sleeve, sleeving] = useActionState(sleeveCard, EMPTY_DECK_STATE);
   const [commanderState, commanderAction, commanderPending] = useActionState(
@@ -233,7 +244,7 @@ export function DeckWorkspace({
       <Banner kind="error">{commanderState.error}</Banner>
       <Banner kind="success">{commanderState.notice}</Banner>
 
-      {adding ? <AddToDeckList deckId={deckId} /> : null}
+      {adding ? <AddToDeckList deckId={deckId} onImported={stopAdding} /> : null}
 
       {entries.length === 0 ? (
         <>
@@ -297,6 +308,7 @@ export function DeckWorkspace({
           deckId={deckId}
           entryIds={liveSelected}
           onClear={() => setSelected(new Set())}
+          onComplete={exitMultiSelect}
         />
       ) : null}
 
@@ -461,9 +473,11 @@ function ListRow({
       ) : null}
 
       {/* Order, left to right: how many / name / mana / price / state / menu.
-          Every text bit on the row is text-sm — only the colour varies. */}
-      <span className="min-w-10 shrink-0 text-right text-sm tabular-nums text-ink-muted">
-        {state.sleeved}/{entry.quantity}
+          Just the count the list asks for — sleeve progress is the ✓ mark's
+          job, and a "14/1" from counting every printing of a basic only ever
+          read as broken. */}
+      <span className="min-w-8 shrink-0 text-right text-sm tabular-nums text-ink-muted">
+        {entry.quantity}×
       </span>
 
       <span
@@ -910,7 +924,7 @@ function GalleryCard({
         ) : null}
 
         <span className="absolute bottom-1.5 right-1.5 rounded bg-surface/90 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-          {state.sleeved}/{entry.quantity}
+          {entry.quantity}×
         </span>
       </div>
 
@@ -949,10 +963,13 @@ function DeckBulkBar({
   deckId,
   entryIds,
   onClear,
+  onComplete,
 }: {
   deckId: string;
   entryIds: string[];
   onClear: () => void;
+  /** Fired once a bulk sleeve/unsleeve succeeds, to leave multi-select. */
+  onComplete: () => void;
 }) {
   const [sleeveState, sleeveAction, sleevingBulk] = useActionState(
     bulkSleeveEntries,
@@ -962,6 +979,15 @@ function DeckBulkBar({
     bulkUnsleeveEntries,
     EMPTY_DECK_STATE,
   );
+
+  // A nonce appears only on success (see ok() in decks/actions.ts). When one
+  // does, the batch is done — hand control back so the toolbar closes.
+  // onComplete is a useCallback in the parent, so this fires on the nonce
+  // change, not every render.
+  const doneNonce = sleeveState.nonce ?? unsleeveState.nonce;
+  useEffect(() => {
+    if (doneNonce) onComplete();
+  }, [doneNonce, onComplete]);
 
   const ids = entryIds.join(",");
   const busy = sleevingBulk || unsleevingBulk;
