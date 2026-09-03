@@ -294,8 +294,13 @@ const LINE = /^(?:SB:\s*)?(?:(\d+)\s*[xX]?\s+)?(.+?)\s*$/;
 /** Trailing "(SET) 123" or "[SET] 123", as most exporters write it. */
 const SET_SUFFIX = /\s*[([]([A-Za-z0-9_]{2,6})[)\]](?:\s+([A-Za-z0-9★-]+))?\s*$/;
 
-/** Moxfield's foil markers, and the "*E*" etched variant. */
-const FOIL_MARKER = /\s*\*([FE])\*\s*$/i;
+/**
+ * Moxfield's foil markers, and the "*E*" etched variant. Not anchored: most
+ * exporters put it last ("Sol Ring (C21) 263 *F*"), but some write it before
+ * the set ("Sol Ring *F* (C21) 263"), and a marker left anywhere in the string
+ * would otherwise end up stuck on the card name and match nothing.
+ */
+const FOIL_MARKER = /\s*\*([FE])\*\s*/i;
 
 function parseTextLine(rawLine: string, line: number): ParsedRow | ParseProblem | null {
   const text = rawLine.trim();
@@ -319,7 +324,9 @@ function parseTextLine(rawLine: string, line: number): ParsedRow | ParseProblem 
   const foil = FOIL_MARKER.exec(rest);
   if (foil) {
     finish = foil[1].toUpperCase() === "E" ? "etched" : "foil";
-    rest = rest.slice(0, foil.index).trim();
+    // Cut the marker out wherever it sat, rejoining the two sides so a set
+    // suffix that followed it is still there for SET_SUFFIX to read.
+    rest = `${rest.slice(0, foil.index)} ${rest.slice(foil.index + foil[0].length)}`.trim();
   }
 
   let setHint: string | null = null;

@@ -69,6 +69,47 @@ async function cardColumns(
 /** Names per `in` filter. Keeps the URL well inside PostgREST's limits. */
 const NAME_CHUNK = 100;
 
+/**
+ * Reads every printing of every name in `names`, paging past PostgREST's
+ * per-response row cap (Supabase's default is 1000).
+ *
+ * A name batch that contains a basic land, or a staple like Sol Ring, matches
+ * far more than 1000 rows. Without paging, the tail is silently dropped and the
+ * printings that fall off — often the exact one an import line named — look, to
+ * choosePrinting, like the set was never printed at all. So the first page's
+ * length is taken as the server's real cap and the query is drained from there.
+ * Ordered by the primary key so the pages do not overlap or skip.
+ */
+async function fetchPrintingsByName(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  columns: string,
+  names: string[],
+): Promise<MatchedCard[]> {
+  if (names.length === 0) return [];
+
+  const out: MatchedCard[] = [];
+  let from = 0;
+  let pageSize = 100_000;
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from("cards")
+      .select(columns)
+      .in("name", names)
+      .order("scryfall_id", { ascending: true })
+      .range(from, from + pageSize - 1);
+
+    if (error || !data || data.length === 0) break;
+    out.push(...(data as unknown as MatchedCard[]));
+
+    if (from === 0) pageSize = data.length || pageSize;
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return out;
+}
+
 /** How many single-name fallback lookups we are willing to make. */
 const MAX_FALLBACK_LOOKUPS = 150;
 const FALLBACK_CONCURRENCY = 6;
@@ -152,8 +193,7 @@ export async function resolveRows(rows: ParsedRow[]): Promise<ResolvedRow[]> {
   const plainNames = names.filter((n) => !n.includes('"'));
 
   for (const group of chunk(plainNames, NAME_CHUNK)) {
-    const { data } = await supabase.from("cards").select(columns).in("name", group);
-    for (const card of (data ?? []) as unknown as MatchedCard[]) add(card);
+    for (const card of await fetchPrintingsByName(supabase, columns, group)) add(card);
   }
 
   await mapWithLimit(quotedNames, FALLBACK_CONCURRENCY, async (name) => {
