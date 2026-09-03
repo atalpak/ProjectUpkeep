@@ -623,7 +623,7 @@ function RowMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-md border border-border bg-surface-raised shadow-lg"
+          className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-md border border-border bg-surface-raised shadow-lg"
         >
           <button
             type="button"
@@ -637,7 +637,34 @@ function RowMenu({
             {editing ? "Close editor" : "Edit"}
           </button>
 
-          <form action={deleteCardInstance}>
+          {row.cards?.purchase_uri ? (
+            <a
+              role="menuitem"
+              href={row.cards.purchase_uri}
+              target="_blank"
+              rel="noreferrer noopener"
+              onClick={() => setOpen(false)}
+              className="block w-full border-t border-border px-3 py-2 text-left text-sm hover:bg-surface-muted"
+            >
+              Buy on TCGplayer
+            </a>
+          ) : null}
+          {row.cards?.name ? (
+            <a
+              role="menuitem"
+              href={`https://www.cardkingdom.com/catalog/search?search=header&filter%5Bname%5D=${encodeURIComponent(
+                row.cards.name,
+              )}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              onClick={() => setOpen(false)}
+              className="block w-full px-3 py-2 text-left text-sm hover:bg-surface-muted"
+            >
+              Buy on Card Kingdom
+            </a>
+          ) : null}
+
+          <form action={deleteCardInstance} className="border-t border-border">
             <input type="hidden" name="instance_id" value={row.id} />
             <button
               type="submit"
