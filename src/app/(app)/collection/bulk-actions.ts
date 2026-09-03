@@ -45,6 +45,11 @@ function revalidate() {
   revalidatePath("/collection");
   revalidatePath("/locations");
   revalidatePath("/dashboard");
+  // A bulk move (or delete, or a merge that collapses stacks) can change what
+  // is sleeved in a deck — a card filed into a deck here is on its list via
+  // the migration-16/19 trigger. "layout" so every /decks/[id] page is busted,
+  // not just the index, since the move does not know which deck it touched.
+  revalidatePath("/decks", "layout");
 }
 
 // ---------------------------------------------------------------------------

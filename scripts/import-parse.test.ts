@@ -56,6 +56,19 @@ test("understands Moxfield's foil markers", () => {
   assert.equal(rows[0].name, "Sol Ring", "the marker is not left on the name");
 });
 
+test("a foil marker before the set is still read, and not left on the name", () => {
+  const { rows } = parseImport(
+    "1 Atarka, World Render *E* (SCD)\n1 Sol Ring *F* (C21) 263",
+  );
+  assert.equal(rows[0].name, "Atarka, World Render");
+  assert.equal(rows[0].setHint, "SCD");
+  assert.equal(rows[0].finish, "etched");
+  assert.equal(rows[1].name, "Sol Ring");
+  assert.equal(rows[1].setHint, "C21");
+  assert.equal(rows[1].collectorNumber, "263");
+  assert.equal(rows[1].finish, "foil");
+});
+
 test("skips comments, blank lines and section headers", () => {
   const input = [
     "// my deck",
