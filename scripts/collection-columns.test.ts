@@ -12,6 +12,7 @@ import { test } from "node:test";
 import {
   DEFAULT_COLUMNS,
   parseStoredColumns,
+  parseStoredSort,
   sortRows,
   type ColumnId,
 } from "../src/components/collection/columns";
@@ -231,4 +232,27 @@ test("a saved choice containing the retired Finish column still works", () => {
 
 test("a saved choice of nothing but Finish falls back to the defaults", () => {
   assert.deepEqual(parseStoredColumns(JSON.stringify(["finish"])), DEFAULT_COLUMNS);
+});
+
+// ---------------------------------------------------------------------------
+// Persisted sort
+// ---------------------------------------------------------------------------
+
+test("a stored sort round-trips", () => {
+  assert.deepEqual(parseStoredSort(JSON.stringify({ column: "name", direction: "desc" })), {
+    column: "name",
+    direction: "desc",
+  });
+});
+
+test("no stored sort, or an explicit null, means unsorted", () => {
+  assert.equal(parseStoredSort(null), null);
+  assert.equal(parseStoredSort(""), null);
+  assert.equal(parseStoredSort("null"), null);
+});
+
+test("a stored sort naming a column that no longer exists is dropped", () => {
+  assert.equal(parseStoredSort(JSON.stringify({ column: "finish", direction: "asc" })), null);
+  assert.equal(parseStoredSort(JSON.stringify({ column: "name", direction: "sideways" })), null);
+  assert.equal(parseStoredSort("not json"), null);
 });
