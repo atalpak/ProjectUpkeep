@@ -59,6 +59,9 @@ import {
  * available without giving every row a thumbnail.
  */
 
+/** Rows rendered at once. The rest wait behind the pager. */
+const PAGE_SIZE = 50;
+
 export function CollectionTable({
   rows,
   locations,
@@ -81,6 +84,7 @@ export function CollectionTable({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [page, setPage] = useState(0);
 
   function toggleColumn(id: ColumnId) {
     const next = visible.includes(id) ? visible.filter((c) => c !== id) : [...visible, id];
@@ -98,6 +102,18 @@ export function CollectionTable({
     () => sortRows(rows, sort, { availability }),
     [rows, sort, availability],
   );
+
+  // Paginate the rendered rows: a 700-entry table is slow to lay out and slow
+  // to scan. The page state can go stale when a filter shrinks the results —
+  // clamp rather than reset in an effect.
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageRows = useMemo(
+    () => sorted.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
+    [sorted, safePage],
+  );
+  const firstShown = sorted.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
+  const lastShown = Math.min(sorted.length, safePage * PAGE_SIZE + PAGE_SIZE);
 
   // A filter change can remove rows that were selected; a selection must never
   // name a row the user can no longer see.
@@ -124,6 +140,7 @@ export function CollectionTable({
   }
 
   function headerClick(id: ColumnId) {
+    setPage(0);
     setSort((prev) =>
       prev?.column === id
         ? { column: id, direction: prev.direction === "asc" ? "desc" : "asc" }
@@ -137,7 +154,9 @@ export function CollectionTable({
         <p className="text-sm text-ink-muted">
           {liveSelection.length > 0
             ? `${liveSelection.length} selected`
-            : `${sorted.length} ${sorted.length === 1 ? "entry" : "entries"}`}
+            : sorted.length > PAGE_SIZE
+              ? `${sorted.length} entries · showing ${firstShown}–${lastShown}`
+              : `${sorted.length} ${sorted.length === 1 ? "entry" : "entries"}`}
         </p>
 
         <div className="flex flex-1 items-center justify-end gap-2">
@@ -150,6 +169,7 @@ export function CollectionTable({
               className="text-xs"
               value={sort ? `${sort.column}:${sort.direction}` : ""}
               onChange={(event) => {
+                setPage(0);
                 const value = event.currentTarget.value;
                 if (!value) return setSort(null);
                 const [column, direction] = value.split(":");
@@ -188,7 +208,7 @@ export function CollectionTable({
           narrowest, which on a phone is a page you read by dragging sideways —
           so that width is spent going down the screen instead. */}
       <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border sm:hidden">
-        {sorted.map((row) => (
+        {pageRows.map((row) => (
           <MobileRow
             key={row.id}
             row={row}
@@ -251,7 +271,7 @@ export function CollectionTable({
           </thead>
 
           <tbody className="divide-y divide-border">
-            {sorted.map((row) => (
+            {pageRows.map((row) => (
               <Row
                 key={row.id}
                 row={row}
@@ -268,12 +288,83 @@ export function CollectionTable({
         </table>
       </div>
 
+      {pageCount > 1 ? (
+        <Pager
+          page={safePage}
+          pageCount={pageCount}
+          onPage={(p) => {
+            setPage(p);
+            if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+          }}
+        />
+      ) : null}
+
       <BulkBar
         ids={liveSelection}
         locations={locations}
         onClear={() => setSelected(new Set())}
       />
     </div>
+  );
+}
+
+/**
+ * Prev / next plus a short window of page numbers. Kept simple: the table is
+ * already sorted and filtered, so paging is a fallback for scrolling, not the
+ * main way anyone finds a card.
+ */
+function Pager({
+  page,
+  pageCount,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  onPage: (page: number) => void;
+}) {
+  // A window of up to 5 numbers centred on the current page.
+  const start = Math.max(0, Math.min(page - 2, pageCount - 5));
+  const numbers = Array.from(
+    { length: Math.min(5, pageCount) },
+    (_, i) => start + i,
+  );
+
+  const btn =
+    "min-w-8 rounded border border-border px-2 py-1 text-xs transition-colors hover:bg-surface-muted disabled:opacity-40 disabled:hover:bg-transparent";
+
+  return (
+    <nav className="flex flex-wrap items-center justify-center gap-1.5" aria-label="Pagination">
+      <button type="button" className={btn} onClick={() => onPage(page - 1)} disabled={page === 0}>
+        ‹ Prev
+      </button>
+
+      {start > 0 ? <span className="px-1 text-xs text-ink-muted">…</span> : null}
+
+      {numbers.map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onPage(n)}
+          aria-current={n === page ? "page" : undefined}
+          className={cx(btn, n === page && "border-accent bg-accent-soft font-medium")}
+        >
+          {n + 1}
+        </button>
+      ))}
+
+      {start + numbers.length < pageCount ? (
+        <span className="px-1 text-xs text-ink-muted">…</span>
+      ) : null}
+
+      <button
+        type="button"
+        className={btn}
+        onClick={() => onPage(page + 1)}
+        disabled={page >= pageCount - 1}
+      >
+        Next ›
+      </button>
+    </nav>
   );
 }
 
@@ -344,9 +435,9 @@ function MobileRow({
             </span>
             <span
               className="tabular-nums text-ink-muted"
-              title={`${availability.total} owned · ${availability.inDecks} in decks · ${availability.available} free`}
+              title={`${availability.total} owned across all printings · ${availability.available} free`}
             >
-              {availability.available}/{availability.total} free
+              {row.locations?.type === "deck" ? 0 : row.quantity} free
             </span>
             <PriceCell row={row} />
           </div>
@@ -524,19 +615,19 @@ function Cell({
         <PriceCell row={row} />
       );
 
-    case "available":
-      // Counted across every printing of this card rather than just this row,
-      // because that is the question actually being asked: have I got one free
-      // to put in a deck?
+    case "available": {
+      // This row's own copies: free unless the row is itself a deck. The
+      // hover keeps the card-wide picture (every printing, any finish).
+      const free = row.locations?.type === "deck" ? 0 : row.quantity;
       return (
         <span
-          title={`${availability.total} owned · ${availability.inDecks} in decks · ${availability.available} free`}
-          className={availability.available === 0 ? "text-ink-muted" : "font-medium"}
+          title={`${free} free here · ${availability.total} owned across all printings, ${availability.available} free`}
+          className={free === 0 ? "text-ink-muted" : "font-medium"}
         >
-          {availability.available}
-          <span className="font-normal text-ink-muted"> / {availability.total}</span>
+          {free}
         </span>
       );
+    }
   }
 }
 

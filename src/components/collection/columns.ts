@@ -8,14 +8,12 @@
 
 import type { CardInstanceWithCard } from "@/lib/types";
 import { statToNumber } from "@/lib/collection/filters";
-import { availabilityFor, type Availability } from "@/lib/collection/availability";
+import type { Availability } from "@/lib/collection/availability";
 import { displayPrice } from "@/lib/collection/pricing";
 
 /**
- * What a column may need beyond the row itself.
- *
- * Availability is counted across every printing of a card, so it cannot be read
- * off a single row — the table passes the map in.
+ * What a column may need beyond the row itself. Kept for columns that might
+ * later want cross-row context; nothing needs it right now.
  */
 export type SortContext = { availability: Map<string, Availability> };
 
@@ -137,8 +135,10 @@ export const COLUMNS: ColumnDef[] = [
     // exists to answer.
     default: true,
     numeric: true,
-    // Sorts by the number actually rendered, not by this row's quantity.
-    sortBy: (r, { availability }) => availabilityFor(availability, r.cards).available,
+    // Per row: a copy is free unless it is itself sitting in a deck. Matches
+    // what the cell renders (see CollectionTable) — this row's own count, not
+    // an oracle-wide tally.
+    sortBy: (r) => (r.locations?.type === "deck" ? 0 : r.quantity),
   },
 ];
 
