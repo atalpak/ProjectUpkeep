@@ -20,6 +20,7 @@ import {
   type Location,
 } from "@/lib/types";
 import { CardPreviewTarget } from "@/components/CardPanel";
+import { SetSymbol } from "@/components/SetSymbol";
 import { Badge, Banner, Button, Card as Panel, Field, Select, cx } from "@/components/ui";
 
 const PLACEHOLDER = `4 Lightning Bolt
@@ -338,8 +339,9 @@ function Preview({
                 </CardPreviewTarget>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
+                  <div className="flex items-center gap-2">
                     <span className="text-sm font-medium tabular-nums">{row.quantity}×</span>
+                    {row.setCode ? <SetSymbol code={row.setCode} size={12} /> : null}
                     <span className="truncate text-sm">{row.matched ?? row.name}</span>
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1.5">

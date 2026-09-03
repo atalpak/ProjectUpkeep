@@ -10,6 +10,7 @@ import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { useActionState } from "react";
 import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
+import { SetSymbol } from "@/components/SetSymbol";
 import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { BulkBar } from "@/components/collection/BulkBar";
 import { LocationSelect } from "@/components/LocationSelect";
@@ -326,7 +327,8 @@ function MobileRow({
                 {card?.name ?? "Unknown printing"}
               </span>
               <FoilMark finish={row.finish} />
-              <p className="truncate text-xs text-ink-muted">
+              <p className="flex items-center gap-1.5 truncate text-xs text-ink-muted">
+                <SetSymbol code={card?.set_code} size={12} />
                 {card?.set_name ?? card?.set_code?.toUpperCase() ?? "—"}
               </p>
             </div>
@@ -458,7 +460,8 @@ function Cell({
 
     case "set":
       return (
-        <span className="text-ink-muted">
+        <span className="inline-flex items-center gap-1.5 text-ink-muted">
+          <SetSymbol code={card?.set_code} />
           {card?.set_name ?? card?.set_code?.toUpperCase() ?? "—"}
         </span>
       );

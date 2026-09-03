@@ -7,6 +7,7 @@ import { addCardInstance } from "@/app/(app)/collection/actions";
 import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { CardPreviewTarget } from "@/components/CardPanel";
 import { LocationSelect } from "@/components/LocationSelect";
+import { SetSymbol } from "@/components/SetSymbol";
 import {
   Banner,
   Button,
@@ -237,7 +238,8 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
               <div className="flex-1 space-y-3">
                 <div>
                   <h2 className="font-medium">{printing.name}</h2>
-                  <p className="text-sm text-ink-muted">
+                  <p className="flex items-center gap-1.5 text-sm text-ink-muted">
+                    <SetSymbol code={printing.set_code} />
                     {printing.set_name ?? printing.set_code.toUpperCase()} ·{" "}
                     {printing.collector_number}
                     {printing.rarity ? ` · ${printing.rarity}` : ""}

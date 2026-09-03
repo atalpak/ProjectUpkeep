@@ -19,6 +19,7 @@ import type { Card, CardFace } from "@/lib/types";
 import { languageLabel } from "@/lib/types";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
 import { ManaCost } from "@/components/ManaCost";
+import { SetSymbol } from "@/components/SetSymbol";
 import { Badge } from "@/components/ui";
 
 /**
@@ -781,8 +782,10 @@ function CardDetail({ card }: { card: Card }) {
 
       <dl className="space-y-1.5 border-t border-border pt-3 text-xs">
         <Row label="Set">
-          {card.set_name ?? card.set_code.toUpperCase()}{" "}
-          <span className="text-ink-muted">({card.set_code.toUpperCase()})</span>
+          <span className="block">{card.set_name ?? card.set_code.toUpperCase()}</span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-ink-muted">
+            <SetSymbol code={card.set_code} />({card.set_code.toUpperCase()})
+          </span>
         </Row>
         <Row label="Number">#{card.collector_number}</Row>
         {card.rarity ? (

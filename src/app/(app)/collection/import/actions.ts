@@ -96,6 +96,7 @@ function toPreview(
       matched: r.card
         ? `${r.card.name} · ${r.card.set_code.toUpperCase()} #${r.card.collector_number}`
         : null,
+      setCode: r.card?.set_code ?? null,
       imageUri: r.card?.image_uri_small ?? null,
       cardId: r.card?.scryfall_id ?? null,
       condition: r.condition,

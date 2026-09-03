@@ -12,6 +12,8 @@ export type ImportRowView = {
   name: string;
   /** What we matched it to, already formatted for display. */
   matched: string | null;
+  /** Set code of the matched printing, for its symbol. */
+  setCode: string | null;
   imageUri: string | null;
   /** The matched printing, so the row can feed the card panel on hover. */
   cardId: string | null;
