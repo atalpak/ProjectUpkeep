@@ -21,6 +21,7 @@ import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle } from "@/components/PriceToggle";
+import { SetSymbol } from "@/components/SetSymbol";
 import { priceFor } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
@@ -79,7 +80,17 @@ export function DeckWorkspace({
   const [view, setView] = useState<ViewMode>("list");
   const [sort, setSort] = useState<DeckSort>("name");
   const [adding, setAdding] = useState(false);
+  const [multiSelect, setMultiSelect] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Leaving multi-select drops the selection with it, so the bulk bar and any
+  // stray ticks do not linger.
+  function toggleMultiSelect() {
+    setMultiSelect((on) => {
+      if (on) setSelected(new Set());
+      return !on;
+    });
+  }
 
   const [sleeveState, sleeve, sleeving] = useActionState(sleeveCard, EMPTY_DECK_STATE);
   const [commanderState, commanderAction, commanderPending] = useActionState(
@@ -175,7 +186,16 @@ export function DeckWorkspace({
 
           <ViewToggle view={view} onChange={setView} />
 
-          {sleeveableIds.length > 0 ? (
+          <Button
+            type="button"
+            variant={multiSelect ? "primary" : "secondary"}
+            aria-pressed={multiSelect}
+            onClick={toggleMultiSelect}
+          >
+            Multi-select
+          </Button>
+
+          {multiSelect && sleeveableIds.length > 0 ? (
             <Button
               type="button"
               variant="secondary"
@@ -221,6 +241,7 @@ export function DeckWorkspace({
             commanderPending={commanderPending}
             sleeve={sleeve}
             sleeving={sleeving}
+            selectable={multiSelect}
             selectedIds={selected}
             onToggleSelected={toggleSelected}
           />
@@ -239,6 +260,7 @@ export function DeckWorkspace({
           commanderPending={commanderPending}
           sleeve={sleeve}
           sleeving={sleeving}
+          selectable={multiSelect}
           selectedIds={selected}
           onToggleSelected={toggleSelected}
         />
@@ -254,6 +276,7 @@ export function DeckWorkspace({
               commanderPending={commanderPending}
               sleeve={sleeve}
               sleeving={sleeving}
+              selectable={multiSelect}
               selectedIds={selected}
               onToggleSelected={toggleSelected}
             />
@@ -261,7 +284,7 @@ export function DeckWorkspace({
         </div>
       )}
 
-      {liveSelected.length > 0 ? (
+      {multiSelect && liveSelected.length > 0 ? (
         <DeckBulkBar
           deckId={deckId}
           entryIds={liveSelected}
@@ -309,6 +332,7 @@ function ListSection({
   commanderPending,
   sleeve,
   sleeving,
+  selectable,
   selectedIds,
   onToggleSelected,
 }: {
@@ -319,6 +343,7 @@ function ListSection({
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
+  selectable: boolean;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
 }) {
@@ -343,6 +368,7 @@ function ListSection({
               commanderPending={commanderPending}
               sleeve={sleeve}
               sleeving={sleeving}
+              selectable={selectable}
               selected={selectedIds.has(entry.id)}
               onToggleSelected={() => onToggleSelected(entry.id)}
             />
@@ -383,6 +409,7 @@ function ListRow({
   commanderPending,
   sleeve,
   sleeving,
+  selectable,
   selected,
   onToggleSelected,
 }: {
@@ -393,6 +420,7 @@ function ListRow({
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
+  selectable: boolean;
   selected: boolean;
   onToggleSelected: () => void;
 }) {
@@ -403,25 +431,32 @@ function ListRow({
   return (
     <li
       className={cx(
-        "group flex items-center gap-2 rounded px-1 py-1 hover:bg-surface-muted",
+        "group flex items-center gap-3 rounded px-1 py-1 hover:bg-surface-muted",
         selected && "bg-accent-soft",
       )}
     >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={onToggleSelected}
-        aria-label={`Select ${card?.name ?? "card"}`}
-        className="size-3.5 shrink-0 accent-accent"
-      />
+      {/* The checkbox only exists while Multi-select is on. */}
+      {selectable ? (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelected}
+          aria-label={`Select ${card?.name ?? "card"}`}
+          className="size-3.5 shrink-0 accent-accent"
+        />
+      ) : null}
 
-      <DeckStateMark entry={state} />
-
-      <span className="w-6 shrink-0 text-right text-xs tabular-nums text-ink-muted">
+      {/* Order, left to right: how many / name / mana / price / state / menu.
+          Every text bit on the row is text-sm — only the colour varies. */}
+      <span className="min-w-10 shrink-0 text-right text-sm tabular-nums text-ink-muted">
         {state.sleeved}/{entry.quantity}
       </span>
 
-      <span {...preview} tabIndex={0} className="flex min-w-0 flex-1 cursor-default items-center gap-1 truncate text-sm">
+      <span
+        {...preview}
+        tabIndex={0}
+        className="flex min-w-0 flex-1 cursor-default items-center gap-1 truncate text-sm"
+      >
         {isCommander ? (
           <span className="text-accent" title="Commander" aria-label="Commander">
             ★
@@ -430,22 +465,26 @@ function ListRow({
         <span className="truncate">{card?.name ?? "Unknown card"}</span>
       </span>
 
-      <ManaCost cost={card?.mana_cost} size="xs" />
+      <div className="flex shrink-0 items-center gap-4">
+        <ManaCost cost={card?.mana_cost} size="sm" />
 
-      {/* Non-foil price: a list entry names a card, not a specific copy, so
-          there is no finish to be more precise about. */}
-      <Price value={priceFor(card, "nonfoil")} className="text-[11px] text-ink-muted" />
+        {/* Non-foil price: a list entry names a card, not a specific copy, so
+            there is no finish to be more precise about. */}
+        <Price value={priceFor(card, "nonfoil")} className="text-sm text-ink-muted" />
 
-      <RowActions
-        entry={entry}
-        deckId={deckId}
-        state={state}
-        isCommander={isCommander}
-        commanderAction={commanderAction}
-        commanderPending={commanderPending}
-        sleeve={sleeve}
-        sleeving={sleeving}
-      />
+        <DeckStateMark entry={state} />
+
+        <RowActions
+          entry={entry}
+          deckId={deckId}
+          state={state}
+          isCommander={isCommander}
+          commanderAction={commanderAction}
+          commanderPending={commanderPending}
+          sleeve={sleeve}
+          sleeving={sleeving}
+        />
+      </div>
     </li>
   );
 }
@@ -579,7 +618,12 @@ function RowActions({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
+          className={cx(
+            "absolute right-0 top-full z-30 mt-1 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl",
+            // The printing list carries long set names — let it grow to fit,
+            // capped at the viewport, rather than truncating.
+            showPrintings ? "w-max min-w-56 max-w-[min(24rem,calc(100vw-1.5rem))]" : "w-56",
+          )}
         >
           {showPrintings ? (
             <>
@@ -607,14 +651,17 @@ function RowActions({
                           type="submit"
                           disabled={current}
                           className={cx(
-                            "block w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-muted disabled:hover:bg-transparent",
+                            "flex w-full items-start gap-1.5 px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-muted disabled:hover:bg-transparent",
                             current && "font-medium text-accent",
                           )}
                         >
-                          {p.set_name ?? p.set_code?.toUpperCase() ?? "Unknown set"}
-                          {p.collector_number ? ` · #${p.collector_number}` : ""}
-                          {p.released_at ? ` · ${p.released_at.slice(0, 4)}` : ""}
-                          {current ? " (current)" : ""}
+                          <SetSymbol code={p.set_code} size={12} className="mt-0.5" />
+                          <span>
+                            {p.set_name ?? p.set_code?.toUpperCase() ?? "Unknown set"}
+                            {p.collector_number ? ` · #${p.collector_number}` : ""}
+                            {p.released_at ? ` · ${p.released_at.slice(0, 4)}` : ""}
+                            {current ? " (current)" : ""}
+                          </span>
                         </button>
                       </form>
                     );
@@ -705,6 +752,7 @@ function Gallery({
   commanderPending,
   sleeve,
   sleeving,
+  selectable,
   selectedIds,
   onToggleSelected,
 }: {
@@ -715,6 +763,7 @@ function Gallery({
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
+  selectable: boolean;
   selectedIds: Set<string>;
   onToggleSelected: (id: string) => void;
 }) {
@@ -741,6 +790,7 @@ function Gallery({
                   commanderPending={commanderPending}
                   sleeve={sleeve}
                   sleeving={sleeving}
+                  selectable={selectable}
                   selected={selectedIds.has(entry.id)}
                   onToggleSelected={() => onToggleSelected(entry.id)}
                 />
@@ -761,6 +811,7 @@ function GalleryCard({
   commanderPending,
   sleeve,
   sleeving,
+  selectable,
   selected,
   onToggleSelected,
 }: {
@@ -771,6 +822,7 @@ function GalleryCard({
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
+  selectable: boolean;
   selected: boolean;
   onToggleSelected: () => void;
 }) {
@@ -792,15 +844,17 @@ function GalleryCard({
           selected ? "border-accent ring-1 ring-accent" : "border-border",
         )}
       >
-        <label className="absolute left-1.5 bottom-1.5 z-10 flex size-6 items-center justify-center rounded bg-surface/90">
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggleSelected}
-            aria-label={`Select ${card?.name ?? "card"}`}
-            className="size-3.5 accent-accent"
-          />
-        </label>
+        {selectable ? (
+          <label className="absolute left-1.5 bottom-1.5 z-10 flex size-6 items-center justify-center rounded bg-surface/90">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelected}
+              aria-label={`Select ${card?.name ?? "card"}`}
+              className="size-3.5 accent-accent"
+            />
+          </label>
+        ) : null}
 
         {image ? (
           <Image
