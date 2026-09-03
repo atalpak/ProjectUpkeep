@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   COLORS,
@@ -20,6 +20,7 @@ import {
   type NumericFilter,
 } from "@/lib/collection/filters";
 import { Button, Field, Input, Select, cx } from "@/components/ui";
+import { ManaSymbol } from "@/components/ManaCost";
 import { groupLocationsByType } from "@/components/LocationSelect";
 import {
   CONDITIONS,
@@ -64,6 +65,18 @@ export function CollectionFilters({
     router.push(params.toString() ? `/collection?${params}` : "/collection");
     setOpen(false);
   }
+
+  // The name box filters as you type. Only the name auto-applies — the advanced
+  // panel still waits for Apply — and it replaces rather than pushes so a
+  // search is one history entry, not one per keystroke.
+  useEffect(() => {
+    if (draft.name.trim() === initial.name.trim()) return;
+    const timer = setTimeout(() => {
+      const params = filterToParams({ ...initial, name: draft.name });
+      router.replace(params.toString() ? `/collection?${params}` : "/collection");
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [draft.name, initial, router]);
 
   function clear() {
     setDraft(EMPTY_FILTER);
@@ -303,9 +316,12 @@ function ColorPicker({
         return (
           <label
             key={color}
+            title={COLOR_LABELS[color]}
             className={cx(
-              "flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors",
-              on ? "border-accent bg-accent-soft font-medium" : "border-border hover:bg-surface-muted",
+              "flex cursor-pointer items-center justify-center rounded-md border p-1.5 transition-colors",
+              on
+                ? "border-accent bg-accent-soft ring-1 ring-accent"
+                : "border-border opacity-60 hover:bg-surface-muted hover:opacity-100",
             )}
           >
             <input
@@ -317,9 +333,7 @@ function ColorPicker({
               }
               className="sr-only"
             />
-            <span aria-hidden="true" className="font-semibold">
-              {color}
-            </span>
+            <ManaSymbol code={color} />
             <span className="sr-only">{COLOR_LABELS[color]}</span>
           </label>
         );

@@ -8,14 +8,12 @@
 
 import type { CardInstanceWithCard } from "@/lib/types";
 import { statToNumber } from "@/lib/collection/filters";
-import { availabilityFor, type Availability } from "@/lib/collection/availability";
+import type { Availability } from "@/lib/collection/availability";
 import { displayPrice } from "@/lib/collection/pricing";
 
 /**
- * What a column may need beyond the row itself.
- *
- * Availability is counted across every printing of a card, so it cannot be read
- * off a single row — the table passes the map in.
+ * What a column may need beyond the row itself. Kept for columns that might
+ * later want cross-row context; nothing needs it right now.
  */
 export type SortContext = { availability: Map<string, Availability> };
 
@@ -137,8 +135,10 @@ export const COLUMNS: ColumnDef[] = [
     // exists to answer.
     default: true,
     numeric: true,
-    // Sorts by the number actually rendered, not by this row's quantity.
-    sortBy: (r, { availability }) => availabilityFor(availability, r.cards).available,
+    // Per row: a copy is free unless it is itself sitting in a deck. Matches
+    // what the cell renders (see CollectionTable) — this row's own count, not
+    // an oracle-wide tally.
+    sortBy: (r) => (r.locations?.type === "deck" ? 0 : r.quantity),
   },
 ];
 
@@ -257,5 +257,72 @@ export function parseStoredColumns(raw: string | null): ColumnId[] {
     return valid.length > 0 ? valid : DEFAULT_COLUMNS;
   } catch {
     return DEFAULT_COLUMNS;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Persisted sort choice
+// ---------------------------------------------------------------------------
+
+/**
+ * The sort is remembered the same way the columns are, and for the same
+ * reason: someone who sorts their collection by set expects it still sorted by
+ * set when they come back, not reset to the load order. localStorage, so it is
+ * per browser and outlives the tab; the server snapshot is null (unsorted) and
+ * the client re-sorts on hydration.
+ */
+export const SORT_STORAGE_KEY = "project-upkeep-collection-sort";
+
+const sortListeners = new Set<() => void>();
+let unsavedSort: string | null = null;
+
+export function subscribeToSort(onChange: () => void): () => void {
+  sortListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    sortListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+export function readStoredSort(): string | null {
+  try {
+    return unsavedSort ?? localStorage.getItem(SORT_STORAGE_KEY);
+  } catch {
+    return unsavedSort;
+  }
+}
+
+export const readStoredSortOnServer = (): string | null => null;
+
+export function writeStoredSort(sort: SortState | null): void {
+  const serialised = JSON.stringify(sort);
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, serialised);
+    unsavedSort = null;
+  } catch {
+    unsavedSort = serialised;
+  }
+  for (const listener of sortListeners) listener();
+}
+
+/** Parses a stored sort, dropping anything that no longer names a real column. */
+export function parseStoredSort(raw: string | null): SortState | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed === null) return null;
+    if (
+      typeof parsed === "object" &&
+      "column" in parsed &&
+      "direction" in parsed &&
+      COLUMN_BY_ID.has((parsed as SortState).column) &&
+      ((parsed as SortState).direction === "asc" || (parsed as SortState).direction === "desc")
+    ) {
+      return { column: (parsed as SortState).column, direction: (parsed as SortState).direction };
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
