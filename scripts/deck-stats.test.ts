@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { computeDeckStats } from "../src/lib/collection/deck-stats";
+import { computeDeckStats, priceFinishFor } from "../src/lib/collection/deck-stats";
 import type { DeckListEntry } from "../src/lib/collection/queries";
 import type { Card, Finish } from "../src/lib/types";
 
@@ -16,6 +16,7 @@ function entry(over: {
   mana_cost?: string | null;
   price_usd?: number | null;
   price_usd_foil?: number | null;
+  available_finishes?: string[];
   sleevedFinishes?: Finish[];
 }): DeckListEntry {
   const id = over.id ?? `e${++seq}`;
@@ -26,6 +27,7 @@ function entry(over: {
     cmc: over.cmc === undefined ? 2 : over.cmc,
     color_identity: over.color_identity === undefined ? ["G"] : over.color_identity,
     mana_cost: over.mana_cost ?? null,
+    available_finishes: over.available_finishes ?? ["nonfoil"],
     price_usd: over.price_usd === undefined ? 1 : over.price_usd,
     price_usd_foil: over.price_usd_foil ?? null,
     price_usd_etched: null,
@@ -109,6 +111,35 @@ test("colours count by identity — a two-colour card counts under both", () => 
   assert.equal(by.B, 2);
   assert.equal(by.C, 5);
   assert.equal(by.W, undefined, "empty colours are dropped");
+});
+
+test("priceFinishFor: sleeved finish wins, else the printing's default", () => {
+  // Nothing sleeved, comes in non-foil → non-foil.
+  assert.equal(priceFinishFor(entry({ available_finishes: ["nonfoil", "foil"] })), "nonfoil");
+  // Nothing sleeved, foil-only printing (Foundations Commander) → foil.
+  assert.equal(priceFinishFor(entry({ available_finishes: ["foil"] })), "foil");
+  // One foil sleeved → foil, whatever the printing offers.
+  assert.equal(
+    priceFinishFor(entry({ available_finishes: ["nonfoil", "foil"], sleevedFinishes: ["foil"] })),
+    "foil",
+  );
+});
+
+test("a foil-only printing is priced at its foil price, not shown blank", () => {
+  const stats = computeDeckStats(
+    [
+      entry({
+        type_line: "Artifact",
+        available_finishes: ["foil"],
+        price_usd: null,
+        price_usd_foil: 0.58,
+        quantity: 1,
+      }),
+    ],
+    null,
+  );
+  assert.equal(stats.price.total, 0.58);
+  assert.equal(stats.price.unpriced, 0);
 });
 
 test("colour shares: card identity vs mana pips", () => {

@@ -25,9 +25,19 @@ import {
   type DeckSection,
 } from "@/lib/collection/deck-view";
 
-/** The finish a list entry is priced at — matches ListRow in DeckWorkspace. */
-function priceFinishFor(entry: DeckListEntry): string {
-  return entry.sleevedFinishes.length === 1 ? entry.sleevedFinishes[0] : "nonfoil";
+/**
+ * The finish a list entry should be priced at.
+ *
+ * If exactly one finish is sleeved for it, that one. Otherwise the printing's
+ * own default — non-foil when it comes that way, else whatever it does come in.
+ * Foundations Commander (and much of Universes Beyond) is foil-only, so pricing
+ * those at "nonfoil" was the reason they showed no price at all.
+ */
+export function priceFinishFor(entry: DeckListEntry): string {
+  if (entry.sleevedFinishes.length === 1) return entry.sleevedFinishes[0];
+  const available = entry.cards?.available_finishes ?? [];
+  if (available.length === 0 || available.includes("nonfoil")) return "nonfoil";
+  return available[0];
 }
 
 // ---------------------------------------------------------------------------

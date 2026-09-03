@@ -37,7 +37,7 @@ import {
   type DeckSection,
   type DeckSort,
 } from "@/lib/collection/deck-view";
-import type { DeckPrice } from "@/lib/collection/deck-stats";
+import { priceFinishFor, type DeckPrice } from "@/lib/collection/deck-stats";
 import type { DeckListEntry, WishListEntry } from "@/lib/collection/queries";
 import type { CardInstanceWithCard } from "@/lib/types";
 
@@ -483,8 +483,7 @@ function ListRow({
   // are all one non-plain finish, show that: the mark next to the name and the
   // price at that finish. Mixed finishes fall back to non-foil for the price.
   const markFinish = entry.sleevedFinishes.find((f) => f !== "nonfoil");
-  const priceFinish = entry.sleevedFinishes.length === 1 ? entry.sleevedFinishes[0] : "nonfoil";
-  const rowPrice = displayPrice(card, priceFinish);
+  const rowPrice = displayPrice(card, priceFinishFor(entry));
 
   return (
     <li
