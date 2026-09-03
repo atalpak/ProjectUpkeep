@@ -82,16 +82,18 @@ export function stacksToDecklistText(rows: ExportRow[]): string {
 export type DecklistSection = { label: string; rows: ExportRow[] };
 
 /**
- * A deck's decklist: an optional Commander block Moxfield/Archidekt both
- * read, then the rest grouped under a heading per section.
+ * A deck's decklist: an optional Commander block Moxfield/Archidekt both read,
+ * then every other card as one flat list.
  *
- * Section headings are written as "# Label" rather than bare text. Moxfield
- * and Archidekt only look for a handful of literal section words (Commander,
- * Sideboard, ...); "Creatures" or "Lands" would not mean anything to them and
- * risks being misread as a card named "Creatures". "#" sidesteps that (most
- * decklist readers, including this app's own text importer, treat a line
- * starting with "#" as a comment) while still leaving the export readable to
- * a person who opens the file directly.
+ * The type-group headings ("# Creatures", "# Lands", ...) the page shows on
+ * screen are deliberately left out of the export — a pasted list only needs
+ * quantity + name per line, and Moxfield/Archidekt regroup by type on import
+ * anyway. The `Commander` block stays, because that one *is* a real deck zone
+ * both readers act on, not a display grouping.
+ *
+ * `sections` is still taken as-is (rather than a flat array) so the caller can
+ * keep passing the same grouped structure the page already computes; the order
+ * of the sections is the order the lines come out in.
  */
 export function deckToDecklistText(
   commander: ExportRow | null,
@@ -106,14 +108,13 @@ export function deckToDecklistText(
   }
 
   for (const section of sections) {
-    if (section.rows.length === 0) continue;
-    lines.push(`# ${section.label}`);
     for (const row of section.rows) lines.push(decklistLine(row));
-    lines.push("");
   }
 
-  // One trailing newline, not a stack of blank lines from the last section.
-  return lines.join("\n").replace(/\n+$/, "\n");
+  if (lines.length === 0) return "";
+
+  // One trailing newline.
+  return lines.join("\n").replace(/\n+$/, "") + "\n";
 }
 
 // ---------------------------------------------------------------------------

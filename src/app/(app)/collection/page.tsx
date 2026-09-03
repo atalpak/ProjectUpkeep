@@ -63,6 +63,13 @@ export default async function CollectionPage({
         }
         actions={
           <>
+            {collection.rows.length > 0 ? (
+              <ExportButtons
+                decklistText={stacksToDecklistText(collection.rows.map(toExportRow))}
+                csv={toCsv(collection.rows.map(toExportRow), { includeLocation: true })}
+                filenameBase={filtered ? "collection-filtered" : "collection"}
+              />
+            ) : null}
             <Link href="/collection/import">
               <Button variant="secondary">Import</Button>
             </Link>
@@ -74,19 +81,6 @@ export default async function CollectionPage({
       />
 
       <CollectionFilters initial={filter} locations={locations} sets={sets} />
-
-      {collection.rows.length > 0 ? (
-        <ExportButtons
-          decklistText={stacksToDecklistText(collection.rows.map(toExportRow))}
-          csv={toCsv(collection.rows.map(toExportRow), { includeLocation: true })}
-          filenameBase={filtered ? "collection-filtered" : "collection"}
-          description={
-            filtered
-              ? `Exports the ${collection.rows.length} filtered entr${collection.rows.length === 1 ? "y" : "ies"} shown below, not your whole collection.`
-              : "Exports your whole collection."
-          }
-        />
-      ) : null}
 
       {collection.truncated ? (
         <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-ink-muted">

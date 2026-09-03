@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui";
+import { cx } from "@/components/ui";
 
 /**
- * Copy-to-clipboard and download, for a decklist and a CSV that were already
+ * An "Export" dropdown: copy or download a decklist, or download a CSV, all
  * computed server-side (src/lib/collection/export.ts is pure and has no DOM
  * dependency, so it runs on the page, not here).
  *
@@ -18,31 +18,56 @@ export function ExportButtons({
   decklistText,
   csv,
   filenameBase,
-  description,
 }: {
   decklistText: string;
   csv: string;
   /** Used for the downloaded filename, without an extension. */
   filenameBase: string;
-  /** What exactly this exports — the current filtered view, or the whole deck. */
-  description?: string;
 }) {
+  const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<
-    | { kind: "copied"; which: "decklist" | "csv" }
-    | { kind: "error"; which: "decklist" | "csv" }
-    | null
+    { kind: "copied" } | { kind: "error" } | null
   >(null);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
-  async function copy(text: string, which: "decklist" | "csv") {
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(event: MouseEvent) {
+      if (!container.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  function toggle() {
+    // A fresh open should not still be showing the last result.
+    setStatus(null);
+    setOpen((v) => !v);
+  }
+
+  async function copyDecklist() {
     try {
       if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
-      await navigator.clipboard.writeText(text);
-      setStatus({ kind: "copied", which });
+      await navigator.clipboard.writeText(decklistText);
+      setStatus({ kind: "copied" });
     } catch {
       // Most commonly an insecure origin (plain http, not localhost) or a
       // permission the browser refused. Either way, say so rather than
       // leaving the click looking like it did nothing.
-      setStatus({ kind: "error", which });
+      setStatus({ kind: "error" });
     }
   }
 
@@ -56,54 +81,80 @@ export function ExportButtons({
     a.download = `${filenameBase}.${extension}`;
     a.click();
     URL.revokeObjectURL(url);
+    setOpen(false);
   }
 
+  const itemClass =
+    "block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted";
+
   return (
-    <div className="space-y-1.5">
-      {description ? <p className="text-xs text-ink-muted">{description}</p> : null}
+    <div ref={container} className="relative">
+      <button
+        ref={trigger}
+        type="button"
+        onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={cx(
+          "inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors",
+          open ? "bg-surface-muted" : "bg-surface hover:bg-surface-muted",
+        )}
+      >
+        Export
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={cx("size-3.5 shrink-0 transition-transform", open && "rotate-180")}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => copy(decklistText, "decklist")}
-          className="text-xs"
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-30 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
         >
-          Copy decklist
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => download(decklistText, "txt")}
-          className="text-xs"
-        >
-          Download decklist (.txt)
-        </Button>
-        <Button type="button" variant="secondary" onClick={() => copy(csv, "csv")} className="text-xs">
-          Copy CSV
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => download(csv, "csv")}
-          className="text-xs"
-        >
-          Download CSV (.csv)
-        </Button>
+          <button type="button" role="menuitem" className={itemClass} onClick={copyDecklist}>
+            Copy decklist
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemClass}
+            onClick={() => download(decklistText, "txt")}
+          >
+            Download decklist (.txt)
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemClass}
+            onClick={() => download(csv, "csv")}
+          >
+            Download CSV (.csv)
+          </button>
 
-        <span role="status" className="text-xs">
-          {status?.kind === "copied" ? (
-            <span className="text-ink-muted">
-              {status.which === "decklist" ? "Decklist" : "CSV"} copied.
-            </span>
-          ) : status?.kind === "error" ? (
-            <span className="text-danger">
-              Couldn&rsquo;t copy — your browser blocked clipboard access. Try the download
-              button instead.
-            </span>
+          {status ? (
+            <p
+              role="status"
+              className={cx(
+                "border-t border-border px-3 py-2 text-xs",
+                status.kind === "copied" ? "text-ink-muted" : "text-danger",
+              )}
+            >
+              {status.kind === "copied"
+                ? "Decklist copied."
+                : "Couldn’t copy — your browser blocked clipboard access. Try a download instead."}
+            </p>
           ) : null}
-        </span>
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

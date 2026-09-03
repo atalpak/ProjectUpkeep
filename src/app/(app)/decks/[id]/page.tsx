@@ -140,16 +140,20 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="space-y-5">
-      <PageHeader title={deck.name} backHref="/decks" backLabel="All decks" />
-
-      {entries.length > 0 || contents.length > 0 ? (
-        <ExportButtons
-          decklistText={deckDecklistText}
-          csv={deckCsv}
-          filenameBase={`deck-${slugify(deck.name)}`}
-          description="Decklist (with commander, grouped by type) and a CSV of the stacks actually sleeved in this deck. No location column — everything here already lives in this one deck."
-        />
-      ) : null}
+      <PageHeader
+        title={deck.name}
+        backHref="/decks"
+        backLabel="All decks"
+        actions={
+          entries.length > 0 || contents.length > 0 ? (
+            <ExportButtons
+              decklistText={deckDecklistText}
+              csv={deckCsv}
+              filenameBase={`deck-${slugify(deck.name)}`}
+            />
+          ) : null
+        }
+      />
 
       <DeckWorkspace
         deckId={id}

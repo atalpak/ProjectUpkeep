@@ -74,23 +74,31 @@ test("a deck export puts the commander in its own bare-header block", () => {
   const lines = text.split("\n");
   assert.equal(lines[0], "Commander");
   assert.equal(lines[1], "1 Atarka, World Render (KTK) 219");
-  assert.ok(lines.includes("# Creatures"));
+  assert.equal(lines[2], "");
   assert.ok(lines.includes("1 Llanowar Elves (DOM) 179"));
+});
+
+test("a deck export drops the on-screen type-group headings", () => {
+  const text = deckToDecklistText(null, [
+    { label: "Creatures", rows: [row({ card: { name: "Llanowar Elves", setCode: "dom", collectorNumber: "179" } })] },
+    { label: "Lands", rows: [row({ card: { name: "Forest", setCode: null, collectorNumber: null } })] },
+  ]);
+  assert.ok(!text.includes("#"));
+  assert.equal(text, "1 Llanowar Elves (DOM) 179\n1 Forest\n");
 });
 
 test("a deck export with no commander skips that block entirely", () => {
   const text = deckToDecklistText(null, [{ label: "Lands", rows: [row({ card: { name: "Forest", setCode: null, collectorNumber: null } })] }]);
   assert.ok(!text.includes("Commander"));
-  assert.ok(text.startsWith("# Lands"));
+  assert.equal(text, "1 Forest\n");
 });
 
-test("empty sections are dropped rather than printing a bare heading", () => {
+test("empty sections contribute no lines", () => {
   const text = deckToDecklistText(null, [
     { label: "Creatures", rows: [] },
     { label: "Lands", rows: [row({ card: { name: "Forest", setCode: null, collectorNumber: null } })] },
   ]);
-  assert.ok(!text.includes("# Creatures"));
-  assert.ok(text.includes("# Lands"));
+  assert.equal(text, "1 Forest\n");
 });
 
 // ---------------------------------------------------------------------------
