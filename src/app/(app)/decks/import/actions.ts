@@ -53,9 +53,18 @@ function readForm(
   return { ok: true, deckId, source };
 }
 
-/** RLS scopes `decks` to the owner, so a hit here is proof of ownership. */
+/**
+ * A deck is a `locations` row of type 'deck' (see getDeck in
+ * src/lib/collection/queries.ts). RLS scopes `locations` to the owner, so a hit
+ * here is proof this deck exists and belongs to the signed-in user.
+ */
 async function ownsDeck(supabase: Supabase, deckId: string): Promise<boolean> {
-  const { data } = await supabase.from("decks").select("id").eq("id", deckId).maybeSingle();
+  const { data } = await supabase
+    .from("locations")
+    .select("id")
+    .eq("id", deckId)
+    .eq("type", "deck")
+    .maybeSingle();
   return Boolean(data);
 }
 
