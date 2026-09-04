@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   deleteCardInstance,
@@ -18,16 +19,13 @@ import {
   COLUMNS,
   DEFAULT_COLUMNS,
   parseStoredColumns,
-  parseStoredSort,
   readStoredColumns,
   readStoredColumnsOnServer,
-  readStoredSort,
-  readStoredSortOnServer,
-  sortRows,
   subscribeToColumns,
-  subscribeToSort,
   writeStoredColumns,
-  writeStoredSort,
+  writeSortCookie,
+  serialiseSort,
+  type SortState,
   type ColumnId,
 } from "@/components/collection/columns";
 import {
@@ -70,10 +68,23 @@ export function CollectionTable({
   rows,
   locations,
   availability,
+  sort,
+  page,
+  pageCount,
+  matched,
+  allIds,
 }: {
+  /** One page of rows, already filtered and sorted by the database. */
   rows: CardInstanceWithCard[];
   locations: Location[];
   availability: Map<string, Availability>;
+  sort: SortState | null;
+  page: number;
+  pageCount: number;
+  /** How many rows match the filter, across every page. */
+  matched: number;
+  /** Every matching row id, so select-all still means "everything matching". */
+  allIds: string[];
 }) {
   // Subscribed rather than held in state: the choice lives in localStorage,
   // which the server cannot read. See the note in columns.ts.
@@ -84,18 +95,26 @@ export function CollectionTable({
   );
   const visible = useMemo(() => parseStoredColumns(storedColumns), [storedColumns]);
 
-  // The sort is persisted the same way, so it survives leaving and returning.
-  const storedSort = useSyncExternalStore(
-    subscribeToSort,
-    readStoredSort,
-    readStoredSortOnServer,
-  );
-  const sort = useMemo(() => parseStoredSort(storedSort), [storedSort]);
+  // Sorting and paging are server round trips now, not local state: the
+  // database does both, and this component only ever holds the rows it draws.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  /** Rewrites the URL, keeping the filter and dropping anything at its default. */
+  function navigate(changes: Record<string, string | null>) {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null || value === "") next.delete(key);
+      else next.set(key, value);
+    }
+    const query = next.toString();
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [page, setPage] = useState(0);
 
   function toggleColumn(id: ColumnId) {
     const next = visible.includes(id) ? visible.filter((c) => c !== id) : [...visible, id];
@@ -109,32 +128,22 @@ export function CollectionTable({
     [visible],
   );
 
-  const sorted = useMemo(
-    () => sortRows(rows, sort, { availability }),
-    [rows, sort, availability],
-  );
-
-  // Paginate the rendered rows: a 700-entry table is slow to lay out and slow
-  // to scan. The page state can go stale when a filter shrinks the results —
-  // clamp rather than reset in an effect.
-  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-  const safePage = Math.min(page, pageCount - 1);
-  const pageRows = useMemo(
-    () => sorted.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
-    [sorted, safePage],
-  );
-  const firstShown = sorted.length === 0 ? 0 : safePage * PAGE_SIZE + 1;
-  const lastShown = Math.min(sorted.length, safePage * PAGE_SIZE + PAGE_SIZE);
+  // `rows` is already the right rows in the right order — the database sorted
+  // and sliced them. Nothing left to do here but draw them.
+  const pageRows = rows;
+  const firstShown = matched === 0 ? 0 : page * PAGE_SIZE + 1;
+  const lastShown = Math.min(matched, page * PAGE_SIZE + rows.length);
 
   // A filter change can remove rows that were selected; a selection must never
-  // name a row the user can no longer see.
-  const visibleIds = useMemo(() => new Set(sorted.map((r) => r.id)), [sorted]);
+  // name a row the user can no longer see. Checked against every matching id,
+  // not just this page, so paging away does not silently drop a selection.
+  const matchingIds = useMemo(() => new Set(allIds), [allIds]);
   const liveSelection = useMemo(
-    () => [...selected].filter((id) => visibleIds.has(id)),
-    [selected, visibleIds],
+    () => [...selected].filter((id) => matchingIds.has(id)),
+    [selected, matchingIds],
   );
 
-  const allSelected = sorted.length > 0 && liveSelection.length === sorted.length;
+  const allSelected = allIds.length > 0 && liveSelection.length === allIds.length;
   const someSelected = liveSelection.length > 0 && !allSelected;
 
   function toggleRow(id: string) {
@@ -147,16 +156,20 @@ export function CollectionTable({
   }
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(sorted.map((r) => r.id)));
+    // Everything matching the filter, not everything on screen — the promise
+    // this checkbox made before the table was paginated.
+    setSelected(allSelected ? new Set() : new Set(allIds));
   }
 
   function headerClick(id: ColumnId) {
-    setPage(0);
-    writeStoredSort(
+    const next: SortState =
       sort?.column === id
         ? { column: id, direction: sort.direction === "asc" ? "desc" : "asc" }
-        : { column: id, direction: "asc" },
-    );
+        : { column: id, direction: "asc" };
+    // Remembered for next time, and put in the URL so this view can be linked
+    // and the server sorts the next page the same way.
+    writeSortCookie(next);
+    navigate({ sort: serialiseSort(next), page: null });
   }
 
   return (
@@ -165,9 +178,9 @@ export function CollectionTable({
         <p className="text-sm text-ink-muted">
           {liveSelection.length > 0
             ? `${liveSelection.length} selected`
-            : sorted.length > PAGE_SIZE
-              ? `${sorted.length} entries · showing ${firstShown}–${lastShown}`
-              : `${sorted.length} ${sorted.length === 1 ? "entry" : "entries"}`}
+            : matched > PAGE_SIZE
+              ? `${matched} entries · showing ${firstShown}–${lastShown}`
+              : `${matched} ${matched === 1 ? "entry" : "entries"}`}
         </p>
 
         <div className="flex flex-1 items-center justify-end gap-2">
@@ -180,14 +193,15 @@ export function CollectionTable({
               className="text-xs"
               value={sort ? `${sort.column}:${sort.direction}` : ""}
               onChange={(event) => {
-                setPage(0);
                 const value = event.currentTarget.value;
-                if (!value) return writeStoredSort(null);
-                const [column, direction] = value.split(":");
-                writeStoredSort({
-                  column: column as ColumnId,
-                  direction: direction as "asc" | "desc",
-                });
+                const next = value
+                  ? {
+                      column: value.split(":")[0] as ColumnId,
+                      direction: value.split(":")[1] as "asc" | "desc",
+                    }
+                  : null;
+                writeSortCookie(next);
+                navigate({ sort: serialiseSort(next), page: null });
               }}
             >
               <option value="">Unsorted</option>
@@ -301,10 +315,10 @@ export function CollectionTable({
 
       {pageCount > 1 ? (
         <Pager
-          page={safePage}
+          page={page}
           pageCount={pageCount}
           onPage={(p) => {
-            setPage(p);
+            navigate({ page: p === 0 ? null : String(p) });
             if (typeof window !== "undefined") window.scrollTo({ top: 0 });
           }}
         />

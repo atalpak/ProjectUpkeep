@@ -1,13 +1,33 @@
 import "server-only";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import type { Card, CardInstanceWithCard, Finish, Location, LocationNode } from "@/lib/types";
+import type {
+  Card,
+  CardInstanceWithCard,
+  Finish,
+  Location,
+  LocationNode,
+  LocationType,
+} from "@/lib/types";
 import {
   MAX_ROWS,
   UNSORTED,
   applyFilter,
+  isSqlOnly,
+  textTerms,
   type CollectionFilter,
 } from "@/lib/collection/filters";
+import {
+  ENTRY_COLUMNS,
+  ENTRY_ID_COLUMN,
+  toCardInstanceWithCard,
+  type CollectionEntryRow,
+} from "@/lib/collection/entries";
+import {
+  COLUMN_BY_ID,
+  sortRows,
+  type SortState,
+} from "@/components/collection/columns";
 import {
   cardKey,
   computeAvailability,
@@ -62,49 +82,225 @@ const INSTANCE_FIELDS = `id, owner_user_id, card_id, location_id, condition,
    finish, language, quantity, notes, acquired_at, created_at, updated_at`;
 
 export type CollectionResult = {
+  /** The rows to draw: one page, unless the caller asked for everything. */
   rows: CardInstanceWithCard[];
-  /** Rows before filtering, so the UI can say "12 of 940". */
+  /**
+   * The id of every row matching the filter, not just this page.
+   *
+   * Select-all has always meant "everything matching", not "everything on
+   * screen", and bulk actions take ids. Once the page holds 50 rows that
+   * promise can only be kept by sending the ids separately — which is cheap
+   * (a UUID each) next to the rows themselves.
+   */
+  allIds: string[];
+  /** How many rows match the filter. */
+  matched: number;
+  /**
+   * How many physical cards those rows add up to — a stack of 12 counts as 12.
+   * Carried separately because the page only holds fifty rows and can no longer
+   * add them up itself.
+   */
+  matchedCards: number;
+  /** How many rows the user owns, ignoring the filter, for "12 of 940". */
   total: number;
-  /** True when the collection exceeds what we will filter in memory. */
+  /** True when the collection exceeds what can be filtered in memory. */
   truncated: boolean;
+  page: number;
+  pageCount: number;
+  /**
+   * True when the filter or sort could not be expressed as a query, so the
+   * rows were loaded and processed in memory. Worth knowing: it is the slow
+   * path, and it is the one bounded by MAX_ROWS.
+   */
+  inMemory: boolean;
 };
 
-/**
- * The signed-in user's collection, filtered.
- *
- * Location is pushed into the query: it is a plain column on card_instances,
- * it is the most selective thing most people pick, and doing it here keeps the
- * payload down. Every other criterion runs through `matchesFilter`, so the
- * awkward rules — colour modes, mana costs, printed stats that are not numbers
- * — exist in exactly one tested place.
- */
-export async function getCollection(filter: CollectionFilter): Promise<CollectionResult> {
-  const supabase = await createClient();
+export type CollectionQuery = {
+  sort?: SortState | null;
+  /** Zero-based. */
+  page?: number;
+  pageSize?: number;
+  /** Export wants the whole filtered set, not a page. */
+  paginate?: boolean;
+};
 
-  let query = supabase
-    .from("card_instances")
-    .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
-    .eq("owner_user_id", await ownerId())
-    .order("created_at", { ascending: false })
-    .limit(MAX_ROWS);
+export const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * Applies the criteria that translate cleanly into a query.
+ *
+ * Everything here means exactly what `matchesFilter` means by it. Anything
+ * where that could not be guaranteed is left to `matchesFilter` instead — see
+ * the note on JS_ONLY_KEYS in filters.ts.
+ */
+function applySqlFilter<T extends { eq: unknown }>(query: T, filter: CollectionFilter): T {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  let q = query as any;
 
   // `location_id is null` and `location_id = x` are different operators, and
   // "unsorted" is a real value here, not a missing one.
-  if (filter.location === UNSORTED) {
-    query = query.is("location_id", null);
-  } else if (filter.location) {
-    query = query.eq("location_id", filter.location);
+  if (filter.location === UNSORTED) q = q.is("location_id", null);
+  else if (filter.location) q = q.eq("location_id", filter.location);
+
+  if (filter.condition) q = q.eq("condition", filter.condition);
+  if (filter.finish) q = q.eq("finish", filter.finish);
+  if (filter.language) q = q.eq("language", filter.language);
+  if (filter.set) q = q.ilike("card_set_code", filter.set);
+  if (filter.rarity) q = q.ilike("card_rarity", filter.rarity);
+
+  // Word-wise AND, or one phrase when quoted — the same split matchesText uses.
+  for (const term of textTerms(filter.name)) q = q.ilike("card_name", `%${term}%`);
+  for (const term of textTerms(filter.type)) q = q.ilike("card_type_line", `%${term}%`);
+
+  if (filter.manaValue) {
+    const column = "card_cmc";
+    const { op, value } = filter.manaValue;
+    if (op === "eq") q = q.eq(column, value);
+    else if (op === "ne") q = q.neq(column, value);
+    else q = q[op](column, value);
   }
 
-  const { data, error } = await query;
+  return q as T;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
+
+/**
+ * The signed-in user's collection.
+ *
+ * Filtering, sorting and pagination happen in the database wherever the rules
+ * allow it, which is what keeps the page from shipping an entire collection to
+ * draw fifty rows. When a criterion cannot be expressed faithfully — colours,
+ * mana costs, printed stats that are not numbers — the query still narrows the
+ * set as far as it can and the rest is finished in memory, so those rules
+ * continue to live in exactly one tested place.
+ */
+export async function getCollection(
+  filter: CollectionFilter,
+  options: CollectionQuery = {},
+): Promise<CollectionResult> {
+  const supabase = await createClient();
+  const owner = await ownerId();
+
+  const sort = options.sort ?? null;
+  const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+  const paginate = options.paginate !== false;
+
+  const sortColumn = sort ? COLUMN_BY_ID.get(sort.column) : undefined;
+  // A sort the database cannot express forces the in-memory path just as a
+  // filter does: page 2 of a wrongly ordered set is the wrong fifty rows.
+  const sortInSql = !sort || Boolean(sortColumn?.sqlOrder);
+  const canUseSql = isSqlOnly(filter) && sortInSql;
+
+  // Unfiltered total, for "12 of 940". A count with no rows returned.
+  const totalQuery = await supabase
+    .from("collection_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_user_id", owner);
+  if (totalQuery.error) {
+    throw new Error(`Could not load collection: ${totalQuery.error.message}`);
+  }
+  const total = totalQuery.count ?? 0;
+
+  if (canUseSql) {
+    let rowQuery = applySqlFilter(
+      supabase
+        .from("collection_entries")
+        .select(ENTRY_COLUMNS, { count: "exact" })
+        .eq("owner_user_id", owner),
+      filter,
+    );
+
+    if (sort && sortColumn?.sqlOrder) {
+      rowQuery = rowQuery.order(sortColumn.sqlOrder, {
+        ascending: sort.direction === "asc",
+        // Matches sortRows: a row with no value is not "less than" one that has
+        // it, so nulls sit at the end whichever way the sort runs.
+        nullsFirst: false,
+      });
+    }
+    // A stable tiebreak, so a row cannot appear on two pages or none.
+    rowQuery = rowQuery.order("id", { ascending: true });
+
+    const page = Math.max(0, options.page ?? 0);
+    if (paginate) rowQuery = rowQuery.range(page * pageSize, page * pageSize + pageSize - 1);
+    else rowQuery = rowQuery.limit(MAX_ROWS);
+
+    const { data, error, count } = await rowQuery;
+    if (error) throw new Error(`Could not load collection: ${error.message}`);
+
+    const matched = count ?? 0;
+    const pageCount = Math.max(1, Math.ceil(matched / pageSize));
+
+    // Only the ids, and only when a page is being shown — an export already has
+    // every row in hand.
+    let allIds: string[] = [];
+    let matchedCards = 0;
+    if (paginate) {
+      const idQuery = applySqlFilter(
+        supabase
+          .from("collection_entries")
+          .select(ENTRY_ID_COLUMN)
+          .eq("owner_user_id", owner)
+          .limit(MAX_ROWS),
+        filter,
+      );
+      const ids = await idQuery;
+      if (ids.error) throw new Error(`Could not load collection: ${ids.error.message}`);
+      const idRows = (ids.data ?? []) as unknown as Array<{ id: string; quantity: number }>;
+      allIds = idRows.map((r) => r.id);
+      matchedCards = idRows.reduce((sum, r) => sum + (r.quantity ?? 0), 0);
+    }
+
+    const rows = ((data ?? []) as unknown as CollectionEntryRow[]).map(toCardInstanceWithCard);
+
+    return {
+      rows,
+      allIds: paginate ? allIds : rows.map((r) => r.id),
+      matched,
+      matchedCards: paginate
+        ? matchedCards
+        : rows.reduce((sum, r) => sum + r.quantity, 0),
+      total,
+      truncated: false,
+      page: Math.min(page, pageCount - 1),
+      pageCount,
+      inMemory: false,
+    };
+  }
+
+  // In-memory path: narrow as far as the query can, then finish here.
+  const narrowed = applySqlFilter(
+    supabase
+      .from("collection_entries")
+      .select(ENTRY_COLUMNS)
+      .eq("owner_user_id", owner)
+      .order("created_at", { ascending: false })
+      .limit(MAX_ROWS),
+    filter,
+  );
+
+  const { data, error } = await narrowed;
   if (error) throw new Error(`Could not load collection: ${error.message}`);
 
-  const rows = (data ?? []) as unknown as CardInstanceWithCard[];
+  const loaded = ((data ?? []) as unknown as CollectionEntryRow[]).map(toCardInstanceWithCard);
+  const matchedRows = sortRows(applyFilter(loaded, filter), sort);
+
+  const pageCount = Math.max(1, Math.ceil(matchedRows.length / pageSize));
+  const page = Math.min(Math.max(0, options.page ?? 0), pageCount - 1);
+  const rows = paginate
+    ? matchedRows.slice(page * pageSize, page * pageSize + pageSize)
+    : matchedRows;
 
   return {
-    rows: applyFilter(rows, filter),
-    total: rows.length,
-    truncated: rows.length >= MAX_ROWS,
+    rows,
+    allIds: matchedRows.map((r) => r.id),
+    matched: matchedRows.length,
+    matchedCards: matchedRows.reduce((sum, r) => sum + r.quantity, 0),
+    total,
+    truncated: loaded.length >= MAX_ROWS,
+    page,
+    pageCount,
+    inMemory: true,
   };
 }
 
@@ -336,6 +532,74 @@ export async function getDashboardSummary(
  * everything you own, not of whatever the current filter happens to show, so
  * this runs its own narrow query rather than reusing the filtered rows.
  */
+/**
+ * Availability, but only for the cards actually on screen.
+ *
+ * `getAvailability` reads the whole collection and returns an entry per card —
+ * on a 688-entry collection that is 628 entries shipped to draw fifty rows, the
+ * same disease the paginated query was written to cure. The page only needs the
+ * counts for the cards it is showing, so it asks for those.
+ *
+ * The counts themselves are still collection-wide: "4 free" means four free
+ * anywhere, not four on this page. Only the set of *cards* asked about is
+ * narrowed.
+ */
+export async function getAvailabilityForCards(
+  cards: Array<{ oracle_id: string | null; name: string } | null>,
+): Promise<Map<string, Availability>> {
+  const oracleIds = [...new Set(cards.flatMap((c) => (c?.oracle_id ? [c.oracle_id] : [])))];
+  // Rows synced before migration 7 have no oracle id and fall back to name.
+  const names = [...new Set(cards.flatMap((c) => (c && !c.oracle_id ? [c.name] : [])))];
+
+  if (oracleIds.length === 0 && names.length === 0) return new Map();
+
+  const supabase = await createClient();
+  const owner = await ownerId();
+
+  const select = "quantity, card_oracle_id, card_name, location_type";
+  const queries = [];
+  if (oracleIds.length > 0) {
+    queries.push(
+      supabase
+        .from("collection_entries")
+        .select(select)
+        .eq("owner_user_id", owner)
+        .in("card_oracle_id", oracleIds),
+    );
+  }
+  if (names.length > 0) {
+    queries.push(
+      supabase
+        .from("collection_entries")
+        .select(select)
+        .eq("owner_user_id", owner)
+        .in("card_name", names),
+    );
+  }
+
+  const results = await Promise.all(queries);
+  const rows: CountableRow[] = [];
+  for (const result of results) {
+    if (result.error) {
+      throw new Error(`Could not work out availability: ${result.error.message}`);
+    }
+    for (const raw of (result.data ?? []) as unknown as Array<Record<string, unknown>>) {
+      rows.push({
+        quantity: raw.quantity as number,
+        cards: {
+          oracle_id: (raw.card_oracle_id as string | null) ?? null,
+          name: raw.card_name as string,
+        },
+        locations: raw.location_type
+          ? { type: raw.location_type as LocationType }
+          : null,
+      });
+    }
+  }
+
+  return computeAvailability(rows);
+}
+
 export async function getAvailability(): Promise<Map<string, Availability>> {
   const supabase = await createClient();
   const { data, error } = await supabase

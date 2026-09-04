@@ -230,6 +230,72 @@ export const isFilterActive = (filter: CollectionFilter): boolean =>
   activeFilterCount(filter) > 0;
 
 // ---------------------------------------------------------------------------
+// What can be asked of Postgres, and what cannot
+// ---------------------------------------------------------------------------
+
+/**
+ * Criteria whose rules do not survive translation into a PostgREST query.
+ *
+ * Each of these is here for a specific reason, not because it looked hard:
+ *
+ *   - `oracle` searches the back face too, which lives inside a JSON column.
+ *   - `colors` / `colorIdentity` treat a card with no colours as colourless,
+ *     and the four colour modes compare sets. The array operators exist, but
+ *     the empty-array-means-{C} rule has no clean equivalent, and getting it
+ *     subtly wrong in a second place is the failure this module was written to
+ *     avoid.
+ *   - `manaCost` is count-aware: {G}{G} must not be satisfied by a single {G}.
+ *   - `power` / `toughness` / `loyalty` are text columns holding "*" and "1+*".
+ *     `statToNumber` decides what is a number; Postgres would have to agree.
+ *
+ * When any of these is active the query still pushes down everything it can,
+ * and `matchesFilter` finishes the job over the narrowed set.
+ */
+const JS_ONLY_KEYS = [
+  "oracle",
+  "colors",
+  "colorIdentity",
+  "manaCost",
+  "power",
+  "toughness",
+  "loyalty",
+] as const;
+
+/**
+ * True when every active criterion can be expressed in the query.
+ *
+ * This is what decides whether a page of results can be taken straight from
+ * the database — with an exact count and a real LIMIT/OFFSET — or whether the
+ * rows have to be filtered in memory first.
+ */
+export function isSqlOnly(filter: CollectionFilter): boolean {
+  for (const key of JS_ONLY_KEYS) {
+    const value = filter[key];
+    if (Array.isArray(value)) {
+      if (value.length > 0) return false;
+    } else if (value !== null && String(value).trim() !== "") {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Splits a text query the way `matchesText` does, so a query and an in-memory
+ * pass agree on what a search means.
+ *
+ * A quoted string is one phrase; anything else is words that must all appear.
+ * Returns the terms to AND together, or an empty array for "no constraint".
+ */
+export function textTerms(needle: string): string[] {
+  const query = needle.trim().toLowerCase();
+  if (query === "") return [];
+  const quoted = query.match(/^"(.*)"$/);
+  if (quoted) return quoted[1] === "" ? [] : [quoted[1]];
+  return query.split(/\s+/).filter((word) => word !== "");
+}
+
+// ---------------------------------------------------------------------------
 // Matching
 // ---------------------------------------------------------------------------
 
@@ -242,13 +308,9 @@ const norm = (s: string | null | undefined) => (s ?? "").toLowerCase();
  */
 function matchesText(haystack: string | null | undefined, needle: string): boolean {
   const text = norm(haystack);
-  const query = needle.trim().toLowerCase();
-  if (query === "") return true;
-
-  const quoted = query.match(/^"(.*)"$/);
-  if (quoted) return text.includes(quoted[1]);
-
-  return query.split(/\s+/).every((word) => text.includes(word));
+  // Shares `textTerms` with the query builder, so a search cannot mean one
+  // thing in Postgres and another here.
+  return textTerms(needle).every((term) => text.includes(term));
 }
 
 function matchesNumeric(actual: number | null | undefined, filter: NumericFilter): boolean {

@@ -4,8 +4,8 @@ A Magic: The Gathering collection manager that tracks **where each copy physical
 lives** — which binder, which box, which deck — so a digital inventory mirrors
 reality.
 
-No pricing, no marketplace, no valuation. That is a deliberate scope decision,
-not a gap; see [`docs/CHARTER.md`](docs/CHARTER.md).
+No marketplace and no valuation engine — prices are shown as a Scryfall-sourced
+estimate and nothing more. That is a deliberate scope decision, not a gap.
 
 **Status: Phase 1 and Phase 2 are shipped, along with most of roadmap Tier 2.**
 Collection and location management, peer-to-peer trading with counter-offers and
@@ -14,9 +14,8 @@ implemented. Also in: CSV / decklist import, bulk actions, collection
 search / filter / sort, the "where is my card" lookup, Scryfall-sourced
 reference pricing (display only), a want list that matches against friends'
 trade binders, in-app trade notifications, trade-proposal expiry, and a
-terms-of-service acceptance flow. See
-[`docs/feature-roadmap.md`](docs/feature-roadmap.md) for what is still
-deliberately out of scope.
+terms-of-service acceptance flow. See [`PRIORITIES.md`](PRIORITIES.md) for what
+is being built next and what is deliberately out of scope.
 
 ---
 
@@ -132,8 +131,8 @@ just a location type, so a card sleeved into one stops counting as available.
 not a missing value. On the social side, `friendships` are the trade circle,
 `trades` / `trade_items` model a proposal in both directions, `ownership_history`
 is the append-only record of every transfer, and `want_list` plus `notifications`
-drive want-matching and alerts. Full detail in
-[`docs/data-model-v1.md`](docs/data-model-v1.md).
+drive want-matching and alerts. The migrations in `supabase/migrations` carry the
+reasoning for each decision in their headers.
 
 ---
 

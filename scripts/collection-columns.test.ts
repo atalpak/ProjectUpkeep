@@ -10,9 +10,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  COLUMNS,
   DEFAULT_COLUMNS,
   parseStoredColumns,
-  parseStoredSort,
+  parseSortValue,
+  serialiseSort,
   sortRows,
   type ColumnId,
 } from "../src/components/collection/columns";
@@ -238,21 +240,44 @@ test("a saved choice of nothing but Finish falls back to the defaults", () => {
 // Persisted sort
 // ---------------------------------------------------------------------------
 
-test("a stored sort round-trips", () => {
-  assert.deepEqual(parseStoredSort(JSON.stringify({ column: "name", direction: "desc" })), {
-    column: "name",
-    direction: "desc",
-  });
+test("a sort round-trips through its stored form", () => {
+  const sort = { column: "name", direction: "desc" } as const;
+  assert.equal(serialiseSort(sort), "name:desc");
+  assert.deepEqual(parseSortValue(serialiseSort(sort)), sort);
 });
 
-test("no stored sort, or an explicit null, means unsorted", () => {
-  assert.equal(parseStoredSort(null), null);
-  assert.equal(parseStoredSort(""), null);
-  assert.equal(parseStoredSort("null"), null);
+test("no stored sort means unsorted", () => {
+  assert.equal(parseSortValue(null), null);
+  assert.equal(parseSortValue(undefined), null);
+  assert.equal(parseSortValue(""), null);
+  assert.equal(serialiseSort(null), "");
 });
 
-test("a stored sort naming a column that no longer exists is dropped", () => {
-  assert.equal(parseStoredSort(JSON.stringify({ column: "finish", direction: "asc" })), null);
-  assert.equal(parseStoredSort(JSON.stringify({ column: "name", direction: "sideways" })), null);
-  assert.equal(parseStoredSort("not json"), null);
+test("a sort naming a column that no longer exists is dropped", () => {
+  assert.equal(parseSortValue("finish:asc"), null);
+  assert.equal(parseSortValue("name:sideways"), null);
+  assert.equal(parseSortValue("garbage"), null);
+});
+
+test("every column the database can sort names a real view column", () => {
+  // The two definitions of a sort must agree. A typo here would silently order
+  // by something else, or fail the query at runtime.
+  const viewColumns = new Set([
+    "quantity", "condition", "language", "notes", "created_at", "location_name",
+    "card_name", "card_set_name", "card_collector_number", "card_rarity",
+    "card_mana_cost", "card_cmc", "card_type_line", "card_artist",
+    "available_quantity", "display_price",
+  ]);
+  for (const column of COLUMNS) {
+    if (!column.sqlOrder) continue;
+    assert.ok(
+      viewColumns.has(column.sqlOrder),
+      `${column.id} sorts by "${column.sqlOrder}", which is not a collection_entries column`,
+    );
+  }
+});
+
+test("columns with no database sort are the ones that genuinely cannot have one", () => {
+  const inMemoryOnly = COLUMNS.filter((c) => !c.sqlOrder).map((c) => c.id).sort();
+  assert.deepEqual(inMemoryOnly, ["colors", "power"]);
 });

@@ -38,6 +38,10 @@ export type ExportCardRef = {
  * the way back in. A decklist entry (no physical copy behind it) simply
  * leaves them null.
  */
+// Type-only, so this module stays free of runtime dependencies — the reason it
+// can be tested without a database or a DOM.
+import type { CardInstanceWithCard } from "@/lib/types";
+
 export type ExportRow = {
   card: ExportCardRef | null;
   quantity: number;
@@ -74,6 +78,29 @@ function decklistLine(row: ExportRow): string {
  * by — just every stack currently on screen. Sort order is the caller's call
  * (typically whatever the page is already showing); this only formats.
  */
+/**
+ * One physical stack, as `getCollection` returns it, mapped for export.
+ *
+ * Lives here rather than on the collection page because the export route and
+ * the page both need it, and the mapping is part of what "export" means.
+ */
+export function stackToExportRow(row: CardInstanceWithCard): ExportRow {
+  return {
+    card: row.cards
+      ? {
+          name: row.cards.name,
+          setCode: row.cards.set_code,
+          collectorNumber: row.cards.collector_number,
+        }
+      : null,
+    quantity: row.quantity,
+    finish: row.finish,
+    condition: row.condition,
+    language: row.language,
+    locationName: row.locations?.name ?? null,
+  };
+}
+
 export function stacksToDecklistText(rows: ExportRow[]): string {
   if (rows.length === 0) return "";
   return rows.map(decklistLine).join("\n") + "\n";
