@@ -621,6 +621,47 @@ begin
   assert entry_count = 1, 'filing a card with no list entry should create exactly one';
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- collection_entries must not be a hole through RLS.
+--
+-- A view without security_invoker runs as its owner, which would hand every
+-- user's cards to anyone who selected from it. This is the assertion that
+-- catches that, because nothing else would: the view looks correct either way
+-- until someone else's rows show up in it.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  invoker  boolean;
+  mine     int;
+  theirs   int;
+begin
+  select coalesce((
+    select option_value = 'true'
+      from pg_options_to_table((select reloptions from pg_class where relname = 'collection_entries'))
+     where option_name = 'security_invoker'
+  ), false) into invoker;
+
+  assert invoker, 'collection_entries must be declared with security_invoker = true';
+
+  -- As user one: their own rows are visible, and only theirs.
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  set local role authenticated;
+
+  select count(*) into mine
+    from public.collection_entries
+   where owner_user_id = '11111111-1111-1111-1111-111111111111';
+
+  select count(*) into theirs
+    from public.collection_entries
+   where owner_user_id <> '11111111-1111-1111-1111-111111111111';
+
+  reset role;
+
+  assert mine > 0, 'the view should return the caller''s own rows, got ' || mine;
+  assert theirs = 0,
+    'collection_entries leaked ' || theirs || ' rows belonging to another user';
+end $$;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

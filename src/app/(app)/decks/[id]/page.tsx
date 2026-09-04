@@ -157,8 +157,8 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
           actions={
             entries.length > 0 || contents.length > 0 ? (
               <ExportButtons
-                decklistText={deckDecklistText}
-                csv={deckCsv}
+                // Inline: a deck is a hundred rows the page already holds.
+                source={{ kind: "inline", decklistText: deckDecklistText, csv: deckCsv }}
                 filenameBase={`deck-${slugify(deck.name)}`}
               />
             ) : null

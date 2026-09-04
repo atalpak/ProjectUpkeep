@@ -10,8 +10,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "sync:scryfall": "tsx scripts/sync-scryfall.ts",
-    "db:reset": "supabase db reset",
-    "db:push": "supabase db push",
+    "db:reset": "npx --yes supabase db reset",
+    "db:push": "npx --yes supabase db push",
     "test": "tsx --test scripts/*.test.ts",
     "test:db": "./scripts/verify-migrations.sh"
   },

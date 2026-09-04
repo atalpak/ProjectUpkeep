@@ -49,12 +49,22 @@ export type ColumnDef = {
    * is not "less than" a 1/1, it is simply not in the running.
    */
   sortBy: (row: CardInstanceWithCard, context: SortContext) => string | number | null;
+  /**
+   * The column on `collection_entries` that sorts this the same way `sortBy`
+   * does, when there is one. Its absence is meaningful: it means this column
+   * can only be sorted in memory, so asking for it makes the page fall back to
+   * loading the whole collection. Keep the two definitions in step — if they
+   * disagree, the order changes depending on which path ran, which is the worst
+   * kind of bug to notice.
+   */
+  sqlOrder?: string;
 };
 
 export const COLUMNS: ColumnDef[] = [
   {
     id: "quantity",
     label: "Qty",
+    sqlOrder: "quantity",
     default: true,
     numeric: true,
     sortBy: (r) => r.quantity,
@@ -62,38 +72,44 @@ export const COLUMNS: ColumnDef[] = [
   {
     id: "name",
     label: "Name",
+    sqlOrder: "card_name",
     default: true,
     sortBy: (r) => r.cards?.name?.toLowerCase() ?? "",
   },
   {
     id: "set",
     label: "Set",
+    sqlOrder: "card_set_name",
     default: true,
     sortBy: (r) => r.cards?.set_name?.toLowerCase() ?? r.cards?.set_code ?? "",
   },
   {
     id: "collector",
     label: "Number",
+    sqlOrder: "card_collector_number",
     default: false,
     numeric: true,
     // Collector numbers are text ("123a", "★"), so sort them the way a person
     // reads them rather than by raw code point.
     sortBy: (r) => r.cards?.collector_number ?? "",
   },
-  { id: "rarity", label: "Rarity", default: false, sortBy: (r) => r.cards?.rarity ?? "" },
-  { id: "manaCost", label: "Cost", default: false, sortBy: (r) => r.cards?.mana_cost ?? "" },
+  { id: "rarity", label: "Rarity", default: false, sqlOrder: "card_rarity", sortBy: (r) => r.cards?.rarity ?? "" },
+  { id: "manaCost", label: "Cost", default: false, sqlOrder: "card_mana_cost", sortBy: (r) => r.cards?.mana_cost ?? "" },
   {
     id: "manaValue",
     label: "MV",
+    sqlOrder: "card_cmc",
     default: false,
     numeric: true,
     sortBy: (r) => r.cards?.cmc ?? null,
   },
-  { id: "type", label: "Type", default: false, sortBy: (r) => r.cards?.type_line ?? "" },
+  { id: "type", label: "Type", default: false, sqlOrder: "card_type_line", sortBy: (r) => r.cards?.type_line ?? "" },
   {
     id: "colors",
     label: "Colors",
     default: false,
+    // No sqlOrder: this sorts by the colours joined into a string, and an array
+    // does not order that way in the query.
     sortBy: (r) => (r.cards?.colors ?? []).join(""),
   },
   {
@@ -101,24 +117,28 @@ export const COLUMNS: ColumnDef[] = [
     label: "P/T",
     default: false,
     numeric: true,
+    // No sqlOrder: power is text holding "*" and "1+*", and statToNumber decides
+    // what counts as a number. Postgres would have to agree, in a second place.
     sortBy: (r) => statToNumber(r.cards?.power),
   },
-  { id: "condition", label: "Condition", default: false, sortBy: (r) => r.condition },
+  { id: "condition", label: "Condition", default: false, sqlOrder: "condition", sortBy: (r) => r.condition },
   // No Finish column: a foil is marked beside the card name instead. See
   // src/components/FoilMark.tsx.
-  { id: "language", label: "Language", default: false, sortBy: (r) => r.language },
+  { id: "language", label: "Language", default: false, sqlOrder: "language", sortBy: (r) => r.language },
   {
     id: "location",
     label: "Location",
+    sqlOrder: "location_name",
     default: false,
     // Unsorted sorts last rather than first: it is the absence of a location.
     sortBy: (r) => r.locations?.name?.toLowerCase() ?? "￿",
   },
-  { id: "artist", label: "Artist", default: false, sortBy: (r) => r.cards?.artist ?? "" },
-  { id: "notes", label: "Notes", default: false, sortBy: (r) => r.notes ?? "" },
+  { id: "artist", label: "Artist", default: false, sqlOrder: "card_artist", sortBy: (r) => r.cards?.artist ?? "" },
+  { id: "notes", label: "Notes", default: false, sqlOrder: "notes", sortBy: (r) => r.notes ?? "" },
   {
     id: "price",
     label: "Price",
+    sqlOrder: "display_price",
     // On by default. What a collection is worth is one of the first things
     // anyone opens it to see, and this column is now the only switch for it —
     // the separate "$ Prices" toggle is gone, so turning the column off in the
@@ -130,6 +150,7 @@ export const COLUMNS: ColumnDef[] = [
   {
     id: "available",
     label: "Available",
+    sqlOrder: "available_quantity",
     // On by default: knowing whether a copy is free to build with is the whole
     // point of tracking where cards are, and it is the question this product
     // exists to answer.
@@ -265,64 +286,57 @@ export function parseStoredColumns(raw: string | null): ColumnId[] {
 // ---------------------------------------------------------------------------
 
 /**
- * The sort is remembered the same way the columns are, and for the same
- * reason: someone who sorts their collection by set expects it still sorted by
- * set when they come back, not reset to the load order. localStorage, so it is
- * per browser and outlives the tab; the server snapshot is null (unsorted) and
- * the client re-sorts on hydration.
+ * The sort is remembered in a cookie rather than localStorage, and that choice
+ * is load-bearing rather than stylistic.
+ *
+ * The database now does the sorting and hands back one page of rows, so the
+ * server has to know the sort order *before* it renders. localStorage is not
+ * sent with a request, so the server could never see it — it would have had to
+ * render an unsorted first page and let the browser correct it, which is both a
+ * visible flicker and, once only one page is loaded, simply wrong. A cookie
+ * arrives with the request.
+ *
+ * The column *choice* stays in localStorage: it only decides which columns are
+ * drawn, and never changes the query.
+ *
+ * Stored as "column:direction" rather than JSON — it goes in a header on every
+ * request, so it stays short and needs no escaping.
  */
-export const SORT_STORAGE_KEY = "project-upkeep-collection-sort";
+export const SORT_COOKIE = "pu_collection_sort";
 
-const sortListeners = new Set<() => void>();
-let unsavedSort: string | null = null;
+/** A year: this is a preference, not a session. */
+const SORT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
-export function subscribeToSort(onChange: () => void): () => void {
-  sortListeners.add(onChange);
-  window.addEventListener("storage", onChange);
-  return () => {
-    sortListeners.delete(onChange);
-    window.removeEventListener("storage", onChange);
-  };
+export function serialiseSort(sort: SortState | null): string {
+  return sort ? `${sort.column}:${sort.direction}` : "";
 }
 
-export function readStoredSort(): string | null {
-  try {
-    return unsavedSort ?? localStorage.getItem(SORT_STORAGE_KEY);
-  } catch {
-    return unsavedSort;
-  }
-}
-
-export const readStoredSortOnServer = (): string | null => null;
-
-export function writeStoredSort(sort: SortState | null): void {
-  const serialised = JSON.stringify(sort);
-  try {
-    localStorage.setItem(SORT_STORAGE_KEY, serialised);
-    unsavedSort = null;
-  } catch {
-    unsavedSort = serialised;
-  }
-  for (const listener of sortListeners) listener();
-}
-
-/** Parses a stored sort, dropping anything that no longer names a real column. */
-export function parseStoredSort(raw: string | null): SortState | null {
+/** Parses a stored or URL-supplied sort, rejecting anything unrecognised. */
+export function parseSortValue(raw: string | null | undefined): SortState | null {
   if (!raw) return null;
+  const [column, direction] = raw.split(":");
+  if (!COLUMN_BY_ID.has(column as ColumnId)) return null;
+  if (direction !== "asc" && direction !== "desc") return null;
+  return { column: column as ColumnId, direction };
+}
+
+/**
+ * Remembers the sort for next time. Best-effort: if the browser refuses the
+ * cookie the sort still applies to this view, because it also travels in the
+ * URL — the cookie only decides where a fresh visit starts.
+ */
+export function writeSortCookie(sort: SortState | null): void {
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed === null) return null;
-    if (
-      typeof parsed === "object" &&
-      "column" in parsed &&
-      "direction" in parsed &&
-      COLUMN_BY_ID.has((parsed as SortState).column) &&
-      ((parsed as SortState).direction === "asc" || (parsed as SortState).direction === "desc")
-    ) {
-      return { column: (parsed as SortState).column, direction: (parsed as SortState).direction };
-    }
-    return null;
+    const value = serialiseSort(sort);
+    const parts = [
+      `${SORT_COOKIE}=${encodeURIComponent(value)}`,
+      "Path=/",
+      `Max-Age=${value === "" ? 0 : SORT_COOKIE_MAX_AGE}`,
+      "SameSite=Lax",
+    ];
+    if (location.protocol === "https:") parts.push("Secure");
+    document.cookie = parts.join("; ");
   } catch {
-    return null;
+    // Blocked cookies: the sort still works, it just will not be remembered.
   }
 }
