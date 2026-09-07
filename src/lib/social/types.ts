@@ -73,7 +73,9 @@ export type TradeDirection = (typeof TRADE_DIRECTIONS)[number];
 export type TradeItem = {
   id: string;
   trade_id: string;
-  card_instance_id: string;
+  /** Null once the instance has been deleted — the snapshot below still
+   *  identifies the card (migration 25). */
+  card_instance_id: string | null;
   direction: TradeDirection;
   quantity: number;
   created_at: string;
