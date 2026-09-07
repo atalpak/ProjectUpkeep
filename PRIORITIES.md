@@ -135,6 +135,33 @@ discovery, this app is for reconciliation — do not build a deck editor.
       the count is already surfaced in the attention banner and the location
       breakdown, so nothing was lost.
 
+- [x] **Flavor-named cards didn't import** · done 2026-09-08
+
+      Reported directly: a deck import was missing a few cards, and a printed
+      card ("Loki's Double") turned out to be a different card underneath
+      ("Spark Double"). Root cause: Universes Beyond crossovers (Marvel Super
+      Heroes Commander, Tales of Middle-earth, Fallout, Final Fantasy, Avatar,
+      the Godzilla alt-arts in Ikoria, ~350 Secret Lair drops — 661 printings
+      across 10+ sets) print an in-universe alternate name over the real card.
+      Scryfall carries both via `flavor_name`; neither our schema nor the sync
+      job stored it, so an import naming the printed name matched nothing and
+      was silently dropped as "no card with that name."
+
+      Fixed: migration 26 adds `cards.flavor_name` and extends both the import
+      resolver (`src/lib/import/resolve.ts`) and manual add-a-card search
+      (`search_card_names`) to match it. Forced a sync to backfill the
+      117,628-row table (`workflow_dispatch` on `scryfall-sync.yml`) — the next
+      scheduled run would have picked it up regardless. Verified live:
+      searching "Loki's Double" now surfaces "Spark Double" correctly.
+
+      **Deliberately not done:** the app still *displays* `name` everywhere,
+      not the printed flavor name — so a card sleeved from this printing shows
+      as "Spark Double" in the collection table, deck list, and card panel,
+      not "Loki's Double." That's a real remaining confusion (item 1 of what
+      was reported) but a much bigger change — every card-name rendering
+      surface, not just the two matching paths — and not what was actually
+      blocking anything. Worth its own pass if it comes up again.
+
 **Stretch, only if the reset goes fast:** the connected deck row (below). A
 half-built version is worse than narrating it — don't start it on day six.
 
