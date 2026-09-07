@@ -62,11 +62,69 @@ discovery, this app is for reconciliation — do not build a deck editor.
       `/api/cards/[id]`. Note this trades payload for a fetch on panel open — a
       deliberate prefetch being revisited, not a bug.
 
-- [ ] **Rewrite the landing page** · ~2 hours
-      Currently leads with what the app doesn't do and never states the hook. Use
-      the sentence already on the decks page: *"A deck is a real place a card
-      lives. Cards sleeved into one stop counting as available to build with."*
-      Add one screenshot of a deck showing sleeved / available / missing.
+- [ ] **Design system & brand identity** · supersedes the old "rewrite the
+      landing page" item — the copy fix below is now step one of a bigger pass
+
+      **Why now:** early viewers said the app "looks like AI slop" — like
+      Claude or another AI produced it, not like a considered product. That
+      diagnosis is accurate and specific, not just vibes:
+      - The accent color (`#4f5ecb` light / `#828ff2` dark, in `globals.css`)
+        is close to the literal default hue every AI-scaffolded SaaS dashboard
+        converges on.
+      - No custom font anywhere — raw `system-ui` stack. `src/components/ui.tsx`
+        applies one border-radius vocabulary (`rounded-md`/`rounded-lg`) to
+        every button, card, input and badge alike — the single most
+        recognizable "generated, not designed" tell.
+      - No shadows, no imagery, no decorative use of the mana-symbol/set-symbol
+        components that already exist and work — they are wired up
+        functionally but never used for personality.
+      - There is no `public/` directory at all: no favicon, no logo, no OG
+        image. The only "branding" today is the word "Upkeep" colored with the
+        accent token.
+      - The token *architecture* underneath (`globals.css`'s semantic
+        canvas/surface/border/ink/accent variables, light+dark) is genuinely
+        well-built — this is a re-skin of good bones, not a rebuild.
+
+      **Direction, decided 2026-09-08:** playful/hobbyist, not premium or
+      utilitarian — closer to game-night energy than a finance app. Keep the
+      name "Project Upkeep" as-is; everything else (color, type, mark) is open.
+      Proposed starting point, to react to rather than treat as final:
+      - **Palette:** off the cool indigo entirely. Warm marigold/amber accent
+        (`#E8A33D` light / `#F2B854` dark) + a deep warm charcoal-green ink
+        (not cool gray) + a warm parchment-cream canvas (not cool off-white).
+        Reads like a card binder or a shoebox of commons, not a dashboard.
+      - **Type:** a rounded, game-box display face for headings — Baloo 2 or
+        Fredoka — paired with a clean workhorse for body/dense tables (Inter
+        or Plus Jakarta Sans). The pairing itself signals intent; no default
+        stack does.
+      - **Shape language:** stop using one radius for everything. Larger,
+        friendlier radius on cards/containers; pill-shaped buttons; inputs
+        stay crisp and rectangular where density matters (the collection
+        table).
+      - **Mark:** a small logomark playing on "upkeep" as an actual MTG
+        game-phase term (a maintenance/tending motif, not a mana symbol —
+        avoid anything that reads as WotC's own iconography). A real favicon
+        and OG image, neither of which exist today.
+      - **Decorative use of what's already built:** `ManaSymbol`/`SetSymbol`
+        are functional-only right now. Bring them into empty states, page
+        headers, and marketing copy — personality that costs nothing new to
+        build.
+
+      **Sequencing — two passes, not one:**
+      1. *Fast pass, before the demo* (a few hours): swap the accent palette,
+         load the font pairing, ship a real favicon + OG image, redo the
+         wordmark. This alone kills most of the "looks like AI" reaction
+         without touching component structure.
+      2. *Full systemization, after the demo*: vary the shape language across
+         every primitive in `ui.tsx`, decorative motifs throughout, and — the
+         original ask this item replaces — rewrite the landing page copy
+         itself. Currently it leads with what the app doesn't do and never
+         states the hook; use the sentence already on the decks page: *"A deck
+         is a real place a card lives. Cards sleeved into one stop counting as
+         available to build with."* Add one screenshot of a deck showing
+         sleeved / available / missing. Do this once the re-skin is real, not
+         before — no point polishing copy that will sit inside the old skin
+         for only a few days.
 
 - [ ] **Two blemishes** · 15 min
       "1 entries unpriced" on the dashboard; the orphaned stat tile in the grid.
