@@ -86,48 +86,54 @@ discovery, this app is for reconciliation — do not build a deck editor.
         well-built — this is a re-skin of good bones, not a rebuild.
 
       **Direction, decided 2026-09-08:** playful/hobbyist, not premium or
-      utilitarian — closer to game-night energy than a finance app. Keep the
-      name "Project Upkeep" as-is; everything else (color, type, mark) is open.
-      Proposed starting point, to react to rather than treat as final:
-      - **Palette:** off the cool indigo entirely. Warm marigold/amber accent
-        (`#E8A33D` light / `#F2B854` dark) + a deep warm charcoal-green ink
-        (not cool gray) + a warm parchment-cream canvas (not cool off-white).
-        Reads like a card binder or a shoebox of commons, not a dashboard.
-      - **Type:** a rounded, game-box display face for headings — Baloo 2 or
-        Fredoka — paired with a clean workhorse for body/dense tables (Inter
-        or Plus Jakarta Sans). The pairing itself signals intent; no default
-        stack does.
-      - **Shape language:** stop using one radius for everything. Larger,
-        friendlier radius on cards/containers; pill-shaped buttons; inputs
-        stay crisp and rectangular where density matters (the collection
-        table).
-      - **Mark:** a small logomark playing on "upkeep" as an actual MTG
-        game-phase term (a maintenance/tending motif, not a mana symbol —
-        avoid anything that reads as WotC's own iconography). A real favicon
-        and OG image, neither of which exist today.
-      - **Decorative use of what's already built:** `ManaSymbol`/`SetSymbol`
-        are functional-only right now. Bring them into empty states, page
-        headers, and marketing copy — personality that costs nothing new to
-        build.
+      utilitarian — closer to game-night energy than a finance app. Kept the
+      name "Project Upkeep" as-is.
 
-      **Sequencing — two passes, not one:**
-      1. *Fast pass, before the demo* (a few hours): swap the accent palette,
-         load the font pairing, ship a real favicon + OG image, redo the
-         wordmark. This alone kills most of the "looks like AI" reaction
-         without touching component structure.
-      2. *Full systemization, after the demo*: vary the shape language across
-         every primitive in `ui.tsx`, decorative motifs throughout, and — the
-         original ask this item replaces — rewrite the landing page copy
-         itself. Currently it leads with what the app doesn't do and never
-         states the hook; use the sentence already on the decks page: *"A deck
-         is a real place a card lives. Cards sleeved into one stop counting as
-         available to build with."* Add one screenshot of a deck showing
-         sleeved / available / missing. Do this once the re-skin is real, not
-         before — no point polishing copy that will sit inside the old skin
-         for only a few days.
+      - [x] **Fast pass** · done 2026-09-08 — palette, type, mark, favicon,
+            shipped to production. Full diff: `src/app/globals.css`,
+            `src/app/layout.tsx`, `src/components/ui.tsx`,
+            `src/components/Wordmark.tsx` (new), `src/app/icon.svg` (new),
+            `src/app/opengraph-image.tsx` (new).
+            - **Palette:** off the cool indigo entirely. Warm marigold/amber
+              accent (`#d98a2c` light / `#f2a93c` dark — close to but not
+              identical to the values first proposed, tuned for contrast) over
+              a warm parchment canvas and a warm charcoal-green ink, both
+              modes. Reads like a card binder, not a dashboard.
+            - **Type:** Baloo 2 (rounded, game-box display face) for headings
+              and the big dashboard numbers, Plus Jakarta Sans for body and
+              dense tables, both via `next/font` — self-hosted, no external
+              request. Previously: raw `system-ui`, no custom font at all.
+            - **Shape:** buttons and badges are now pill-shaped; cards and
+              empty-states got a more generous radius; inputs stayed crisp and
+              rectangular (the collection table still needs the density).
+            - **Mark:** a logomark — a stylized card with a checkmark badge,
+              "a card that's been accounted for" — replacing the plain
+              colored-text wordmark, via a shared `Wordmark` component used in
+              the header, nav drawer, and landing page.
+            - **Assets:** a real favicon and a generated OG image now exist;
+              there was no `public/` directory at all before this. Also set
+              `metadataBase` so the OG image resolves against the real domain
+              in production rather than localhost.
 
-- [ ] **Two blemishes** · 15 min
-      "1 entries unpriced" on the dashboard; the orphaned stat tile in the grid.
+      - [ ] **Full systemization, after the demo** — vary the shape language
+            across every primitive in `ui.tsx` rather than the handful touched
+            in the fast pass; bring `ManaSymbol`/`SetSymbol` into empty states
+            and page headers decoratively (they're functional-only today); and
+            — the original ask this item replaces — rewrite the landing page
+            copy itself. It still leads with what the app doesn't do and never
+            states the hook; use the sentence already on the decks page: *"A
+            deck is a real place a card lives. Cards sleeved into one stop
+            counting as available to build with."* Add one screenshot of a
+            deck showing sleeved / available / missing. Waited on the re-skin
+            landing first, which it now has.
+
+- [x] **Two blemishes** · done 2026-09-07
+      "1 entries unpriced" was a flat template literal with no plural check,
+      unlike every other count on the page — now "1 entry unpriced." The
+      orphaned tile was "Unsorted": 5 stat tiles never divide evenly into
+      `grid-cols-2`/`sm:grid-cols-4`, so it always wrapped alone. Dropped it —
+      the count is already surfaced in the attention banner and the location
+      breakdown, so nothing was lost.
 
 **Stretch, only if the reset goes fast:** the connected deck row (below). A
 half-built version is worse than narrating it — don't start it on day six.
