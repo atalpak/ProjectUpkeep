@@ -94,7 +94,7 @@ export default async function DashboardPage() {
               value={formatPrice(summary.value.total)}
               hint={
                 summary.value.unpricedRows > 0
-                  ? `${summary.value.unpricedRows} entries unpriced`
+                  ? `${summary.value.unpricedRows} ${summary.value.unpricedRows === 1 ? "entry" : "entries"} unpriced`
                   : "TCGplayer, via Scryfall"
               }
             />
@@ -107,22 +107,6 @@ export default async function DashboardPage() {
               hint={summary.value.mostValuable?.name ?? "nothing priced yet"}
             />
             <Stat label="Locations" value={summary.locationCount.toLocaleString()} />
-            <Stat
-              label="Unsorted"
-              value={summary.unsortedCount.toLocaleString()}
-              hint={
-                summary.unsortedCount > 0 ? (
-                  <Link
-                    href={`/collection?location=${UNSORTED}`}
-                    className="text-accent underline"
-                  >
-                    file these
-                  </Link>
-                ) : (
-                  "all filed"
-                )
-              }
-            />
           </section>
 
           <RecentlyAdded summary={summary} />
