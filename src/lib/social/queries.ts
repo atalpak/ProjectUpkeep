@@ -458,13 +458,18 @@ async function hydrateTrades(trades: Trade[]): Promise<TradeDetail[]> {
     ((cardRows ?? []) as unknown as Card[]).map((c) => [c.scryfall_id, c]),
   );
 
-  const { data: instanceRows } = await supabase
-    .from("card_instances")
-    .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
-    .in(
-      "id",
-      items.map((i) => i.card_instance_id),
-    );
+  // Null once the instance behind it has been deleted (migration 25) — the
+  // snapshot columns above are what renders it, so it is simply left out here.
+  const instanceIds = [
+    ...new Set(items.map((i) => i.card_instance_id).filter((v): v is string => !!v)),
+  ];
+  const { data: instanceRows } =
+    instanceIds.length > 0
+      ? await supabase
+          .from("card_instances")
+          .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
+          .in("id", instanceIds)
+      : { data: [] };
 
   const instances = new Map(
     ((instanceRows ?? []) as unknown as CardInstanceWithCard[]).map((i) => [i.id, i]),
@@ -477,7 +482,7 @@ async function hydrateTrades(trades: Trade[]): Promise<TradeDetail[]> {
     items: items
       .filter((i) => i.trade_id === trade.id)
       .map((i) => {
-        const instance = instances.get(i.card_instance_id) ?? null;
+        const instance = (i.card_instance_id ? instances.get(i.card_instance_id) : null) ?? null;
         return {
           ...i,
           instance,

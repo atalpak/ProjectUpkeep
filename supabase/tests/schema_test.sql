@@ -622,6 +622,31 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- trade_items survives its card_instance being deleted (migration 25).
+--
+-- card_instance_id used to be ON DELETE RESTRICT, so deleting an instance
+-- that had ever been part of any trade -- open, declined, or completed years
+-- ago -- failed outright. accept_trade() already checks existence itself and
+-- migration 23 snapshots card_id/finish precisely so history reads without a
+-- live instance, so the RESTRICT was pure friction with nothing depending on
+-- it. Deleting should now succeed and simply null out the reference.
+-- ---------------------------------------------------------------------------
+do $$
+declare remaining int; ref_after uuid;
+begin
+  delete from public.card_instances where id = 'cccccccc-0000-0000-0000-000000000003';
+
+  select count(*) into remaining from public.card_instances
+   where id = 'cccccccc-0000-0000-0000-000000000003';
+  assert remaining = 0, 'the card_instance should actually be gone';
+
+  select card_instance_id into ref_after from public.trade_items
+   where trade_id = 'dddddddd-0000-0000-0000-000000000002';
+  assert ref_after is null,
+    'deleting a traded card_instance should null the trade_item reference, not block the delete';
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- collection_entries must not be a hole through RLS.
 --
 -- A view without security_invoker runs as its owner, which would hand every
