@@ -37,7 +37,7 @@ export type ResolvedRow = ParsedRow & {
 };
 
 const BASE_CARD_COLUMNS =
-  "scryfall_id, name, set_code, set_name, collector_number, image_uri_small, " +
+  "scryfall_id, name, flavor_name, set_code, set_name, collector_number, image_uri_small, " +
   "available_finishes, released_at, digital";
 
 /**
@@ -84,6 +84,7 @@ async function fetchPrintingsByName(
   supabase: Awaited<ReturnType<typeof createClient>>,
   columns: string,
   names: string[],
+  column: "name" | "flavor_name" = "name",
 ): Promise<MatchedCard[]> {
   if (names.length === 0) return [];
 
@@ -95,7 +96,7 @@ async function fetchPrintingsByName(
     const { data, error } = await supabase
       .from("cards")
       .select(columns)
-      .in("name", names)
+      .in(column, names)
       .order("scryfall_id", { ascending: true })
       .range(from, from + pageSize - 1);
 
@@ -175,12 +176,19 @@ export async function resolveRows(rows: ParsedRow[]): Promise<ResolvedRow[]> {
   const names = [...new Set([...variantsFor.values()].flat())];
 
   // Keyed on the lowercased name so an export that shouts SOL RING still hits.
+  // A card with a printed flavor name (Marvel/LOTR/Fallout/... crossovers,
+  // e.g. "Loki's Double" printed over the real card "Spark Double") is filed
+  // under both spellings — an exporter that wrote either one should still
+  // find it, since it is the same card_instance either way.
   const byName = new Map<string, MatchedCard[]>();
   const add = (card: MatchedCard) => {
-    const key = lower(card.name);
-    const list = byName.get(key);
-    if (list) list.push(card);
-    else byName.set(key, [card]);
+    const keys = new Set([lower(card.name)]);
+    if (card.flavor_name) keys.add(lower(card.flavor_name));
+    for (const key of keys) {
+      const list = byName.get(key);
+      if (list) list.push(card);
+      else byName.set(key, [card]);
+    }
   };
 
   // A name containing a double quote cannot go through `in`: PostgREST encodes
@@ -193,12 +201,21 @@ export async function resolveRows(rows: ParsedRow[]): Promise<ResolvedRow[]> {
   const plainNames = names.filter((n) => !n.includes('"'));
 
   for (const group of chunk(plainNames, NAME_CHUNK)) {
-    for (const card of await fetchPrintingsByName(supabase, columns, group)) add(card);
+    for (const card of await fetchPrintingsByName(supabase, columns, group, "name")) add(card);
+    for (const card of await fetchPrintingsByName(supabase, columns, group, "flavor_name")) {
+      add(card);
+    }
   }
 
   await mapWithLimit(quotedNames, FALLBACK_CONCURRENCY, async (name) => {
     const { data } = await supabase.from("cards").select(columns).eq("name", name);
     for (const card of (data ?? []) as unknown as MatchedCard[]) add(card);
+
+    const { data: byFlavor } = await supabase
+      .from("cards")
+      .select(columns)
+      .eq("flavor_name", name);
+    for (const card of (byFlavor ?? []) as unknown as MatchedCard[]) add(card);
   });
 
   // ---- Pass 3: prefix lookups for whatever pass 2 missed -------------------

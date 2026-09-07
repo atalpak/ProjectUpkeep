@@ -31,6 +31,15 @@ values
   ('aaaaaaaa-0000-0000-0000-000000000003', 'ffffffff-0000-0000-0000-000000000002',
    'Thunderbolt Dragon', 'mh2', '999', '{nonfoil}', 'en', '2021-06-18', 'https://img/3');
 
+-- A Universes Beyond crossover printing: the real card is "Spark Double", but
+-- Marvel Super Heroes Commander prints it as "Loki's Double" (migration 26).
+insert into public.cards (scryfall_id, oracle_id, name, flavor_name, set_code,
+                          collector_number, available_finishes, lang, released_at,
+                          image_uri_small)
+values
+  ('aaaaaaaa-0000-0000-0000-000000000005', 'ffffffff-0000-0000-0000-000000000004',
+   'Spark Double', 'Loki''s Double', 'msc', '279', '{nonfoil}', 'en', '2026-01-01', 'https://img/5');
+
 -- --------------------------------------------------------------------------
 -- 1. Signup auto-creates a profile, and username collisions do not 500.
 -- --------------------------------------------------------------------------
@@ -229,6 +238,19 @@ begin
   assert n = 2, 'both Lightning Bolt printings should collapse to one suggestion, count=' || n;
 end $$;
 
+-- Searching the printed flavor name ("Loki's Double") must find the card
+-- whose real name and rules text are "Spark Double" (migration 26) — the
+-- same search a person types when adding a card from the physical printing
+-- in their hand, which shows the flavor name, not the game name.
+do $$
+declare found_name text;
+begin
+  select name into found_name from public.search_card_names('Loki''s Double', 10);
+  assert found_name = 'Spark Double',
+    'searching a printed flavor name should surface its real card, got: '
+      || coalesce(found_name, '<null>');
+end $$;
+
 -- --------------------------------------------------------------------------
 -- 8. RLS actually isolates users, and opens up exactly the Phase 2 reads.
 -- --------------------------------------------------------------------------
@@ -311,7 +333,7 @@ begin
 
   -- Cards are public reference data.
   select count(*) into visible from public.cards;
-  assert visible = 3, 'cards should be readable by any authenticated user';
+  assert visible = 4, 'cards should be readable by any authenticated user';
 
   -- Cannot hand a card to someone else by editing owner_user_id. The WITH
   -- CHECK clause raises rather than silently filtering, which is what we want:
