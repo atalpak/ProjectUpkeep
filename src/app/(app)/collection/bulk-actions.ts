@@ -41,6 +41,21 @@ function readIds(formData: FormData): { ok: true; ids: string[] } | { ok: false;
   return { ok: true, ids };
 }
 
+/**
+ * Supabase encodes `.in()` filters into the request URL as `id=in.(a,b,c)`.
+ * At a few hundred UUIDs that URL exceeds the gateway's length limit and
+ * PostgREST rejects the whole request with a bare "Bad Request" — no matter
+ * how far under MAX_BULK_IDS the selection is. Batching keeps every request
+ * well under that limit regardless of how many rows are selected.
+ */
+const ID_BATCH_SIZE = 200;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
 function revalidate() {
   revalidatePath("/collection");
   revalidatePath("/locations");
@@ -67,16 +82,18 @@ export async function bulkMove(_prev: BulkState, formData: FormData): Promise<Bu
   const locationId = raw === "" ? null : raw;
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("card_instances")
-    .update({ location_id: locationId })
-    .in("id", selection.ids)
-    .select("id");
-
-  if (error) return fail(error.message);
+  let moved = 0;
+  for (const batch of chunk(selection.ids, ID_BATCH_SIZE)) {
+    const { data, error } = await supabase
+      .from("card_instances")
+      .update({ location_id: locationId })
+      .in("id", batch)
+      .select("id");
+    if (error) return fail(error.message);
+    moved += data?.length ?? 0;
+  }
 
   revalidate();
-  const moved = data?.length ?? 0;
   return ok(`Moved ${plural(moved, "entry", "entries")}.`);
 }
 
@@ -91,16 +108,18 @@ export async function bulkDelete(_prev: BulkState, formData: FormData): Promise<
   if (!selection.ok) return fail(selection.error);
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("card_instances")
-    .delete()
-    .in("id", selection.ids)
-    .select("id");
-
-  if (error) return fail(error.message);
+  let deleted = 0;
+  for (const batch of chunk(selection.ids, ID_BATCH_SIZE)) {
+    const { data, error } = await supabase
+      .from("card_instances")
+      .delete()
+      .in("id", batch)
+      .select("id");
+    if (error) return fail(error.message);
+    deleted += data?.length ?? 0;
+  }
 
   revalidate();
-  const deleted = data?.length ?? 0;
   return ok(`Deleted ${plural(deleted, "entry", "entries")}.`);
 }
 
@@ -130,16 +149,19 @@ export async function bulkSetField(_prev: BulkState, formData: FormData): Promis
   if (!vocabulary.includes(value)) return fail(`"${value}" is not a valid ${field}.`);
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("card_instances")
-    .update({ [field]: value })
-    .in("id", selection.ids)
-    .select("id");
-
-  if (error) return fail(error.message);
+  let updated = 0;
+  for (const batch of chunk(selection.ids, ID_BATCH_SIZE)) {
+    const { data, error } = await supabase
+      .from("card_instances")
+      .update({ [field]: value })
+      .in("id", batch)
+      .select("id");
+    if (error) return fail(error.message);
+    updated += data?.length ?? 0;
+  }
 
   revalidate();
-  return ok(`Set ${field} on ${plural(data?.length ?? 0, "entry", "entries")}.`);
+  return ok(`Set ${field} on ${plural(updated, "entry", "entries")}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,15 +195,19 @@ export async function bulkMerge(_prev: BulkState, formData: FormData): Promise<B
   if (!selection.ok) return fail(selection.error);
 
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("card_instances")
-    .select("id, card_id, location_id, condition, finish, language, quantity, notes, created_at")
-    .in("id", selection.ids)
-    .order("created_at", { ascending: true });
+  const rows: MergeRow[] = [];
+  for (const batch of chunk(selection.ids, ID_BATCH_SIZE)) {
+    const { data, error } = await supabase
+      .from("card_instances")
+      .select("id, card_id, location_id, condition, finish, language, quantity, notes, created_at")
+      .in("id", batch);
+    if (error) return fail(error.message);
+    rows.push(...((data ?? []) as MergeRow[]));
+  }
+  // Sorted once the whole selection is in hand — batching the fetch means no
+  // single query saw every row in order.
+  rows.sort((a, b) => a.created_at.localeCompare(b.created_at));
 
-  if (error) return fail(error.message);
-
-  const rows = (data ?? []) as MergeRow[];
   const groups = new Map<string, MergeRow[]>();
 
   for (const row of rows) {
