@@ -15,39 +15,34 @@ discovery, this app is for reconciliation — do not build a deck editor.
 
 ## Tier 0 — before the demo
 
-- [ ] **Reset and repopulate your own data** · half a day · *not code, and it is
-      the blocker for everything else*
+- [x] **Reset and repopulate your own data** · done 2026-09-07
 
-      Current state: **895 cards, 688 entries, 0 locations, 0 decks.** The account
-      demonstrates none of what makes this app different — no locations means no
-      "it's in Box 3", no decks means no sleeved/available/missing.
+      Went from 895 cards / 688 entries / 0 locations / 0 decks to a collection
+      that actually demonstrates the product. ManaBox does export per binder, so
+      the per-container import path was used, not the unsorted-fallback.
 
-      The whole reset is doable in-app; no SQL, no database access needed:
-      1. **Export first** as a safety net — the Export button on `/collection`.
-      2. **Wipe** — `/collection`, select-all (it spans the whole filtered set,
-         not just the visible page), bulk delete. Then clear containers on
-         `/locations`.
-      3. **Create locations that mirror your actual shelf** *before* importing.
-         This step is load-bearing: import assigns **one location per file**.
-      4. **Import per container** — one export per physical box or binder.
-      5. **Mark your trade binder tradable**, which is what makes the social half
-         work later.
+      Found and fixed two real bugs along the way, both shipped to production:
+      - Export was silently truncating to 50 rows (`getCollection` defaults to
+        paginated; the export route never passed `paginate: false` despite its
+        own comment claiming otherwise) — the "safety net" backup would have
+        quietly only backed up 50 of 688 entries.
+      - Bulk delete/move/set-field failed outright above ~500 selected rows:
+        Supabase encodes `.in()` filters into the request URL, and at that size
+        it exceeds the gateway's length limit. Now batches ids into chunks of
+        200 in `bulk-actions.ts`.
+      - Also surfaced (not fixed, spawned as a follow-up): deleting a `trades`
+        row is currently impossible once it has `ownership_history` — the
+        `ON DELETE SET NULL` cascade collides with the append-only trigger.
+        Left one test-trade-linked entry ("Snap") un-deletable as a result.
 
-      **Check first: can ManaBox export a single binder, or only everything?**
-      The plan pivots on this and it was never confirmed. If only everything:
-      import to unsorted, then use collection filters + bulk-move to file in
-      batches. Slower, but it is the path friends will actually be on — so it is
-      the more honest rehearsal either way.
+      **Result:** 7 locations (3 decks, 4 boxes), 895 of 896 cards filed. All
+      four demo targets hit: 3 decks filled at real Commander size; 4 non-deck
+      containers; a new deck ("F#$k You, Pay Me") with 2 of 95 sleeved and 67
+      cards genuinely missing; and Swamp split 2 sleeved / 19 free across
+      locations — the single-screen pitch.
 
-      **Treat it as a timed rehearsal, not cleanup.** This is the first run
-      through the onboarding four other people are about to do, and whatever
-      irritates you will irritate them more. Write down how long it takes — that
-      number is the real adoption cost.
-
-      **Aim at a specific target, not "clean":** 2–3 real decks actually filled;
-      2+ containers besides decks; **one card you own 4 of with some sleeved and
-      some free** (this is the single most important one — it is the entire pitch
-      in one screen); and one deck with a genuinely missing card.
+      **Still open:** trade binder was never designated or marked tradable —
+      skipped this pass, needed before the social half works.
 
 - [ ] **Import destination default** · ~1 hour
       Defaults to "Unsorted", which is how 895 cards ended up in a pile. Make it
