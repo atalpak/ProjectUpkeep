@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Unpaginated by design: an export is the whole filtered set, not a page.
-    const collection = await getCollection(filter);
+    const collection = await getCollection(filter, { paginate: false });
     const rows = collection.rows.map(stackToExportRow);
 
     const body =
