@@ -30,10 +30,17 @@ discovery, this app is for reconciliation — do not build a deck editor.
         Supabase encodes `.in()` filters into the request URL, and at that size
         it exceeds the gateway's length limit. Now batches ids into chunks of
         200 in `bulk-actions.ts`.
-      - Also surfaced (not fixed, spawned as a follow-up): deleting a `trades`
-        row is currently impossible once it has `ownership_history` — the
-        `ON DELETE SET NULL` cascade collides with the append-only trigger.
-        Left one test-trade-linked entry ("Snap") un-deletable as a result.
+      - Also found: `trade_items.card_instance_id` was `ON DELETE RESTRICT`,
+        so a card that had ever been part of any trade — open, declined, or
+        completed years ago — could never be deleted or moved. Fixed
+        2026-09-07 (migration 25): the column is now nullable with
+        `ON DELETE SET NULL`; trade history keeps its own snapshot (migration
+        23) so nothing is lost. Verified by deleting the one entry ("Snap")
+        this had blocked.
+      - Still separately open: deleting a `trades` row itself (not a card) is
+        impossible once it has `ownership_history` — the `ON DELETE SET NULL`
+        cascade on `ownership_history.trade_id` collides with its append-only
+        trigger. Lower priority: nothing in the app hard-deletes a trade today.
 
       **Result:** 7 locations (3 decks, 4 boxes), 895 of 896 cards filed. All
       four demo targets hit: 3 decks filled at real Commander size; 4 non-deck
