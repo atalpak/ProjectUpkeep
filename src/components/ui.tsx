@@ -11,7 +11,7 @@ export function cx(...parts: Array<string | false | null | undefined>) {
 }
 
 const BUTTON_BASE =
-  "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm " +
+  "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-sm " +
   "font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
 const BUTTON_VARIANTS = {
@@ -74,7 +74,7 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
     <div
       {...props}
       className={cx(
-        "rounded-lg border border-border bg-surface p-4",
+        "rounded-2xl border border-border bg-surface p-4",
         className,
       )}
     />
@@ -107,7 +107,7 @@ export function EmptyState({
   children?: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-dashed border-border p-8 text-center">
+    <div className="rounded-2xl border border-dashed border-border p-8 text-center">
       <p className="font-medium">{title}</p>
       {children ? (
         <div className="mt-1 text-sm text-ink-muted">{children}</div>
@@ -130,8 +130,10 @@ export function Stat({
   hint?: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-surface-raised px-4 py-3.5">
-      <div className="text-2xl font-semibold tabular-nums tracking-tight">{value}</div>
+    <div className="rounded-xl border border-border bg-surface-raised px-4 py-3.5">
+      <div className="font-display text-2xl font-semibold tabular-nums tracking-tight">
+        {value}
+      </div>
       <div className="mt-0.5 text-xs font-medium text-ink-muted">{label}</div>
       {hint ? <div className="mt-1 text-xs text-ink-muted">{hint}</div> : null}
     </div>
@@ -171,7 +173,7 @@ export function PageHeader({
 
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight">{title}</h1>
           {subtitle ? <p className="mt-1 text-sm text-ink-muted">{subtitle}</p> : null}
         </div>
 
@@ -186,7 +188,7 @@ export function PageHeader({
 /** Small inline label, used for location types and card metadata. */
 export function Badge({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">
+    <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-ink-muted">
       {children}
     </span>
   );

@@ -8,6 +8,7 @@ import { signOut } from "@/app/auth/actions";
 import { NavLink } from "@/components/NavLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, cx } from "@/components/ui";
+import { Wordmark } from "@/components/Wordmark";
 
 /**
  * The signed-in navigation, at both sizes.
@@ -102,9 +103,7 @@ export function AppNavDrawer({ username }: { username: string | null }) {
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <span className="text-sm font-semibold tracking-tight">
-              Project<span className="text-accent">Upkeep</span>
-            </span>
+            <Wordmark />
             <button
               type="button"
               onClick={close}

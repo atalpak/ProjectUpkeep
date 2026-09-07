@@ -37,45 +37,46 @@
 }
 
 /*
- * Light: a soft cool-grey canvas with near-white paper on top. Text is a dark
- * slate rather than near-black, so a full page of a list is not maximum
- * contrast on every row.
+ * Light: warm parchment rather than cool grey — closer to a card binder page
+ * or a shoebox of commons than a SaaS dashboard. Ink leans warm brown-green
+ * instead of blue-black, and the accent is a marigold amber, not the
+ * blue-indigo every AI-scaffolded dashboard defaults to.
  */
 :root {
-  --canvas: #edeef1;
-  --surface: #fbfbfc;
-  --surface-muted: #e3e5ea;
+  --canvas: #f6efde;
+  --surface: #fcf8ee;
+  --surface-muted: #ece1c6;
   --surface-raised: #ffffff;
-  --border: #dbdee4;
-  --ink: #242830;
-  --ink-muted: #616a76;
-  --accent: #4f5ecb;
-  --accent-ink: #ffffff;
-  --accent-soft: #e9ecfb;
-  --danger: #bb2d2d;
-  --scrim: rgb(24 27 33 / 0.45);
+  --border: #e1d6b8;
+  --ink: #26291f;
+  --ink-muted: #6b6752;
+  --accent: #d98a2c;
+  --accent-ink: #2a1b04;
+  --accent-soft: #f6e2bc;
+  --danger: #bf4429;
+  --scrim: rgb(38 27 10 / 0.45);
 
   color-scheme: light;
 }
 
 /*
- * Dark: the canvas floor is lifted off true black and the paper sits a notch
- * above it; text is dimmed from near-white to cut the halation you get from
- * #fff glyphs on a very dark field.
+ * Dark: the same warm palette lifted off true black — a well-worn card box in
+ * low light, not a slate-blue "dark mode" default. Accent brightens to a
+ * bolder amber so it still pops against the darker canvas.
  */
 .dark {
-  --canvas: #131519;
-  --surface: #191c22;
-  --surface-muted: #262b34;
-  --surface-raised: #22272f;
-  --border: #313742;
-  --ink: #dee1e7;
-  --ink-muted: #98a1ad;
-  --accent: #828ff2;
-  --accent-ink: #12141c;
-  --accent-soft: #232a3f;
-  --danger: #ee9090;
-  --scrim: rgb(0 0 0 / 0.65);
+  --canvas: #1b160f;
+  --surface: #221c13;
+  --surface-muted: #2e2718;
+  --surface-raised: #292216;
+  --border: #3d3320;
+  --ink: #efe7d3;
+  --ink-muted: #b3a98a;
+  --accent: #f2a93c;
+  --accent-ink: #2a1b04;
+  --accent-soft: #3a2d14;
+  --danger: #e2836a;
+  --scrim: rgb(10 8 4 / 0.65);
 
   color-scheme: dark;
 }
@@ -104,8 +105,19 @@ body {
 }
 
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  /* --font-body / --font-display come from next/font in the root layout —
+     self-hosted, so there is no external request and no layout shift. Falls
+     back to the system stack if either fails to load. */
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Headings and other places that should carry the brand's voice rather than
+   read as body copy — the pairing itself is what signals a considered
+   product instead of a default stack. */
+.font-display {
+  font-family: var(--font-display), var(--font-body), ui-sans-serif, system-ui,
+    sans-serif;
 }
 
 /* Visible focus everywhere. Card management is keyboard-heavy data entry. */
