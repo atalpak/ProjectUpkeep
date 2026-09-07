@@ -10,6 +10,7 @@ import { CardPreviewToggle } from "@/components/CardPreviewMode";
 import { HeaderSearch } from "@/components/HeaderSearch";
 import { AlertsMenu } from "@/components/social/AlertsMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { Wordmark } from "@/components/Wordmark";
 
 /**
  * Shell for every signed-in page. Middleware already redirects anonymous
@@ -34,11 +35,8 @@ export default async function AppLayout({
         {/* Sticky so the nav stays reachable down a long collection list. */}
         <header className="sticky top-0 z-10 border-b border-border bg-surface/85 backdrop-blur">
           <nav className="flex w-full items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
-            <Link
-              href="/dashboard"
-              className="text-sm font-semibold tracking-tight whitespace-nowrap"
-            >
-              Project<span className="text-accent">Upkeep</span>
+            <Link href="/dashboard">
+              <Wordmark />
             </Link>
 
             {/* The destination list lives in one place; AppNav renders it inline
