@@ -60,6 +60,15 @@ export type ScryfallCard = ScryfallFace & {
   id: string;
   oracle_id?: string;
   name: string;
+  /**
+   * Universes Beyond crossovers (Marvel, LOTR, Fallout, Final Fantasy, Avatar,
+   * the Godzilla alt-arts in Ikoria, ...) print an in-universe alternate name
+   * over the real card. `name` stays the actual game name a rules text or a
+   * decklist from a non-flavor-aware source uses; `flavor_name` is what is
+   * printed on the card and what a ManaBox/Moxfield export is likely to carry
+   * instead. Both need to resolve to the same row.
+   */
+  flavor_name?: string;
   set: string;
   set_name?: string;
   set_type?: string;
@@ -88,6 +97,7 @@ export type CardRow = {
   scryfall_id: string;
   oracle_id: string | null;
   name: string;
+  flavor_name: string | null;
   set_code: string;
   set_name: string | null;
   collector_number: string;
@@ -181,6 +191,7 @@ export function toCardRow(card: ScryfallCard, syncedAt: string): CardRow | null 
     scryfall_id: card.id,
     oracle_id: oracleId,
     name: card.name,
+    flavor_name: card.flavor_name ?? null,
     set_code: card.set,
     set_name: card.set_name ?? null,
     collector_number: card.collector_number,

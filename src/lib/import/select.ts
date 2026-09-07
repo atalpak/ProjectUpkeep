@@ -12,6 +12,9 @@ import type { ParsedRow } from "@/lib/import/parse";
 export type MatchedCard = {
   scryfall_id: string;
   name: string;
+  /** The printed alternate name (Marvel/LOTR/Fallout/... crossovers). Null on
+   *  the overwhelming majority of printings. */
+  flavor_name?: string | null;
   set_code: string;
   set_name: string | null;
   collector_number: string;

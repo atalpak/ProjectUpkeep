@@ -36,6 +36,21 @@ test("maps a plain single-faced card", () => {
   assert.deepEqual(row.available_finishes, ["nonfoil", "foil"]);
   assert.equal(row.digital, false);
   assert.equal(row.last_synced_at, SYNCED_AT);
+  assert.equal(row.flavor_name, null, "no flavor name on an ordinary card");
+});
+
+test("keeps the printed flavor name for Universes Beyond crossovers", () => {
+  // e.g. the Marvel Super Heroes Commander printing of "Spark Double",
+  // physically printed as "Loki's Double" — real name and rules stay
+  // "Spark Double", but an import from a source that reads the card face
+  // (ManaBox, a decklist paste) needs the printed name to resolve it too.
+  const row = toCardRow(
+    { ...baseCard, name: "Spark Double", flavor_name: "Loki's Double" },
+    SYNCED_AT,
+  );
+  assert.ok(row);
+  assert.equal(row.name, "Spark Double", "the real game name is untouched");
+  assert.equal(row.flavor_name, "Loki's Double");
 });
 
 test("takes images from the front face of a double-faced card", () => {
