@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 import { manaSymbols } from "@/lib/collection/deck-view";
-import { cx } from "@/components/ui";
+import { cx } from "@/lib/cx";
 
 /**
  * A printed mana cost, drawn with Magic's own symbols.
