@@ -161,13 +161,23 @@ discovery, this app is for reconciliation — do not build a deck editor.
       scheduled run would have picked it up regardless. Verified live:
       searching "Loki's Double" now surfaces "Spark Double" correctly.
 
-      **Deliberately not done:** the app still *displays* `name` everywhere,
-      not the printed flavor name — so a card sleeved from this printing shows
-      as "Spark Double" in the collection table, deck list, and card panel,
-      not "Loki's Double." That's a real remaining confusion (item 1 of what
-      was reported) but a much bigger change — every card-name rendering
-      surface, not just the two matching paths — and not what was actually
-      blocking anything. Worth its own pass if it comes up again.
+      **Follow-up, done 2026-09-08:** the display half. Added `cardDisplayName()`
+      (`flavor_name || name`) and threaded `flavor_name` through every card
+      select this touches — `collection_entries` view (migration 27, appended
+      per `CREATE OR REPLACE VIEW`'s column-order rule), both apps'
+      `CARD_FIELDS`/`CARD_COLUMNS`, `WANT_CARD_FIELDS`, the dashboard's ad-hoc
+      queries, the printings API — and applied it at every render site:
+      collection table, card panel, deck workspace, trades, want list,
+      dashboard, find page. `search_card_names` (migration 28) now returns a
+      sample flavor name too, so every autocomplete dropdown shows it.
+      `LocatedCard`/`WantRow` each carry both `name` (real, for `/collection?q=`
+      links, which don't index `flavor_name`) and `displayName` (printed) so
+      the two never get conflated. Deliberately left the CSV/decklist export
+      on the real name — the plain-text format targets Moxfield/Archidekt,
+      which are not known to recognize a flavor name.
+      Verified live end-to-end: added "Loki's Double" for real, confirmed it
+      renders correctly in the add-a-card suggestion, the printing picker, the
+      collection table, and the dashboard's "recently added," then removed it.
 
 **Stretch, only if the reset goes fast:** the connected deck row (below). A
 half-built version is worse than narrating it — don't start it on day six.
