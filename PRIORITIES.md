@@ -69,7 +69,7 @@ discovery, this app is for reconciliation — do not build a deck editor.
       `/api/cards/[id]`. Note this trades payload for a fetch on panel open — a
       deliberate prefetch being revisited, not a bug.
 
-- [ ] **Design system & brand identity** · supersedes the old "rewrite the
+- [x] **Design system & brand identity** · done 2026-09-08 · supersedes the old "rewrite the
       landing page" item — the copy fix below is now step one of a bigger pass
 
       **Why now:** early viewers said the app "looks like AI slop" — like
@@ -122,17 +122,28 @@ discovery, this app is for reconciliation — do not build a deck editor.
               `metadataBase` so the OG image resolves against the real domain
               in production rather than localhost.
 
-      - [ ] **Full systemization, after the demo** — vary the shape language
-            across every primitive in `ui.tsx` rather than the handful touched
-            in the fast pass; bring `ManaSymbol`/`SetSymbol` into empty states
-            and page headers decoratively (they're functional-only today); and
-            — the original ask this item replaces — rewrite the landing page
-            copy itself. It still leads with what the app doesn't do and never
-            states the hook; use the sentence already on the decks page: *"A
-            deck is a real place a card lives. Cards sleeved into one stop
-            counting as available to build with."* Add one screenshot of a
-            deck showing sleeved / available / missing. Waited on the re-skin
-            landing first, which it now has.
+      - [x] **Full systemization** · done 2026-09-08
+            - **Shape:** `Banner` was the one primitive left with no shape of
+              its own after the fast pass — flat text in a thin border. Now a
+              colored left accent bar, a small check/alert glyph, and its own
+              radius.
+            - **Decorative motifs:** `EmptyState` shows a muted five-color
+              mana-pip row by default (`icon={false}` to omit, or a custom
+              node to replace it) — `ManaSymbol`/`SetSymbol` were wired up
+              functionally everywhere but never used decoratively; this
+              covers all ~17 empty states in the app at once. (`cx()` moved to
+              `src/lib/cx.ts` so `ui.tsx` could import `ManaSymbol` without a
+              circular dependency with `ManaCost.tsx`.)
+            - **Landing page:** rewritten to lead with *"A deck is a real
+              place a card lives. Cards sleeved into one stop counting as
+              available to build with,"* replacing the old copy that led with
+              what the app doesn't do. Added a deck-list mockup — sleeved /
+              available-elsewhere / missing side by side — built from the
+              real `entryState()`/`DeckStateMark` logic rather than a raster
+              screenshot, so it can't drift from what those states actually
+              look like and reads correctly in both themes for free.
+            Verified in the browser: light/dark, desktop/mobile, live on
+            production.
 
 - [x] **Two blemishes** · done 2026-09-07
       "1 entries unpriced" was a flat template literal with no plural check,
