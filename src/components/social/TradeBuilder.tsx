@@ -10,7 +10,7 @@ import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle } from "@/components/PriceToggle";
 import { displayPrice } from "@/lib/collection/pricing";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
-import { CONDITION_LABELS, type CardInstanceWithCard } from "@/lib/types";
+import { CONDITION_LABELS, cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
 
 /**
  * Building an offer.
@@ -65,7 +65,13 @@ export function TradeBuilder({
   const filter = (rows: CardInstanceWithCard[], term: string) => {
     const needle = term.trim().toLowerCase();
     if (!needle) return rows;
-    return rows.filter((r) => (r.cards?.name ?? "").toLowerCase().includes(needle));
+    // Matches the printed flavor name too, so filtering finds "Loki's Double"
+    // even though the row's real name is "Spark Double".
+    return rows.filter((r) => {
+      const name = (r.cards?.name ?? "").toLowerCase();
+      const flavor = (r.cards?.flavor_name ?? "").toLowerCase();
+      return name.includes(needle) || flavor.includes(needle);
+    });
   };
 
   const theirs = useMemo(() => filter(theirCards, theirSearch), [theirCards, theirSearch]);
@@ -205,7 +211,7 @@ function OfferRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <span {...preview} tabIndex={0} className="cursor-default truncate text-sm hover:underline">
-            {card?.name ?? "Unknown printing"}
+            {card ? cardDisplayName(card) : "Unknown printing"}
           </span>
           <FoilMark finish={row.finish} />
           <ManaCost cost={card?.mana_cost} size="xs" />
@@ -228,7 +234,7 @@ function OfferRow({
           type="button"
           onClick={() => onQuantity(Math.max(0, quantity - 1))}
           disabled={quantity === 0}
-          aria-label={`One fewer ${card?.name ?? "card"}`}
+          aria-label={`One fewer ${card ? cardDisplayName(card) : "card"}`}
           className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
         >
           −
@@ -238,7 +244,7 @@ function OfferRow({
           type="button"
           onClick={() => onQuantity(Math.min(row.quantity, quantity + 1))}
           disabled={quantity >= row.quantity}
-          aria-label={`One more ${card?.name ?? "card"}`}
+          aria-label={`One more ${card ? cardDisplayName(card) : "card"}`}
           className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
         >
           +

@@ -17,9 +17,10 @@ const row = (
   quantity: number,
   location: Loc | null,
   oracle_id: string | null = `oracle-${name}`,
+  flavor_name: string | null = null,
 ): LocatableRow => ({
   quantity,
-  cards: { oracle_id, name, image_uri_small: null, card_id: `printing-${name}` },
+  cards: { oracle_id, name, flavor_name, image_uri_small: null, card_id: `printing-${name}` },
   locations: location,
 });
 
@@ -118,4 +119,18 @@ test("a row with no card is skipped, not thrown on", () => {
     "sol",
   );
   assert.equal(found.length, 1);
+});
+
+test("a printed flavor name is findable by either spelling, and shown over the real name", () => {
+  // The Marvel Super Heroes Commander printing of "Spark Double", physically
+  // printed as "Loki's Double."
+  const spark = row("Spark Double", 1, box, "spark-double-oracle", "Loki's Double");
+
+  const byFlavor = locateCards([spark], "loki");
+  assert.equal(byFlavor.length, 1, "should be findable by the printed name");
+  assert.equal(byFlavor[0].name, "Spark Double", "the real name is what /collection?q= searches");
+  assert.equal(byFlavor[0].displayName, "Loki's Double", "the printed name is what renders");
+
+  const byReal = locateCards([spark], "spark");
+  assert.equal(byReal.length, 1, "should still be findable by the real name too");
 });

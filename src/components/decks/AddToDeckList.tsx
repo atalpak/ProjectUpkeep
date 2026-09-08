@@ -138,7 +138,9 @@ export function AddToDeckList({
               <ul className="max-h-72 divide-y divide-border overflow-y-auto rounded-md border border-border">
                 {shown.map((result) => (
                   <li key={result.sample_card_id} className="flex items-center gap-3 px-3 py-2">
-                    <span className="min-w-0 flex-1 truncate text-sm">{result.name}</span>
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {result.sample_flavor_name ?? result.name}
+                    </span>
                     <span className="shrink-0 text-[11px] text-ink-muted">
                       {result.printing_count} printing{result.printing_count === 1 ? "" : "s"}
                     </span>

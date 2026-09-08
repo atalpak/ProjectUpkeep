@@ -11,6 +11,7 @@ import { Price } from "@/components/PriceToggle";
 import { Badge, Banner, Button, Card as Panel, EmptyState } from "@/components/ui";
 import { displayPrice } from "@/lib/collection/pricing";
 import { TRADE_STATUS_LABELS, type TradeDetail } from "@/lib/social/types";
+import { cardDisplayName } from "@/lib/types";
 import { expiryLabel, isExpired } from "@/lib/social/trade-status";
 
 type TradeSideItem = TradeDetail["items"][number];
@@ -232,7 +233,7 @@ function ItemRow({ item }: { item: TradeSideItem }) {
         tabIndex={0}
         className="min-w-0 flex-1 cursor-default truncate hover:underline"
       >
-        {card?.name ?? "a card"}
+        {card ? cardDisplayName(card) : "a card"}
       </span>
       {item.finish && item.finish !== "nonfoil" ? <FoilMark finish={item.finish} /> : null}
       <Price

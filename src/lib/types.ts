@@ -30,6 +30,22 @@ export const FINISH_LABELS: Record<Finish, string> = {
   glossy: "Glossy",
 };
 
+/**
+ * What to show for a card's name — the printed name, when the printing has
+ * one, else the real game name. A Universes Beyond crossover (Marvel, LOTR,
+ * Fallout, Final Fantasy, Avatar, the Godzilla alt-arts in Ikoria, ...) prints
+ * an in-universe alternate over the real card, and that is what is actually
+ * on the piece of cardboard someone is holding — showing the real name there
+ * reads as a mismatch, which is exactly what was reported.
+ *
+ * Takes a loose shape rather than `Card` so it works on every ad-hoc select
+ * (dashboard "most valuable," locate, wants, ...) that only pulls a few
+ * columns, not the full row.
+ */
+export function cardDisplayName(card: { name: string; flavor_name?: string | null }): string {
+  return card.flavor_name || card.name;
+}
+
 /** Location type, matching the CHECK on locations.type. */
 export const LOCATION_TYPES = ["deck", "binder", "box", "other"] as const;
 export type LocationType = (typeof LOCATION_TYPES)[number];
@@ -84,6 +100,9 @@ export type Card = {
   scryfall_id: string;
   oracle_id: string | null;
   name: string;
+  /** The printed alternate name (Marvel/LOTR/Fallout/... crossovers) — see
+   *  `cardDisplayName` below. Null on the overwhelming majority of printings. */
+  flavor_name: string | null;
   set_code: string;
   set_name: string | null;
   collector_number: string;
@@ -234,6 +253,9 @@ export type CardNameSuggestion = {
   printing_count: number;
   sample_image_uri: string | null;
   sample_card_id: string;
+  /** From the newest printing of this name — may be null even when an older
+   *  printing (or the one that matched the search) has one. */
+  sample_flavor_name: string | null;
 };
 
 /** A location plus its children, for rendering the one level of nesting. */

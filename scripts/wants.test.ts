@@ -19,6 +19,7 @@ const want = (id: string, key: string, quantity = 1): WantRow => ({
   id,
   key,
   name: key,
+  displayName: key,
   cardId: `p-${key}`,
   image: null,
   quantity,

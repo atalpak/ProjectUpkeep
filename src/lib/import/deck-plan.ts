@@ -14,6 +14,7 @@
  */
 
 import type { ResolvedRow } from "@/lib/import/resolve";
+import { cardDisplayName } from "@/lib/types";
 
 export type DeckImportLine = {
   /** First input line this printing appeared on, for display. */
@@ -63,7 +64,7 @@ export function planDeckImport(resolved: ResolvedRow[]): DeckImportPlan {
       line: row.line,
       cardId: card.scryfall_id,
       name: card.name,
-      matched: `${card.name} · ${card.set_code.toUpperCase()} #${card.collector_number}`,
+      matched: `${cardDisplayName(card)} · ${card.set_code.toUpperCase()} #${card.collector_number}`,
       setCode: card.set_code,
       imageUri: card.image_uri_small,
       quantity: row.quantity,

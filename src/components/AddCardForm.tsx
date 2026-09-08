@@ -22,6 +22,7 @@ import {
   CONDITION_LABELS,
   FINISH_LABELS,
   LANGUAGES,
+  cardDisplayName,
   type CardNameSuggestion,
   type Card,
   type Finish,
@@ -32,6 +33,7 @@ type Printing = Pick<
   Card,
   | "scryfall_id"
   | "name"
+  | "flavor_name"
   | "set_code"
   | "set_name"
   | "collector_number"
@@ -200,7 +202,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                   ) : (
                     <span className="h-[42px] w-[30px] rounded-sm bg-surface-muted" />
                   )}
-                  <span className="font-medium">{s.name}</span>
+                  <span className="font-medium">{s.sample_flavor_name ?? s.name}</span>
                   <span className="ml-auto text-xs text-ink-muted">
                     {s.printing_count} printing{s.printing_count === 1 ? "" : "s"}
                   </span>
@@ -215,7 +217,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
       {selectedName && printing ? (
         <form action={action} className="space-y-6">
           <input type="hidden" name="card_id" value={printing.scryfall_id} />
-          <input type="hidden" name="card_name" value={printing.name} />
+          <input type="hidden" name="card_name" value={cardDisplayName(printing)} />
 
           <Panel>
             <div className="flex items-start gap-4">
@@ -226,7 +228,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                 <CardPreviewTarget card={printing.scryfall_id} className="shrink-0">
                   <Image
                     src={printing.image_uri}
-                    alt={printing.name}
+                    alt={cardDisplayName(printing)}
                     width={146}
                     height={204}
                     className="rounded-md"
@@ -237,7 +239,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
 
               <div className="flex-1 space-y-3">
                 <div>
-                  <h2 className="font-medium">{printing.name}</h2>
+                  <h2 className="font-medium">{cardDisplayName(printing)}</h2>
                   <p className="flex items-center gap-1.5 text-sm text-ink-muted">
                     <SetSymbol code={printing.set_code} />
                     {printing.set_name ?? printing.set_code.toUpperCase()} ·{" "}

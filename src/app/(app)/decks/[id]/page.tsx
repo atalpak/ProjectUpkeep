@@ -16,7 +16,7 @@ import { groupDeck } from "@/lib/collection/deck-view";
 import { deckToDecklistText, toCsv, type ExportRow } from "@/lib/collection/export";
 import { matchSuppliersFor } from "@/lib/social/queries";
 import type { WantRow } from "@/lib/social/wants";
-import type { CardInstanceWithCard } from "@/lib/types";
+import { cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
 import { DeckCharts } from "@/components/decks/DeckCharts";
 import { DeckHeaderMeta } from "@/components/decks/DeckDetails";
 import { DeckWorkspace, type WishSupplierView } from "@/components/decks/DeckWorkspace";
@@ -108,6 +108,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
     id: w.id,
     key: cardKey(w.cards) ?? `id:${w.card_id}`,
     name: w.cards?.name ?? "Unknown card",
+    displayName: w.cards ? cardDisplayName(w.cards) : "Unknown card",
     cardId: w.cards?.scryfall_id ?? w.card_id,
     image: w.cards?.image_uri_small ?? null,
     quantity: w.quantity,

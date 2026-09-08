@@ -89,7 +89,7 @@ function LocatedRow({ card }: { card: LocatedCard }) {
               href={`/collection?q=${encodeURIComponent(card.name)}`}
               className="font-medium hover:underline"
             >
-              {card.name}
+              {card.displayName}
             </Link>
             <span className="text-xs text-ink-muted">
               {card.total} cop{card.total === 1 ? "y" : "ies"}

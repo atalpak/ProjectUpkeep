@@ -206,7 +206,7 @@ function AddWant() {
                 ) : (
                   <span className="h-[39px] w-[28px] rounded-sm bg-surface-muted" />
                 )}
-                <span className="font-medium">{s.name}</span>
+                <span className="font-medium">{s.sample_flavor_name ?? s.name}</span>
                 <span className="ml-auto text-xs text-ink-muted">
                   {s.printing_count} printing{s.printing_count === 1 ? "" : "s"}
                 </span>
@@ -246,7 +246,7 @@ function WantRowView({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium">{want.name}</span>
+            <span className="font-medium">{want.displayName}</span>
             <QuantityStepper want={want} />
             <RemoveWantButton want={want} />
           </div>
@@ -300,7 +300,7 @@ function DeckTag({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
           name="deck_id"
           defaultValue={want.deckId ?? ""}
           onChange={(e) => e.currentTarget.form?.requestSubmit()}
-          aria-label={`Which deck ${want.name} is for`}
+          aria-label={`Which deck ${want.displayName} is for`}
           className="w-40 py-1 text-xs"
         >
           <option value="">No particular deck</option>
@@ -329,7 +329,7 @@ function QuantityStepper({ want }: { want: WantRow }) {
           value={want.quantity - 1}
           disabled={want.quantity <= 1}
           className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
-          aria-label={`One fewer ${want.name}`}
+          aria-label={`One fewer ${want.displayName}`}
         >
           −
         </button>
@@ -341,7 +341,7 @@ function QuantityStepper({ want }: { want: WantRow }) {
           name="quantity"
           value={want.quantity + 1}
           className="size-6 rounded border border-border text-xs coarse:size-9"
-          aria-label={`One more ${want.name}`}
+          aria-label={`One more ${want.displayName}`}
         >
           +
         </button>

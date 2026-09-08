@@ -39,7 +39,7 @@ import {
 } from "@/lib/collection/deck-view";
 import { priceFinishFor, type DeckPrice } from "@/lib/collection/deck-stats";
 import type { DeckListEntry, WishListEntry } from "@/lib/collection/queries";
-import type { CardInstanceWithCard } from "@/lib/types";
+import { cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
 
 /** A friend who already has a wish-list card open for trade. */
 export type WishSupplierView = { username: string; available: number };
@@ -498,7 +498,7 @@ function ListRow({
           type="checkbox"
           checked={selected}
           onChange={onToggleSelected}
-          aria-label={`Select ${card?.name ?? "card"}`}
+          aria-label={`Select ${card ? cardDisplayName(card) : "card"}`}
           className="size-3.5 shrink-0 accent-accent"
         />
       ) : null}
@@ -521,7 +521,7 @@ function ListRow({
             ★
           </span>
         ) : null}
-        <span className="truncate">{card?.name ?? "Unknown card"}</span>
+        <span className="truncate">{card ? cardDisplayName(card) : "Unknown card"}</span>
         {markFinish ? <FoilMark finish={markFinish} /> : null}
       </span>
 
@@ -600,7 +600,9 @@ function RowActions({
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
 }) {
+  // Real name: the printings fetch below matches on it exactly.
   const name = entry.cards?.name ?? "";
+  const displayName = entry.cards ? cardDisplayName(entry.cards) : "";
   const menuId = useId();
   const [open, setOpen] = useState(false);
   const [showPrintings, setShowPrintings] = useState(false);
@@ -678,7 +680,7 @@ function RowActions({
         onClick={() => (open ? close() : openMenu())}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Actions for ${name || "card"}`}
+        aria-label={`Actions for ${displayName || "card"}`}
         className={cx(
           "rounded px-1.5 text-sm leading-none text-ink-muted transition-colors hover:text-ink",
           open && "text-ink",
@@ -928,7 +930,7 @@ function GalleryCard({
               type="checkbox"
               checked={selected}
               onChange={onToggleSelected}
-              aria-label={`Select ${card?.name ?? "card"}`}
+              aria-label={`Select ${card ? cardDisplayName(card) : "card"}`}
               className="size-3.5 accent-accent"
             />
           </label>
@@ -937,7 +939,7 @@ function GalleryCard({
         {image ? (
           <Image
             src={image}
-            alt={card?.name ?? "Card"}
+            alt={card ? cardDisplayName(card) : "Card"}
             fill
             sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
             className="object-cover"
@@ -945,7 +947,7 @@ function GalleryCard({
           />
         ) : (
           <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
-            {card?.name ?? "No image"}
+            {card ? cardDisplayName(card) : "No image"}
           </div>
         )}
 
@@ -970,7 +972,7 @@ function GalleryCard({
       </div>
 
       <div className="flex items-center justify-between gap-1">
-        <span className="min-w-0 truncate text-xs text-ink-muted">{card?.name ?? "Unknown card"}</span>
+        <span className="min-w-0 truncate text-xs text-ink-muted">{card ? cardDisplayName(card) : "Unknown card"}</span>
         <RowActions
           entry={entry}
           deckId={deckId}
@@ -1099,7 +1101,7 @@ function Stranded({ deckId, rows }: { deckId: string; rows: CardInstanceWithCard
               {row.quantity}
             </span>
             <span className="min-w-0 flex-1 truncate text-sm">
-              {row.cards?.name ?? "Unknown card"}
+              {row.cards ? cardDisplayName(row.cards) : "Unknown card"}
               <FoilMark finish={row.finish} />
             </span>
 
@@ -1246,7 +1248,7 @@ function WishRow({
       </span>
 
       <span {...preview} tabIndex={0} className="min-w-0 flex-1 cursor-default truncate text-sm">
-        {card?.name ?? "Unknown card"}
+        {card ? cardDisplayName(card) : "Unknown card"}
       </span>
 
       <ManaCost cost={card?.mana_cost} size="xs" />
@@ -1266,7 +1268,7 @@ function WishRow({
           <button
             type="submit"
             title="Untag from this deck (stays on your wish list)"
-            aria-label={`Untag ${card?.name ?? "card"} from this deck`}
+            aria-label={`Untag ${card ? cardDisplayName(card) : "card"} from this deck`}
             className="rounded px-1 text-xs text-ink-muted hover:text-ink"
           >
             Untag
@@ -1279,7 +1281,7 @@ function WishRow({
           <button
             type="submit"
             title="Remove from your wish list"
-            aria-label={`Remove ${card?.name ?? "card"} from your wish list`}
+            aria-label={`Remove ${card ? cardDisplayName(card) : "card"} from your wish list`}
             className="rounded px-1 text-xs text-ink-muted hover:text-danger"
           >
             ✕

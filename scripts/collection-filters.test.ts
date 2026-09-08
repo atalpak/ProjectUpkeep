@@ -27,6 +27,7 @@ function card(overrides: Partial<Card> = {}): Card {
     scryfall_id: "card-1",
     oracle_id: null,
     name: "Lightning Bolt",
+    flavor_name: null,
     set_code: "lea",
     set_name: "Limited Edition Alpha",
     collector_number: "161",

@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from("cards")
     .select(
-      "scryfall_id, name, set_code, set_name, collector_number, rarity, " +
+      "scryfall_id, name, flavor_name, set_code, set_name, collector_number, rarity, " +
         "released_at, image_uri, image_uri_small, available_finishes, lang, digital",
     )
     .eq("name", name)
