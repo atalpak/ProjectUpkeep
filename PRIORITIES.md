@@ -51,10 +51,17 @@ discovery, this app is for reconciliation — do not build a deck editor.
       **Still open:** trade binder was never designated or marked tradable —
       skipped this pass, needed before the social half works.
 
-- [ ] **Import destination default** · ~1 hour
-      Defaults to "Unsorted", which is how 895 cards ended up in a pile. Make it
-      ask, or make the empty-collection path create a location first. Your friends
-      hit this on their first action.
+- [x] **Import destination default** · done 2026-09-08
+      `LocationSelect` silently defaulted to "Unsorted" — how the original
+      895-card collection ended up in a pile. Went with "ask": a new
+      `requireChoice` mode starts the importer's destination picker on a
+      disabled "Choose where these go…" placeholder; "Unsorted" is still a
+      normal, always-selectable option, just no longer the unattended one.
+      Import stays disabled with an inline hint until a real choice is made.
+      Scoped to the importer only — `AddCardForm` and other `LocationSelect`
+      callers keep defaulting to Unsorted, since one manual add is a much
+      smaller blast radius than an import that can silently file hundreds of
+      cards. Verified live.
 
 - [ ] **Trim the collection select** · afternoon
       1.74 MB to draw 50 rows. Drop `oracle_text`, `flavor_text`, `card_faces`,
