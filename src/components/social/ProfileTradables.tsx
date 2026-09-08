@@ -9,7 +9,7 @@ import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { TradeBuilder } from "@/components/social/TradeBuilder";
 import { Badge, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
-import { CONDITION_LABELS, type CardInstanceWithCard } from "@/lib/types";
+import { CONDITION_LABELS, cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
 
 type BinderView = "list" | "gallery";
 
@@ -51,7 +51,11 @@ export function ProfileTradables({
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return theirCards;
-    return theirCards.filter((r) => (r.cards?.name ?? "").toLowerCase().includes(needle));
+    return theirCards.filter((r) => {
+      const name = (r.cards?.name ?? "").toLowerCase();
+      const flavor = (r.cards?.flavor_name ?? "").toLowerCase();
+      return name.includes(needle) || flavor.includes(needle);
+    });
   }, [theirCards, search]);
 
   const totalCards = theirCards.reduce((sum, r) => sum + r.quantity, 0);
@@ -178,7 +182,7 @@ function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
         {image ? (
           <Image
             src={image}
-            alt={card?.name ?? "Card"}
+            alt={card ? cardDisplayName(card) : "Card"}
             fill
             sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
             className="object-cover"
@@ -186,7 +190,7 @@ function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
           />
         ) : (
           <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
-            {card?.name ?? "No image"}
+            {card ? cardDisplayName(card) : "No image"}
           </div>
         )}
         <span className="absolute bottom-1 right-1 rounded bg-surface/90 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
@@ -218,7 +222,7 @@ function TradableRow({ row }: { row: CardInstanceWithCard }) {
             tabIndex={0}
             className="cursor-default truncate text-sm font-medium hover:underline"
           >
-            {card?.name ?? "Unknown printing"}
+            {card ? cardDisplayName(card) : "Unknown printing"}
           </span>
           <FoilMark finish={row.finish} />
           <ManaCost cost={card?.mana_cost} size="xs" />

@@ -16,7 +16,11 @@ export type WantRow = {
   id: string;
   /** oracle-id key, shared by every printing of the card. */
   key: string;
+  /** The real game name — what the collection's own search matches on. Use
+   *  this to build a `/collection?q=` link, not `displayName`. */
   name: string;
+  /** What to show: the printed name when the printing has one. */
+  displayName: string;
   /** Representative printing, for the card panel. */
   cardId: string | null;
   image: string | null;

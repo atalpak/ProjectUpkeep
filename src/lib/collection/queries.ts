@@ -9,6 +9,7 @@ import type {
   LocationNode,
   LocationType,
 } from "@/lib/types";
+import { cardDisplayName } from "@/lib/types";
 import {
   MAX_ROWS,
   UNSORTED,
@@ -69,7 +70,7 @@ export { UNSORTED };
  * application code — see the note at the top of src/lib/collection/filters.ts
  * for why the rules live in one place rather than half in PostgREST.
  */
-const CARD_FIELDS = `cards ( scryfall_id, oracle_id, name, set_code, set_name,
+const CARD_FIELDS = `cards ( scryfall_id, oracle_id, name, flavor_name, set_code, set_name,
            collector_number, rarity, type_line, released_at, image_uri,
            image_uri_small, scryfall_uri, available_finishes, lang, digital,
            last_synced_at, mana_cost, cmc, colors, color_identity, oracle_text,
@@ -467,7 +468,9 @@ export async function getDashboardSummary(
     supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
     supabase
       .from("card_instances")
-      .select("quantity, finish, cards ( name, price_usd, price_usd_foil, price_usd_etched )")
+      .select(
+        "quantity, finish, cards ( name, flavor_name, price_usd, price_usd_foil, price_usd_etched )",
+      )
       .eq("owner_user_id", owner)
       .limit(MAX_ROWS),
     supabase
@@ -695,7 +698,7 @@ export async function locateInCollection(term: string): Promise<LocatedCard[]> {
     .select(
       // !inner so the filter on the joined card actually excludes rows rather
       // than merely nulling the embedded object.
-      "quantity, card_id, cards!inner ( oracle_id, name, image_uri_small ), locations!location_id ( id, name, type )",
+      "quantity, card_id, cards!inner ( oracle_id, name, flavor_name, image_uri_small ), locations!location_id ( id, name, type )",
     )
     .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
@@ -778,10 +781,14 @@ export async function getDecks(): Promise<DeckSummary[]> {
   if (commanderIds.length > 0) {
     const { data: cmdCards } = await supabase
       .from("cards")
-      .select("scryfall_id, name")
+      .select("scryfall_id, name, flavor_name")
       .in("scryfall_id", commanderIds);
-    for (const c of (cmdCards ?? []) as Array<{ scryfall_id: string; name: string }>) {
-      commanderNames.set(c.scryfall_id, c.name);
+    for (const c of (cmdCards ?? []) as Array<{
+      scryfall_id: string;
+      name: string;
+      flavor_name: string | null;
+    }>) {
+      commanderNames.set(c.scryfall_id, cardDisplayName(c));
     }
   }
 

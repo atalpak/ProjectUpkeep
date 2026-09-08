@@ -251,6 +251,19 @@ begin
       || coalesce(found_name, '<null>');
 end $$;
 
+-- The suggestion itself must also carry the printed name (migration 28) — the
+-- dropdown found the right card above, but showing "Spark Double" for
+-- something someone typed as "Loki's Double" is its own confusion.
+do $$
+declare found_flavor text;
+begin
+  select sample_flavor_name into found_flavor
+    from public.search_card_names('Spark Double', 10);
+  assert found_flavor = 'Loki''s Double',
+    'the suggestion should carry the printed flavor name, got: '
+      || coalesce(found_flavor, '<null>');
+end $$;
+
 -- --------------------------------------------------------------------------
 -- 8. RLS actually isolates users, and opens up exactly the Phase 2 reads.
 -- --------------------------------------------------------------------------

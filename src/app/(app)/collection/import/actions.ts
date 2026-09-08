@@ -7,6 +7,7 @@ import {
   CONDITIONS,
   FINISHES,
   UNCHOSEN_LOCATION,
+  cardDisplayName,
   type Condition,
   type Finish,
 } from "@/lib/types";
@@ -106,7 +107,7 @@ function toPreview(
       quantity: r.quantity,
       name: r.name,
       matched: r.card
-        ? `${r.card.name} · ${r.card.set_code.toUpperCase()} #${r.card.collector_number}`
+        ? `${cardDisplayName(r.card)} · ${r.card.set_code.toUpperCase()} #${r.card.collector_number}`
         : null,
       setCode: r.card?.set_code ?? null,
       imageUri: r.card?.image_uri_small ?? null,

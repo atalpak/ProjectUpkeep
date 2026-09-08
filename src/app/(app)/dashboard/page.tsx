@@ -7,7 +7,7 @@ import {
   getUnreadNotificationCount,
   getWantListView,
 } from "@/lib/social/queries";
-import { LOCATION_TYPE_LABELS } from "@/lib/types";
+import { LOCATION_TYPE_LABELS, cardDisplayName } from "@/lib/types";
 import { CardPreviewLink } from "@/components/CardPanel";
 import { ManaSymbol } from "@/components/ManaCost";
 import { SetSymbol } from "@/components/SetSymbol";
@@ -244,8 +244,11 @@ function RecentlyAdded({ summary }: { summary: Summary }) {
                   ) : null}
                 </div>
 
-                <div className="truncate text-xs font-medium" title={card?.name}>
-                  {card?.name ?? "Unknown printing"}
+                <div
+                  className="truncate text-xs font-medium"
+                  title={card ? cardDisplayName(card) : undefined}
+                >
+                  {card ? cardDisplayName(card) : "Unknown printing"}
                 </div>
                 <div className="truncate text-[11px] text-ink-muted">
                   {instance.locations?.name ?? "Unsorted"}

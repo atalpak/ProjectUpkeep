@@ -21,7 +21,15 @@ import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { addDeckCard } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
 import type { Card, CardFace, LocationType } from "@/lib/types";
-import { CONDITIONS, CONDITION_LABELS, FINISHES, FINISH_LABELS, LANGUAGES, languageLabel } from "@/lib/types";
+import {
+  CONDITIONS,
+  CONDITION_LABELS,
+  FINISHES,
+  FINISH_LABELS,
+  LANGUAGES,
+  cardDisplayName,
+  languageLabel,
+} from "@/lib/types";
 import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
 import { ManaCost } from "@/components/ManaCost";
@@ -758,7 +766,7 @@ function CardDetail({ card }: { card: Card }) {
   const toughness = face?.toughness ?? card.toughness;
   const loyalty = face?.loyalty ?? card.loyalty;
   const artist = face?.artist ?? card.artist;
-  const name = face?.name ?? card.name;
+  const name = face?.name ?? cardDisplayName(card);
 
   return (
     <div className="space-y-3 pb-6">
@@ -912,7 +920,7 @@ function CardWide({ card }: { card: Card }) {
   const toughness = face?.toughness ?? card.toughness;
   const loyalty = face?.loyalty ?? card.loyalty;
   const artist = face?.artist ?? card.artist;
-  const name = face?.name ?? card.name;
+  const name = face?.name ?? cardDisplayName(card);
 
   const priceNonfoil = priceFor(card, "nonfoil");
   const priceFoil = priceFor(card, "foil");

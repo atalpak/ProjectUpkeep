@@ -15,7 +15,7 @@
  *     pretending otherwise is the most common way these numbers go wrong.
  */
 
-import type { Card, CardInstanceWithCard, Finish } from "@/lib/types";
+import { cardDisplayName, type Card, type CardInstanceWithCard, type Finish } from "@/lib/types";
 
 /** Cards we can price, without demanding a full Card everywhere. */
 export type PriceableCard = Pick<
@@ -125,7 +125,7 @@ export function summariseValue(rows: CardInstanceWithCard[]): ValueSummary {
     pricedCards += row.quantity;
 
     if (!mostValuable || value > mostValuable.value) {
-      mostValuable = { name: row.cards?.name ?? "Unknown card", value };
+      mostValuable = { name: row.cards ? cardDisplayName(row.cards) : "Unknown card", value };
     }
   }
 

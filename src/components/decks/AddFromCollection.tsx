@@ -7,7 +7,12 @@ import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
 import { useCardPreview } from "@/components/CardPanel";
 import { Badge, Banner, Button, Input, Select } from "@/components/ui";
 import { availabilityFor, type Availability } from "@/lib/collection/availability";
-import { CONDITION_LABELS, FINISH_LABELS, type CardInstanceWithCard } from "@/lib/types";
+import {
+  CONDITION_LABELS,
+  FINISH_LABELS,
+  cardDisplayName,
+  type CardInstanceWithCard,
+} from "@/lib/types";
 
 /**
  * "Add from my collection".
@@ -97,7 +102,7 @@ function StackRow({
           tabIndex={0}
           className="cursor-default text-sm font-medium hover:underline"
         >
-          {card?.name ?? "Unknown printing"}
+          {card ? cardDisplayName(card) : "Unknown printing"}
         </span>
 
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
@@ -129,7 +134,7 @@ function StackRow({
           name="quantity"
           value={String(quantity)}
           onChange={(e) => setQuantity(Number(e.target.value))}
-          aria-label={`Copies of ${card?.name ?? "this card"} to add`}
+          aria-label={`Copies of ${card ? cardDisplayName(card) : "this card"} to add`}
           className="w-16 text-xs"
         >
           {Array.from({ length: stack.quantity }, (_, i) => i + 1).map((n) => (

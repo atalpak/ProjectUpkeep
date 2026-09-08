@@ -126,7 +126,7 @@ export default async function ProfilePage({
                     mine > 0 ? "border-accent bg-accent-soft" : "border-border text-ink-muted"
                   }`}
                 >
-                  {want.name}
+                  {want.displayName}
                   {want.quantity > 1 ? ` ×${want.quantity}` : ""}
                   {mine > 0 ? <span className="ml-1 text-xs">· you have {mine}</span> : null}
                 </li>

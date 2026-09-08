@@ -43,6 +43,7 @@ import {
   CONDITION_LABELS,
   FINISH_LABELS,
   LANGUAGES,
+  cardDisplayName,
   languageLabel,
   type CardInstanceWithCard,
   type Finish,
@@ -432,7 +433,7 @@ function MobileRow({
           type="checkbox"
           checked={selected}
           onChange={onToggle}
-          aria-label={`Select ${card?.name ?? "row"}`}
+          aria-label={`Select ${card ? cardDisplayName(card) : "row"}`}
           className="mt-1 size-4 shrink-0"
         />
 
@@ -440,7 +441,7 @@ function MobileRow({
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <span {...preview} tabIndex={0} className="font-medium">
-                {card?.name ?? "Unknown printing"}
+                {card ? cardDisplayName(card) : "Unknown printing"}
               </span>
               <FoilMark finish={row.finish} />
               <p className="flex items-center gap-1.5 truncate text-xs text-ink-muted">
@@ -512,7 +513,7 @@ function Row({
             type="checkbox"
             checked={selected}
             onChange={onToggle}
-            aria-label={`Select ${card?.name ?? "row"}`}
+            aria-label={`Select ${card ? cardDisplayName(card) : "row"}`}
           />
         </td>
 
@@ -568,7 +569,7 @@ function Cell({
             tabIndex={0}
             className="cursor-default font-medium hover:underline"
           >
-            {card?.name ?? "Unknown printing"}
+            {card ? cardDisplayName(card) : "Unknown printing"}
           </span>
           <FoilMark finish={row.finish} />
         </>
@@ -729,7 +730,7 @@ function RowMenu({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Actions for ${row.cards?.name ?? "this entry"}`}
+        aria-label={`Actions for ${row.cards ? cardDisplayName(row.cards) : "this entry"}`}
         className="inline-flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface hover:text-ink coarse:size-9"
       >
         <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">

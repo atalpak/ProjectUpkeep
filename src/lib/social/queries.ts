@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import type { Card, CardInstanceWithCard } from "@/lib/types";
+import { cardDisplayName, type Card, type CardInstanceWithCard } from "@/lib/types";
 import type {
   FeedEntry,
   FriendEdge,
@@ -34,7 +34,7 @@ import {
  */
 
 /** The card columns, as a bare list for a direct `from("cards")` select. */
-const CARD_COLUMNS = `scryfall_id, oracle_id, name, set_code, set_name,
+const CARD_COLUMNS = `scryfall_id, oracle_id, name, flavor_name, set_code, set_name,
            collector_number, rarity, type_line, released_at, image_uri,
            image_uri_small, scryfall_uri, available_finishes, lang, digital,
            last_synced_at, mana_cost, cmc, colors, color_identity, oracle_text,
@@ -229,7 +229,7 @@ export async function getMyTradableCards(): Promise<CardInstanceWithCard[]> {
 // ---------------------------------------------------------------------------
 
 const WANT_CARD_FIELDS =
-  "cards ( scryfall_id, oracle_id, name, set_name, set_code, image_uri_small )";
+  "cards ( scryfall_id, oracle_id, name, flavor_name, set_name, set_code, image_uri_small )";
 
 type RawWant = {
   id: string;
@@ -240,6 +240,7 @@ type RawWant = {
     scryfall_id: string;
     oracle_id: string | null;
     name: string;
+    flavor_name: string | null;
     set_name: string | null;
     set_code: string;
     image_uri_small: string | null;
@@ -266,6 +267,7 @@ function toWantRow(raw: RawWant): WantRow {
     id: raw.id,
     key: cardKey(raw.cards) ?? `id:${raw.card_id}`,
     name: raw.cards?.name ?? "Unknown card",
+    displayName: raw.cards ? cardDisplayName(raw.cards) : "Unknown card",
     cardId: raw.cards?.scryfall_id ?? raw.card_id,
     image: raw.cards?.image_uri_small ?? null,
     quantity: raw.quantity,
@@ -645,7 +647,8 @@ export async function getFeed(limit = 30): Promise<FeedEntry[]> {
 
     const out = naming("from_proposer");
     const back = naming("from_recipient");
-    const names = (list: typeof out) => list.map((i) => i.card?.name ?? "a card");
+    const names = (list: typeof out) =>
+      list.map((i) => (i.card ? cardDisplayName(i.card) : "a card"));
 
     return {
       trade,

@@ -19,6 +19,7 @@ const CARD_COLUMNS: Array<keyof Card> = [
   "scryfall_id",
   "oracle_id",
   "name",
+  "flavor_name",
   "set_code",
   "set_name",
   "collector_number",
