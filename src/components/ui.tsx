@@ -6,9 +6,10 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 
-export function cx(...parts: Array<string | false | null | undefined>) {
-  return parts.filter(Boolean).join(" ");
-}
+import { ManaSymbol } from "@/components/ManaCost";
+
+export { cx } from "@/lib/cx";
+import { cx } from "@/lib/cx";
 
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-sm " +
@@ -82,32 +83,67 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
 }
 
 /** Inline error/success banner. `role` makes it announced by screen readers. */
+/** A left accent bar and a small mark, rather than a uniform thin border —
+ *  the same "not everything gets the same chrome" idea as the border-radius
+ *  scale, applied to the one primitive that had no shape of its own. */
 export function Banner({ kind, children }: { kind: "error" | "success"; children: ReactNode }) {
   if (!children) return null;
   return (
     <p
       role={kind === "error" ? "alert" : "status"}
       className={cx(
-        "rounded-md border px-3 py-2 text-sm",
+        "flex items-start gap-2 rounded-lg border-l-4 px-3 py-2 text-sm",
         kind === "error"
-          ? "border-danger text-danger"
-          : "border-border bg-surface-muted",
+          ? "border-danger bg-danger/10 text-danger"
+          : "border-accent bg-accent-soft text-ink",
       )}
     >
-      {children}
+      <span aria-hidden="true" className="mt-0.5 shrink-0">
+        {kind === "error" ? (
+          <svg viewBox="0 0 20 20" fill="none" className="size-4" stroke="currentColor" strokeWidth="1.7">
+            <circle cx="10" cy="10" r="7.5" />
+            <path d="M10 6.5v4M10 13.2v.05" strokeLinecap="round" />
+          </svg>
+        ) : (
+          <svg viewBox="0 0 20 20" fill="none" className="size-4" stroke="currentColor" strokeWidth="1.7">
+            <path d="M4.5 10.5 8 14l7.5-8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </span>
+      <span>{children}</span>
     </p>
   );
 }
 
+/** The five colors, in WUBRG order — the one sequence every Magic player
+ *  already reads without thinking. */
+const PIPS = ["W", "U", "B", "R", "G"];
+
 export function EmptyState({
   title,
   children,
+  icon,
 }: {
   title: string;
   children?: ReactNode;
+  /** Defaults to a muted five-color mana-pip row. Pass `false` to omit it, or
+   *  a node of your own to show something else instead. */
+  icon?: ReactNode | false;
 }) {
+  const decoration =
+    icon === false
+      ? null
+      : (icon ?? (
+          <div className="mb-2 flex justify-center gap-1 opacity-35">
+            {PIPS.map((code) => (
+              <ManaSymbol key={code} code={code} />
+            ))}
+          </div>
+        ));
+
   return (
     <div className="rounded-2xl border border-dashed border-border p-8 text-center">
+      {decoration}
       <p className="font-medium">{title}</p>
       {children ? (
         <div className="mt-1 text-sm text-ink-muted">{children}</div>

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useState } from "react";
 
-import { cx } from "@/components/ui";
+import { cx } from "@/lib/cx";
 
 /**
  * A set's symbol, from Scryfall's own set-icon CDN
