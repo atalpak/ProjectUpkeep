@@ -8,6 +8,7 @@ import { Banner, Button, Field, Input, Select, cx } from "@/components/ui";
 import {
   LOCATION_TYPES,
   LOCATION_TYPE_LABELS,
+  UNCHOSEN_LOCATION,
   type Location,
   type LocationType,
 } from "@/lib/types";
@@ -58,6 +59,14 @@ export function LocationSelect({
   emptyLabel = "Unsorted",
   /** Filtering has no business creating containers. */
   allowCreate = true,
+  /**
+   * Starts on a disabled placeholder instead of silently defaulting to
+   * "Unsorted" — the importer's whole reason for existing. "Unsorted" is
+   * still a real, always-selectable option; the point is that landing there
+   * has to be a choice, not what happens when nobody chooses anything. Only
+   * takes effect when `defaultValue` was not itself given.
+   */
+  requireChoice = false,
   className,
   ariaLabel,
   onValueChange,
@@ -67,11 +76,14 @@ export function LocationSelect({
   defaultValue?: string;
   emptyLabel?: string;
   allowCreate?: boolean;
+  requireChoice?: boolean;
   className?: string;
   ariaLabel?: string;
   onValueChange?: (value: string) => void;
 }) {
-  const [value, setValue] = useState(defaultValue);
+  const [value, setValue] = useState(
+    defaultValue || (requireChoice ? UNCHOSEN_LOCATION : ""),
+  );
   const [created, setCreated] = useState<Location[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const select = useRef<HTMLSelectElement>(null);
@@ -114,6 +126,12 @@ export function LocationSelect({
         aria-label={ariaLabel}
         className={className}
       >
+        {requireChoice ? (
+          <option value={UNCHOSEN_LOCATION} disabled>
+            Choose where these go…
+          </option>
+        ) : null}
+
         <option value="">{emptyLabel}</option>
 
         {byType.map((group) => (

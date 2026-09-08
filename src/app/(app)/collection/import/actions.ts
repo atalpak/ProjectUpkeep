@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 
 import { getCurrentUser } from "@/lib/supabase/server";
-import { CONDITIONS, FINISHES, type Condition, type Finish } from "@/lib/types";
+import {
+  CONDITIONS,
+  FINISHES,
+  UNCHOSEN_LOCATION,
+  type Condition,
+  type Finish,
+} from "@/lib/types";
 import { parseImport } from "@/lib/import/parse";
 import { resolveRows } from "@/lib/import/resolve";
 import { planImport, type ImportDefaults, type ImportPlan } from "@/lib/import/plan";
@@ -49,6 +55,12 @@ function readForm(formData: FormData):
 
   if (!CONDITIONS.includes(condition)) return { ok: false, error: "Unknown condition." };
   if (!FINISHES.includes(finish)) return { ok: false, error: "Unknown finish." };
+  // The form disables its submit button until a destination is actively
+  // chosen; this only fires if that got bypassed somehow. Failing loudly
+  // beats writing `location_id = '__unchosen__'`, which is not a real uuid.
+  if (rawLocation === UNCHOSEN_LOCATION) {
+    return { ok: false, error: "Choose a destination before importing." };
+  }
 
   return {
     ok: true,

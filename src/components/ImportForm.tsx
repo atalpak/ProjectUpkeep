@@ -17,6 +17,7 @@ import {
   FINISHES,
   FINISH_LABELS,
   LANGUAGES,
+  UNCHOSEN_LOCATION,
   type Location,
 } from "@/lib/types";
 import { CardPreviewTarget } from "@/components/CardPanel";
@@ -50,6 +51,12 @@ export function ImportForm({ locations }: { locations: Location[] }) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Unchosen until the person actively picks something — including
+  // "Unsorted" itself. This is the fix for imports silently piling hundreds
+  // of cards into Unsorted: that has to be a decision, not a default.
+  const [locationId, setLocationId] = useState(UNCHOSEN_LOCATION);
+  const destinationChosen = locationId !== UNCHOSEN_LOCATION;
 
   async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -162,7 +169,12 @@ export function ImportForm({ locations }: { locations: Location[] }) {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Destination">
-            <LocationSelect name="location_id" locations={locations} />
+            <LocationSelect
+              name="location_id"
+              locations={locations}
+              requireChoice
+              onValueChange={setLocationId}
+            />
           </Field>
 
           <Field label="Condition">
@@ -212,11 +224,14 @@ export function ImportForm({ locations }: { locations: Location[] }) {
             directly: it reports exactly what it added and what it skipped, and
             anything filed wrongly can be moved or deleted afterwards.
             Still disabled once a commit has succeeded — the same text is in the
-            box and a second click would file every card again. */}
+            box and a second click would file every card again. Also disabled
+            until a destination has been actively chosen (including "Unsorted"
+            itself) — this is the fix for imports silently piling everything
+            into Unsorted with no one having decided that. */}
         <Button
           type="submit"
           formAction={commit}
-          disabled={busy || committed || source.trim() === ""}
+          disabled={busy || committed || source.trim() === "" || !destinationChosen}
           onClick={() => setLastAction("commit")}
         >
           {committing
@@ -229,6 +244,10 @@ export function ImportForm({ locations }: { locations: Location[] }) {
         {committed ? (
           <span className="text-xs text-ink-muted">
             Already imported. Change the list above to import again.
+          </span>
+        ) : !destinationChosen && source.trim() !== "" ? (
+          <span className="text-xs text-ink-muted">
+            Choose a destination above before importing.
           </span>
         ) : null}
       </div>

@@ -42,6 +42,14 @@ export const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
 };
 
 /**
+ * Sentinel a `LocationSelect` in `requireChoice` mode starts on — distinct
+ * from `""`, which is the real destination "Unsorted." Shared here (rather
+ * than exported from the component file) so a server action can check for it
+ * without importing a "use client" module.
+ */
+export const UNCHOSEN_LOCATION = "__unchosen__";
+
+/**
  * Languages Scryfall prints in. Stored on the *instance* rather than read off
  * the printing, because the `default_cards` bulk export carries one language
  * per card — see the note in the card_instances migration.
