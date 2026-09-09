@@ -35,6 +35,7 @@ import {
   type ScryfallBulkEntry,
 } from "../src/lib/scryfall";
 import { streamCardRows } from "../src/lib/scryfall-stream";
+import { createChunkedWriter } from "../src/lib/scryfall-upsert";
 
 // The web app reads .env.local via Next; this script runs outside Next, so load
 // it explicitly. .env.local wins, .env is the fallback (what CI usually sets).
@@ -184,14 +185,24 @@ async function main() {
       download.body as Parameters<typeof Readable.fromWeb>[0],
     ).pipe(createGunzip());
 
+    // A statement timeout used to fail the whole run — see scryfall-upsert.ts.
+    // Now it halves the chunk, keeps the smaller size, and carries on.
+    const writer = createChunkedWriter({
+      startSize: batchSize,
+      write: async (rows) => {
+        // Upsert on the primary key: new printings insert, existing ones
+        // refresh. Awaited rather than returned: the query builder is a
+        // thenable, not a promise, and the writer wants a settled result.
+        const { error } = await db
+          .from("cards")
+          .upsert(rows, { onConflict: "scryfall_id", ignoreDuplicates: false });
+        return { error };
+      },
+      onNotice: log,
+    });
+
     const upsertBatch = async (rows: CardRow[]) => {
-      // Upsert on the primary key: new printings insert, existing ones refresh.
-      const { error } = await db
-        .from("cards")
-        .upsert(rows, { onConflict: "scryfall_id", ignoreDuplicates: false });
-      if (error) {
-        throw new Error(`Upsert of ${rows.length} cards failed: ${error.message}`);
-      }
+      await writer.write(rows);
       const before = upserted;
       upserted += rows.length;
       if (Math.floor(upserted / 25_000) > Math.floor(before / 25_000)) {
@@ -221,7 +232,14 @@ async function main() {
 
     log(
       `done: ${upserted.toLocaleString()} printings upserted` +
-        (skippedRecords > 0 ? `, ${skippedRecords} unusable records skipped` : ""),
+        (skippedRecords > 0 ? `, ${skippedRecords} unusable records skipped` : "") +
+        // Worth saying out loud: a run that needed splitting still succeeded,
+        // but it is the early warning that the table is outgrowing the
+        // statement timeout, and it will show up here before it fails again.
+        (writer.splits() > 0
+          ? `, ${writer.splits()} chunk(s) split after a timeout (ended at ${writer.chunkSize()} rows)`
+          : "") +
+        (writer.retries() > 0 ? `, ${writer.retries()} write(s) retried` : ""),
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
