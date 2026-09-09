@@ -401,22 +401,52 @@ function summarise(all: Location[], instances: CountableInstance[]) {
   };
 }
 
+/** A few card images from a container, so it can show what is inside it. */
+export const LOCATION_PEEK_COUNT = 5;
+
 /**
  * Locations arranged as parents with their children, plus how many instances
  * sit directly in each. Counting here rather than per-row in the UI keeps the
  * locations page to two queries regardless of how many locations exist.
+ *
+ * Also returns a handful of card images per container. A box is a physical
+ * thing with cards in it, and a page that can only say "188 cards" is asking
+ * the reader to take that on faith; showing five of them makes the container
+ * recognisable as *that* box on the shelf. Read through `collection_entries`
+ * with a bounded limit rather than joining card rows onto the counting query,
+ * which would pull the whole collection back to draw seven rows.
  */
-export async function getLocationTree(): Promise<{
+export const getLocationTree = async (): Promise<{
   tree: LocationNode[];
   unsortedCount: number;
-}> {
+  /** location id (or UNSORTED) -> up to LOCATION_PEEK_COUNT card images. */
+  peek: Map<string, string[]>;
+  /**
+   * Cards filed directly in each location, by id.
+   *
+   * `LocationNode.children` is a plain `Location[]` with no count of its own,
+   * so a nested binder could only ever be drawn without one. Handing back the
+   * map lets every row — nested or not — say how full it is.
+   */
+  counts: Map<string, number>;
+  /** Cards in the fullest container, so the bars can be drawn to scale. */
+  largest: number;
+}> => {
   const supabase = await createClient();
 
   const owner = await ownerId();
-  const [{ data: locations, error: locError }, { data: instances, error: instError }] =
+  const [{ data: locations, error: locError }, { data: instances, error: instError }, peekRows] =
     await Promise.all([
       supabase.from("locations").select("*").eq("user_id", owner).order("name", { ascending: true }),
       supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
+      supabase
+        .from("collection_entries")
+        .select("location_id, card_image_uri_small, card_price_usd")
+        .eq("owner_user_id", owner)
+        // Most valuable first: the memorable cards in a box are the ones worth
+        // something, and "five arbitrary commons" would identify nothing.
+        .order("card_price_usd", { ascending: false, nullsFirst: false })
+        .limit(MAX_ROWS),
     ]);
 
   if (locError) throw new Error(`Could not load locations: ${locError.message}`);
@@ -427,8 +457,32 @@ export async function getLocationTree(): Promise<{
     (instances ?? []) as CountableInstance[],
   );
 
-  return { tree, unsortedCount };
-}
+  const peek = new Map<string, string[]>();
+  for (const raw of (peekRows.data ?? []) as unknown as Array<{
+    location_id: string | null;
+    card_image_uri_small: string | null;
+  }>) {
+    if (!raw.card_image_uri_small) continue;
+    const key = raw.location_id ?? UNSORTED;
+    const shown = peek.get(key) ?? [];
+    if (shown.length >= LOCATION_PEEK_COUNT) continue;
+    shown.push(raw.card_image_uri_small);
+    peek.set(key, shown);
+  }
+
+  const counts = new Map<string, number>();
+  for (const { location_id, quantity } of (instances ?? []) as CountableInstance[]) {
+    if (location_id === null) continue;
+    counts.set(location_id, (counts.get(location_id) ?? 0) + quantity);
+  }
+
+  // Bars are drawn against the fullest container rather than the whole
+  // collection: with one 500-card box every other bar would be a sliver, and
+  // the comparison worth seeing is between the containers.
+  const largest = Math.max(unsortedCount, ...counts.values(), 1);
+
+  return { tree, unsortedCount, peek, counts, largest };
+};
 
 export type DashboardSummary = {
   /** What the collection is worth, and what it could not price. */

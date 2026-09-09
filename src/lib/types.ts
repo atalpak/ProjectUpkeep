@@ -171,6 +171,13 @@ export type Location = {
   created_at: string;
   updated_at: string;
 
+  /**
+   * Whether this container's cards are visible to friends (migration 9,
+   * `not null default false`). The one switch that makes anything you own
+   * visible to another person.
+   */
+  is_tradable: boolean;
+
   // Deck-only columns. commander_card_id points at cards.scryfall_id
   // (migration 00000000000008); notes / format / tags are migration
   // 00000000000021. All null / empty on a box or binder.
