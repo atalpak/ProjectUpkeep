@@ -180,8 +180,8 @@ export function CollectionTable({
           {liveSelection.length > 0
             ? `${liveSelection.length} selected`
             : matched > PAGE_SIZE
-              ? `${matched} entries · showing ${firstShown}–${lastShown}`
-              : `${matched} ${matched === 1 ? "entry" : "entries"}`}
+              ? `${matched} stacks · showing ${firstShown}–${lastShown}`
+              : `${matched} ${matched === 1 ? "stack" : "stacks"}`}
         </p>
 
         <div className="flex flex-1 items-center justify-end gap-2">

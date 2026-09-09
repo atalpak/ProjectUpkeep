@@ -413,6 +413,13 @@ export type LocationStats = {
   /** Distinct card names, which is what separates a box of singles from a
    *  brick of the same common. */
   distinct: number;
+  /**
+   * Rows in `card_instances` — the number the collection page shows when you
+   * click through. Carried so the tile can reconcile the two in its title:
+   * `distinct` counts cards and this counts stacks, and one card held in two
+   * finishes is two stacks.
+   */
+  stacks: number;
 };
 
 /**
@@ -515,10 +522,11 @@ export const getLocationTree = async (): Promise<{
       quantity: raw.quantity,
     });
 
-    const current = stats.get(key) ?? { value: 0, unpriced: 0, distinct: 0 };
+    const current = stats.get(key) ?? { value: 0, unpriced: 0, distinct: 0, stacks: 0 };
     if (value === null) current.unpriced += raw.quantity;
     else current.value += value;
     current.distinct = names.size;
+    current.stacks += 1;
     stats.set(key, current);
   }
 

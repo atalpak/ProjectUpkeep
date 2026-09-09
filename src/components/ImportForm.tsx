@@ -294,7 +294,7 @@ function Preview({
         <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-ink">
           {preview.newEntries === 0 ? (
             <>
-              <span className="font-semibold">Every entry here is already in your collection.</span>{" "}
+              <span className="font-semibold">Every stack here is already in your collection.</span>{" "}
               Importing <span className="font-semibold">adds these quantities on top</span> of what
               you have — it does not replace them. Re-importing a list you previously exported will
               double your counts.
@@ -302,7 +302,7 @@ function Preview({
           ) : (
             <>
               <span className="font-semibold">
-                {preview.mergedEntries} of these {preview.stackCount} entries already exist
+                {preview.mergedEntries} of these {preview.stackCount} stacks already exist
               </span>{" "}
               and will have their quantities increased; the other {preview.newEntries} will be added
               as new.

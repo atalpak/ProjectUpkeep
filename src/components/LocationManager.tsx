@@ -209,10 +209,29 @@ function LocationRow({
                 {count === 1 ? "" : "s"}
               </span>
 
+              {/*
+                "different cards", spelled out, not a bare "different".
+
+                Clicking through to the collection shows "188 cards in 142
+                stacks", and the first reading of "138 different" next to it is
+                that one of the two is wrong. Neither is: 138 is card names,
+                142 is stacks, and four of these cards are here as both a foil
+                and a non-foil, which cannot share a stack. Naming the unit on
+                both sides is what stops the two numbers looking like a
+                contradiction; the title spells out the reconciliation for
+                anyone who still wonders.
+              */}
               {stats && stats.distinct > 0 && stats.distinct < count ? (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="tabular-nums">{stats.distinct} different</span>
+                  <span
+                    className="tabular-nums"
+                    title={`${stats.distinct} different cards, in ${stats.stacks} stack${
+                      stats.stacks === 1 ? "" : "s"
+                    } — the same card in two finishes or two printings is two stacks`}
+                  >
+                    {stats.distinct} different cards
+                  </span>
                 </>
               ) : null}
 

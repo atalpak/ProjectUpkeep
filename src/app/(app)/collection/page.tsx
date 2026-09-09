@@ -80,8 +80,14 @@ export default async function CollectionPage({
         title="Collection"
         subtitle={
           <>
-            {totalCards} card{totalCards === 1 ? "" : "s"} in {collection.matched} entr
-            {collection.matched === 1 ? "y" : "ies"}
+            {/* "Stacks", not "entries". An entry is a row in a table nobody
+                asked to think about; a stack is the physical thing — four
+                identical commons rubber-banded together — and it is the app's
+                own word for it (see stacking.ts). It also makes the difference
+                from a location tile's "138 different cards" self-evident: a
+                foil and a non-foil of one card are two stacks. */}
+            {totalCards} card{totalCards === 1 ? "" : "s"} in {collection.matched} stack
+            {collection.matched === 1 ? "" : "s"}
             {hidingSome ? ` (filtered from ${collection.total})` : ""}
           </>
         }
@@ -110,7 +116,7 @@ export default async function CollectionPage({
       {collection.truncated ? (
         <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-ink-muted">
           This filter is one the database cannot answer on its own, so only the first{" "}
-          {collection.matched} matching entries were searched. Narrowing by set, location or
+          {collection.matched} matching stacks were searched. Narrowing by set, location or
           condition first will cover the whole collection.
         </p>
       ) : null}
