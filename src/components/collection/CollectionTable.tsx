@@ -355,8 +355,13 @@ function Pager({
     (_, i) => start + i,
   );
 
+  // These were the smallest controls in the app at 26×32, and paging is a thumb
+  // action. Under a finger they grow to 44px; under a cursor the pager stays a
+  // quiet footer rather than a row of chunky keys.
   const btn =
-    "min-w-8 rounded border border-border px-2 py-1 text-xs transition-colors hover:bg-surface-muted disabled:opacity-40 disabled:hover:bg-transparent";
+    "inline-flex min-w-8 items-center justify-center rounded border border-border px-2 py-1 " +
+    "text-xs transition-colors hover:bg-surface-muted disabled:opacity-40 " +
+    "disabled:hover:bg-transparent coarse:min-h-11 coarse:min-w-11 coarse:text-sm";
 
   return (
     <nav className="flex flex-wrap items-center justify-center gap-1.5" aria-label="Pagination">
@@ -429,13 +434,19 @@ function MobileRow({
   return (
     <li className={cx("p-3", selected && "bg-accent-soft")}>
       <div className="flex gap-3">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          aria-label={`Select ${card ? cardDisplayName(card) : "row"}`}
-          className="mt-1 size-4 shrink-0"
-        />
+        {/* The input stays visually small; the label around it carries the
+            padding, so the tap area is ~44px without a 44px box drawn on
+            screen. A 16px checkbox is the hardest thing in the app to hit on a
+            phone, and multi-select is how a stack gets moved after a trade. */}
+        <label className="-m-3 flex shrink-0 cursor-pointer items-start p-3">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            aria-label={`Select ${card ? cardDisplayName(card) : "row"}`}
+            className="mt-1 size-5"
+          />
+        </label>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
@@ -463,7 +474,10 @@ function MobileRow({
               className="tabular-nums text-ink-muted"
               title={`${availability.total} owned across all printings · ${availability.available} free`}
             >
-              {row.locations?.type === "deck" ? 0 : row.quantity} free
+              {/* The location is already printed alongside, so this says the
+                  state rather than repeating the deck's name: "0 free" next to
+                  a deck name reads like a contradiction. */}
+              {row.locations?.type === "deck" ? "Sleeved" : `${row.quantity} free`}
             </span>
             <PriceCell row={row} />
           </div>
@@ -641,20 +655,56 @@ function Cell({
         <PriceCell row={row} />
       );
 
-    case "available": {
-      // This row's own copies: free unless the row is itself a deck. The
-      // hover keeps the card-wide picture (every printing, any finish).
-      const free = row.locations?.type === "deck" ? 0 : row.quantity;
-      return (
-        <span
-          title={`${free} free here · ${availability.total} owned across all printings, ${availability.available} free`}
-          className={free === 0 ? "text-ink-muted" : "font-medium"}
-        >
-          {free}
-        </span>
-      );
-    }
+    case "available":
+      return <AvailableCell row={row} availability={availability} />;
   }
+}
+
+/**
+ * Whether this copy is free to build with.
+ *
+ * This is the question the product exists to answer, and it used to be a bare
+ * digit: a `0` in a column headed "Available", with the reason — that the copy
+ * is sleeved into a deck — available only in a tooltip, or by turning on the
+ * Location column, which is off by default. A zero that does not say why reads
+ * as "you have none", which is the opposite of the truth: you own it, it is
+ * just busy.
+ *
+ * So a committed copy names the deck it is in instead of counting to zero. The
+ * card-wide picture — every printing, any finish — stays in the title, because
+ * "4 free" against a row showing 1 is a different and also useful fact.
+ */
+function AvailableCell({
+  row,
+  availability,
+}: {
+  row: CardInstanceWithCard;
+  availability: Availability;
+}) {
+  const committed = row.locations?.type === "deck";
+  const free = committed ? 0 : row.quantity;
+
+  const title = `${free} free here · ${availability.total} owned across all printings, ${availability.available} free`;
+
+  if (committed) {
+    return (
+      <span
+        title={`Sleeved into ${row.locations?.name ?? "a deck"} — ${title}`}
+        className="inline-flex max-w-full items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-[11px] font-medium text-ink-muted"
+      >
+        <span aria-hidden="true" className="text-[9px] leading-none">
+          ●
+        </span>
+        <span className="truncate">In {row.locations?.name ?? "a deck"}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span title={title} className="font-medium tabular-nums">
+      {free}
+    </span>
+  );
 }
 
 /**
@@ -731,7 +781,7 @@ function RowMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Actions for ${row.cards ? cardDisplayName(row.cards) : "this entry"}`}
-        className="inline-flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface hover:text-ink coarse:size-9"
+        className="inline-flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface hover:text-ink coarse:size-11"
       >
         <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">
           <circle cx="12" cy="5" r="1.6" />

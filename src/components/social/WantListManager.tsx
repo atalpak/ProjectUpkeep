@@ -140,7 +140,7 @@ function AddWant() {
             <button
               type="button"
               onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              className="size-8 rounded border border-border text-sm disabled:opacity-40 coarse:size-10"
+              className="size-8 rounded border border-border text-sm disabled:opacity-40 coarse:size-11"
               disabled={quantity <= 1}
               aria-label="One fewer"
             >
@@ -150,7 +150,7 @@ function AddWant() {
             <button
               type="button"
               onClick={() => setQuantity((q) => Math.min(99, q + 1))}
-              className="size-8 rounded border border-border text-sm coarse:size-10"
+              className="size-8 rounded border border-border text-sm coarse:size-11"
               aria-label="One more"
             >
               +
@@ -328,7 +328,7 @@ function QuantityStepper({ want }: { want: WantRow }) {
           name="quantity"
           value={want.quantity - 1}
           disabled={want.quantity <= 1}
-          className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
+          className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-11"
           aria-label={`One fewer ${want.displayName}`}
         >
           −
@@ -340,7 +340,7 @@ function QuantityStepper({ want }: { want: WantRow }) {
           type="submit"
           name="quantity"
           value={want.quantity + 1}
-          className="size-6 rounded border border-border text-xs coarse:size-9"
+          className="size-6 rounded border border-border text-xs coarse:size-11"
           aria-label={`One more ${want.displayName}`}
         >
           +

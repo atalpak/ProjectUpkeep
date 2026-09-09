@@ -235,7 +235,7 @@ function OfferRow({
           onClick={() => onQuantity(Math.max(0, quantity - 1))}
           disabled={quantity === 0}
           aria-label={`One fewer ${card ? cardDisplayName(card) : "card"}`}
-          className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
+          className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-11"
         >
           −
         </button>
@@ -245,7 +245,7 @@ function OfferRow({
           onClick={() => onQuantity(Math.min(row.quantity, quantity + 1))}
           disabled={quantity >= row.quantity}
           aria-label={`One more ${card ? cardDisplayName(card) : "card"}`}
-          className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-9"
+          className="size-6 rounded border border-border text-xs disabled:opacity-40 coarse:size-11"
         >
           +
         </button>

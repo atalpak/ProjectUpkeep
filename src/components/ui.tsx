@@ -11,9 +11,14 @@ import { ManaSymbol } from "@/components/ManaCost";
 export { cx } from "@/lib/cx";
 import { cx } from "@/lib/cx";
 
+// 44px is the smallest target Apple and Google both call reliably tappable,
+// and this app gets used standing at a table with a phone in one hand. It grows
+// under `coarse` rather than at a breakpoint for the reason globals.css gives:
+// a narrow laptop window still has a mouse, a wide tablet does not.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-sm " +
-  "font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+  "font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
+  "coarse:min-h-11";
 
 const BUTTON_VARIANTS = {
   primary: "bg-accent text-accent-ink hover:opacity-90",
@@ -42,7 +47,7 @@ export function Button({
 // denser 14px.
 const FIELD_BASE =
   "w-full rounded-md border border-border bg-surface px-3 py-2 " +
-  "text-base sm:text-sm placeholder:text-ink-muted";
+  "text-base sm:text-sm placeholder:text-ink-muted coarse:min-h-11";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input {...props} className={cx(FIELD_BASE, className)} />;

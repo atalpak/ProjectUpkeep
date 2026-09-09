@@ -731,6 +731,22 @@ export type DeckSummary = Location & {
   uniqueCount: number;
   /** The nominated commander's name, if one is set. */
   commanderName: string | null;
+  /** The commander's art, so a deck row can show its face rather than
+   *  spelling the commander's name and leaving the reader to picture it. */
+  commanderImage: string | null;
+  /** The commander's colour identity — in Commander, the deck's own. Empty
+   *  when there is no commander, which is how a non-Commander deck reads. */
+  commanderColors: string[];
+  /**
+   * Copies physically sleeved into this deck, counted the way the deck page
+   * counts them: per list entry, capped at what that entry asks for, so five
+   * copies against a list wanting four cannot report 125% complete.
+   *
+   * This is the number that makes the row worth reading — every other tool can
+   * say "100 cards", and only this one can say how much of it is really in the
+   * box.
+   */
+  sleevedCount: number;
 };
 
 /**
@@ -742,26 +758,64 @@ export type DeckSummary = Location & {
 export async function getDecks(): Promise<DeckSummary[]> {
   const supabase = await createClient();
 
-  const [{ data: decks, error: deckError }, { data: deckCards, error: dcError }] =
-    await Promise.all([
-      supabase
-        .from("locations")
-        .select("*")
-        .eq("user_id", await ownerId())
-        .eq("type", "deck")
-        .order("name"),
-      supabase.from("deck_cards").select("deck_id, quantity, cards ( name )").limit(MAX_ROWS),
-    ]);
+  const owner = await ownerId();
+
+  const [
+    { data: decks, error: deckError },
+    { data: deckCards, error: dcError },
+    { data: sleeved, error: sleevedError },
+  ] = await Promise.all([
+    supabase
+      .from("locations")
+      .select("*")
+      .eq("user_id", owner)
+      .eq("type", "deck")
+      .order("name"),
+    supabase
+      .from("deck_cards")
+      .select("deck_id, quantity, cards ( name, oracle_id )")
+      .limit(MAX_ROWS),
+    // What is physically in the decks. Scoped to deck locations by the view's
+    // own location_type rather than read from the whole collection — the list
+    // needs what is in the boxes, not what is anywhere.
+    supabase
+      .from("collection_entries")
+      .select("location_id, quantity, card_oracle_id, card_name")
+      .eq("owner_user_id", owner)
+      .eq("location_type", "deck")
+      .limit(MAX_ROWS),
+  ]);
 
   if (deckError) throw new Error(`Could not load decks: ${deckError.message}`);
   if (dcError) throw new Error(`Could not load decklists: ${dcError.message}`);
+  if (sleevedError) {
+    throw new Error(`Could not load what is sleeved: ${sleevedError.message}`);
+  }
+
+  // Physical copies per deck, keyed the way availability keys cards — any
+  // printing of Lightning Bolt is a Lightning Bolt.
+  const sleevedByDeck = new Map<string, Map<string, number>>();
+  for (const raw of (sleeved ?? []) as unknown as Array<{
+    location_id: string | null;
+    quantity: number;
+    card_oracle_id: string | null;
+    card_name: string;
+  }>) {
+    if (!raw.location_id) continue;
+    const key = cardKey({ oracle_id: raw.card_oracle_id, name: raw.card_name });
+    if (!key) continue;
+    const forDeck = sleevedByDeck.get(raw.location_id) ?? new Map<string, number>();
+    forDeck.set(key, (forDeck.get(key) ?? 0) + raw.quantity);
+    sleevedByDeck.set(raw.location_id, forDeck);
+  }
 
   const totalByDeck = new Map<string, number>();
   const namesByDeck = new Map<string, Set<string>>();
+  const sleevedCountByDeck = new Map<string, number>();
   for (const raw of (deckCards ?? []) as unknown as Array<{
     deck_id: string;
     quantity: number;
-    cards: { name: string } | null;
+    cards: { name: string; oracle_id: string | null } | null;
   }>) {
     totalByDeck.set(raw.deck_id, (totalByDeck.get(raw.deck_id) ?? 0) + raw.quantity);
     if (raw.cards?.name) {
@@ -769,6 +823,15 @@ export async function getDecks(): Promise<DeckSummary[]> {
       set.add(raw.cards.name.toLowerCase());
       namesByDeck.set(raw.deck_id, set);
     }
+
+    // Per entry, capped at what the entry asks for — the same rule
+    // `deckProgress` applies, so the row and the deck page cannot disagree.
+    const key = cardKey(raw.cards);
+    const inBox = key ? (sleevedByDeck.get(raw.deck_id)?.get(key) ?? 0) : 0;
+    sleevedCountByDeck.set(
+      raw.deck_id,
+      (sleevedCountByDeck.get(raw.deck_id) ?? 0) + Math.min(inBox, raw.quantity),
+    );
   }
 
   const deckRows = (decks ?? []) as Location[];
@@ -778,28 +841,41 @@ export async function getDecks(): Promise<DeckSummary[]> {
     ...new Set(deckRows.map((d) => d.commander_card_id).filter((v): v is string => !!v)),
   ];
   const commanderNames = new Map<string, string>();
+  const commanderArt = new Map<string, { image: string | null; colors: string[] }>();
   if (commanderIds.length > 0) {
     const { data: cmdCards } = await supabase
       .from("cards")
-      .select("scryfall_id, name, flavor_name")
+      .select("scryfall_id, name, flavor_name, image_uri_small, color_identity")
       .in("scryfall_id", commanderIds);
     for (const c of (cmdCards ?? []) as Array<{
       scryfall_id: string;
       name: string;
       flavor_name: string | null;
+      image_uri_small: string | null;
+      color_identity: string[] | null;
     }>) {
       commanderNames.set(c.scryfall_id, cardDisplayName(c));
+      commanderArt.set(c.scryfall_id, {
+        image: c.image_uri_small,
+        colors: c.color_identity ?? [],
+      });
     }
   }
 
-  return deckRows.map((deck) => ({
-    ...deck,
-    cardCount: totalByDeck.get(deck.id) ?? 0,
-    uniqueCount: namesByDeck.get(deck.id)?.size ?? 0,
-    commanderName: deck.commander_card_id
-      ? (commanderNames.get(deck.commander_card_id) ?? null)
-      : null,
-  }));
+  return deckRows.map((deck) => {
+    const art = deck.commander_card_id ? commanderArt.get(deck.commander_card_id) : undefined;
+    return {
+      ...deck,
+      cardCount: totalByDeck.get(deck.id) ?? 0,
+      uniqueCount: namesByDeck.get(deck.id)?.size ?? 0,
+      sleevedCount: sleevedCountByDeck.get(deck.id) ?? 0,
+      commanderName: deck.commander_card_id
+        ? (commanderNames.get(deck.commander_card_id) ?? null)
+        : null,
+      commanderImage: art?.image ?? null,
+      commanderColors: art?.colors ?? [],
+    };
+  });
 }
 
 /** One deck, or null when the id is not a deck this user owns. */
