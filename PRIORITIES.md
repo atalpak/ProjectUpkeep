@@ -444,14 +444,31 @@ all, and the collection's 18 optional columns do not include a thumbnail.
 - [x] **Locations, and the tradable switch** · done 2026-09-08 — one job, so
       done together: the switch is a property of a container, and containers
       are managed here.
-      Each container now carries a type glyph (shapes, not colours, so a binder
+      Each location now carries a type glyph (shapes, not colours, so a binder
       / box / deck still read apart in either theme and for a colourblind
-      reader), a fill bar drawn against the fullest container rather than the
-      whole collection, a card count — including on nested rows, which could
-      never have one before because `LocationNode.children` is a plain
-      `Location[]` with no count attached — and a fan of its five most valuable
-      cards, so a box is recognisable as *that* box rather than a number.
-      Peeks come from `collection_entries` ordered by price, one bounded query.
+      reader), a fan of its five most valuable cards so a box is recognisable
+      as *that* box rather than a number, and a summary line reading
+      **N cards · N different · $value**.
+      That line first tried to be a progress bar, which was wrong rather than
+      merely redundant: a bar implies a capacity and a box does not have one,
+      so drawn against the fullest location it said "Commons holds more than
+      Lands" — the same thing the numbers beside it said, dressed up as a
+      measurement against a limit that does not exist. The three facts that
+      replaced it are what you want to know before opening a binder: how much,
+      how varied (a brick of one common and a box of singles are different
+      objects — Lands is 115 cards but only 29 different), and what it is
+      worth, which is the first question in any trade.
+      Value is computed through `rowValue`, deliberately *not* the view's own
+      `display_price` column: the column mirrors what the UI shows and falls
+      back from a missing foil price to the non-foil one, while the dashboard's
+      total refuses that substitution. Using the column would have made
+      locations quietly sum to more than the dashboard's collection value.
+      Verified: the seven locations sum to $448.09, the dashboard's figure, to
+      the cent.
+      Nested rows can show a card count for the first time — `LocationNode.children`
+      is a plain `Location[]` with no count attached, so `getLocationTree` now
+      hands back the map it was already building. All of it comes from one
+      bounded pass over `collection_entries`.
       **The switch** now sits on every non-deck row, and while nothing at all is
       open there is a banner at the top of the page saying so in plain terms.
       Marking a container tradable is the only thing that makes any card
