@@ -8,7 +8,7 @@ import { Banner, Card as Panel, EmptyState, PageHeader } from "@/components/ui";
 export const metadata = { title: "Locations · Project Upkeep" };
 
 export default async function LocationsPage() {
-  const { tree, unsortedCount, peek, counts, largest } = await getLocationTree();
+  const { tree, unsortedCount, peek, counts, stats } = await getLocationTree();
 
   const unsortedPeek = peek.get(UNSORTED) ?? [];
 
@@ -87,7 +87,7 @@ export default async function LocationsPage() {
         topLevel={tree}
         peek={peek}
         counts={counts}
-        largest={largest}
+        stats={stats}
       />
 
       {tree.length === 0 ? (

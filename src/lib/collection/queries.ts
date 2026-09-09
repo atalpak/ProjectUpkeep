@@ -37,7 +37,7 @@ import {
   type CountableRow,
 } from "@/lib/collection/availability";
 import { locateCards, MIN_TERM, type LocatableRow, type LocatedCard } from "@/lib/collection/locate";
-import { summariseValue, type ValueSummary } from "@/lib/collection/pricing";
+import { rowValue, summariseValue, type ValueSummary } from "@/lib/collection/pricing";
 import {
   summariseBreakdown,
   type BreakdownRow,
@@ -401,8 +401,19 @@ function summarise(all: Location[], instances: CountableInstance[]) {
   };
 }
 
-/** A few card images from a container, so it can show what is inside it. */
+/** A few card images from a location, so it can show what is inside it. */
 export const LOCATION_PEEK_COUNT = 5;
+
+/** What a location is worth and how varied it is, for the row's summary line. */
+export type LocationStats = {
+  /** Total of everything in here that could be priced. */
+  value: number;
+  /** Cards with no listed price for their finish, so the value is a floor. */
+  unpriced: number;
+  /** Distinct card names, which is what separates a box of singles from a
+   *  brick of the same common. */
+  distinct: number;
+};
 
 /**
  * Locations arranged as parents with their children, plus how many instances
@@ -429,8 +440,8 @@ export const getLocationTree = async (): Promise<{
    * map lets every row — nested or not — say how full it is.
    */
   counts: Map<string, number>;
-  /** Cards in the fullest container, so the bars can be drawn to scale. */
-  largest: number;
+  /** What each location (or UNSORTED) holds, for the summary line. */
+  stats: Map<string, LocationStats>;
 }> => {
   const supabase = await createClient();
 
@@ -441,7 +452,10 @@ export const getLocationTree = async (): Promise<{
       supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
       supabase
         .from("collection_entries")
-        .select("location_id, card_image_uri_small, card_price_usd")
+        .select(
+          "location_id, card_name, finish, quantity, card_image_uri_small, " +
+            "card_price_usd, card_price_usd_foil, card_price_usd_etched",
+        )
         .eq("owner_user_id", owner)
         // Most valuable first: the memorable cards in a box are the ones worth
         // something, and "five arbitrary commons" would identify nothing.
@@ -458,16 +472,54 @@ export const getLocationTree = async (): Promise<{
   );
 
   const peek = new Map<string, string[]>();
+  const stats = new Map<string, LocationStats>();
+  const namesSeen = new Map<string, Set<string>>();
+
   for (const raw of (peekRows.data ?? []) as unknown as Array<{
     location_id: string | null;
+    card_name: string;
+    finish: string;
+    quantity: number;
     card_image_uri_small: string | null;
+    card_price_usd: number | null;
+    card_price_usd_foil: number | null;
+    card_price_usd_etched: number | null;
   }>) {
-    if (!raw.card_image_uri_small) continue;
     const key = raw.location_id ?? UNSORTED;
-    const shown = peek.get(key) ?? [];
-    if (shown.length >= LOCATION_PEEK_COUNT) continue;
-    shown.push(raw.card_image_uri_small);
-    peek.set(key, shown);
+
+    if (raw.card_image_uri_small) {
+      const shown = peek.get(key) ?? [];
+      if (shown.length < LOCATION_PEEK_COUNT) {
+        shown.push(raw.card_image_uri_small);
+        peek.set(key, shown);
+      }
+    }
+
+    const names = namesSeen.get(key) ?? new Set<string>();
+    names.add(raw.card_name.toLowerCase());
+    namesSeen.set(key, names);
+
+    // Priced through `rowValue`, not the view's own `display_price` column.
+    // They differ deliberately: the column mirrors what the UI *shows*, which
+    // falls back from a missing foil price to the non-foil one, while the
+    // dashboard's total refuses that substitution. Using the column here would
+    // make a location's value quietly exceed the collection value on the
+    // dashboard, and one of the two numbers would be wrong.
+    const value = rowValue({
+      cards: {
+        price_usd: raw.card_price_usd,
+        price_usd_foil: raw.card_price_usd_foil,
+        price_usd_etched: raw.card_price_usd_etched,
+      },
+      finish: raw.finish,
+      quantity: raw.quantity,
+    });
+
+    const current = stats.get(key) ?? { value: 0, unpriced: 0, distinct: 0 };
+    if (value === null) current.unpriced += raw.quantity;
+    else current.value += value;
+    current.distinct = names.size;
+    stats.set(key, current);
   }
 
   const counts = new Map<string, number>();
@@ -476,12 +528,7 @@ export const getLocationTree = async (): Promise<{
     counts.set(location_id, (counts.get(location_id) ?? 0) + quantity);
   }
 
-  // Bars are drawn against the fullest container rather than the whole
-  // collection: with one 500-card box every other bar would be a sliver, and
-  // the comparison worth seeing is between the containers.
-  const largest = Math.max(unsortedCount, ...counts.values(), 1);
-
-  return { tree, unsortedCount, peek, counts, largest };
+  return { tree, unsortedCount, peek, counts, stats };
 };
 
 export type DashboardSummary = {

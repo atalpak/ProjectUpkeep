@@ -11,6 +11,8 @@ import {
 } from "@/app/(app)/locations/actions";
 import { EMPTY_LOCATION_STATE } from "@/app/(app)/locations/action-state";
 import { setLocationTradable } from "@/app/(app)/friends/actions";
+import { formatPrice } from "@/lib/collection/pricing";
+import type { LocationStats } from "@/lib/collection/queries";
 import { Badge, Banner, Button, Card as Panel, Input, Select, cx } from "@/components/ui";
 import {
   LOCATION_TYPES,
@@ -141,20 +143,18 @@ function LocationRow({
   location,
   count,
   images,
-  largest,
+  stats,
   nested,
 }: {
   location: Location;
   count: number;
   images: string[];
-  largest: number;
+  stats?: LocationStats;
   nested?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [state, action, pending] = useActionState(renameLocation, EMPTY_LOCATION_STATE);
-
-  const fill = largest > 0 ? Math.max(2, (count / largest) * 100) : 0;
 
   return (
     <div className={cx("py-3", nested && "border-t border-border pl-6")}>
@@ -184,20 +184,56 @@ function LocationRow({
             />
           </div>
 
-          {/* Wraps rather than squeezing: on a phone the bar takes its own
-              line and the switch drops below it, instead of six things
-              fighting over 375px and the peek sliding over the name. */}
+          {/*
+            Three facts on one line, where a progress bar used to be.
+
+            The bar was wrong, not just redundant: a bar implies a capacity, and
+            a box does not have one. Drawn against the fullest location it said
+            "Commons holds more than Lands", which is the same thing the two
+            numbers beside it already said, in a form that looked like a
+            measurement against some limit.
+
+            What replaces it is what someone actually wants to know about a
+            binder before opening it: how much is in there, how varied it is —
+            a brick of one common and a box of singles are different objects —
+            and what it is worth, which is the first question in any trade.
+
+            Wraps rather than squeezing: on a phone the facts take their own
+            line and the switch drops below, instead of six things fighting
+            over 375px and the peek sliding over the name.
+          */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <div className="flex min-w-40 flex-1 items-center gap-2">
-              <div className="h-1.5 min-w-16 max-w-48 flex-1 overflow-hidden rounded-full bg-surface-muted">
-                <span
-                  className="block h-full rounded-full bg-accent/70"
-                  style={{ width: `${Math.min(100, fill)}%` }}
-                />
-              </div>
-              <span className="shrink-0 text-xs tabular-nums text-ink-muted">
-                {count} card{count === 1 ? "" : "s"}
+            <div className="flex min-w-40 flex-1 flex-wrap items-center gap-x-2 text-xs text-ink-muted">
+              <span className="tabular-nums">
+                <span className="font-medium text-ink">{count}</span> card
+                {count === 1 ? "" : "s"}
               </span>
+
+              {stats && stats.distinct > 0 && stats.distinct < count ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="tabular-nums">{stats.distinct} different</span>
+                </>
+              ) : null}
+
+              {stats && stats.value > 0 ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span
+                    className="tabular-nums"
+                    title={
+                      stats.unpriced > 0
+                        ? `${stats.unpriced} card${
+                            stats.unpriced === 1 ? " has" : "s have"
+                          } no listed price, so this is a floor`
+                        : undefined
+                    }
+                  >
+                    {formatPrice(stats.value)}
+                    {stats.unpriced > 0 ? "+" : ""}
+                  </span>
+                </>
+              ) : null}
             </div>
 
             {/* Decorative, and the first thing to go when space is tight. */}
@@ -306,14 +342,14 @@ export function LocationManager({
   topLevel,
   peek,
   counts,
-  largest,
+  stats,
 }: {
   tree: LocationNode[];
   /** Valid parents. Only top-level locations qualify — nesting is one deep. */
   topLevel: Location[];
   peek: Map<string, string[]>;
   counts: Map<string, number>;
-  largest: number;
+  stats: Map<string, LocationStats>;
 }) {
   const [state, action, pending] = useActionState(createLocation, EMPTY_LOCATION_STATE);
   const [adding, setAdding] = useState(tree.length === 0);
@@ -464,7 +500,7 @@ export function LocationManager({
                       location={node}
                       count={node.instance_count}
                       images={peek.get(node.id) ?? []}
-                      largest={largest}
+                      stats={stats.get(node.id)}
                     />
                     {node.children.map((child) => (
                       <LocationRow
@@ -472,7 +508,7 @@ export function LocationManager({
                         location={child}
                         count={counts.get(child.id) ?? 0}
                         images={peek.get(child.id) ?? []}
-                        largest={largest}
+                        stats={stats.get(child.id)}
                         nested
                       />
                     ))}
