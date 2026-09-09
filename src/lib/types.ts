@@ -57,6 +57,14 @@ export const LOCATION_TYPE_LABELS: Record<LocationType, string> = {
   other: "Other",
 };
 
+/** For headings over a group of them. "Other" is already a mass noun. */
+export const LOCATION_TYPE_PLURALS: Record<LocationType, string> = {
+  deck: "Decks",
+  binder: "Binders",
+  box: "Boxes",
+  other: "Other",
+};
+
 /**
  * Sentinel a `LocationSelect` in `requireChoice` mode starts on — distinct
  * from `""`, which is the real destination "Unsorted." Shared here (rather

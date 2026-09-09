@@ -27,7 +27,7 @@ export default async function LocationsPage() {
       {/*
         The trade prompt.
 
-        Marking a container tradable is the only switch that makes anything you
+        Marking a location tradable is the only switch that makes anything you
         own visible to another person, and until now it lived five sections down
         the Friends page — so the usual outcome was a collection nobody could
         see and a trading half that silently did nothing. Said here, once,

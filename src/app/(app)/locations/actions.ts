@@ -16,7 +16,7 @@ function fail(message: string): LocationActionState {
  */
 function friendly(message: string): string {
   if (message.includes("one level of nesting")) {
-    return "Locations can only be nested one level deep — pick a top-level container.";
+    return "Locations can only be nested one level deep — pick a top-level location.";
   }
   if (message.includes("already has locations inside it")) {
     return "That location has things inside it, so it can't be nested in another.";

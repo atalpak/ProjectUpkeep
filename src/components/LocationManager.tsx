@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useActionState, useMemo, useState, useSyncExternalStore } from "react";
 
 import {
   createLocation,
@@ -15,6 +15,7 @@ import { Badge, Banner, Button, Card as Panel, Input, Select, cx } from "@/compo
 import {
   LOCATION_TYPES,
   LOCATION_TYPE_LABELS,
+  LOCATION_TYPE_PLURALS,
   type Location,
   type LocationNode,
   type LocationType,
@@ -25,13 +26,15 @@ import {
  *
  * This page used to be a form over a list of text rows, which is a strange way
  * to render the idea the whole product rests on: that a card is somewhere real.
- * A container now shows what is in it — five of its cards, how full it is
+ * A location now shows what is in it — five of its cards, how full it is
  * relative to the others — and carries the one switch that makes any of it
- * visible to a friend.
+ * visible to a friend. They are grouped by kind, because "my binders" and "my
+ * decks" are different questions and a single alphabetical list answers
+ * neither.
  */
 
 /**
- * A glyph per container type.
+ * A glyph per location type.
  *
  * Deliberately shapes rather than colours: a binder, a box and a deck are
  * different objects on a shelf, and the difference should survive being read
@@ -55,7 +58,7 @@ function TypeMark({ type }: { type: LocationType }) {
   );
 }
 
-/** Up to five cards from the container, overlapped like a fanned stack. */
+/** Up to five cards from the location, overlapped like a fanned stack. */
 function Peek({ images, name }: { images: string[]; name: string }) {
   if (images.length === 0) return null;
 
@@ -83,12 +86,12 @@ function Peek({ images, name }: { images: string[]; name: string }) {
 }
 
 /**
- * The switch that makes a container's cards visible to friends.
+ * The switch that makes a location's cards visible to friends.
  *
  * It lived only on the Friends page, five sections down, which is a strange
- * home for a property of a container — and it is the thing every new person has
+ * home for a property of a location — and it is the thing every new person has
  * to find before any of the social half works. It is still on Friends; this is
- * the copy that sits where containers are managed.
+ * the copy that sits where locations are managed.
  */
 function TradableToggle({ location }: { location: Location }) {
   const on = location.is_tradable;
@@ -315,16 +318,59 @@ export function LocationManager({
   const [state, action, pending] = useActionState(createLocation, EMPTY_LOCATION_STATE);
   const [adding, setAdding] = useState(tree.length === 0);
 
+  const storedCollapsed = useSyncExternalStore(
+    subscribeToCollapsed,
+    readStoredCollapsed,
+    readStoredCollapsedOnServer,
+  );
+  const collapsedTypes = useMemo(() => parseStoredCollapsed(storedCollapsed), [storedCollapsed]);
+
+  function toggleType(type: LocationType) {
+    const next = new Set(collapsedTypes);
+    if (next.has(type)) next.delete(type);
+    else next.add(type);
+    writeStoredCollapsed([...next]);
+  }
+
+  /**
+   * One group per kind, in shelf order — binders and boxes first because they
+   * are what this page is for, decks after them because they have a page of
+   * their own that says far more, and Other last as the catch-all.
+   *
+   * A child location is listed under its parent whatever its own kind is: the
+   * nesting is physical, and a binder inside a box is in that box.
+   */
+  const sections = useMemo(() => {
+    const order: LocationType[] = ["binder", "box", "deck", "other"];
+    return order
+      .map((type) => {
+        const nodes = tree.filter((node) => node.type === type);
+        return {
+          type,
+          nodes,
+          locationCount: nodes.length,
+          cardCount: nodes.reduce(
+            (sum, node) =>
+              sum +
+              node.instance_count +
+              node.children.reduce((kids, child) => kids + (counts.get(child.id) ?? 0), 0),
+            0,
+          ),
+        };
+      })
+      .filter((section) => section.nodes.length > 0);
+  }, [tree, counts]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-display text-base font-semibold tracking-tight">
-          Your containers{tree.length > 0 ? ` (${tree.length})` : ""}
+          Your locations{tree.length > 0 ? ` (${tree.length})` : ""}
         </h2>
         {/* The form used to sit open above the list, so the first thing this
             page showed was data entry rather than the shelf it describes. */}
         <Button type="button" variant="secondary" onClick={() => setAdding((v) => !v)}>
-          {adding ? "Cancel" : "New container"}
+          {adding ? "Cancel" : "New location"}
         </Button>
       </div>
 
@@ -371,30 +417,141 @@ export function LocationManager({
         </Panel>
       ) : null}
 
-      {tree.length > 0 ? (
-        <Panel className="divide-y divide-border p-0 px-4">
-          {tree.map((node) => (
-            <div key={node.id}>
-              <LocationRow
-                location={node}
-                count={node.instance_count}
-                images={peek.get(node.id) ?? []}
-                largest={largest}
-              />
-              {node.children.map((child) => (
-                <LocationRow
-                  key={child.id}
-                  location={child}
-                  count={counts.get(child.id) ?? 0}
-                  images={peek.get(child.id) ?? []}
-                  largest={largest}
-                  nested
-                />
-              ))}
-            </div>
-          ))}
-        </Panel>
-      ) : null}
+      {sections.map((section) => {
+        const collapsed = collapsedTypes.has(section.type);
+        return (
+          <section key={section.type} className="space-y-2">
+            <button
+              type="button"
+              onClick={() => toggleType(section.type)}
+              aria-expanded={!collapsed}
+              className="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-surface-muted"
+            >
+              <svg
+                viewBox="0 0 20 20"
+                aria-hidden="true"
+                className={cx(
+                  "size-4 shrink-0 text-ink-muted transition-transform",
+                  collapsed ? "-rotate-90" : "",
+                )}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m5 7.5 5 5 5-5" />
+              </svg>
+
+              <span className="text-xs font-semibold uppercase tracking-wide">
+                {LOCATION_TYPE_PLURALS[section.type]}
+              </span>
+
+              <span className="text-xs tabular-nums text-ink-muted">
+                {section.locationCount}
+              </span>
+
+              <span className="ml-auto text-xs tabular-nums text-ink-muted">
+                {section.cardCount} card{section.cardCount === 1 ? "" : "s"}
+              </span>
+            </button>
+
+            {collapsed ? null : (
+              <Panel className="divide-y divide-border p-0 px-4">
+                {section.nodes.map((node) => (
+                  <div key={node.id}>
+                    <LocationRow
+                      location={node}
+                      count={node.instance_count}
+                      images={peek.get(node.id) ?? []}
+                      largest={largest}
+                    />
+                    {node.children.map((child) => (
+                      <LocationRow
+                        key={child.id}
+                        location={child}
+                        count={counts.get(child.id) ?? 0}
+                        images={peek.get(child.id) ?? []}
+                        largest={largest}
+                        nested
+                      />
+                    ))}
+                  </div>
+                ))}
+              </Panel>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Which sections are folded away
+// ---------------------------------------------------------------------------
+
+/**
+ * Treated as an external store rather than React state, for the reason
+ * `columns.ts` spells out: localStorage does not exist on the server, so
+ * reading it during the first render would make the client disagree with the
+ * HTML it is hydrating, and reading it in an effect is the thing React now
+ * warns about. The server snapshot is null — every section open — and React
+ * reconciles the stored value itself.
+ *
+ * Sections default to open. Collapsing is for someone who has decided they do
+ * not want to look at their decks here, not a state anyone should have to
+ * undo on arrival.
+ */
+const COLLAPSED_STORAGE_KEY = "project-upkeep-locations-collapsed";
+
+const collapsedListeners = new Set<() => void>();
+
+function subscribeToCollapsed(onChange: () => void): () => void {
+  collapsedListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    collapsedListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+/** Holds the choice when localStorage refuses the write, so a collapse in a
+ *  browser with site data blocked still applies for this page view. */
+let unsavedCollapsed: string | null = null;
+
+function readStoredCollapsed(): string | null {
+  try {
+    return unsavedCollapsed ?? localStorage.getItem(COLLAPSED_STORAGE_KEY);
+  } catch {
+    return unsavedCollapsed;
+  }
+}
+
+const readStoredCollapsedOnServer = (): string | null => null;
+
+function writeStoredCollapsed(types: LocationType[]): void {
+  const serialised = JSON.stringify(types);
+  try {
+    localStorage.setItem(COLLAPSED_STORAGE_KEY, serialised);
+    unsavedCollapsed = null;
+  } catch {
+    unsavedCollapsed = serialised;
+  }
+  for (const listener of collapsedListeners) listener();
+}
+
+function parseStoredCollapsed(raw: string | null): Set<LocationType> {
+  if (!raw) return new Set();
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      parsed.filter((t): t is LocationType =>
+        (LOCATION_TYPES as readonly string[]).includes(t as string),
+      ),
+    );
+  } catch {
+    return new Set();
+  }
 }
