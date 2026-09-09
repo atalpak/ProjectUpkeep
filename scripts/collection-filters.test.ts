@@ -357,7 +357,14 @@ test("unsorted counts as available — a copy is committed only by being in a de
 
 test("availableOnly off changes nothing", () => {
   assert.equal(matchesFilter(row({}, inDeck), f({ availableOnly: false })), true);
-  assert.equal(matchesFilter(row({}, inDeck), f({})), true);
+});
+
+test("it is on by default", () => {
+  assert.equal(EMPTY_FILTER.availableOnly, true);
+  // A bare /collection means the default, so a sleeved copy is hidden without
+  // anyone having asked — that is the point of the default, and the header
+  // says "(filtered from N)" so it is never silent.
+  assert.equal(matchesFilter(row({}, inDeck), f({})), false);
 });
 
 test("availableOnly is about the row, not the card", () => {
@@ -368,19 +375,23 @@ test("availableOnly is about the row, not the card", () => {
   assert.equal(matchesFilter(row({}, inBinder), f({ availableOnly: true })), true);
 });
 
-test("availableOnly survives the URL round trip", () => {
-  const there = filterToParams(f({ availableOnly: true }));
-  assert.equal(there.get("available"), "1");
-  assert.equal(filterFromParams({ available: "1" }).availableOnly, true);
+test("the URL carries the off state, not the on state", () => {
+  // Written the other way round, every bare /collection link would have to
+  // spell out the default, and a link with no parameters would mean something
+  // different from the page it was copied from.
+  assert.equal(filterToParams(f({ availableOnly: true })).has("available"), false);
+  assert.equal(filterToParams(f({ availableOnly: false })).get("available"), "0");
 
-  // Absent means off, and off is not written to the URL at all.
-  assert.equal(filterToParams(f({ availableOnly: false })).has("available"), false);
-  assert.equal(filterFromParams({}).availableOnly, false);
+  assert.equal(filterFromParams({}).availableOnly, true);
+  assert.equal(filterFromParams({ available: "0" }).availableOnly, false);
+  // Anything else is not "off", including the old "1".
+  assert.equal(filterFromParams({ available: "1" }).availableOnly, true);
 });
 
-test("an unchecked toggle is not an active filter", () => {
-  // `String(false)` is a non-empty string, so a naive count would have called
-  // every default filter active and shown "Advanced (1)" forever.
+test("a filter left at its default is not an active filter", () => {
+  // Counting it would put a permanent "Advanced (1)" and a Clear button on an
+  // untouched page. Turning the default *off* is the deviation worth counting.
   assert.equal(activeFilterCount(EMPTY_FILTER), 0);
-  assert.equal(activeFilterCount(f({ availableOnly: true })), 1);
+  assert.equal(activeFilterCount(f({ availableOnly: true })), 0);
+  assert.equal(activeFilterCount(f({ availableOnly: false })), 1);
 });

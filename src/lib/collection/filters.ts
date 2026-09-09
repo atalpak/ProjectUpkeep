@@ -108,6 +108,12 @@ export type CollectionFilter = {
    * Deliberately about the *row*, not the card: a playset with three sleeved
    * and one in a binder keeps the binder row and drops the deck rows, which is
    * the honest answer to "show me what is free".
+   *
+   * On by default. The collection page's question is "what have I got to build
+   * with", and answering it with three built decks mixed in is answering a
+   * different one. The URL carries `available=0` for the off state rather than
+   * `available=1` for on, so a bare /collection means the default and a shared
+   * link still says exactly what the sender was looking at.
    */
   availableOnly: boolean;
 };
@@ -130,7 +136,7 @@ export const EMPTY_FILTER: CollectionFilter = {
   finish: "",
   language: "",
   location: "",
-  availableOnly: false,
+  availableOnly: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -192,7 +198,8 @@ export function filterFromParams(
     finish: oneOf(get("finish"), FINISHES),
     language: get("language") ?? "",
     location: get("location") ?? "",
-    availableOnly: get("available") === "1",
+    // Absent means the default (on); only an explicit "0" turns it off.
+    availableOnly: get("available") !== "0",
   };
 }
 
@@ -223,7 +230,7 @@ export function filterToParams(filter: CollectionFilter): URLSearchParams {
   set("finish", filter.finish);
   set("language", filter.language);
   set("location", filter.location);
-  if (filter.availableOnly) params.set("available", "1");
+  if (!filter.availableOnly) params.set("available", "0");
 
   return params;
 }
@@ -236,10 +243,14 @@ export function activeFilterCount(filter: CollectionFilter): number {
     if (key === "colorMode") continue;
     if (Array.isArray(value)) count += value.length > 0 ? 1 : 0;
     else if (value === null) continue;
-    // Before booleans existed here every non-array value was stringified, and
-    // `String(false)` is a non-empty string — an unchecked toggle would have
-    // counted as an active criterion forever.
-    else if (typeof value === "boolean") count += value ? 1 : 0;
+    // A boolean is "active" when it differs from the default, not when it is
+    // true: `availableOnly` defaults to on, and counting it would put a
+    // permanent "Advanced (1)" and a Clear button on an untouched page. (The
+    // earlier stringifying branch had the same bug the other way round —
+    // `String(false)` is a non-empty string.)
+    else if (typeof value === "boolean") {
+      count += value === EMPTY_FILTER[key as keyof CollectionFilter] ? 0 : 1;
+    }
     else if (typeof value === "object") count += 1;
     else if (String(value).trim() !== "") count += 1;
   }
