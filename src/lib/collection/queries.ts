@@ -37,7 +37,7 @@ import {
   type CountableRow,
 } from "@/lib/collection/availability";
 import { locateCards, MIN_TERM, type LocatableRow, type LocatedCard } from "@/lib/collection/locate";
-import { summariseValue, type ValueSummary } from "@/lib/collection/pricing";
+import { rowValue, summariseValue, type ValueSummary } from "@/lib/collection/pricing";
 import {
   summariseBreakdown,
   type BreakdownRow,
@@ -142,6 +142,11 @@ function applySqlFilter<T extends { eq: unknown }>(query: T, filter: CollectionF
   // "unsorted" is a real value here, not a missing one.
   if (filter.location === UNSORTED) q = q.is("location_id", null);
   else if (filter.location) q = q.eq("location_id", filter.location);
+
+  // "Not in a deck" — where unsorted (a null location) counts as available,
+  // which is why this is an OR and not a plain `neq`: in SQL a null fails
+  // `location_type <> 'deck'` rather than passing it.
+  if (filter.availableOnly) q = q.or("location_type.is.null,location_type.neq.deck");
 
   if (filter.condition) q = q.eq("condition", filter.condition);
   if (filter.finish) q = q.eq("finish", filter.finish);
@@ -396,22 +401,73 @@ function summarise(all: Location[], instances: CountableInstance[]) {
   };
 }
 
+/** A few card images from a location, so it can show what is inside it. */
+export const LOCATION_PEEK_COUNT = 5;
+
+/** What a location is worth and how varied it is, for the row's summary line. */
+export type LocationStats = {
+  /** Total of everything in here that could be priced. */
+  value: number;
+  /** Cards with no listed price for their finish, so the value is a floor. */
+  unpriced: number;
+  /** Distinct card names, which is what separates a box of singles from a
+   *  brick of the same common. */
+  distinct: number;
+  /**
+   * Rows in `card_instances` — the number the collection page shows when you
+   * click through. Carried so the tile can reconcile the two in its title:
+   * `distinct` counts cards and this counts stacks, and one card held in two
+   * finishes is two stacks.
+   */
+  stacks: number;
+};
+
 /**
  * Locations arranged as parents with their children, plus how many instances
  * sit directly in each. Counting here rather than per-row in the UI keeps the
  * locations page to two queries regardless of how many locations exist.
+ *
+ * Also returns a handful of card images per container. A box is a physical
+ * thing with cards in it, and a page that can only say "188 cards" is asking
+ * the reader to take that on faith; showing five of them makes the container
+ * recognisable as *that* box on the shelf. Read through `collection_entries`
+ * with a bounded limit rather than joining card rows onto the counting query,
+ * which would pull the whole collection back to draw seven rows.
  */
-export async function getLocationTree(): Promise<{
+export const getLocationTree = async (): Promise<{
   tree: LocationNode[];
   unsortedCount: number;
-}> {
+  /** location id (or UNSORTED) -> up to LOCATION_PEEK_COUNT card images. */
+  peek: Map<string, string[]>;
+  /**
+   * Cards filed directly in each location, by id.
+   *
+   * `LocationNode.children` is a plain `Location[]` with no count of its own,
+   * so a nested binder could only ever be drawn without one. Handing back the
+   * map lets every row — nested or not — say how full it is.
+   */
+  counts: Map<string, number>;
+  /** What each location (or UNSORTED) holds, for the summary line. */
+  stats: Map<string, LocationStats>;
+}> => {
   const supabase = await createClient();
 
   const owner = await ownerId();
-  const [{ data: locations, error: locError }, { data: instances, error: instError }] =
+  const [{ data: locations, error: locError }, { data: instances, error: instError }, peekRows] =
     await Promise.all([
       supabase.from("locations").select("*").eq("user_id", owner).order("name", { ascending: true }),
       supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
+      supabase
+        .from("collection_entries")
+        .select(
+          "location_id, card_name, finish, quantity, card_image_uri_small, " +
+            "card_price_usd, card_price_usd_foil, card_price_usd_etched",
+        )
+        .eq("owner_user_id", owner)
+        // Most valuable first: the memorable cards in a box are the ones worth
+        // something, and "five arbitrary commons" would identify nothing.
+        .order("card_price_usd", { ascending: false, nullsFirst: false })
+        .limit(MAX_ROWS),
     ]);
 
   if (locError) throw new Error(`Could not load locations: ${locError.message}`);
@@ -422,8 +478,66 @@ export async function getLocationTree(): Promise<{
     (instances ?? []) as CountableInstance[],
   );
 
-  return { tree, unsortedCount };
-}
+  const peek = new Map<string, string[]>();
+  const stats = new Map<string, LocationStats>();
+  const namesSeen = new Map<string, Set<string>>();
+
+  for (const raw of (peekRows.data ?? []) as unknown as Array<{
+    location_id: string | null;
+    card_name: string;
+    finish: string;
+    quantity: number;
+    card_image_uri_small: string | null;
+    card_price_usd: number | null;
+    card_price_usd_foil: number | null;
+    card_price_usd_etched: number | null;
+  }>) {
+    const key = raw.location_id ?? UNSORTED;
+
+    if (raw.card_image_uri_small) {
+      const shown = peek.get(key) ?? [];
+      if (shown.length < LOCATION_PEEK_COUNT) {
+        shown.push(raw.card_image_uri_small);
+        peek.set(key, shown);
+      }
+    }
+
+    const names = namesSeen.get(key) ?? new Set<string>();
+    names.add(raw.card_name.toLowerCase());
+    namesSeen.set(key, names);
+
+    // Priced through `rowValue`, not the view's own `display_price` column.
+    // They differ deliberately: the column mirrors what the UI *shows*, which
+    // falls back from a missing foil price to the non-foil one, while the
+    // dashboard's total refuses that substitution. Using the column here would
+    // make a location's value quietly exceed the collection value on the
+    // dashboard, and one of the two numbers would be wrong.
+    const value = rowValue({
+      cards: {
+        price_usd: raw.card_price_usd,
+        price_usd_foil: raw.card_price_usd_foil,
+        price_usd_etched: raw.card_price_usd_etched,
+      },
+      finish: raw.finish,
+      quantity: raw.quantity,
+    });
+
+    const current = stats.get(key) ?? { value: 0, unpriced: 0, distinct: 0, stacks: 0 };
+    if (value === null) current.unpriced += raw.quantity;
+    else current.value += value;
+    current.distinct = names.size;
+    current.stacks += 1;
+    stats.set(key, current);
+  }
+
+  const counts = new Map<string, number>();
+  for (const { location_id, quantity } of (instances ?? []) as CountableInstance[]) {
+    if (location_id === null) continue;
+    counts.set(location_id, (counts.get(location_id) ?? 0) + quantity);
+  }
+
+  return { tree, unsortedCount, peek, counts, stats };
+};
 
 export type DashboardSummary = {
   /** What the collection is worth, and what it could not price. */
@@ -731,6 +845,22 @@ export type DeckSummary = Location & {
   uniqueCount: number;
   /** The nominated commander's name, if one is set. */
   commanderName: string | null;
+  /** The commander's art, so a deck row can show its face rather than
+   *  spelling the commander's name and leaving the reader to picture it. */
+  commanderImage: string | null;
+  /** The commander's colour identity — in Commander, the deck's own. Empty
+   *  when there is no commander, which is how a non-Commander deck reads. */
+  commanderColors: string[];
+  /**
+   * Copies physically sleeved into this deck, counted the way the deck page
+   * counts them: per list entry, capped at what that entry asks for, so five
+   * copies against a list wanting four cannot report 125% complete.
+   *
+   * This is the number that makes the row worth reading — every other tool can
+   * say "100 cards", and only this one can say how much of it is really in the
+   * box.
+   */
+  sleevedCount: number;
 };
 
 /**
@@ -742,26 +872,64 @@ export type DeckSummary = Location & {
 export async function getDecks(): Promise<DeckSummary[]> {
   const supabase = await createClient();
 
-  const [{ data: decks, error: deckError }, { data: deckCards, error: dcError }] =
-    await Promise.all([
-      supabase
-        .from("locations")
-        .select("*")
-        .eq("user_id", await ownerId())
-        .eq("type", "deck")
-        .order("name"),
-      supabase.from("deck_cards").select("deck_id, quantity, cards ( name )").limit(MAX_ROWS),
-    ]);
+  const owner = await ownerId();
+
+  const [
+    { data: decks, error: deckError },
+    { data: deckCards, error: dcError },
+    { data: sleeved, error: sleevedError },
+  ] = await Promise.all([
+    supabase
+      .from("locations")
+      .select("*")
+      .eq("user_id", owner)
+      .eq("type", "deck")
+      .order("name"),
+    supabase
+      .from("deck_cards")
+      .select("deck_id, quantity, cards ( name, oracle_id )")
+      .limit(MAX_ROWS),
+    // What is physically in the decks. Scoped to deck locations by the view's
+    // own location_type rather than read from the whole collection — the list
+    // needs what is in the boxes, not what is anywhere.
+    supabase
+      .from("collection_entries")
+      .select("location_id, quantity, card_oracle_id, card_name")
+      .eq("owner_user_id", owner)
+      .eq("location_type", "deck")
+      .limit(MAX_ROWS),
+  ]);
 
   if (deckError) throw new Error(`Could not load decks: ${deckError.message}`);
   if (dcError) throw new Error(`Could not load decklists: ${dcError.message}`);
+  if (sleevedError) {
+    throw new Error(`Could not load what is sleeved: ${sleevedError.message}`);
+  }
+
+  // Physical copies per deck, keyed the way availability keys cards — any
+  // printing of Lightning Bolt is a Lightning Bolt.
+  const sleevedByDeck = new Map<string, Map<string, number>>();
+  for (const raw of (sleeved ?? []) as unknown as Array<{
+    location_id: string | null;
+    quantity: number;
+    card_oracle_id: string | null;
+    card_name: string;
+  }>) {
+    if (!raw.location_id) continue;
+    const key = cardKey({ oracle_id: raw.card_oracle_id, name: raw.card_name });
+    if (!key) continue;
+    const forDeck = sleevedByDeck.get(raw.location_id) ?? new Map<string, number>();
+    forDeck.set(key, (forDeck.get(key) ?? 0) + raw.quantity);
+    sleevedByDeck.set(raw.location_id, forDeck);
+  }
 
   const totalByDeck = new Map<string, number>();
   const namesByDeck = new Map<string, Set<string>>();
+  const sleevedCountByDeck = new Map<string, number>();
   for (const raw of (deckCards ?? []) as unknown as Array<{
     deck_id: string;
     quantity: number;
-    cards: { name: string } | null;
+    cards: { name: string; oracle_id: string | null } | null;
   }>) {
     totalByDeck.set(raw.deck_id, (totalByDeck.get(raw.deck_id) ?? 0) + raw.quantity);
     if (raw.cards?.name) {
@@ -769,6 +937,15 @@ export async function getDecks(): Promise<DeckSummary[]> {
       set.add(raw.cards.name.toLowerCase());
       namesByDeck.set(raw.deck_id, set);
     }
+
+    // Per entry, capped at what the entry asks for — the same rule
+    // `deckProgress` applies, so the row and the deck page cannot disagree.
+    const key = cardKey(raw.cards);
+    const inBox = key ? (sleevedByDeck.get(raw.deck_id)?.get(key) ?? 0) : 0;
+    sleevedCountByDeck.set(
+      raw.deck_id,
+      (sleevedCountByDeck.get(raw.deck_id) ?? 0) + Math.min(inBox, raw.quantity),
+    );
   }
 
   const deckRows = (decks ?? []) as Location[];
@@ -778,28 +955,41 @@ export async function getDecks(): Promise<DeckSummary[]> {
     ...new Set(deckRows.map((d) => d.commander_card_id).filter((v): v is string => !!v)),
   ];
   const commanderNames = new Map<string, string>();
+  const commanderArt = new Map<string, { image: string | null; colors: string[] }>();
   if (commanderIds.length > 0) {
     const { data: cmdCards } = await supabase
       .from("cards")
-      .select("scryfall_id, name, flavor_name")
+      .select("scryfall_id, name, flavor_name, image_uri_small, color_identity")
       .in("scryfall_id", commanderIds);
     for (const c of (cmdCards ?? []) as Array<{
       scryfall_id: string;
       name: string;
       flavor_name: string | null;
+      image_uri_small: string | null;
+      color_identity: string[] | null;
     }>) {
       commanderNames.set(c.scryfall_id, cardDisplayName(c));
+      commanderArt.set(c.scryfall_id, {
+        image: c.image_uri_small,
+        colors: c.color_identity ?? [],
+      });
     }
   }
 
-  return deckRows.map((deck) => ({
-    ...deck,
-    cardCount: totalByDeck.get(deck.id) ?? 0,
-    uniqueCount: namesByDeck.get(deck.id)?.size ?? 0,
-    commanderName: deck.commander_card_id
-      ? (commanderNames.get(deck.commander_card_id) ?? null)
-      : null,
-  }));
+  return deckRows.map((deck) => {
+    const art = deck.commander_card_id ? commanderArt.get(deck.commander_card_id) : undefined;
+    return {
+      ...deck,
+      cardCount: totalByDeck.get(deck.id) ?? 0,
+      uniqueCount: namesByDeck.get(deck.id)?.size ?? 0,
+      sleevedCount: sleevedCountByDeck.get(deck.id) ?? 0,
+      commanderName: deck.commander_card_id
+        ? (commanderNames.get(deck.commander_card_id) ?? null)
+        : null,
+      commanderImage: art?.image ?? null,
+      commanderColors: art?.colors ?? [],
+    };
+  });
 }
 
 /** One deck, or null when the id is not a deck this user owns. */

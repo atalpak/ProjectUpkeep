@@ -191,7 +191,12 @@ export function DeckWorkspace({
             </span>{" "}
             sleeved · {progress.entries} card{progress.entries === 1 ? "" : "s"} on the list
             {progress.missingEntries > 0 ? (
-              <> · {progress.missingEntries} you do not own</>
+              // "Not available", not "you do not own": this counts entries with
+              // no *spare* copies, which includes cards you own that are
+              // sleeved into another deck. Saying you do not own those is
+              // simply false, and it is the kind of wrong number that makes
+              // everything else on the page look untrustworthy.
+              <> · {progress.missingEntries} not available</>
             ) : null}
             {showPrices ? (
               <>
@@ -951,28 +956,37 @@ function GalleryCard({
           </div>
         )}
 
-        {/* The state mark sits on the art itself, which is the only thing shown
-            in this view. */}
-        <span className="absolute left-1.5 top-1.5">
-          <DeckStateMark entry={state} size="lg" />
+      </div>
+
+      {/*
+        The badges live under the card, not on it.
+        
+        On the art they landed on the two places a Magic card puts the things
+        you came to look at: the state mark covered the first letter of the
+        printed name — every card read "koum Hellkite", "roodcaller Scourge" —
+        and the quantity sat on the power/toughness box. There is no safe
+        corner: name top-left, mana cost top-right, P/T bottom-right, set and
+        artist bottom-left. So in the view whose whole purpose is showing the
+        cards, nothing covers them. Scanning still works, because an unplayable
+        card is dimmed as well as marked.
+      */}
+      <div className="flex items-center gap-1.5">
+        <DeckStateMark entry={state} />
+
+        <span className="shrink-0 text-xs tabular-nums text-ink-muted">
+          {entry.quantity}×
         </span>
 
         {isCommander ? (
-          <span
-            className="absolute right-1.5 top-1.5 rounded bg-surface/90 px-1.5 py-0.5 text-[11px] font-semibold text-accent"
-            title="Commander"
-          >
+          <span className="shrink-0 text-xs text-accent" title="Commander" aria-label="Commander">
             ★
           </span>
         ) : null}
 
-        <span className="absolute bottom-1.5 right-1.5 rounded bg-surface/90 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
-          {entry.quantity}×
+        <span className="min-w-0 flex-1 truncate text-xs text-ink-muted">
+          {card ? cardDisplayName(card) : "Unknown card"}
         </span>
-      </div>
 
-      <div className="flex items-center justify-between gap-1">
-        <span className="min-w-0 truncate text-xs text-ink-muted">{card ? cardDisplayName(card) : "Unknown card"}</span>
         <RowActions
           entry={entry}
           deckId={deckId}

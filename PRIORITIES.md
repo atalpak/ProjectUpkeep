@@ -279,14 +279,47 @@ Today there are three overlapping partial implementations —
 and deck-state reconciliation. Build the shared resolver as part of whichever of
 these you do first, and design it to serve the rest.
 
-- [ ] **"Check this list" scratch mode** · medium · *the front door*
-      Paste a Moxfield list → immediately see how many you have free, how many are
-      sleeved elsewhere, what's missing, and who has the missing ones. **Without
-      creating a deck** — with a "save as deck" button if you decide to build it.
-      Matches the real day-one behaviour; browsing five decks on a Sunday should
-      not leave five junk decks behind. Parsing, reconciliation and matching all
-      already exist and are tested — what's missing is running them without
-      persisting.
+- [x] **"Check this list" scratch mode** · done 2026-09-08 · *the front door*
+      Paste a list at `/decks/check` (linked from the Decks page) and see it
+      reconciled against the collection without creating a deck. "Save as deck"
+      is there if you decide to build it, and writes the decklist only — no
+      cards move. As predicted, the pipeline was already there: parsing,
+      printing resolution and availability are the same code the importer and
+      the deck page use, and what was new was running them and stopping.
+
+      **The part that needed new logic.** `deck-state.ts` has three states, and
+      its `missing` folds together "you own it, it is sleeved into your Atarka
+      deck" and "you do not own it". That is right for a deck you are building
+      — neither can be sleeved into this one without a decision — and wrong for
+      a list you are deciding whether to build, where one is a walk to a shelf
+      and the other is a purchase or a trade. So `src/lib/collection/list-check.ts`
+      is its own tested module: ready / in another deck / not owned, with free
+      copies spent before deck copies before the shortfall.
+
+      **The trap it was written around.** A decklist may legitimately name two
+      arts of the same land — 14 of one Forest, 6 of another. Counted per
+      printing, both entries compare against the same "20 free" and both report
+      ready, counting the collection twice. The check folds by card
+      (`oracle_id`) before counting; the deck, when saved, still keeps the
+      printings apart. Verified live: a list asking for 6+4 Forest across two
+      printings reported one entry, "6 free · 4 in another deck".
+
+      **Found and fixed along the way:** the deck page header said "N you do not
+      own", reading `deckProgress.missingEntries` — which counts entries with no
+      *spare* copies, so it included cards sitting in your own other decks. On a
+      13-entry test list it claimed 8 when only 3 were genuinely not owned. Now
+      "N not available", matching what `DECK_STATE_LABELS.missing` has always
+      said. Worth catching before the demo: the pitch is "one sleeved, one free,
+      one I do not own", and a header that miscounts the third invites exactly
+      the correction that makes the rest of the page look untrustworthy.
+
+      **Still open — the "who has the missing ones" half.** Not built, and the
+      shared resolver this tier's preamble asks for is therefore still not
+      built either: this pass is own-collection only, the same scope as
+      `locateInCollection`. It needs friends with real data, which is what
+      Saturday is for. The natural small follow-up before then is bulk-adding
+      the missing cards to the wish list — the wish list page cannot yet take a
+      prefilled card, which is why there is no link to it from a missing row.
 
 - [ ] **Connected deck row** · small–medium · *subset of the above*
       A missing row should read: *not available — Sarah has one in Trade Binder —
@@ -314,11 +347,197 @@ these you do first, and design it to serve the rest.
 
 ---
 
+## UX & design review — done 2026-09-08, three fixed, rest logged
+
+A page-by-page walk through the signed-in app. The three most critical were
+fixed the same day (see below); everything under "Still open" is real but can
+wait for the demo to reorder it.
+
+**The finding that framed the rest:** card art is distributed almost exactly
+opposite to how much each page matters. The dashboard gives six full-size
+images to "recently added" — the least decision-relevant thing in the app —
+while the decks list, the locations list and the collection table have none at
+all, and the collection's 18 optional columns do not include a thumbnail.
+
+- [x] **Deck rows show the deck** · done 2026-09-08
+      The row was a line of text whose loudest element was a red-bordered
+      Delete — the destructive action styled above the deck itself — and it
+      printed "100 cards (72 unique)", which every other collection tool can
+      also print. Now a card: the commander's art as its face, colour-identity
+      pips, and a bar reading "62 of 100 sleeved" or "Ready to play". That last
+      number is the one only this app can print, and it was the one the row left
+      out. Delete moved behind a quiet ⋯.
+      `getDecks` grew the commander's image and colour identity (the commander
+      lookup already existed — two more columns) plus a sleeved count, taken
+      from `collection_entries` scoped to deck locations and capped per entry
+      the same way `deckProgress` caps it, so the row and the deck page cannot
+      disagree. The face shows the **whole card**, not an art crop: any fixed
+      crop lands on the type line of a planeswalker, a saga or a full-art land,
+      and roughly a third of commanders are one of those.
+
+- [x] **"Available" says why it is zero** · done 2026-09-08
+      The column that carries the entire premise of the product rendered as a
+      bare `0`, with the reason — the copy is sleeved into a deck — reachable
+      only by hovering, or by turning on the Location column, which is off by
+      default. A zero that does not say why reads as "you have none", the
+      opposite of the truth: you own it, it is busy. A committed copy now names
+      its deck ("In Atarka, Baby") instead of counting to zero. The mobile row
+      says "Sleeved", since it already prints the location beside it.
+
+- [x] **Touch targets** · done 2026-09-08
+      Measured at 375px: 120 interactive elements under the 44px both Apple and
+      Google call reliably tappable. The worst were the row checkboxes at 16×16
+      — multi-select is how a stack gets moved after a trade — and the pager at
+      26×32, the smallest controls in the app.
+      Fixed through `Button`/`Input` and the pager, the row ⋯ menu, the header
+      icon buttons and the trade/want steppers, all via the existing `coarse:`
+      variant rather than a width breakpoint. That was already the documented
+      house rule (`globals.css`: a narrow laptop window still has a mouse, a
+      wide tablet does not) and the first attempt here got it wrong with `sm:`.
+      Desktop is deliberately unchanged — Apply stays 36px, the pager 26×32.
+      Checkboxes keep their 20px box inside a 44px padded label, so the target
+      grows without a chunky box being drawn.
+
+- [x] **"Not in a deck" toggle on the collection page** · done 2026-09-08
+      A one-click pre-filter beside the search box: hide every copy sleeved
+      into a deck, leaving what is actually free to build with. On a 699-entry
+      collection it drops to 459 entries / 595 cards — exactly the three
+      100-card decks removed.
+      `location` could not express this (it picks one container; this excludes
+      a class of them), so it is a new `availableOnly` flag on the filter,
+      pushed into SQL as `location_type.is.null,location_type.neq.deck` — an OR
+      rather than a plain `neq` because in SQL a null location fails
+      `<> 'deck'` instead of passing it, and unsorted counts as available. It
+      is about the *row*, not the card: a playset with three sleeved and one in
+      a binder keeps the binder row and drops the deck rows, which is the
+      honest answer to "show me what is free".
+      Two things worth remembering: `activeFilterCount` stringified every
+      non-array value, and `String(false)` is truthy as a string — an unchecked
+      toggle would have read as an active filter forever. And the toggle is
+      adjusted during render rather than in an effect, so the back button
+      cannot leave it lying about what is on screen.
+
+      **Now on by default** (2026-09-08). The URL carries `available=0` for the
+      off state rather than `available=1` for on, so a bare /collection means
+      the default and a shared link still says what the sender was looking at.
+      A default is not licence to hide things quietly, so two things go with it:
+      the subtitle says "(filtered from 699)" whenever anything is held back —
+      counted from the numbers, not from `isFilterActive`, which deliberately
+      ignores a filter left at its default — and an empty result offers
+      "Include cards in your decks" first, keeping whatever else is applied.
+      Saying "nothing matches" to someone looking for a card they definitely
+      own is how a tool loses trust.
+
+**Still open, roughly in order of value:**
+
+- [x] **Badges covered the cards in Images mode** · done 2026-09-08
+      The review called this "the name printed twice" and had the mechanism
+      wrong: there was no overlay label. What was actually happening is that
+      both badges landed on the parts of a Magic card you came to look at — the
+      state mark sat on the printed name, so every card read "koum Hellkite",
+      "roodcaller Scourge", and the quantity sat on the power/toughness box.
+      There is no safe corner: name top-left, mana cost top-right, P/T
+      bottom-right, set and artist bottom-left. So in the one view whose
+      purpose is showing the cards, nothing is drawn on them — mark, quantity
+      and commander star moved into the caption row under each card. Scanning
+      still works because an unplayable card is dimmed as well as marked.
+- [x] **Locations, and the tradable switch** · done 2026-09-08 — one job, so
+      done together: the switch is a property of a container, and containers
+      are managed here.
+      Each location now carries a type glyph (shapes, not colours, so a binder
+      / box / deck still read apart in either theme and for a colourblind
+      reader), a fan of its five most valuable cards so a box is recognisable
+      as *that* box rather than a number, and a summary line reading
+      **N cards · N different · $value**.
+      That line first tried to be a progress bar, which was wrong rather than
+      merely redundant: a bar implies a capacity and a box does not have one,
+      so drawn against the fullest location it said "Commons holds more than
+      Lands" — the same thing the numbers beside it said, dressed up as a
+      measurement against a limit that does not exist. The three facts that
+      replaced it are what you want to know before opening a binder: how much,
+      how varied (a brick of one common and a box of singles are different
+      objects — Lands is 115 cards but only 29 different), and what it is
+      worth, which is the first question in any trade.
+      Value is computed through `rowValue`, deliberately *not* the view's own
+      `display_price` column: the column mirrors what the UI shows and falls
+      back from a missing foil price to the non-foil one, while the dashboard's
+      total refuses that substitution. Using the column would have made
+      locations quietly sum to more than the dashboard's collection value.
+      Verified: the seven locations sum to $448.09, the dashboard's figure, to
+      the cent.
+      **"Entries" is now "stacks" across the interface** (2026-09-08), prompted
+      by a fair question: a Commons tile saying "138 different" next to a
+      collection page saying "142 entries" looks like one of them is wrong.
+      Neither is — 138 is card names, 142 is rows, and four of those cards are
+      held in both foil and non-foil, which cannot share a row. But "entries"
+      is a word about a table nobody asked to think about, and it gave no
+      reason to expect the two to differ. "Stack" is the app's own word for the
+      physical thing (see `stacking.ts`), it explains itself, and nobody expects
+      "different cards" and "stacks" to be equal. The tile now names its unit
+      too — "138 different cards" — and its title spells the reconciliation out.
+      Nested rows can show a card count for the first time — `LocationNode.children`
+      is a plain `Location[]` with no count attached, so `getLocationTree` now
+      hands back the map it was already building. All of it comes from one
+      bounded pass over `collection_entries`.
+      **The switch** now sits on every non-deck row, and while nothing at all is
+      open there is a banner at the top of the page saying so in plain terms.
+      Marking a container tradable is the only thing that makes any card
+      visible to another person, and it lived five sections down the Friends
+      page; the usual outcome was a collection nobody could see and a trading
+      half that silently did nothing. It is still on Friends too — both read
+      and write the same column, verified.
+      Also: the create form is behind a "New location" button rather than
+      sitting open above the list, so the page opens on the shelf it describes
+      instead of on data entry; and Delete moved into a ⋯ menu.
+
+      **Grouped by kind** (2026-09-08): Binders, Boxes, Decks, Other, each with
+      its own count of locations and cards, empty kinds omitted. Sections
+      collapse and the choice is remembered per browser — worth having mainly
+      for Decks, which now have a far richer page of their own, so someone here
+      to manage boxes can fold them away. Default open: collapsing is a
+      decision someone makes, not a state to arrive in. Stored through
+      `useSyncExternalStore` for the reason `columns.ts` documents — reading
+      localStorage during the first render disagrees with the server HTML, and
+      reading it in an effect is what React now warns about.
+
+      **"Container" is gone from the wording** — it was jargon for a thing the
+      page already calls a location, including in the nesting error message.
+      Still said on the Friends page, the trade builder and the terms page;
+      those are a separate pass.
+      `Location.is_tradable` is now on the type rather than cast at each call
+      site (`not null default false` since migration 9).
+- [ ] **Optional thumbnail column in the collection table** · small
+      Eighteen columns, none of them an image. The card panel covers hovering,
+      but a thumbnail column would make scanning a shelf feel like cards.
+- [x] ~~**Live search**~~ — withdrawn 2026-09-08, the review was wrong. The name
+      box already filters as you type (debounced 300ms, and it `replace`s so a
+      search is one history entry rather than one per keystroke). Apply belongs
+      to the advanced panel only.
+- [ ] **Pager only at the bottom** · trivial
+      On a 50-row page, changing page means scrolling the whole page first.
+- [ ] **Friends page does too much; Wish List and Add a card do too little**
+      Friends stacks trades, activity, terms, search, friend list and container
+      privacy on one page. Wish List is one input and an empty state; Add a
+      card is one input on an otherwise blank page. Fold into the IA item below
+      rather than fixing piecemeal.
+- [ ] **Dashboard: "By colour" is visually orphaned** · trivial
+      A bare row of pips floating in a half-empty column beside "By set", which
+      is a full card with bars. Same kind of information, wildly different
+      weight. Fold into the dashboard reframe below.
+- [ ] **"Recently added" repeats a card** · trivial
+      Two entries of the same card show as two identical tiles. Dedupe by card
+      and show a count.
+
+---
+
 ## Tier 3 — conditional, after real usage
 
 - [ ] **Dashboard reframe** — currently leads with inventory stats (value, count,
       unsorted). The product's question is "what can I build, who has what I
-      want." Wait until the demo so their reaction shapes it.
+      want." Wait until the demo so their reaction shapes it. The 2026-09-08
+      review adds: six full-size card images are spent on "recently added",
+      nothing on the page links to "Check a list", and none of the four tiles
+      is actionable.
 - [ ] **Import reads a per-row location column** — would remove the biggest
       onboarding tax. Sized by whether ManaBox can export per binder.
 - [ ] **Navigation / IA** — ten destinations, with Find / header search / Wants

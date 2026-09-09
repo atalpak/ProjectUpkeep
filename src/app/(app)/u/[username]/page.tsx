@@ -98,7 +98,7 @@ export default async function ProfilePage({
         title={profile.username}
         subtitle={
           isFriend
-            ? `${theirCards.length} entries open for trade`
+            ? `${theirCards.length} stacks open for trade`
             : "You are not friends yet."
         }
         backHref="/friends"

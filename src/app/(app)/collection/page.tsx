@@ -55,10 +55,23 @@ export default async function CollectionPage({
   const totalCards = collection.matchedCards;
   const filtered = isFilterActive(filter);
 
+  // Whether anything is being held back, by *any* criterion including the
+  // default one. `isFilterActive` deliberately ignores a filter left at its
+  // default, which is right for the "Advanced (3)" badge and wrong here: the
+  // subtitle would then report 459 entries as if that were the whole
+  // collection. A default that hides 240 rows must still say so.
+  const hidingSome = collection.matched < collection.total;
+
+  // Where "include cards in my decks" points. Built from the current filter so
+  // it keeps whatever else is applied — someone searching for a card they own
+  // exactly one of, sleeved, should get their search back with the decks
+  // included, not a reset page.
+  const withDecksHref = `/collection?${filterToParams({ ...filter, availableOnly: false })}`;
+
   // The export route takes the same filter parameters, so "export what I am
   // looking at" stays true.
   const exportParams = filterToParams(filter);
-  if (filtered) exportParams.set("filtered", "1");
+  if (hidingSome) exportParams.set("filtered", "1");
   const exportHref = `/api/collection/export?${exportParams.toString()}`;
 
   return (
@@ -67,9 +80,15 @@ export default async function CollectionPage({
         title="Collection"
         subtitle={
           <>
-            {totalCards} card{totalCards === 1 ? "" : "s"} in {collection.matched} entr
-            {collection.matched === 1 ? "y" : "ies"}
-            {filtered ? ` (filtered from ${collection.total})` : ""}
+            {/* "Stacks", not "entries". An entry is a row in a table nobody
+                asked to think about; a stack is the physical thing — four
+                identical commons rubber-banded together — and it is the app's
+                own word for it (see stacking.ts). It also makes the difference
+                from a location tile's "138 different cards" self-evident: a
+                foil and a non-foil of one card are two stacks. */}
+            {totalCards} card{totalCards === 1 ? "" : "s"} in {collection.matched} stack
+            {collection.matched === 1 ? "" : "s"}
+            {hidingSome ? ` (filtered from ${collection.total})` : ""}
           </>
         }
         actions={
@@ -79,7 +98,7 @@ export default async function CollectionPage({
                 // Generated on click rather than inlined here: the page is
                 // paginated, so it no longer holds every row to serialise.
                 source={{ kind: "remote", href: exportHref }}
-                filenameBase={filtered ? "collection-filtered" : "collection"}
+                filenameBase={hidingSome ? "collection-filtered" : "collection"}
               />
             ) : null}
             <Link href="/collection/import">
@@ -97,13 +116,52 @@ export default async function CollectionPage({
       {collection.truncated ? (
         <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-ink-muted">
           This filter is one the database cannot answer on its own, so only the first{" "}
-          {collection.matched} matching entries were searched. Narrowing by set, location or
+          {collection.matched} matching stacks were searched. Narrowing by set, location or
           condition first will cover the whole collection.
         </p>
       ) : null}
 
       {collection.rows.length === 0 ? (
-        filtered ? (
+        collection.total === 0 ? (
+          <EmptyState title="Your collection is empty.">
+            <p>
+              <Link href="/collection/add" className="text-accent underline">
+                Add your first card
+              </Link>{" "}
+              or{" "}
+              <Link href="/collection/import" className="text-accent underline">
+                import a list
+              </Link>{" "}
+              to get started.
+            </p>
+          </EmptyState>
+        ) : filter.availableOnly ? (
+          // The default hides sleeved copies, so an empty result is far more
+          // often "it is all in a deck" than "you do not own it" — and saying
+          // "nothing matches" to someone looking at a card they definitely own
+          // is how a tool loses trust. Offer the way back before anything else.
+          <EmptyState
+            title={
+              filtered
+                ? "Nothing matches, among the cards not in a deck."
+                : "Every copy you own is sleeved into a deck."
+            }
+          >
+            <p>
+              <Link href={withDecksHref} className="text-accent underline">
+                Include cards in your decks
+              </Link>
+              {filtered ? (
+                <>
+                  {" · "}
+                  <Link href="/collection" className="text-accent underline">
+                    Clear the filters
+                  </Link>
+                </>
+              ) : null}
+            </p>
+          </EmptyState>
+        ) : filtered ? (
           <EmptyState title="Nothing matches those filters.">
             <Link href="/collection" className="text-accent underline">
               Clear the filters

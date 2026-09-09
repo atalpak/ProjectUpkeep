@@ -249,7 +249,7 @@ export function HeaderSearch() {
         href="/find"
         aria-label="Find a card"
         title="Find a card"
-        className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink lg:hidden"
+        className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink coarse:size-11 lg:hidden"
       >
         <SearchIcon className="size-4" />
       </Link>
