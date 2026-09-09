@@ -191,7 +191,12 @@ export function DeckWorkspace({
             </span>{" "}
             sleeved · {progress.entries} card{progress.entries === 1 ? "" : "s"} on the list
             {progress.missingEntries > 0 ? (
-              <> · {progress.missingEntries} you do not own</>
+              // "Not available", not "you do not own": this counts entries with
+              // no *spare* copies, which includes cards you own that are
+              // sleeved into another deck. Saying you do not own those is
+              // simply false, and it is the kind of wrong number that makes
+              // everything else on the page look untrustworthy.
+              <> · {progress.missingEntries} not available</>
             ) : null}
             {showPrices ? (
               <>

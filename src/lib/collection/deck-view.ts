@@ -18,7 +18,14 @@ import type { Card } from "@/lib/types";
 export type GroupableRow = {
   id: string;
   quantity: number;
-  cards: Card | null;
+  /**
+   * Only the fields grouping and sorting actually read, rather than a whole
+   * `Card`. A `Card` still satisfies this, so every existing caller is
+   * unaffected — but a screen that selected a narrow slice of card columns (the
+   * list check does) can group with the same rules instead of growing its own
+   * copy of them.
+   */
+  cards: Pick<Card, "name" | "type_line" | "cmc" | "rarity" | "colors"> | null;
 };
 
 export const DECK_SECTIONS = [
