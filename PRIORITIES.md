@@ -465,6 +465,16 @@ all, and the collection's 18 optional columns do not include a thumbnail.
       locations quietly sum to more than the dashboard's collection value.
       Verified: the seven locations sum to $448.09, the dashboard's figure, to
       the cent.
+      **"Entries" is now "stacks" across the interface** (2026-09-08), prompted
+      by a fair question: a Commons tile saying "138 different" next to a
+      collection page saying "142 entries" looks like one of them is wrong.
+      Neither is — 138 is card names, 142 is rows, and four of those cards are
+      held in both foil and non-foil, which cannot share a row. But "entries"
+      is a word about a table nobody asked to think about, and it gave no
+      reason to expect the two to differ. "Stack" is the app's own word for the
+      physical thing (see `stacking.ts`), it explains itself, and nobody expects
+      "different cards" and "stacks" to be equal. The tile now names its unit
+      too — "138 different cards" — and its title spells the reconciliation out.
       Nested rows can show a card count for the first time — `LocationNode.children`
       is a plain `Location[]` with no count attached, so `getLocationTree` now
       hands back the map it was already building. All of it comes from one
