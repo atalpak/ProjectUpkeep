@@ -279,14 +279,47 @@ Today there are three overlapping partial implementations —
 and deck-state reconciliation. Build the shared resolver as part of whichever of
 these you do first, and design it to serve the rest.
 
-- [ ] **"Check this list" scratch mode** · medium · *the front door*
-      Paste a Moxfield list → immediately see how many you have free, how many are
-      sleeved elsewhere, what's missing, and who has the missing ones. **Without
-      creating a deck** — with a "save as deck" button if you decide to build it.
-      Matches the real day-one behaviour; browsing five decks on a Sunday should
-      not leave five junk decks behind. Parsing, reconciliation and matching all
-      already exist and are tested — what's missing is running them without
-      persisting.
+- [x] **"Check this list" scratch mode** · done 2026-09-08 · *the front door*
+      Paste a list at `/decks/check` (linked from the Decks page) and see it
+      reconciled against the collection without creating a deck. "Save as deck"
+      is there if you decide to build it, and writes the decklist only — no
+      cards move. As predicted, the pipeline was already there: parsing,
+      printing resolution and availability are the same code the importer and
+      the deck page use, and what was new was running them and stopping.
+
+      **The part that needed new logic.** `deck-state.ts` has three states, and
+      its `missing` folds together "you own it, it is sleeved into your Atarka
+      deck" and "you do not own it". That is right for a deck you are building
+      — neither can be sleeved into this one without a decision — and wrong for
+      a list you are deciding whether to build, where one is a walk to a shelf
+      and the other is a purchase or a trade. So `src/lib/collection/list-check.ts`
+      is its own tested module: ready / in another deck / not owned, with free
+      copies spent before deck copies before the shortfall.
+
+      **The trap it was written around.** A decklist may legitimately name two
+      arts of the same land — 14 of one Forest, 6 of another. Counted per
+      printing, both entries compare against the same "20 free" and both report
+      ready, counting the collection twice. The check folds by card
+      (`oracle_id`) before counting; the deck, when saved, still keeps the
+      printings apart. Verified live: a list asking for 6+4 Forest across two
+      printings reported one entry, "6 free · 4 in another deck".
+
+      **Found and fixed along the way:** the deck page header said "N you do not
+      own", reading `deckProgress.missingEntries` — which counts entries with no
+      *spare* copies, so it included cards sitting in your own other decks. On a
+      13-entry test list it claimed 8 when only 3 were genuinely not owned. Now
+      "N not available", matching what `DECK_STATE_LABELS.missing` has always
+      said. Worth catching before the demo: the pitch is "one sleeved, one free,
+      one I do not own", and a header that miscounts the third invites exactly
+      the correction that makes the rest of the page look untrustworthy.
+
+      **Still open — the "who has the missing ones" half.** Not built, and the
+      shared resolver this tier's preamble asks for is therefore still not
+      built either: this pass is own-collection only, the same scope as
+      `locateInCollection`. It needs friends with real data, which is what
+      Saturday is for. The natural small follow-up before then is bulk-adding
+      the missing cards to the wish list — the wish list page cannot yet take a
+      prefilled card, which is why there is no link to it from a missing row.
 
 - [ ] **Connected deck row** · small–medium · *subset of the above*
       A missing row should read: *not available — Sarah has one in Trade Binder —
