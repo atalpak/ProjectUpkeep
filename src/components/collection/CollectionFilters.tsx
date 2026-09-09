@@ -78,6 +78,32 @@ export function CollectionFilters({
     return () => clearTimeout(timer);
   }, [draft.name, initial, router]);
 
+  /**
+   * The one criterion that navigates on its own.
+   *
+   * Built from `initial` rather than `draft` so flipping it never silently
+   * commits half-finished advanced criteria the reader has typed but not
+   * applied — the toggle changes one thing, and only that thing.
+   */
+  function toggleAvailableOnly() {
+    const next = !draft.availableOnly;
+    set("availableOnly", next);
+    const params = filterToParams({ ...initial, availableOnly: next });
+    router.push(params.toString() ? `/collection?${params}` : "/collection");
+  }
+
+  // The toggle shows `draft` so it moves the instant it is clicked, but the URL
+  // is the truth — a back button, or a link into a filtered view, changes
+  // `initial` under a draft that would otherwise stay stale and lie about what
+  // is on screen. Adjusted during render rather than in an effect: React
+  // re-runs this component before touching the DOM, so there is no flash of the
+  // wrong state, and no second paint.
+  const [syncedAvailableOnly, setSyncedAvailableOnly] = useState(initial.availableOnly);
+  if (syncedAvailableOnly !== initial.availableOnly) {
+    setSyncedAvailableOnly(initial.availableOnly);
+    setDraft((prev) => ({ ...prev, availableOnly: initial.availableOnly }));
+  }
+
   function clear() {
     setDraft(EMPTY_FILTER);
     router.push("/collection");
@@ -100,6 +126,39 @@ export function CollectionFilters({
             placeholder="Card name"
           />
         </label>
+
+        {/* Applies on click rather than waiting for Apply. It is a one-click
+            view switch, not a criterion you compose with others, and making
+            someone press a second button to see it would undo the point. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={draft.availableOnly}
+          onClick={() => toggleAvailableOnly()}
+          title="Hide copies that are sleeved into a deck"
+          className={cx(
+            "inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-medium transition-colors coarse:min-h-11",
+            draft.availableOnly
+              ? "border-accent bg-accent-soft text-ink"
+              : "border-border text-ink-muted hover:bg-surface-muted",
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className={cx(
+              "flex h-4 w-7 shrink-0 items-center rounded-full px-0.5 transition-colors",
+              draft.availableOnly ? "bg-accent" : "bg-surface-muted",
+            )}
+          >
+            <span
+              className={cx(
+                "size-3 rounded-full bg-surface transition-transform",
+                draft.availableOnly && "translate-x-3",
+              )}
+            />
+          </span>
+          Not in a deck
+        </button>
 
         <Button type="button" variant="secondary" onClick={() => setOpen((v) => !v)}>
           Advanced{activeCount > 0 ? ` (${activeCount})` : ""}

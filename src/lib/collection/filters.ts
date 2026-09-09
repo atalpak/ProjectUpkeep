@@ -97,6 +97,19 @@ export type CollectionFilter = {
   language: string;
   /** A location id, UNSORTED, or "" for everywhere. */
   location: string;
+  /**
+   * Hide copies that are sleeved into a deck.
+   *
+   * A one-click pre-filter rather than another advanced criterion, because it
+   * is the question the collection page exists to answer — "what have I
+   * actually got to build with?" — and `location` cannot express it: that
+   * picks one container, and this excludes a whole class of them.
+   *
+   * Deliberately about the *row*, not the card: a playset with three sleeved
+   * and one in a binder keeps the binder row and drops the deck rows, which is
+   * the honest answer to "show me what is free".
+   */
+  availableOnly: boolean;
 };
 
 export const EMPTY_FILTER: CollectionFilter = {
@@ -117,6 +130,7 @@ export const EMPTY_FILTER: CollectionFilter = {
   finish: "",
   language: "",
   location: "",
+  availableOnly: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -178,6 +192,7 @@ export function filterFromParams(
     finish: oneOf(get("finish"), FINISHES),
     language: get("language") ?? "",
     location: get("location") ?? "",
+    availableOnly: get("available") === "1",
   };
 }
 
@@ -208,6 +223,7 @@ export function filterToParams(filter: CollectionFilter): URLSearchParams {
   set("finish", filter.finish);
   set("language", filter.language);
   set("location", filter.location);
+  if (filter.availableOnly) params.set("available", "1");
 
   return params;
 }
@@ -220,6 +236,10 @@ export function activeFilterCount(filter: CollectionFilter): number {
     if (key === "colorMode") continue;
     if (Array.isArray(value)) count += value.length > 0 ? 1 : 0;
     else if (value === null) continue;
+    // Before booleans existed here every non-array value was stringified, and
+    // `String(false)` is a non-empty string — an unchecked toggle would have
+    // counted as an active criterion forever.
+    else if (typeof value === "boolean") count += value ? 1 : 0;
     else if (typeof value === "object") count += 1;
     else if (String(value).trim() !== "") count += 1;
   }
@@ -423,6 +443,11 @@ export function matchesFilter(row: CardInstanceWithCard, filter: CollectionFilte
   } else if (filter.location && row.location_id !== filter.location) {
     return false;
   }
+
+  // Unsorted counts as available: a copy is committed only by sitting in a
+  // deck. Same rule as `isCommitted` in availability.ts and the SQL in
+  // applySqlFilter — three places that must agree, and do.
+  if (filter.availableOnly && row.locations?.type === "deck") return false;
 
   // A row whose printing is missing cannot satisfy any card-level criterion.
   // card_id is NOT NULL with a foreign key, so this should be unreachable — but

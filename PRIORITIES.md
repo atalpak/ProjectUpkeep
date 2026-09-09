@@ -398,6 +398,25 @@ all, and the collection's 18 optional columns do not include a thumbnail.
       Checkboxes keep their 20px box inside a 44px padded label, so the target
       grows without a chunky box being drawn.
 
+- [x] **"Not in a deck" toggle on the collection page** · done 2026-09-08
+      A one-click pre-filter beside the search box: hide every copy sleeved
+      into a deck, leaving what is actually free to build with. On a 699-entry
+      collection it drops to 459 entries / 595 cards — exactly the three
+      100-card decks removed.
+      `location` could not express this (it picks one container; this excludes
+      a class of them), so it is a new `availableOnly` flag on the filter,
+      pushed into SQL as `location_type.is.null,location_type.neq.deck` — an OR
+      rather than a plain `neq` because in SQL a null location fails
+      `<> 'deck'` instead of passing it, and unsorted counts as available. It
+      is about the *row*, not the card: a playset with three sleeved and one in
+      a binder keeps the binder row and drops the deck rows, which is the
+      honest answer to "show me what is free".
+      Two things worth remembering: `activeFilterCount` stringified every
+      non-array value, and `String(false)` is truthy as a string — an unchecked
+      toggle would have read as an active filter forever. And the toggle is
+      adjusted during render rather than in an effect, so the back button
+      cannot leave it lying about what is on screen.
+
 **Still open, roughly in order of value:**
 
 - [ ] **Images mode prints every card's name twice** · small
@@ -420,9 +439,10 @@ all, and the collection's 18 optional columns do not include a thumbnail.
 - [ ] **Optional thumbnail column in the collection table** · small
       Eighteen columns, none of them an image. The card panel covers hovering,
       but a thumbnail column would make scanning a shelf feel like cards.
-- [ ] **Live search** · small
-      The collection search needs an explicit Apply. Filtering as you type
-      would make the page feel much faster than it now does.
+- [x] ~~**Live search**~~ — withdrawn 2026-09-08, the review was wrong. The name
+      box already filters as you type (debounced 300ms, and it `replace`s so a
+      search is one history entry rather than one per keystroke). Apply belongs
+      to the advanced panel only.
 - [ ] **Pager only at the bottom** · trivial
       On a 50-row page, changing page means scrolling the whole page first.
 - [ ] **Friends page does too much; Wish List and Add a card do too little**

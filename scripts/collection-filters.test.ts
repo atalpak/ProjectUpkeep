@@ -337,3 +337,50 @@ test("the active count drives the badge", () => {
     "the mode qualifies the colours rather than counting as its own criterion",
   );
 });
+
+// ---------------------------------------------------------------------------
+// "Not in a deck"
+// ---------------------------------------------------------------------------
+
+const inDeck = { location_id: "deck-1", locations: { id: "deck-1", name: "Atarka, Baby", type: "deck" as const } };
+const inBinder = { location_id: "binder-1", locations: { id: "binder-1", name: "Commons", type: "box" as const } };
+const unsorted = { location_id: null, locations: null };
+
+test("availableOnly drops copies sleeved into a deck", () => {
+  assert.equal(matchesFilter(row({}, inDeck), f({ availableOnly: true })), false);
+  assert.equal(matchesFilter(row({}, inBinder), f({ availableOnly: true })), true);
+});
+
+test("unsorted counts as available — a copy is committed only by being in a deck", () => {
+  assert.equal(matchesFilter(row({}, unsorted), f({ availableOnly: true })), true);
+});
+
+test("availableOnly off changes nothing", () => {
+  assert.equal(matchesFilter(row({}, inDeck), f({ availableOnly: false })), true);
+  assert.equal(matchesFilter(row({}, inDeck), f({})), true);
+});
+
+test("availableOnly is about the row, not the card", () => {
+  // Three sleeved and one in a binder: the binder row survives, the deck row
+  // does not. "Show me what is free" must not answer with the sleeved copies
+  // just because some other copy of the same card is free.
+  assert.equal(matchesFilter(row({}, inDeck), f({ availableOnly: true })), false);
+  assert.equal(matchesFilter(row({}, inBinder), f({ availableOnly: true })), true);
+});
+
+test("availableOnly survives the URL round trip", () => {
+  const there = filterToParams(f({ availableOnly: true }));
+  assert.equal(there.get("available"), "1");
+  assert.equal(filterFromParams({ available: "1" }).availableOnly, true);
+
+  // Absent means off, and off is not written to the URL at all.
+  assert.equal(filterToParams(f({ availableOnly: false })).has("available"), false);
+  assert.equal(filterFromParams({}).availableOnly, false);
+});
+
+test("an unchecked toggle is not an active filter", () => {
+  // `String(false)` is a non-empty string, so a naive count would have called
+  // every default filter active and shown "Advanced (1)" forever.
+  assert.equal(activeFilterCount(EMPTY_FILTER), 0);
+  assert.equal(activeFilterCount(f({ availableOnly: true })), 1);
+});

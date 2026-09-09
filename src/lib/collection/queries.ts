@@ -143,6 +143,11 @@ function applySqlFilter<T extends { eq: unknown }>(query: T, filter: CollectionF
   if (filter.location === UNSORTED) q = q.is("location_id", null);
   else if (filter.location) q = q.eq("location_id", filter.location);
 
+  // "Not in a deck" — where unsorted (a null location) counts as available,
+  // which is why this is an OR and not a plain `neq`: in SQL a null fails
+  // `location_type <> 'deck'` rather than passing it.
+  if (filter.availableOnly) q = q.or("location_type.is.null,location_type.neq.deck");
+
   if (filter.condition) q = q.eq("condition", filter.condition);
   if (filter.finish) q = q.eq("finish", filter.finish);
   if (filter.language) q = q.eq("language", filter.language);
