@@ -459,9 +459,24 @@ all, and the collection's 18 optional columns do not include a thumbnail.
       page; the usual outcome was a collection nobody could see and a trading
       half that silently did nothing. It is still on Friends too — both read
       and write the same column, verified.
-      Also: the create form is behind a "New container" button rather than
+      Also: the create form is behind a "New location" button rather than
       sitting open above the list, so the page opens on the shelf it describes
       instead of on data entry; and Delete moved into a ⋯ menu.
+
+      **Grouped by kind** (2026-09-08): Binders, Boxes, Decks, Other, each with
+      its own count of locations and cards, empty kinds omitted. Sections
+      collapse and the choice is remembered per browser — worth having mainly
+      for Decks, which now have a far richer page of their own, so someone here
+      to manage boxes can fold them away. Default open: collapsing is a
+      decision someone makes, not a state to arrive in. Stored through
+      `useSyncExternalStore` for the reason `columns.ts` documents — reading
+      localStorage during the first render disagrees with the server HTML, and
+      reading it in an effect is what React now warns about.
+
+      **"Container" is gone from the wording** — it was jargon for a thing the
+      page already calls a location, including in the nesting error message.
+      Still said on the Friends page, the trade builder and the terms page;
+      those are a separate pass.
       `Location.is_tradable` is now on the type rather than cast at each call
       site (`not null default false` since migration 9).
 - [ ] **Optional thumbnail column in the collection table** · small
