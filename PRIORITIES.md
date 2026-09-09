@@ -417,25 +417,53 @@ all, and the collection's 18 optional columns do not include a thumbnail.
       adjusted during render rather than in an effect, so the back button
       cannot leave it lying about what is on screen.
 
+      **Now on by default** (2026-09-08). The URL carries `available=0` for the
+      off state rather than `available=1` for on, so a bare /collection means
+      the default and a shared link still says what the sender was looking at.
+      A default is not licence to hide things quietly, so two things go with it:
+      the subtitle says "(filtered from 699)" whenever anything is held back —
+      counted from the numbers, not from `isFilterActive`, which deliberately
+      ignores a filter left at its default — and an empty result offers
+      "Include cards in your decks" first, keeping whatever else is applied.
+      Saying "nothing matches" to someone looking for a card they definitely
+      own is how a tool loses trust.
+
 **Still open, roughly in order of value:**
 
-- [ ] **Images mode prints every card's name twice** · small
-      On a deck's Images view, an overlay label sits on top of the card's own
-      printed title bar *and* the same name repeats as a caption underneath.
-      Drop the overlay, move the mana cost into the caption. Cheapest visible
-      win left on the list.
-- [ ] **Locations has no sense of place** · small–medium
-      Flat text rows with Rename/Delete. No icon separating a binder from a box
-      from a deck, no fill indicator, no peek at what is inside, and the
-      nesting the model supports is invisible. Type icons, a fill bar and three
-      or four thumbnails per location would make the physical-location idea
-      feel real — it is the concept the whole product rests on and its page
-      looks like a database table.
-- [ ] **The tradable switch is the most buried control in the app** · small
-      "What your friends can see" is the fifth section down the Friends page,
-      and it is what makes the entire social half function. Every friend who
-      imports a binder on demo night has to find it, and most will not.
-      Surface it — on the locations page, or as a prompt after an import.
+- [x] **Badges covered the cards in Images mode** · done 2026-09-08
+      The review called this "the name printed twice" and had the mechanism
+      wrong: there was no overlay label. What was actually happening is that
+      both badges landed on the parts of a Magic card you came to look at — the
+      state mark sat on the printed name, so every card read "koum Hellkite",
+      "roodcaller Scourge", and the quantity sat on the power/toughness box.
+      There is no safe corner: name top-left, mana cost top-right, P/T
+      bottom-right, set and artist bottom-left. So in the one view whose
+      purpose is showing the cards, nothing is drawn on them — mark, quantity
+      and commander star moved into the caption row under each card. Scanning
+      still works because an unplayable card is dimmed as well as marked.
+- [x] **Locations, and the tradable switch** · done 2026-09-08 — one job, so
+      done together: the switch is a property of a container, and containers
+      are managed here.
+      Each container now carries a type glyph (shapes, not colours, so a binder
+      / box / deck still read apart in either theme and for a colourblind
+      reader), a fill bar drawn against the fullest container rather than the
+      whole collection, a card count — including on nested rows, which could
+      never have one before because `LocationNode.children` is a plain
+      `Location[]` with no count attached — and a fan of its five most valuable
+      cards, so a box is recognisable as *that* box rather than a number.
+      Peeks come from `collection_entries` ordered by price, one bounded query.
+      **The switch** now sits on every non-deck row, and while nothing at all is
+      open there is a banner at the top of the page saying so in plain terms.
+      Marking a container tradable is the only thing that makes any card
+      visible to another person, and it lived five sections down the Friends
+      page; the usual outcome was a collection nobody could see and a trading
+      half that silently did nothing. It is still on Friends too — both read
+      and write the same column, verified.
+      Also: the create form is behind a "New container" button rather than
+      sitting open above the list, so the page opens on the shelf it describes
+      instead of on data entry; and Delete moved into a ⋯ menu.
+      `Location.is_tradable` is now on the type rather than cast at each call
+      site (`not null default false` since migration 9).
 - [ ] **Optional thumbnail column in the collection table** · small
       Eighteen columns, none of them an image. The card panel covers hovering,
       but a thumbnail column would make scanning a shelf feel like cards.
