@@ -13,6 +13,46 @@ discovery, this app is for reconciliation — do not build a deck editor.
 
 ---
 
+## START HERE — next session
+
+Written 2026-09-08, with the demo on **Saturday 2026-09-12, four days out**.
+In order. The first two are not code.
+
+1. **Check the signup email setting.** Supabase → Project Settings →
+   Authentication → is custom SMTP configured, or is it the built-in sender?
+   Production has email confirmation ON (`config.toml` says so, and
+   `signUp` handles the no-session case by telling people to check their
+   inbox). Supabase's built-in sender is rate-limited and meant for testing,
+   so several friends signing up within minutes of each other will hit the
+   wall and friends two through four never get their link. That kills the
+   single most valuable moment of the night — "import your trade binder while
+   I am sitting here" — and it is invisible until it happens. If it is the
+   default sender: wire up a real one (Resend or similar, about an hour) or
+   turn confirmations off for the weekend and back on after.
+
+2. **Designate a trade binder and switch it on.** Still not done — verified
+   2026-09-08, nothing at all is open for trade, so the entire social half is
+   inert. The switch is now on every non-deck row of the locations page and
+   the page nags while nothing is open. Which binder is a judgement call, so
+   it was deliberately left alone. **Also: "F#$k You Pay Me" is back in the
+   locations list with 0 cards** — it was one of the four demo assets (a deck
+   mid-build, 2 of 95 sleeved), so it needs refilling if it is still wanted.
+
+3. **Deck list invariant test** (~1 hour, Tier 1 below). `deck_cards` is both
+   the intended list and the record of what is filed, synced asymmetrically,
+   and it has silently corrupted once already. Friends importing real files on
+   demo night is exactly the situation that breaks it again. The harness
+   exists (`scripts/verify-migrations.sh`).
+
+4. **Friday: dry-run the whole demo**, including signing up a throwaway
+   account the way a friend would. Do not touch the code on Saturday.
+
+**After the demo**, the Scryfall data section below is the best-value work
+queued — start with Commander legality + Game Changers, and take the price
+snapshot early because it is the one item that cannot be backfilled.
+
+---
+
 ## Tier 0 — before the demo
 
 - [x] **Reset and repopulate your own data** · done 2026-09-07
@@ -527,6 +567,87 @@ all, and the collection's 18 optional columns do not include a thumbnail.
 - [ ] **"Recently added" repeats a card** · trivial
       Two entries of the same card show as two identical tiles. Dedupe by card
       and show a count.
+
+---
+
+## Scryfall data we already pay for and do not use — reviewed 2026-09-08
+
+A Scryfall card object has **64 top-level fields**; we store about 30. There are
+also three bulk files we never download: rulings, art tags and oracle tags.
+Most of the gap is rightly ignored — MTGO and Arena ids, ticket prices, art
+metadata. Every item below was checked against a live card object and against
+the real collection, not from memory.
+
+Adding a field costs a migration, a line in `toCardRow`, and a slower sync;
+the sync is already splitting chunks to stay under the statement timeout (see
+the sync entry above), so this is not free forever. Take them in ones and twos.
+
+- [ ] **Commander legality + Game Changers** · small · *the one to do first*
+      `legalities.commander` and `game_changer`, two columns off the card
+      object. Verified live: **Mana Crypt reads `banned`**, and 53 cards carry
+      the Game Changer flag (Rhystic Study among them).
+      A deck could then read: *"100 cards · 1 banned in Commander · 2 Game
+      Changers."* Game Changer count is one of the inputs to the Commander
+      Brackets system, which is the argument every playgroup is currently
+      having — so this says something no other collection tool says, to exactly
+      the people at the table.
+      Not a deck editor: it is a fact about a deck, the same shape as "62 of
+      100 sleeved". `legalities` is a JSON object covering every format, so
+      storing it whole leaves Pauper, Modern and the rest available later for
+      one column.
+
+- [ ] **Price snapshots** · small · **the only item with a deadline**
+      Not Scryfall data — Scryfall gives today's prices and no history at all.
+      So "collection value over time", the chart that gets someone opening the
+      app on a Sunday, **has to start being recorded before it can ever be
+      shown**, and cannot be backfilled. A daily row per user is trivial now
+      and impossible to obtain retroactively. Every week of delay is a week
+      permanently missing from that chart.
+
+- [ ] **EDHREC rank** · small
+      `edhrec_rank`, one integer (Rhystic Study 44, Llanowar Elves 58). Sorting
+      a trade binder by it answers the first question anyone asks when they
+      open one: *what have you got that people actually play?* Serves trading,
+      which is the two-sided half that spreads the app. Also gives the
+      single-player side a real line — "you own 47 of the 100 most-played
+      Commander cards".
+
+- [ ] **Token and related-card checklist** · medium
+      `all_parts` lists what a card needs beside it — confirmed: Krenko, Mob
+      Boss names its Goblin token. A deck that makes four kinds of token needs
+      four kinds of token *on the table*, and that is this product's whole
+      thesis applied to something nobody tracks. Medium because tokens are
+      cards in `cards` but not ones anyone "owns" in the normal sense, so the
+      model needs a thought first.
+
+- [ ] **Set completion** · medium · *decide whether you want this axis*
+      `/sets` gives `card_count` and an icon for 1,049 sets. Against the real
+      collection today: Foundations 317 of 771 different (41%), Secrets of
+      Strixhaven Commander 78 of 426 (18%), Lorwyn Eclipsed 60 of 408 (15%).
+      A collector loop, and collector loops are the single-player half where
+      the revenue is meant to come from. Flagged as a decision rather than a
+      task because it widens what the product is about — "complete the set" is
+      a different motivation from "where is this card".
+
+- [ ] **Reserved List flag** · trivial
+      `reserved`, one boolean, 571 cards. *"Three cards in your collection will
+      never be reprinted."* Cheap scarcity flavour on a collection that already
+      shows value.
+
+- [ ] **Printing variants** · small
+      `promo_types`, `full_art`, `textless`, `border_color`, `frame`,
+      `variation`. Would make the printing picker and the import resolver able
+      to say "the borderless one" rather than leaving two rows that look
+      identical. Worth it the first time someone's import picks the wrong art.
+
+**Deliberately skipped:**
+- **Oracle tags** (ramp / draw / removal, from Scryfall's Tagger). Genuinely
+  powerful for deck analysis, but it is a second bulk sync and it is the
+  closest thing on this list to building a deck editor.
+- **Rulings.** Scryfall and Gatherer do it better and it is not this app's job.
+- **Multi-vendor purchase links.** Already deferred as not a fight worth
+  picking; `purchase_uris` carries three, we store one, and that is fine.
+- **Art tags, MTGO/Arena ids, ticket prices.** No use in a paper app.
 
 ---
 
