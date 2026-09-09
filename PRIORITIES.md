@@ -347,11 +347,107 @@ these you do first, and design it to serve the rest.
 
 ---
 
+## UX & design review — done 2026-09-08, three fixed, rest logged
+
+A page-by-page walk through the signed-in app. The three most critical were
+fixed the same day (see below); everything under "Still open" is real but can
+wait for the demo to reorder it.
+
+**The finding that framed the rest:** card art is distributed almost exactly
+opposite to how much each page matters. The dashboard gives six full-size
+images to "recently added" — the least decision-relevant thing in the app —
+while the decks list, the locations list and the collection table have none at
+all, and the collection's 18 optional columns do not include a thumbnail.
+
+- [x] **Deck rows show the deck** · done 2026-09-08
+      The row was a line of text whose loudest element was a red-bordered
+      Delete — the destructive action styled above the deck itself — and it
+      printed "100 cards (72 unique)", which every other collection tool can
+      also print. Now a card: the commander's art as its face, colour-identity
+      pips, and a bar reading "62 of 100 sleeved" or "Ready to play". That last
+      number is the one only this app can print, and it was the one the row left
+      out. Delete moved behind a quiet ⋯.
+      `getDecks` grew the commander's image and colour identity (the commander
+      lookup already existed — two more columns) plus a sleeved count, taken
+      from `collection_entries` scoped to deck locations and capped per entry
+      the same way `deckProgress` caps it, so the row and the deck page cannot
+      disagree. The face shows the **whole card**, not an art crop: any fixed
+      crop lands on the type line of a planeswalker, a saga or a full-art land,
+      and roughly a third of commanders are one of those.
+
+- [x] **"Available" says why it is zero** · done 2026-09-08
+      The column that carries the entire premise of the product rendered as a
+      bare `0`, with the reason — the copy is sleeved into a deck — reachable
+      only by hovering, or by turning on the Location column, which is off by
+      default. A zero that does not say why reads as "you have none", the
+      opposite of the truth: you own it, it is busy. A committed copy now names
+      its deck ("In Atarka, Baby") instead of counting to zero. The mobile row
+      says "Sleeved", since it already prints the location beside it.
+
+- [x] **Touch targets** · done 2026-09-08
+      Measured at 375px: 120 interactive elements under the 44px both Apple and
+      Google call reliably tappable. The worst were the row checkboxes at 16×16
+      — multi-select is how a stack gets moved after a trade — and the pager at
+      26×32, the smallest controls in the app.
+      Fixed through `Button`/`Input` and the pager, the row ⋯ menu, the header
+      icon buttons and the trade/want steppers, all via the existing `coarse:`
+      variant rather than a width breakpoint. That was already the documented
+      house rule (`globals.css`: a narrow laptop window still has a mouse, a
+      wide tablet does not) and the first attempt here got it wrong with `sm:`.
+      Desktop is deliberately unchanged — Apply stays 36px, the pager 26×32.
+      Checkboxes keep their 20px box inside a 44px padded label, so the target
+      grows without a chunky box being drawn.
+
+**Still open, roughly in order of value:**
+
+- [ ] **Images mode prints every card's name twice** · small
+      On a deck's Images view, an overlay label sits on top of the card's own
+      printed title bar *and* the same name repeats as a caption underneath.
+      Drop the overlay, move the mana cost into the caption. Cheapest visible
+      win left on the list.
+- [ ] **Locations has no sense of place** · small–medium
+      Flat text rows with Rename/Delete. No icon separating a binder from a box
+      from a deck, no fill indicator, no peek at what is inside, and the
+      nesting the model supports is invisible. Type icons, a fill bar and three
+      or four thumbnails per location would make the physical-location idea
+      feel real — it is the concept the whole product rests on and its page
+      looks like a database table.
+- [ ] **The tradable switch is the most buried control in the app** · small
+      "What your friends can see" is the fifth section down the Friends page,
+      and it is what makes the entire social half function. Every friend who
+      imports a binder on demo night has to find it, and most will not.
+      Surface it — on the locations page, or as a prompt after an import.
+- [ ] **Optional thumbnail column in the collection table** · small
+      Eighteen columns, none of them an image. The card panel covers hovering,
+      but a thumbnail column would make scanning a shelf feel like cards.
+- [ ] **Live search** · small
+      The collection search needs an explicit Apply. Filtering as you type
+      would make the page feel much faster than it now does.
+- [ ] **Pager only at the bottom** · trivial
+      On a 50-row page, changing page means scrolling the whole page first.
+- [ ] **Friends page does too much; Wish List and Add a card do too little**
+      Friends stacks trades, activity, terms, search, friend list and container
+      privacy on one page. Wish List is one input and an empty state; Add a
+      card is one input on an otherwise blank page. Fold into the IA item below
+      rather than fixing piecemeal.
+- [ ] **Dashboard: "By colour" is visually orphaned** · trivial
+      A bare row of pips floating in a half-empty column beside "By set", which
+      is a full card with bars. Same kind of information, wildly different
+      weight. Fold into the dashboard reframe below.
+- [ ] **"Recently added" repeats a card** · trivial
+      Two entries of the same card show as two identical tiles. Dedupe by card
+      and show a count.
+
+---
+
 ## Tier 3 — conditional, after real usage
 
 - [ ] **Dashboard reframe** — currently leads with inventory stats (value, count,
       unsorted). The product's question is "what can I build, who has what I
-      want." Wait until the demo so their reaction shapes it.
+      want." Wait until the demo so their reaction shapes it. The 2026-09-08
+      review adds: six full-size card images are spent on "recently added",
+      nothing on the page links to "Check a list", and none of the four tiles
+      is actionable.
 - [ ] **Import reads a per-row location column** — would remove the biggest
       onboarding tax. Sized by whether ManaBox can export per binder.
 - [ ] **Navigation / IA** — ten destinations, with Find / header search / Wants
