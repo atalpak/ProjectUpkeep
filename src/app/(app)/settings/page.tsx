@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { getMyTosStatus } from "@/lib/social/queries";
 import { CURRENT_TOS_VERSION, hasAcceptedTos } from "@/lib/social/tos";
+import { SUPPORT_EMAIL } from "@/lib/support";
 import {
   EmailForm,
   PasswordForm,
@@ -114,8 +115,16 @@ export default async function SettingsPage() {
             </span>
           </li>
           <li className="text-ink-muted">
-            Account since {new Date(joined).toLocaleDateString()}. To close your account,
-            email the address in the terms — there is no self-service delete yet.
+            Account since {new Date(joined).toLocaleDateString()}. There is no self-service
+            delete yet — email{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline">
+              {SUPPORT_EMAIL}
+            </a>{" "}
+            to close your account and remove your data (see the{" "}
+            <Link href="/privacy" className="text-accent underline">
+              privacy notice
+            </Link>
+            ).
           </li>
         </ul>
       </Section>

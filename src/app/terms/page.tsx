@@ -1,12 +1,18 @@
-import Link from "next/link";
-
 import { CURRENT_TOS_VERSION } from "@/lib/social/tos";
-import { PageHeader } from "@/components/ui";
+import { LegalFooter } from "@/components/LegalFooter";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export const metadata = { title: "Trading terms · Project Upkeep" };
 
 /**
  * The trading terms.
+ *
+ * A public route, outside the `(app)` group and its proxy gate: someone weighing
+ * up whether to sign up has to be able to read what trading commits them to
+ * first. It carries no nav shell and no back-link into the authed area for the
+ * same reason — a signed-out reader would just bounce off /login. Acceptance is
+ * a separate thing that still happens signed in, from the Friends page; see
+ * `src/lib/social/tos.ts`.
  *
  * Plain language on purpose: the charter wants this accepted, not endured, and
  * a wall of boilerplate is how acceptance becomes meaningless. The substance —
@@ -19,13 +25,18 @@ export const metadata = { title: "Trading terms · Project Upkeep" };
  */
 export default function TermsPage() {
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <PageHeader
-        title="Trading terms"
-        subtitle={`Version ${CURRENT_TOS_VERSION}. These cover peer-to-peer trades arranged through Project Upkeep.`}
-        backHref="/friends"
-        backLabel="Friends"
-      />
+    <main className="mx-auto max-w-2xl space-y-6 px-6 py-12">
+      <div className="absolute right-6 top-6">
+        <ThemeToggle />
+      </div>
+
+      <div className="space-y-2">
+        <h1 className="font-display text-xl font-semibold tracking-tight">Trading terms</h1>
+        <p className="text-sm text-ink-muted">
+          Version {CURRENT_TOS_VERSION}. These cover peer-to-peer trades arranged through
+          Project Upkeep.
+        </p>
+      </div>
 
       <ol className="space-y-4 text-sm leading-relaxed">
         <li>
@@ -57,7 +68,8 @@ export default function TermsPage() {
           <strong className="font-semibold">Trade honestly.</strong> Offer only cards you
           own and physically have, describe their condition accurately, and follow through
           on what you agree. Misrepresenting cards, backing out after a physical exchange,
-          or spamming proposals can get your account suspended.
+          or spamming proposals breaks these terms, and the people you trade with can drop
+          you from their trade circle.
         </li>
         <li>
           <strong className="font-semibold">Card data and images</strong> come from
@@ -73,12 +85,10 @@ export default function TermsPage() {
       </ol>
 
       <p className="text-xs text-ink-muted">
-        You record your acceptance from the{" "}
-        <Link href="/friends" className="text-accent underline">
-          Friends page
-        </Link>
-        .
+        Once you have an account, you record your acceptance from the Friends page.
       </p>
-    </div>
+
+      <LegalFooter current="terms" />
+    </main>
   );
 }

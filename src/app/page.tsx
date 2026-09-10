@@ -227,8 +227,14 @@ export default async function HomePage() {
             <Button>Create an account</Button>
           </Link>
         </div>
-        <p className="mt-8 text-xs text-ink-muted">
-          Card data and prices from Scryfall.
+        <p className="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted">
+          <span>Card data and prices from Scryfall.</span>
+          <Link href="/terms" className="text-accent underline">
+            Trading terms
+          </Link>
+          <Link href="/privacy" className="text-accent underline">
+            Privacy
+          </Link>
         </p>
       </section>
     </main>
