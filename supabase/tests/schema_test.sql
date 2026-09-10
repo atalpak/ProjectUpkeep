@@ -1021,6 +1021,82 @@ begin
   reset role;
 end $$;
 
+-- --------------------------------------------------------------------------
+-- 14. feedback: own-row RLS, no giveaway, append-only by policy absence.
+--     (migration 29)
+--
+-- PR1 ships the table, the own-row policies and the form. The admin inbox and
+-- the SELECT policy it needs are PR2, so nothing about reading across users is
+-- asserted here.
+--
+-- Case (e) pins the whitespace lower bound: feedback_body_length is
+-- `body ~ '\S'`, not char_length(btrim(...)) >= 1, so a body of only tabs and
+-- newlines is rejected rather than stored as a visually-empty row.
+--
+-- These fixture inserts run as the table owner with no JWT claim, so
+-- auth.uid() is null and the user_id default would violate NOT NULL -- every
+-- row names user_id outright.
+-- --------------------------------------------------------------------------
+insert into public.feedback (user_id, body, page) values
+  ('11111111-1111-1111-1111-111111111111', 'Alice cannot find the import button.', '/collection'),
+  ('22222222-2222-2222-2222-222222222222', 'Bob would like dark mode on the login page.', '/login');
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  visible    int;
+  body_after text;
+begin
+  -- (a) Alice reads her own row, and Bob's is invisible to her.
+  select count(*) into visible from public.feedback;
+  assert visible = 1, 'alice should see only her own feedback, saw ' || visible;
+  select count(*) into visible from public.feedback
+   where user_id = '22222222-2222-2222-2222-222222222222';
+  assert visible = 0, 'alice must not see bob''s feedback, saw ' || visible;
+
+  -- (b) Alice cannot file feedback as Bob. The INSERT WITH CHECK raises rather
+  --     than silently dropping the row -- same shape as the card_instances
+  --     giveaway in section 8.
+  begin
+    insert into public.feedback (user_id, body)
+    values ('22222222-2222-2222-2222-222222222222', 'forged on bob''s behalf');
+    assert false, 'RLS WITH CHECK should block filing feedback as another user';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- (c) There is no UPDATE policy, so an update matches no rows rather than
+  --     erroring -- the body must be unchanged. This absence *is* the
+  --     append-only mechanism (see the migration header).
+  update public.feedback set body = 'edited after the fact'
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  select body into body_after from public.feedback
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  assert body_after = 'Alice cannot find the import button.',
+    'feedback has no client UPDATE policy; the row must be unchanged (got ' || body_after || ')';
+
+  -- (d) ...and no DELETE policy either: the delete matches nothing and the row
+  --     survives.
+  delete from public.feedback where user_id = '11111111-1111-1111-1111-111111111111';
+  select count(*) into visible from public.feedback
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  assert visible = 1, 'feedback has no client DELETE policy; the row must survive';
+
+  -- (e) feedback_body_length demands a non-whitespace character. btrim() only
+  --     strips spaces, so the check is `body ~ '\S'`: a body of tabs and
+  --     newlines raises rather than inserting a visually-empty row. Alice's
+  --     user_id defaults to auth.uid(), so the INSERT policy passes and the
+  --     CHECK is what rejects this.
+  begin
+    insert into public.feedback (body) values (E'\t\n   \n');
+    assert false, 'feedback_body_length must reject an all-whitespace body';
+  exception when check_violation then null;
+  end;
+end $$;
+
+reset role;
+
 
 rollback;
 

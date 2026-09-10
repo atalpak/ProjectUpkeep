@@ -143,7 +143,7 @@ src/
     scryfall-stream.ts      streaming reader for the bulk export
     scryfall-upsert.ts      batched upsert with error classification
 supabase/
-  migrations/               the schema, in order (28 files)
+  migrations/               the schema, in order (29 files)
   tests/schema_test.sql     assertions the schema must keep satisfying
 scripts/
   sync-scryfall.ts          the scheduled sync job

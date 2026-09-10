@@ -7,6 +7,7 @@ import { AccountMenu } from "@/components/AccountMenu";
 import { AppNavDrawer, AppNavLinks } from "@/components/AppNav";
 import { CardPanelProvider, CardPanelOutlet } from "@/components/CardPanel";
 import { CardPreviewToggle } from "@/components/CardPreviewMode";
+import { FeedbackButton } from "@/components/FeedbackButton";
 import { HeaderSearch } from "@/components/HeaderSearch";
 import { AlertsMenu } from "@/components/social/AlertsMenu";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -50,6 +51,12 @@ export default async function AppLayout({
                   unread count reads as a status, not another destination. It stays
                   visible at every width — being told about a trade is the point. */}
               <AlertsMenu unread={unread} />
+
+              {/* Feedback sits in the cluster beside Alerts, not the nav: it is
+                  an action reachable from every page, not another destination.
+                  It stays visible at every width — the whole point is to catch a
+                  reaction the moment someone has one. */}
+              <FeedbackButton />
 
               {/* Hides itself below xl, where there is no sidebar to switch off. */}
               <CardPreviewToggle />

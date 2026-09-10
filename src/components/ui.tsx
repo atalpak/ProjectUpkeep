@@ -57,6 +57,13 @@ export function Select({ className, ...props }: ComponentProps<"select">) {
   return <select {...props} className={cx(FIELD_BASE, className)} />;
 }
 
+// Same chrome as Input. Four call sites still inline a raw <textarea>; a fifth
+// (the feedback box) tipped it into a primitive. `coarse:min-h-11` from
+// FIELD_BASE is only a floor — callers set `rows` for the real height.
+export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
+  return <textarea {...props} className={cx(FIELD_BASE, className)} />;
+}
+
 export function Field({
   label,
   hint,
