@@ -205,3 +205,25 @@ Lesson for next time: when a rule is wrong, grep for its *wording* across
 `.claude/agents/**` and `README.md`, not just the rules files. Agent definitions
 restate the constraints in their own words, so a fix that stops at `CLAUDE.md`
 leaves live instructions contradicting it.
+
+## 2026-09-09 — Tests for the two irreversible paths, and the doc that denied one
+
+Findings 02 and 03 from the handover assessment, merged as PR #25.
+
+- **Added** `schema_test.sql` sections 12 and 13: the deck two-printings case,
+  and `accept_trade` executed end to end. Verified by reintroducing five bugs
+  and requiring the suite to fail each time, rather than by going green — going
+  green is exactly what the previous deck test did.
+- **Corrected** `.claude/rules/migrations.md`, which still said under "Known
+  unresolved" that there was no invariant test for `deck_cards`. There is one
+  now, and leaving that line would have told the next agent the risk was
+  unguarded. Replaced with what is actually still untested: two of migration
+  20's three shortfall tiers, plus a note that the oldest-entry fallback is
+  nondeterministic inside a transaction because `now()` is frozen.
+- **Added** `accept_trade` to the same file's list of invariants the schema must
+  keep satisfying, since it is now covered.
+
+Second time in one day that a fix was only half-done until the surrounding
+instructions were checked. The pattern is worth naming: **finishing a change
+includes finding every document that describes the old state.** For rules, grep
+the wording. For a newly closed gap, grep the phrase that called it open.
