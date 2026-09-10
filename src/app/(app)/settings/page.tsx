@@ -48,6 +48,17 @@ export default async function SettingsPage() {
         description="Your username is the only thing other users can see about you before you are friends."
       >
         <UsernameForm current={profile?.username ?? ""} />
+        {profile?.username ? (
+          <p className="text-sm">
+            <Link
+              href={`/u/${encodeURIComponent(profile.username)}`}
+              className="text-accent underline"
+            >
+              View your public profile
+            </Link>{" "}
+            <span className="text-ink-muted">— a preview of what friends see of your trade binder.</span>
+          </p>
+        ) : null}
       </Section>
 
       <Section
