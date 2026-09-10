@@ -104,7 +104,6 @@ src/
       wants/                want list + which friends have each card
       notifications/        in-app trade alerts
       settings/             account, appearance, ToS status
-      terms/                terms-of-service acceptance
       u/[username]/         public profile + tradable binder
     api/
       cards/                search/ · printings/ · [id]/
@@ -113,6 +112,7 @@ src/
       notifications/        badge state
     auth/confirm/           email confirmation callback
     login/  signup/
+    terms/  privacy/        public legal pages (outside (app), no proxy gate)
   components/
     ui.tsx                  shared primitives; one place to restyle from
     collection/  decks/  settings/  social/  ManaCost.tsx  SetSymbol.tsx  …

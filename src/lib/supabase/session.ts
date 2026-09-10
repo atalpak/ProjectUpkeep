@@ -2,10 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { publicSupabaseConfig } from "@/lib/env";
 
-/** Routes reachable without a session. Everything else redirects to /login. */
-const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
+/**
+ * Routes reachable without a session. Everything else redirects to /login.
+ *
+ * Matched with `startsWith`, so every entry must be specific: `/terms` and
+ * `/privacy` are the public legal pages, and nothing broader belongs here or a
+ * whole private area unlocks by prefix.
+ */
+export const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/terms", "/privacy"];
 
-function isPublicPath(pathname: string) {
+export function isPublicPath(pathname: string) {
   return pathname === "/" || PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 

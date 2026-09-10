@@ -306,7 +306,6 @@ const NO_CARDS_PREFIX = [
   "/trades",
   "/locations",
   "/notifications",
-  "/terms",
   "/settings",
 ];
 

@@ -44,13 +44,14 @@ src/
       decks/                decks-as-locations · [id]/ · check/ · import/
       find/                 "where is my card?"
       dashboard/            stats and anything awaiting a decision
-      friends/  trades/  wants/  notifications/  settings/  terms/
+      friends/  trades/  wants/  notifications/  settings/
       u/[username]/         public profile + tradable binder
     api/
       cards/                search/ · printings/ · [id]/
       collection/           export/ · locate/
       card-actions/  notifications/
     auth/confirm/  login/  signup/
+    terms/  privacy/         public legal pages — outside (app), no proxy gate
     layout.tsx  page.tsx  globals.css  icon.svg  opengraph-image.tsx
   components/
     ui.tsx                  shared primitives — buttons, etc. Restyle here.

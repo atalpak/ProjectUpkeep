@@ -22,7 +22,7 @@ caching, or data-fetching code, read the relevant guide in
   inventing a caching strategy — `src/app/(app)/u/[username]/page.tsx` and the
   API routes are the models.
 - The `(app)` route group exists to give signed-in pages the nav shell. Public
-  routes (`/login`, `/signup`, `/auth`, `/`) sit outside it, and
+  routes (`/login`, `/signup`, `/auth`, `/terms`, `/privacy`, `/`) sit outside it, and
   `src/lib/supabase/session.ts` holds the matching `PUBLIC_PATHS` list. Adding a
   public route means editing both.
 
