@@ -59,6 +59,12 @@ export default function LoginPage() {
           Create one
         </Link>
       </p>
+
+      <p className="mt-2 text-sm text-ink-muted">
+        <Link href="/auth/reset" className="text-accent underline">
+          Forgot your password?
+        </Link>
+      </p>
     </main>
   );
 }

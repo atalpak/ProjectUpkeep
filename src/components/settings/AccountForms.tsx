@@ -80,6 +80,15 @@ export function PasswordForm() {
     // Keyed on the success nonce so both fields empty themselves after a
     // successful change rather than leaving a password sitting in the DOM.
     <form key={state.nonce ?? "initial"} action={action} className="space-y-3">
+      <Field label="Current password">
+        <Input
+          name="current_password"
+          type="password"
+          autoComplete="current-password"
+          required
+        />
+      </Field>
+
       <Field label="New password" hint="At least 8 characters.">
         <Input
           name="password"
