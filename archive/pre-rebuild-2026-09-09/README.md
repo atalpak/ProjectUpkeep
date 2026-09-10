@@ -7,19 +7,15 @@ reality.
 No marketplace and no valuation engine — prices are shown as a Scryfall-sourced
 estimate and nothing more. That is a deliberate scope decision, not a gap.
 
-**Status: feature-complete for a single playgroup, and unused by anyone but its
-author.** Collection and location management, peer-to-peer trading with
-counter-offers and an atomic transfer on acceptance, decks-as-locations, friends
-and public profiles are all implemented. Also in: CSV / decklist import, bulk
-actions, collection search / filter / sort, the "where is my card" lookup,
-checking a pasted list without saving it, Scryfall-sourced reference pricing
-(display only), a want list that matches against friends' trade binders, in-app
-trade notifications, trade-proposal expiry, and a terms-of-service acceptance
-flow.
-
-What to build next is deliberately an open question as of 2026-09-09 — see
-[`.claude/ORGANIZATION.md`](.claude/ORGANIZATION.md). The previous roadmap is in
-`archive/pre-rebuild-2026-09-09/` and is kept as evidence, not as direction.
+**Status: Phase 1 and Phase 2 are shipped, along with most of roadmap Tier 2.**
+Collection and location management, peer-to-peer trading with counter-offers and
+an atomic transfer on acceptance, decks-as-locations, friends and public profiles are all
+implemented. Also in: CSV / decklist import, bulk actions, collection
+search / filter / sort, the "where is my card" lookup, Scryfall-sourced
+reference pricing (display only), a want list that matches against friends'
+trade binders, in-app trade notifications, trade-proposal expiry, and a
+terms-of-service acceptance flow. See [`PRIORITIES.md`](PRIORITIES.md) for what
+is being built next and what is deliberately out of scope.
 
 ---
 
@@ -86,66 +82,42 @@ npm run dev
 
 ```
 src/
-  proxy.ts                  session refresh + private-route gate (Next 16 renamed
-                            the `middleware` convention to `proxy`)
   app/
     (app)/                  signed-in pages; the route group gets the nav shell
-      collection/           collection view, bulk actions · add/ · import/
+      collection/           collection view, add-card flow, bulk actions, import
       locations/            container management
-      decks/                decks as a location type · [id]/ workspace
-                            · check/ (reconcile a list without saving) · import/
-      find/                 "where is my card?" collection lookup
+      decks/                decks as a location type, with a per-deck workspace
+      find/                  "where is my card?" collection lookup
       dashboard/            collection stats and anything awaiting a decision
       friends/              friends, trade offers and the trade feed
       trades/               settled-trade archive
       wants/                want list + which friends have each card
       notifications/        in-app trade alerts
       settings/             account, appearance, ToS status
-      terms/                terms-of-service acceptance
       u/[username]/         public profile + tradable binder
-    api/
-      cards/                search/ · printings/ · [id]/
-      collection/           export/ · locate/
-      card-actions/         per-card mutations
-      notifications/        badge state
-    auth/confirm/           email confirmation callback
-    login/  signup/
-  components/
-    ui.tsx                  shared primitives; one place to restyle from
-    collection/  decks/  settings/  social/  ManaCost.tsx  SetSymbol.tsx  …
+    api/cards/              name autocomplete + printing lookup
+    auth/                   sign in / sign up / sign out actions
+  components/               UI, including the add-card and collection widgets
   lib/
-    cx.ts                   class-name joiner (own module: avoids a cycle)
-    env.ts                  environment access with loud failures
     auth/redirect.ts        open-redirect guard for the post-login bounce
-    collection/
-      queries.ts            read helpers (RLS does the ownership filtering)
-      stacking.ts           >>> the quantity/stacking policy, in one place <<<
-      filters.ts            collection search / filter / sort
-      locate.ts             "where is my card?" matching
-      pricing.ts            Scryfall reference-price formatting (display only)
-      deck-view.ts          deck-vs-binder view derivation
-      deck-state.ts         reconciling an intended list against what is filed
-      deck-stats.ts         per-deck analytics
-      availability.ts       what is free to sleeve or trade
-      breakdown.ts          collection composition
-      entries.ts            the collection_entries view
-      export.ts             CSV / decklist generation
-      list-check.ts         checking a pasted list without creating a deck
-    import/                 parse · resolve · plan · deck-plan · select
-                            commit · name-variants · vocabulary
-    social/                 queries · counter · trade-status · wants
-                            notifications · tos · types
-    supabase/               client · server · admin · session · errors
+    collection/queries.ts   read helpers (RLS does the ownership filtering)
+    collection/stacking.ts  >>> the quantity/stacking policy, in one place <<<
+    collection/filters.ts   collection search / filter / sort
+    collection/locate.ts    "where is my card?" matching
+    collection/pricing.ts   Scryfall reference-price formatting (display only)
+    collection/deck-view.ts deck-vs-binder view derivation
+    social/                 trades, friends, want-list matching, notifications, ToS
+    import/                 decklist + CSV parse, resolve, plan, commit
     scryfall.ts             bulk-export types and the mapping into `cards`
     scryfall-stream.ts      streaming reader for the bulk export
-    scryfall-upsert.ts      batched upsert with error classification
+    supabase/               browser, server, admin and session clients
+  proxy.ts                  refreshes the session, gates private routes
 supabase/
-  migrations/               the schema, in order (28 files)
+  migrations/               the schema, in order
   tests/schema_test.sql     assertions the schema must keep satisfying
 scripts/
   sync-scryfall.ts          the scheduled sync job
   verify-migrations.sh      applies migrations to a throwaway Postgres and tests
-  *.test.ts                 29 unit-test files over the pure logic in src/lib
 ```
 
 ### Data model in one paragraph
