@@ -1,2 +1,7 @@
 * text=auto eol=lf
 *.sh text eol=lf
+
+# redirect.test.ts asserts on a NUL byte in a response-splitting case, written
+# as a unicode escape. Pin it to a textual diff so that if a raw NUL ever creeps
+# back in, the file still reviews as text instead of collapsing to a "Bin" blob.
+scripts/redirect.test.ts text eol=lf diff

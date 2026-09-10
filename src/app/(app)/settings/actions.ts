@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
+import { validateNewPassword } from "@/lib/auth/password";
 import type { SettingsState } from "@/app/(app)/settings/action-state";
 
 /**
@@ -108,24 +109,47 @@ export async function updateEmail(
 // Password
 // ---------------------------------------------------------------------------
 
-/** Supabase's own floor is 6; 8 is the cheapest meaningful improvement on it. */
-const MIN_PASSWORD_LENGTH = 8;
-
 export async function updatePassword(
   _prev: SettingsState,
   formData: FormData,
 ): Promise<SettingsState> {
-  if (!(await getCurrentUser())) return fail("You need to be signed in.");
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+  // The re-auth below signs in by email; an account without one has no current
+  // password to prove and can't take this path.
+  if (!user.email) return fail("Your account has no email address to verify against.");
 
+  const currentPassword = String(formData.get("current_password") ?? "");
   const password = String(formData.get("password") ?? "");
   const confirmation = String(formData.get("confirm_password") ?? "");
 
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    return fail(`Use at least ${MIN_PASSWORD_LENGTH} characters.`);
-  }
-  if (password !== confirmation) return fail("Those two passwords do not match.");
+  if (currentPassword === "") return fail("Enter your current password.");
+
+  const passwordCheck = validateNewPassword(password, confirmation);
+  if (!passwordCheck.ok) return fail(passwordCheck.error);
 
   const supabase = await createClient();
+
+  // Prove the person at the keyboard knows the current password before letting
+  // them change it — otherwise an unlocked, unattended browser is a one-click
+  // account takeover. signInWithPassword refreshes the session as a side
+  // effect, which is harmless here: it is the same user re-authenticating as
+  // themselves, and the cookie that comes back is equivalent to the one already
+  // set.
+  const { error: reauthError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+  if (reauthError) {
+    // This call shares Supabase's sign-in rate limit, so a run of wrong guesses
+    // starts coming back as 429 rather than an auth failure. Naming it keeps a
+    // rate-limited person from re-reading a password they typed correctly.
+    if (reauthError.status === 429 || reauthError.code === "over_request_rate_limit") {
+      return fail("Too many attempts — wait a minute and try again.");
+    }
+    return fail("That current password isn't right.");
+  }
+
   const { error } = await supabase.auth.updateUser({ password });
 
   if (error) return fail(error.message);
