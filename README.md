@@ -118,7 +118,7 @@ src/
     env.ts                  environment access with loud failures
     auth/redirect.ts        open-redirect guard for the post-login bounce
     collection/
-      queries.ts            read helpers (RLS does the ownership filtering)
+      queries.ts            read helpers (scope by owner — see constraint 3)
       stacking.ts           >>> the quantity/stacking policy, in one place <<<
       filters.ts            collection search / filter / sort
       locate.ts             "where is my card?" matching

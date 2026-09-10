@@ -38,15 +38,25 @@ half-built.
   couples them — a composite foreign key, a denormalised owner, a generated
   column — makes the trade engine harder and will fail
   `supabase/tests/schema_test.sql`. Flag it loudly.
-- **RLS is the single place ownership is enforced.** Proposals that add a second
-  filter in application code are creating a source of truth that will drift.
+- **RLS is the floor of ownership enforcement, not the whole of it.** This bullet
+  said the opposite until 2026-09-09. Migration 9 made a friend's *tradable*
+  binder readable through RLS on purpose, so a query that means "what do *I* own"
+  must also scope by owner in application code — `src/lib/collection/queries.ts`
+  does, ~25 times. Flag any proposal that **drops** an owner filter, or that adds
+  an own-collection read without one; both leak another user's cards. Proposals
+  that add a *policy* to make an own-collection query work are usually solving it
+  at the wrong layer.
 - **Two schema choices are open product bets**, not settled implementation:
   stacking (`src/lib/collection/stacking.ts`) and one-level location nesting.
   A change that hardcodes either assumption deeper into the app is spending
   optionality — say so explicitly, because that cost is invisible otherwise.
 - **`deck_cards` is the most-revised part of the schema** and has silently
-  corrupted before. Anything near deck composition deserves extra care and an
-  explicit note that the invariant test still does not exist.
+  corrupted before (migration 20: a deck listing one card in two printings
+  inflated from 100 to 114 rows). Anything near deck composition deserves extra
+  care and an explicit note that the invariant test is **present but inadequate**
+  — `supabase/tests/schema_test.sql` section 11 inserts only a single
+  `deck_cards` row, so it cannot reproduce the two-printings case and would still
+  pass if migration 20 were reverted.
 
 ## Stop and ask the owner when
 

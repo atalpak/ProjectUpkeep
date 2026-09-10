@@ -5,16 +5,18 @@
  * which variable to set, not surface later as an opaque 401 from PostgREST.
  */
 
-function required(name: string): string {
-  const value = process.env[name];
-  return requiredValue(value, name);
-}
-
 /**
- * Validate an already-resolved value. Split out from `required` so callers that
- * must be statically analyzable by the bundler can read
- * `process.env.NEXT_PUBLIC_*` as a literal member expression and still get the
- * same loud, specific failure.
+ * Validate an already-resolved value.
+ *
+ * Every caller reads `process.env.NEXT_PUBLIC_*` as a literal member expression
+ * and passes the result in, so the bundler can still see the access statically
+ * (hard constraint 2) while the failure stays loud and names the variable.
+ *
+ * There is deliberately no `required(name)` helper that does the lookup itself:
+ * a dynamic `process.env[name]` read is invisible to Next's inliner, and having
+ * one in this file at all is an invitation to route a `NEXT_PUBLIC_*` variable
+ * through it. Server-only secrets are read in `scripts/`, which is outside the
+ * Next build — see `SUPABASE_SERVICE_ROLE_KEY` in `scripts/sync-scryfall.ts`.
  */
 function requiredValue(value: string | undefined, label: string): string {
   if (!value) {
@@ -46,12 +48,4 @@ export function publicSupabaseConfig() {
       "NEXT_PUBLIC_SUPABASE_ANON_KEY",
     ),
   };
-}
-
-/**
- * Server-only. Bypasses RLS, so this must never be imported into anything that
- * ends up in a client bundle. Only the Scryfall sync job uses it.
- */
-export function serviceRoleKey(): string {
-  return required("SUPABASE_SERVICE_ROLE_KEY");
 }
