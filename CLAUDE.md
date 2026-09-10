@@ -73,7 +73,7 @@ src/
                             notifications · tos · types
     supabase/               client · server · session · errors
 supabase/
-  migrations/               28 files, numbered, applied in order
+  migrations/               29 files, numbered, applied in order
   tests/schema_test.sql     assertions the schema must keep satisfying
 scripts/
   sync-scryfall.ts          the scheduled sync job
