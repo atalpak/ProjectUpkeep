@@ -34,6 +34,10 @@ the product depends on:
 - RLS actually isolates two users. The test stubs `auth.users` and `auth.uid()`
   so this runs without booting Supabase.
 - `ownership_history` rejects `UPDATE` and `DELETE` at the trigger level.
+- `accept_trade` actually transfers. Section 13 executes it: the whole-stack
+  move, the partial split, one audit row per leg, the status change, and the
+  refusals for an already-settled, wrong-actor, expired or anonymous accept.
+  Added 2026-09-09 — before that the function had never been run by a test.
 
 Trade completion belongs in `public.accept_trade` (a `SECURITY DEFINER`
 function, migrations 9 → 12 → 13) or in a new migration. **Never loosen an RLS
@@ -53,6 +57,19 @@ that only works against the live database will fail there.
 
 `deck_cards` is both the intended decklist and the record of what is physically
 filed, and the two sync asymmetrically — automatically on add, manually on
-remove. This has silently corrupted once (a 100-card deck became 114). **There
-is still no invariant test for it.** Anything touching deck composition should
-treat this as live risk.
+remove. This has silently corrupted once (a 100-card deck became 114).
+
+**As of 2026-09-09 there is an invariant test, and it discriminates.** Section 12
+of `schema_test.sql` lists one card under two printings, sleeves exactly the
+listed count and asserts the list does not inflate. It was verified by
+reintroducing migration 19's rule and confirming the suite then fails — the
+previous test could not do this, and would have gone green with the fix
+reverted. Do not weaken it into a single-entry case.
+
+Still untested, so still live risk: migration 20 documents three tiers for
+placing a shortfall, and only the first is covered. Falling back to the *oldest*
+entry when no entry names the exact printing, and creating a fresh row when the
+oracle id has no entry at all, have no dedicated regression test. Note that the
+oldest-entry fallback is nondeterministic inside a single transaction — `now()`
+is frozen so `created_at` ties and a random uuid breaks it — which is worth
+knowing before writing that test.
