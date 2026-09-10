@@ -25,9 +25,15 @@ in an open trade.
 
 - `process.env[name]` where a literal `process.env.NEXT_PUBLIC_*` is required —
   this behaves identically in tests and silently breaks production
-- a `.eq('owner_user_id', …)` added to a query "for safety" — RLS does that, and
-  a second filter is a second thing to get wrong
-- `src/lib/supabase/admin.ts` imported anywhere outside `scripts/`
+- a `.eq('owner_user_id', …)` **removed** from an own-collection query in
+  `src/lib/collection/queries.ts` as a "cleanup" — since migration 9 a friend's
+  tradable binder is readable through RLS on purpose, so dropping the filter
+  leaks their cards into the owner's collection. Treat a removal as a data leak
+  and block it. A *new* query that answers "what do I own" and has no owner
+  filter is the same defect
+- a service-role client constructed anywhere under `src/`, or
+  `SUPABASE_SERVICE_ROLE_KEY` read outside `scripts/` — the web app has no
+  RLS-bypassing client and must not gain one
 - an edit to an already-applied migration rather than a new numbered file
 - an RLS policy loosened to make a transfer work, instead of the change going
   into `public.accept_trade`

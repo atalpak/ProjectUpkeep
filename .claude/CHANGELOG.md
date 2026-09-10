@@ -133,3 +133,75 @@ Two things written into the prompt on purpose:
 It also carries the open question about whether `.claude/rules/*.md` `paths:`
 frontmatter genuinely auto-loads — unconfirmed when built, and a useful finding
 whenever it can be settled either way.
+
+## 2026-09-09 — Correct the instructions the assessment found inverted
+
+The handover assessment's top finding was that `CLAUDE.md` hard constraint 3
+instructed agents to do the one thing that causes a cross-user data leak, and
+that `reviewer` was checking diffs against it. The code was right; the rule was
+wrong, and had been since migration 9. Fixed before any other work, because
+every future change is reviewed against these files.
+
+- **Rewrote** `CLAUDE.md` constraint 3. It said own-collection queries
+  deliberately do *not* filter by user and told agents not to add a "safety"
+  `.eq('owner_user_id', …)`. Migration 9 (lines 167–179) made a friend's
+  tradable binder readable through RLS on purpose, so an unscoped select returns
+  their cards alongside the owner's. The ~25 filters in
+  `src/lib/collection/queries.ts` are required; the rule now says removing one
+  is a data leak, not a cleanup.
+- **Rewrote** `CLAUDE.md` constraint 4. It named `src/lib/supabase/admin.ts` as
+  the one RLS-bypassing client, protected by a `server-only` import. That file
+  had zero importers and could not have had any — `server-only` throws
+  unconditionally outside a React Server Component, so the `tsx` sync script
+  would have died on import. The real containment is that the service key is
+  read only in `scripts/`, which is outside the Next build.
+- **Deleted** `src/lib/supabase/admin.ts`. Dead, unusable as written, and a
+  live-looking invitation to import RLS-bypassing code into the web app — the
+  exact thing constraint 4 exists to prevent. Recoverable from history if a
+  server-side privileged path is ever genuinely wanted.
+- **Trimmed** `src/lib/env.ts`: removed `serviceRoleKey()` (only caller was
+  `admin.ts`) and the `required(name)` helper it used. That was the only
+  `process.env[name]` in `src/`, so **constraint 2 is now literally true** and
+  was strengthened rather than softened. `requiredValue(value, label)` stays.
+- **Rewrote** the client table and the query-filtering section of
+  `.claude/rules/data-access.md`, which repeated the same inverted rule, and
+  corrected its env-variable section.
+- **Inverted** the matching bullet in `.claude/agents/reviewer.md`: it told the
+  reviewer to flag an owner filter as a defect. It now flags the *removal* of
+  one, and any service-role client under `src/`.
+- **Added** `scryfall.ts`, `scryfall-stream.ts` and `scryfall-upsert.ts` to the
+  `CLAUDE.md` directory map and dropped `admin` from it. The map claimed to be
+  verified while omitting the entire Scryfall field mapping.
+
+Not addressed here: the untested trade function, the deck-inflation test gap,
+and the interruptible writes. Those are findings 02–04 and need code, not docs.
+
+### Same day, after review
+
+`reviewer` was run on the diff above and found the sweep had stopped at three
+files. Two more carried the same inverted rule, and one contradicted itself:
+
+- **Rewrote** the RLS bullet in `.claude/agents/architect.md`. It still said
+  "RLS is the single place ownership is enforced. Proposals that add a second
+  filter in application code are creating a source of truth that will drift."
+  `architect` is consulted on every structural change, so it would have flagged
+  the correct move as a defect and waved the leak through.
+- **Corrected** the `deck_cards` bullet in the same file: it told `architect` the
+  deck invariant test "still does not exist". It does exist
+  (`schema_test.sql` section 11) but inserts only one `deck_cards` row, so it
+  cannot reproduce the two-printings case — an inadequate test that reads as
+  coverage is a different warning than a missing one.
+- **Fixed** the YAML `description` in `.claude/rules/data-access.md`, which still
+  read "why queries do not filter by user" — the exact opposite of the body
+  directly beneath it, and the part a rule index would surface.
+- **Fixed** `README.md` line 121, which repeated "RLS does the ownership
+  filtering". Left the identical line in `archive/pre-rebuild-2026-09-09/` alone:
+  the archive is evidence and carries no authority.
+- **Softened** constraint 2's absolute phrasing to "no dynamic `process.env[name]`
+  *access*" — the pattern still appears once in an `env.ts` comment naming it as
+  forbidden, and a rule that is provably off by one invites being dismissed.
+
+Lesson for next time: when a rule is wrong, grep for its *wording* across
+`.claude/agents/**` and `README.md`, not just the rules files. Agent definitions
+restate the constraints in their own words, so a fix that stops at `CLAUDE.md`
+leaves live instructions contradicting it.

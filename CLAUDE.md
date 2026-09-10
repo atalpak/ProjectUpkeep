@@ -59,6 +59,10 @@ src/
     cx.ts                   class-name joiner; own module to avoid a cycle
     env.ts                  environment access with loud failures — READ THIS
     types.ts
+    scryfall.ts             Scryfall → `cards` field mapping, incl. every price
+                            column. Second-largest piece of logic in the app.
+    scryfall-stream.ts      streams the bulk export instead of buffering 500MB
+    scryfall-upsert.ts      batched upsert with adaptive batch halving
     auth/redirect.ts        open-redirect guard for the post-login bounce
     collection/             availability · breakdown · deck-state · deck-stats
                             deck-view · entries · export · filters · list-check
@@ -67,7 +71,7 @@ src/
                             commit · name-variants · vocabulary
     social/                 queries · counter · trade-status · wants
                             notifications · tos · types
-    supabase/               client · server · admin · session · errors
+    supabase/               client · server · session · errors
 supabase/
   migrations/               28 files, numbered, applied in order
   tests/schema_test.sql     assertions the schema must keep satisfying
@@ -101,17 +105,32 @@ alerts. Each migration header carries the reasoning for its decision.
    inlines the static form into the Edge and browser bundles; the dynamic form
    yields `undefined` in production and crashes the proxy on every request.
    **CI greps the built output for this and fails the build if it regresses**
-   (`.github/workflows/ci.yml`). See `src/lib/env.ts`.
+   (`.github/workflows/ci.yml`). See `src/lib/env.ts` — as of 2026-09-09 there is
+   no dynamic `process.env[name]` *access* anywhere in `src/` (the pattern appears
+   once more, named in a comment as the thing to avoid), and the `required(name)`
+   helper that used to do one was removed with its only caller. Keep it that way:
+   the rule reads as absolute because it now is.
 
-3. **RLS does the ownership filtering.** The queries in
-   `src/lib/collection/queries.ts` deliberately do *not* filter by user id. Do
-   not add a "safety" `.eq('owner_user_id', …)` — one place to get it wrong is
-   the design, two is the bug.
+3. **RLS is the floor, not the whole filter — own-collection queries must scope
+   by owner explicitly.** This constraint said the opposite until 2026-09-09,
+   and the code has been right and the rule wrong since migration 9. That
+   migration made a friend's *tradable* binder readable through RLS on purpose,
+   so the profile page can show it. From that point on an unscoped `select` over
+   `locations` / `card_instances` returns a friend's trade binder alongside your
+   own. So every query in `src/lib/collection/queries.ts` that answers "what do
+   *I* own" carries `.eq('owner_user_id', …)`, roughly 25 of them, and **removing
+   one is a cross-user data leak, not a cleanup.** A query that deliberately
+   reads across people — the public binder, want matching — says so in a comment.
 
-4. **Only `src/lib/supabase/admin.ts` bypasses RLS**, and only the Scryfall sync
-   job may use it. It carries a `server-only` import; keep it out of anything
-   that can reach a client bundle. Everything in the web app runs as the
-   signed-in user.
+4. **Nothing under `src/` may construct a service-role client.** The service key
+   is read in exactly one place, `scripts/sync-scryfall.ts`, which is not part of
+   the Next build and so cannot reach a browser bundle. That containment *is* the
+   guard. There used to be a `src/lib/supabase/admin.ts` said to be protected by
+   a `server-only` import; it had no importers, and it could never have had any —
+   `server-only` throws unconditionally outside a React Server Component, so a
+   `tsx` script importing it dies on load. It was deleted on 2026-09-09 rather
+   than left as a live-looking file that invites someone to import RLS-bypassing
+   code into the web app. Everything in the web app runs as the signed-in user.
 
 5. **Trade transfers live in `public.accept_trade`**, a `SECURITY DEFINER`
    function (migrations 9 → 12 → 13). Changes to trade completion go there or
