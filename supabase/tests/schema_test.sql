@@ -722,6 +722,306 @@ begin
     'collection_entries leaked ' || theirs || ' rows belonging to another user';
 end $$;
 
+-- --------------------------------------------------------------------------
+-- 12. The deck list survives one card listed under two printings
+--     (migration 20 -- the bug that grew a 100-card deck to 114).
+--
+-- Section 11 above exercises a single list entry, and every case it covers
+-- gives the same answer under migration 20's rule and migration 19's broken
+-- one -- so it cannot tell them apart. The corruption needs TWO entries
+-- sharing an oracle id: 14 of one Forest art and 6 of another. Migration 19
+-- set the *oldest* entry to the full physical count and left its sibling
+-- alone, so the list totalled 26 for 20 cards, and every later sleeve
+-- inflated it further.
+--
+-- If this section ever passes with the migration 19 rule restored, it has
+-- stopped doing its job.
+-- --------------------------------------------------------------------------
+insert into public.locations (id, user_id, name, type) values
+  ('bbbbbbbb-0000-0000-0000-000000000007', '11111111-1111-1111-1111-111111111111',
+   'Two-Art Bolts', 'deck');
+
+-- One card (oracle ffffffff-...0001) listed under two printings on purpose:
+-- 14 of the LEA art, 6 of the M10 art. Twenty cards, two entries.
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('bbbbbbbb-0000-0000-0000-000000000007', 'aaaaaaaa-0000-0000-0000-000000000001', 14),
+  ('bbbbbbbb-0000-0000-0000-000000000007', 'aaaaaaaa-0000-0000-0000-000000000002', 6);
+
+do $$
+declare entries int; total int; lea_qty int; m10_qty int;
+begin
+  -- Sleeve exactly what the list asks for, in two goes.
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000001',
+     'bbbbbbbb-0000-0000-0000-000000000007', 'NM', 'nonfoil', 'en', 14);
+
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'bbbbbbbb-0000-0000-0000-000000000007', 'NM', 'nonfoil', 'en', 6);
+
+  select count(*), coalesce(sum(quantity), 0) into entries, total
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000007';
+
+  assert entries = 2,
+    'both per-printing entries must survive being sleeved (got ' || entries || ')';
+  assert total = 20,
+    'sleeving exactly the 20 listed copies must leave the list at 20, not inflate it '
+    || '(got ' || total || ') -- this is the migration 19 bug';
+
+  select quantity into lea_qty from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000007'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into m10_qty from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000007'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+
+  assert lea_qty = 14, 'the LEA entry must keep its own 14 (got ' || lea_qty || ')';
+  assert m10_qty = 6,  'the M10 entry must keep its own 6 (got '  || m10_qty || ')';
+end $$;
+
+do $$
+declare total int; lea_qty int; m10_qty int;
+begin
+  -- Over-sleeve by one, in the M10 art. Only the shortfall is added, and it
+  -- lands on the entry naming that exact printing rather than the oldest one.
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000002',
+     'bbbbbbbb-0000-0000-0000-000000000007', 'LP', 'nonfoil', 'en', 1);
+
+  select coalesce(sum(quantity), 0) into total
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000007';
+
+  select quantity into lea_qty from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000007'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into m10_qty from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000007'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+
+  assert total = 21,
+    'one copy over the list should add exactly one (got ' || total || ')';
+  assert m10_qty = 7,
+    'the shortfall belongs to the entry naming that printing (got ' || m10_qty || ')';
+  assert lea_qty = 14,
+    'the other printing''s entry must not move (got ' || lea_qty || ')';
+end $$;
+
+-- --------------------------------------------------------------------------
+-- 13. accept_trade() actually transfers (migrations 9 -> 12 -> 13).
+--
+-- Section 8 asserts that a *client* cannot settle a trade. Nothing asserted
+-- that the function which can, does. It is the only path in the schema that
+-- moves ownership, it has been rewritten three times, and ownership_history
+-- rejects UPDATE and DELETE -- so a bug here writes a permanently wrong
+-- record. Covered below: the whole-stack move, the partial split, the audit
+-- rows, the status change, and the three refusals.
+-- --------------------------------------------------------------------------
+-- Fresh containers: the fixtures from section 2 are deleted along the way.
+insert into public.locations (id, user_id, name, type) values
+  ('bbbbbbbb-0000-0000-0000-000000000008', '11111111-1111-1111-1111-111111111111',
+   'Alice Trade Binder', 'binder'),
+  ('bbbbbbbb-0000-0000-0000-000000000009', '22222222-2222-2222-2222-222222222222',
+   'Bob Trade Box', 'box');
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity)
+values
+  -- alice offers this whole stack; it is filed, to prove the transfer unfiles it
+  ('cccccccc-0000-0000-0000-000000000010', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000008',
+   'NM', 'nonfoil', 'en', 1),
+  -- bob offers 1 of 3, so this one splits
+  ('cccccccc-0000-0000-0000-000000000011', '22222222-2222-2222-2222-222222222222',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000009',
+   'LP', 'nonfoil', 'en', 3),
+  -- for the refusal cases
+  ('cccccccc-0000-0000-0000-000000000012', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000003', null, 'NM', 'nonfoil', 'en', 1),
+  ('cccccccc-0000-0000-0000-000000000013', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000003', null, 'NM', 'nonfoil', 'en', 1);
+
+insert into public.trades (id, proposer_id, recipient_id, status, expires_at) values
+  ('dddddddd-0000-0000-0000-000000000010', '11111111-1111-1111-1111-111111111111',
+   '22222222-2222-2222-2222-222222222222', 'proposed', now() + interval '7 days'),
+  ('dddddddd-0000-0000-0000-000000000011', '11111111-1111-1111-1111-111111111111',
+   '22222222-2222-2222-2222-222222222222', 'proposed', now() + interval '7 days'),
+  ('dddddddd-0000-0000-0000-000000000012', '11111111-1111-1111-1111-111111111111',
+   '22222222-2222-2222-2222-222222222222', 'proposed', now() - interval '1 day');
+
+insert into public.trade_items
+  (trade_id, card_instance_id, direction, quantity, card_id, finish)
+values
+  ('dddddddd-0000-0000-0000-000000000010', 'cccccccc-0000-0000-0000-000000000010',
+   'from_proposer',  1, 'aaaaaaaa-0000-0000-0000-000000000001', 'nonfoil'),
+  ('dddddddd-0000-0000-0000-000000000010', 'cccccccc-0000-0000-0000-000000000011',
+   'from_recipient', 1, 'aaaaaaaa-0000-0000-0000-000000000002', 'nonfoil'),
+  ('dddddddd-0000-0000-0000-000000000011', 'cccccccc-0000-0000-0000-000000000012',
+   'from_proposer',  1, 'aaaaaaaa-0000-0000-0000-000000000003', 'nonfoil'),
+  ('dddddddd-0000-0000-0000-000000000012', 'cccccccc-0000-0000-0000-000000000013',
+   'from_proposer',  1, 'aaaaaaaa-0000-0000-0000-000000000003', 'nonfoil');
+
+-- The recipient accepts. Run as `authenticated` with bob's claim so the
+-- EXECUTE grant and the auth.uid() check are both exercised for real.
+do $$
+begin
+  perform set_config('request.jwt.claim.sub',
+                     '22222222-2222-2222-2222-222222222222', true);
+  set local role authenticated;
+  perform public.accept_trade('dddddddd-0000-0000-0000-000000000010');
+  reset role;
+end $$;
+
+do $$
+declare
+  moved      public.card_instances;
+  remainder  public.card_instances;
+  received   public.card_instances;
+  new_id     uuid;
+  hist_rows  int;
+  final      text;
+begin
+  -- (a) The whole stack moved: new owner, and unfiled. This is hard
+  --     constraint 6 -- ownership and location stay decoupled -- observed on
+  --     the one statement that actually performs a transfer.
+  select * into moved from public.card_instances
+   where id = 'cccccccc-0000-0000-0000-000000000010';
+  assert moved.owner_user_id = '22222222-2222-2222-2222-222222222222',
+    'a whole-stack trade must change the owner';
+  assert moved.location_id is null,
+    'a transferred card must be unfiled -- it is not in the sender''s binder any more';
+  assert moved.quantity = 1, 'the whole stack moves intact';
+
+  -- (b) The partial stack split: sender keeps the remainder, in place.
+  select * into remainder from public.card_instances
+   where id = 'cccccccc-0000-0000-0000-000000000011';
+  assert remainder.owner_user_id = '22222222-2222-2222-2222-222222222222',
+    'the sender keeps the remainder of a split stack';
+  assert remainder.quantity = 2,
+    'offering 1 of 3 must leave 2 behind (got ' || remainder.quantity || ')';
+  assert remainder.location_id = 'bbbbbbbb-0000-0000-0000-000000000009',
+    'the remainder stays where it was filed';
+
+  -- (c) The receiver got a new row for exactly the offered quantity, unfiled,
+  --     and the audit log points at it.
+  select card_instance_id into new_id from public.ownership_history
+   where trade_id = 'dddddddd-0000-0000-0000-000000000010'
+     and from_user_id = '22222222-2222-2222-2222-222222222222'
+     and to_user_id   = '11111111-1111-1111-1111-111111111111';
+  assert new_id is not null, 'the split half must be recorded in ownership_history';
+
+  select * into received from public.card_instances where id = new_id;
+  assert received.owner_user_id = '11111111-1111-1111-1111-111111111111',
+    'the split half belongs to the receiver';
+  assert received.quantity = 1,
+    'the receiver gets exactly what was offered (got ' || received.quantity || ')';
+  assert received.location_id is null, 'a received card arrives unfiled';
+  assert received.card_id = 'aaaaaaaa-0000-0000-0000-000000000002',
+    'the split half keeps the printing it was';
+  assert received.id <> 'cccccccc-0000-0000-0000-000000000011',
+    'a split must create a new row, not rename the sender''s';
+
+  -- (d) One audit row per leg, and no more.
+  select count(*) into hist_rows from public.ownership_history
+   where trade_id = 'dddddddd-0000-0000-0000-000000000010';
+  assert hist_rows = 2,
+    'a two-item trade writes exactly two history rows (got ' || hist_rows || ')';
+
+  -- (e) The trade is settled.
+  select status into final from public.trades
+   where id = 'dddddddd-0000-0000-0000-000000000010';
+  assert final = 'completed',
+    'accept_trade must close the trade (got ' || final || ')';
+end $$;
+
+-- The refusals. Asserted on SQLSTATE, because that is what the function
+-- actually raises. Worth knowing that the app does NOT read these codes:
+-- acceptTrade in src/app/(app)/trades/actions.ts dispatches on substrings of
+-- the exception *message* ("expired", "no longer owned", "Only the
+-- recipient"). So the wording of those messages is a live contract too, and
+-- rewording one in a later migration silently degrades the user-facing error
+-- to a generic failure. Nothing tests that coupling; these assertions at least
+-- pin the behaviour the messages describe.
+do $$
+begin
+  perform set_config('request.jwt.claim.sub',
+                     '22222222-2222-2222-2222-222222222222', true);
+  set local role authenticated;
+  begin
+    perform public.accept_trade('dddddddd-0000-0000-0000-000000000010');
+    assert false, 'accepting an already-completed trade must fail';
+  exception when invalid_parameter_value then null;
+  end;
+  reset role;
+end $$;
+
+do $$
+declare owner_after uuid; status_after text;
+begin
+  -- The proposer is not the recipient, so she cannot accept her own offer.
+  perform set_config('request.jwt.claim.sub',
+                     '11111111-1111-1111-1111-111111111111', true);
+  set local role authenticated;
+  begin
+    perform public.accept_trade('dddddddd-0000-0000-0000-000000000011');
+    assert false, 'only the recipient may accept a trade';
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+
+  -- ...and nothing moved on the way out.
+  select owner_user_id into owner_after from public.card_instances
+   where id = 'cccccccc-0000-0000-0000-000000000012';
+  select status into status_after from public.trades
+   where id = 'dddddddd-0000-0000-0000-000000000011';
+  assert owner_after = '11111111-1111-1111-1111-111111111111',
+    'a refused accept must not transfer the card';
+  assert status_after = 'proposed',
+    'a refused accept must leave the trade open (got ' || status_after || ')';
+end $$;
+
+do $$
+declare status_after text;
+begin
+  -- Expired offer (migration 13): expiry is a derived fact checked here, not a
+  -- stored status, so a stale proposal must be refused at accept time.
+  perform set_config('request.jwt.claim.sub',
+                     '22222222-2222-2222-2222-222222222222', true);
+  set local role authenticated;
+  begin
+    perform public.accept_trade('dddddddd-0000-0000-0000-000000000012');
+    assert false, 'an expired trade must not be acceptable';
+  exception when invalid_parameter_value then null;
+  end;
+  reset role;
+
+  select status into status_after from public.trades
+   where id = 'dddddddd-0000-0000-0000-000000000012';
+  assert status_after = 'proposed',
+    'an expired trade stays proposed rather than being rewritten (got ' || status_after || ')';
+end $$;
+
+-- Signed out entirely: no claim, no transfer.
+do $$
+begin
+  perform set_config('request.jwt.claim.sub', '', true);
+  set local role authenticated;
+  begin
+    perform public.accept_trade('dddddddd-0000-0000-0000-000000000011');
+    assert false, 'accept_trade must refuse an anonymous caller';
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+end $$;
+
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'
