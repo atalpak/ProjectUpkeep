@@ -219,8 +219,8 @@ export default async function HomePage() {
       {/* ---- close ---- */}
       <section className="mt-16 border-t border-border pt-8">
         <p className="font-display text-base">
-          I&rsquo;m building this for my own playgroup first. If you&rsquo;re
-          reading this, you&rsquo;ve been invited to join.
+          I&rsquo;m building this for my own playgroup first, while Project
+          Upkeep finds its feet.
         </p>
         <div className="mt-5">
           <Link href="/signup">

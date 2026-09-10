@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { safeRedirect } from "@/lib/auth/redirect";
 import { validateNewPassword } from "@/lib/auth/password";
+import { signupInviteDecision } from "@/lib/auth/invite";
 import { RECOVERY_COOKIE } from "@/lib/auth/recovery";
 
 export type AuthState = { error: string | null; notice: string | null };
@@ -37,10 +38,29 @@ export async function signUp(_prev: AuthState, formData: FormData): Promise<Auth
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const username = String(formData.get("username") ?? "").trim();
+  const invite = String(formData.get("invite") ?? "").trim();
 
-  if (!email || !password || !username) {
+  // Two states, not fail-closed: unset (or whitespace-only) SIGNUP_INVITE_CODE
+  // means open signup, the default while the app is small and shared by hand.
+  // Setting it turns on a required-code gate. `SIGNUP_INVITE_CODE` is a
+  // server-only secret — not NEXT_PUBLIC, and this action never reaches the
+  // browser bundle — but it stays a literal member expression like every other
+  // env read here (hard constraint 2, and env.ts's header on why there is no
+  // dynamic helper).
+  const expectedInviteCode = process.env.SIGNUP_INVITE_CODE?.trim() || undefined;
+  const inviteRequired = expectedInviteCode !== undefined;
+
+  if (!email || !password || !username || (inviteRequired && !invite)) {
     return { error: "Fill in every field.", notice: null };
   }
+
+  // Gate before any account is created. In open mode this can't reject —
+  // signupInviteDecision returns "open" regardless of what (if anything) was
+  // typed into a field the form isn't even rendering.
+  if (signupInviteDecision(invite, expectedInviteCode) === "reject") {
+    return { error: "That invite code isn't valid.", notice: null };
+  }
+
   if (!USERNAME_RE.test(username)) {
     return {
       error: "Usernames are 3–32 characters, letters, numbers, underscore or hyphen.",

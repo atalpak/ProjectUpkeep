@@ -55,6 +55,10 @@ cp .env.example .env.local
 `SUPABASE_SERVICE_ROLE_KEY` bypasses row-level security. It is used **only** by
 the Scryfall sync job and must never reach the browser.
 
+`SIGNUP_INVITE_CODE` is optional. Set it to require an invite code to create an
+account; leave it unset to keep signup open. It is server-only and never
+exposed to the browser.
+
 ### 3. Apply the schema
 
 With the [Supabase CLI](https://supabase.com/docs/guides/cli):
