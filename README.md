@@ -4,8 +4,11 @@ A Magic: The Gathering collection manager that tracks **where each copy physical
 lives** — which binder, which box, which deck — so a digital inventory mirrors
 reality.
 
-No marketplace and no valuation engine — prices are shown as a Scryfall-sourced
-estimate and nothing more. That is a deliberate scope decision, not a gap.
+No marketplace: nothing can be listed, bought or sold here, and a card links out
+to TCGplayer when you want one. Prices *are* imported from Scryfall's daily
+export and a collection total is shown — carefully, per finish, reporting what it
+could not price rather than counting it as zero (`src/lib/collection/pricing.ts`).
+What is deliberately absent is a market, not the numbers.
 
 **Status: feature-complete for a single playgroup, and unused by anyone but its
 author.** Collection and location management, peer-to-peer trading with
