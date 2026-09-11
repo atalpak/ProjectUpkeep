@@ -11,6 +11,7 @@ import { test } from "node:test";
 import {
   capSuppliers,
   countMatchedWants,
+  describeSupplier,
   matchTradablesByTerm,
   matchWants,
   type NamedTradableRow,
@@ -185,4 +186,24 @@ test("more suppliers than the cap are trimmed, and the rest are counted", () => 
   const { shown, more } = capSuppliers(suppliers, 2);
   assert.deepEqual(shown.map((s) => s.ownerId), ["a", "b"]);
   assert.equal(more, 2);
+});
+
+// ---------------------------------------------------------------------------
+// describeSupplier — the "2 in Trade Binder B" half of a supplier line,
+// shared by /wants, a deck's wish list, /decks/check and a friend's profile
+// ---------------------------------------------------------------------------
+
+test("no location on record still names the count", () => {
+  assert.equal(describeSupplier(3, []), "3");
+});
+
+test("one location is named alongside the count", () => {
+  assert.equal(describeSupplier(2, ["Trade Binder B"]), "2 in Trade Binder B");
+});
+
+test("more than one location is listed in full, not folded to a count", () => {
+  assert.equal(
+    describeSupplier(3, ["Trade Binder B", "Box 2"]),
+    "3 in Trade Binder B, Box 2",
+  );
 });

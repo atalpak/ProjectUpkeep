@@ -15,7 +15,7 @@ import {
 } from "@/lib/social/queries";
 import { tradingAllowed } from "@/lib/social/tos";
 import { mirrorTradeForCounter } from "@/lib/social/counter";
-import { matchWants } from "@/lib/social/wants";
+import { describeSupplier, matchWants } from "@/lib/social/wants";
 import { ProfileTradables } from "@/components/social/ProfileTradables";
 import { TradableBinderPreview } from "@/components/social/TradableBinderPreview";
 import { EmptyState, PageHeader } from "@/components/ui";
@@ -190,7 +190,8 @@ export default async function ProfilePage({
           </h2>
           <ul className="flex flex-wrap gap-1.5 text-sm">
             {theirWants.map((want) => {
-              const mine = iCanFill.get(want.id)?.[0]?.available ?? 0;
+              const mySupply = iCanFill.get(want.id)?.[0];
+              const mine = mySupply?.available ?? 0;
               return (
                 <li
                   key={want.id}
@@ -200,7 +201,11 @@ export default async function ProfilePage({
                 >
                   {want.displayName}
                   {want.quantity > 1 ? ` ×${want.quantity}` : ""}
-                  {mine > 0 ? <span className="ml-1 text-xs">· you have {mine}</span> : null}
+                  {mine > 0 ? (
+                    <span className="ml-1 text-xs">
+                      · you have {describeSupplier(mine, mySupply?.locations ?? [])}
+                    </span>
+                  ) : null}
                 </li>
               );
             })}

@@ -40,10 +40,11 @@ import {
 } from "@/lib/collection/deck-view";
 import { priceFinishFor, type DeckPrice } from "@/lib/collection/deck-stats";
 import type { DeckListEntry, WishListEntry } from "@/lib/collection/queries";
+import { describeSupplier } from "@/lib/social/wants";
 import { cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
 
 /** A friend who already has a wish-list card open for trade. */
-export type WishSupplierView = { username: string; available: number };
+export type WishSupplierView = { username: string; available: number; locations: string[] };
 
 /**
  * One deck: the list it is meant to be, and how much of it is really in the box.
@@ -1279,8 +1280,8 @@ function WishRow({
 
       {suppliers.length > 0 ? (
         <Badge>
-          {suppliers[0].username}
-          {suppliers.length > 1 ? ` +${suppliers.length - 1}` : ""} has it
+          {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+          {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
         </Badge>
       ) : null}
 
