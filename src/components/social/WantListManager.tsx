@@ -9,7 +9,7 @@ import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { CardPreviewLink } from "@/components/CardPanel";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select } from "@/components/ui";
 import type { CardNameSuggestion } from "@/lib/types";
-import type { WantRow } from "@/lib/social/wants";
+import { describeSupplier, type WantRow } from "@/lib/social/wants";
 
 /** A supplier of one want, resolved to a name on the server. */
 export type SupplierView = {
@@ -265,7 +265,9 @@ function WantRowView({
                     >
                       {s.username}
                     </Link>{" "}
-                    <span className="text-ink-muted tabular-nums">×{s.available}</span>
+                    <span className="text-ink-muted">
+                      has {describeSupplier(s.available, s.locations)}
+                    </span>
                     {i < suppliers.length - 1 ? <span className="text-ink-muted">,</span> : null}
                   </span>
                 ))}

@@ -65,6 +65,22 @@ export type WantSupplier = {
 };
 
 /**
+ * "2 in Trade Binder B" — the count-and-container half of a supplier line.
+ *
+ * `/decks/check` said this first ("Dave has 4 in Trade Binder B", see
+ * check-state.ts), and every other place that names who can fill a want — the
+ * wants page, a deck's own wish list, a friend's profile showing what you
+ * could offer them back — is answering the same question with the same two
+ * numbers, so the phrase lives here once rather than being rebuilt at each
+ * call site. Callers supply their own subject and verb ("Dave has" / "you
+ * have"); this is only ever what comes after it.
+ */
+export function describeSupplier(available: number, locations: readonly string[]): string {
+  if (locations.length === 0) return `${available}`;
+  return `${available} in ${locations.join(", ")}`;
+}
+
+/**
  * For each want row, who can supply it, best first.
  *
  * Keyed by want-row id so the caller can look matches up as it renders the

@@ -129,6 +129,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
     wishMatchesView[wantId] = list.map((s) => ({
       username: wishSuppliers.get(s.ownerId)?.username ?? "a friend",
       available: s.available,
+      locations: s.locations,
     }));
   }
 
