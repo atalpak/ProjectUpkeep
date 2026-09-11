@@ -16,8 +16,12 @@ import type {
 import type { TosStatus } from "@/lib/social/tos";
 import { expiringSoon, isExpired } from "@/lib/social/trade-status";
 import { cardKey } from "@/lib/collection/availability";
+import { MIN_TERM } from "@/lib/collection/locate";
 import {
+  matchTradablesByTerm,
   matchWants,
+  type FriendCardMatch,
+  type NamedTradableRow,
   type TradableRow,
   type WantRow,
   type WantSupplier,
@@ -344,15 +348,21 @@ export async function getFriendWants(friendId: string): Promise<WantRow[]> {
  * RLS returns only rows in a friend's tradable container, so the `neq` on
  * owner is the only filter this needs — "not mine, and visible" is exactly a
  * friend's trade binder.
+ *
+ * Carries the card's name and flavor name, not just its key, so the same read
+ * also backs `matchFriendTradablesByTerm` below — a free-text search has no
+ * key to match on until a name match finds one.
  */
-export async function getFriendTradables(): Promise<TradableRow[]> {
+export async function getFriendTradables(): Promise<NamedTradableRow[]> {
   const user = await getCurrentUser();
   if (!user) return [];
 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("card_instances")
-    .select("owner_user_id, quantity, cards ( oracle_id, name ), locations!location_id ( name )")
+    .select(
+      "owner_user_id, quantity, cards ( oracle_id, name, flavor_name ), locations!location_id ( name )",
+    )
     .neq("owner_user_id", user.id)
     .limit(5000);
 
@@ -361,13 +371,15 @@ export async function getFriendTradables(): Promise<TradableRow[]> {
   return ((data ?? []) as unknown as Array<{
     owner_user_id: string;
     quantity: number;
-    cards: { oracle_id: string | null; name: string } | null;
+    cards: { oracle_id: string | null; name: string; flavor_name: string | null } | null;
     locations: { name: string } | null;
   }>).map((r) => ({
     ownerId: r.owner_user_id,
     key: cardKey(r.cards) ?? "",
     quantity: r.quantity,
     locationName: r.locations?.name ?? null,
+    name: r.cards?.name ?? "",
+    flavorName: r.cards?.flavor_name ?? null,
   }));
 }
 
@@ -423,6 +435,33 @@ export async function getWantListView(): Promise<WantListView> {
   const { matches, suppliers } = await matchSuppliersFor(wants);
 
   return { wants, matches, suppliers };
+}
+
+/**
+ * Free-text search across every friend's trade binder — the cross-person half
+ * of "where is this card?" that `/find` answers for your own collection.
+ *
+ * Reuses `getFriendTradables()` rather than a second query: it already loads
+ * every card a friend has open for trade, RLS-gated by the same
+ * friend-plus-tradable-container policy (migration 9) that lets their public
+ * profile show it. This shows nothing a visit to `/u/[username]` would not —
+ * only a card name search reaches it instead of a friend's name.
+ */
+export async function matchFriendTradablesByTerm(
+  term: string,
+): Promise<{ matches: FriendCardMatch[]; suppliers: Map<string, Profile> }> {
+  if (term.trim().length < MIN_TERM) return { matches: [], suppliers: new Map() };
+
+  const tradables = await getFriendTradables();
+  const matches = matchTradablesByTerm(term, tradables);
+
+  const supplierIds = new Set<string>();
+  for (const match of matches) {
+    for (const s of match.suppliers) supplierIds.add(s.ownerId);
+  }
+  const suppliers = await profilesByIds([...supplierIds]);
+
+  return { matches, suppliers };
 }
 
 // ---------------------------------------------------------------------------

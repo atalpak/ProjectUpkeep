@@ -13,9 +13,11 @@ import { cx } from "@/components/ui";
  *
  * Type a name and the dropdown fills with matches from all of Magic (the local
  * `cards` mirror, so it stays fast and offline). A card you own carries a
- * lighter line saying how many and where. Picking one opens the card popup —
- * full detail, a printing switcher, and add-to-collection / add-to-deck — over
- * whatever page you were on, owned or not.
+ * lighter line saying how many and where; a card a friend has open for trade
+ * carries a second one naming them and their container — the same "who has
+ * this?" answer /find gives, compact enough for a dropdown. Picking one opens
+ * the card popup — full detail, a printing switcher, and add-to-collection /
+ * add-to-deck — over whatever page you were on, owned or not.
  *
  * Below lg there is no room for the field, so the same thing is an icon that
  * goes to the full card finder.
@@ -32,7 +34,17 @@ type CardHit = {
   sample_flavor_name: string | null;
 };
 
-type Result = CardHit & { owned: LocatedCard | null };
+/** One card a friend has open for trade, resolved and capped by the API route. */
+type FriendHit = {
+  name: string;
+  displayName: string;
+  suppliers: Array<{ username: string; available: number; locations: string[] }>;
+  /** Suppliers beyond the ones already in `suppliers` — the route caps at a
+   *  couple of lines; /find has room for the rest. */
+  moreSuppliers: number;
+};
+
+type Result = CardHit & { owned: LocatedCard | null; friends: FriendHit | null };
 
 export function HeaderSearch() {
   const router = useRouter();
@@ -90,13 +102,18 @@ export function HeaderSearch() {
         if (!cardsRes.ok) return;
 
         const cards = ((await cardsRes.json()).results ?? []) as CardHit[];
-        const mine = mineRes.ok
-          ? (((await mineRes.json()).results ?? []) as LocatedCard[])
-          : [];
+        const mineJson = mineRes.ok ? await mineRes.json() : { results: [], friends: [] };
+        const mine = (mineJson.results ?? []) as LocatedCard[];
+        const friendHits = (mineJson.friends ?? []) as FriendHit[];
         const ownedByName = new Map(mine.map((c) => [c.name.toLowerCase(), c]));
+        const friendsByName = new Map(friendHits.map((f) => [f.name.toLowerCase(), f]));
 
         setResults(
-          cards.map((c) => ({ ...c, owned: ownedByName.get(c.name.toLowerCase()) ?? null })),
+          cards.map((c) => ({
+            ...c,
+            owned: ownedByName.get(c.name.toLowerCase()) ?? null,
+            friends: friendsByName.get(c.name.toLowerCase()) ?? null,
+          })),
         );
         setActive(-1);
         setDropdownOpen(true);
@@ -220,6 +237,20 @@ export function HeaderSearch() {
                               ? ` · ${card.owned.places
                                   .map((place) => `${place.name} ×${place.quantity}`)
                                   .join(" · ")}`
+                              : ""}
+                          </span>
+                        ) : null}
+                        {card.friends && card.friends.suppliers.length > 0 ? (
+                          <span className="mt-0.5 block truncate text-xs text-accent">
+                            {card.friends.suppliers[0].username} has{" "}
+                            {card.friends.suppliers[0].available}
+                            {card.friends.suppliers[0].locations[0]
+                              ? ` in ${card.friends.suppliers[0].locations[0]}`
+                              : ""}
+                            {card.friends.suppliers.length > 1 || card.friends.moreSuppliers > 0
+                              ? ` +${
+                                  card.friends.suppliers.length - 1 + card.friends.moreSuppliers
+                                } more`
                               : ""}
                           </span>
                         ) : null}

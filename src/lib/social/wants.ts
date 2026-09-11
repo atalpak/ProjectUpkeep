@@ -8,7 +8,17 @@
  *
  * Pure and key-agnostic — callers pass an oracle-id-based key string so the
  * "any printing counts" rule lives with `cardKey`, not here.
+ *
+ * `matchTradablesByTerm` below answers a different question with the same
+ * data: not "who can fill this exact want" (a key already known in advance)
+ * but "who has anything matching what was just typed" — the free-text half
+ * that powers /find's "Among your friends" section and the header search's
+ * compact echo of it. It matches on name, the same every-word-anywhere rule
+ * `nameMatches` applies to a person's own collection, rather than on `key`.
  */
+
+import { nameMatches, MIN_TERM } from "@/lib/collection/locate";
+import { cardDisplayName } from "@/lib/types";
 
 /** One line of a want list, ready to match. */
 export type WantRow = {
@@ -112,4 +122,113 @@ export function countMatchedWants(
   tradables: readonly TradableRow[],
 ): number {
   return matchWants(wants, tradables).size;
+}
+
+// ---------------------------------------------------------------------------
+// Free-text search across trade binders (/find's "Among your friends")
+// ---------------------------------------------------------------------------
+
+/**
+ * A friend's tradable copy, carrying enough of the card to search by name.
+ *
+ * `matchWants` above only ever needs `key` — the want it is matching against
+ * already names an exact card. A typed search term does not, so this extends
+ * the plain row with what `nameMatches` needs.
+ */
+export type NamedTradableRow = TradableRow & {
+  name: string;
+  /** The printed name, when the printing has one — see `cardDisplayName`. */
+  flavorName: string | null;
+};
+
+/** One card matching a search term, and who has it open for trade. */
+export type FriendCardMatch = {
+  /** oracle-id key, or the name fallback — the same convention `cardKey` uses. */
+  key: string;
+  /** The real game name — what /collection?q= and /find search on. */
+  name: string;
+  /** What to show: the printed name when the printing has one. */
+  displayName: string;
+  /** Best supplier first, same ordering `matchWants` uses. */
+  suppliers: WantSupplier[];
+};
+
+/**
+ * Free-text search across friends' trade binders.
+ *
+ * Groups by card the way `locateCards` groups a person's own collection —
+ * every word in the term has to appear in the name (or the printed flavor
+ * name), matched with the exact same `nameMatches` rule, so searching your own
+ * cards and searching your circle's feels like the same search.
+ */
+export function matchTradablesByTerm(
+  term: string,
+  tradables: readonly NamedTradableRow[],
+  limit = 20,
+): FriendCardMatch[] {
+  if (term.trim().length < MIN_TERM) return [];
+
+  const byKey = new Map<
+    string,
+    { name: string; displayName: string; owners: Map<string, WantSupplier> }
+  >();
+
+  for (const row of tradables) {
+    if (row.quantity <= 0 || !row.key) continue;
+
+    const matches =
+      nameMatches(row.name, term) || (row.flavorName ? nameMatches(row.flavorName, term) : false);
+    if (!matches) continue;
+
+    let entry = byKey.get(row.key);
+    if (!entry) {
+      entry = {
+        name: row.name,
+        displayName: cardDisplayName({ name: row.name, flavor_name: row.flavorName }),
+        owners: new Map(),
+      };
+      byKey.set(row.key, entry);
+    }
+
+    const current = entry.owners.get(row.ownerId);
+    if (current) {
+      current.available += row.quantity;
+      if (row.locationName && !current.locations.includes(row.locationName)) {
+        current.locations.push(row.locationName);
+      }
+    } else {
+      entry.owners.set(row.ownerId, {
+        ownerId: row.ownerId,
+        available: row.quantity,
+        locations: row.locationName ? [row.locationName] : [],
+      });
+    }
+  }
+
+  const result: FriendCardMatch[] = [...byKey.entries()].map(([key, e]) => ({
+    key,
+    name: e.name,
+    displayName: e.displayName,
+    suppliers: [...e.owners.values()].sort(
+      (a, b) => b.available - a.available || a.ownerId.localeCompare(b.ownerId),
+    ),
+  }));
+
+  result.sort((a, b) => a.name.localeCompare(b.name));
+  return result.slice(0, limit);
+}
+
+/**
+ * The first `max` suppliers for one card, plus how many more there are.
+ *
+ * The header search dropdown has room for two or three lines before a search
+ * result stops looking like a search result; the /find page has room for all
+ * of them. Rather than teach the matcher two different lengths, it always
+ * returns everyone and the caller that is short on space trims the ends.
+ */
+export function capSuppliers(
+  suppliers: readonly WantSupplier[],
+  max: number,
+): { shown: WantSupplier[]; more: number } {
+  return { shown: suppliers.slice(0, max), more: Math.max(0, suppliers.length - max) };
 }
