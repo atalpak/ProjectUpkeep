@@ -33,7 +33,6 @@ function ok(message: string): SocialState {
 }
 
 function revalidate(tradeId?: string) {
-  revalidatePath("/trades");
   revalidatePath("/friends");
   revalidatePath("/collection");
   revalidatePath("/dashboard");

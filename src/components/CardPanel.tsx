@@ -301,13 +301,7 @@ function usePresentation(): Presentation {
  * deck names with nothing to hover, while a deck itself is full of cards.
  */
 const NO_CARDS_EXACT = ["/decks", "/settings"];
-const NO_CARDS_PREFIX = [
-  "/friends",
-  "/trades",
-  "/locations",
-  "/notifications",
-  "/settings",
-];
+const NO_CARDS_PREFIX = ["/friends", "/locations", "/notifications", "/settings"];
 
 function routeHasCards(pathname: string): boolean {
   if (NO_CARDS_EXACT.includes(pathname)) return false;

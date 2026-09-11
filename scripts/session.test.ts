@@ -31,7 +31,6 @@ test("the signed-in app is not public", () => {
     "/find",
     "/dashboard",
     "/friends",
-    "/trades",
     "/wants",
     "/notifications",
     "/settings",
