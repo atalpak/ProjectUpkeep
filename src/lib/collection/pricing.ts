@@ -155,3 +155,42 @@ export function formatPrice(value: number | null | undefined): string {
 
 /** Where the price is remembered as shown or hidden. Per browser. */
 export const PRICES_STORAGE_KEY = "project-upkeep-show-prices";
+
+/**
+ * The most recent `cards.prices_updated_at` across a set of rows.
+ *
+ * Scryfall's sync walks the whole `cards` table in one pass, but a printing
+ * added or refreshed between runs can carry a different timestamp than the
+ * rest, so the honest "as of" date for a collection is the newest one it
+ * actually holds, not a single global run time. ISO timestamps from Postgres
+ * sort correctly as plain strings, so this needs no `Date` parsing to compare
+ * them.
+ */
+export function mostRecentPriceDate(
+  dates: Array<string | null | undefined>,
+): string | null {
+  let latest: string | null = null;
+  for (const raw of dates) {
+    if (!raw) continue;
+    if (!latest || raw > latest) latest = raw;
+  }
+  return latest;
+}
+
+/**
+ * Names the one card a per-copy price makes worth calling out — the "Top:
+ * <name>, <price>" label on a location row, which otherwise identifies itself
+ * by nothing more than five small thumbnails.
+ *
+ * Null when the copy carries no listed price for its finish: there is no
+ * honest "top" card to name from an unpriced one, the same rule `priceFor`
+ * enforces everywhere else.
+ */
+export function topCardLabel(
+  name: string,
+  card: PriceableCard | null | undefined,
+  finish: Finish | string,
+): { name: string; value: number } | null {
+  const value = priceFor(card, finish);
+  return value === null ? null : { name, value };
+}

@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 
 import { acceptTrade, closeTrade } from "@/app/(app)/trades/actions";
 import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { Price } from "@/components/PriceToggle";
-import { Badge, Banner, Button, Card as Panel, EmptyState } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, cx, EmptyState } from "@/components/ui";
 import { displayPrice } from "@/lib/collection/pricing";
 import { TRADE_STATUS_LABELS, type TradeDetail } from "@/lib/social/types";
 import { cardDisplayName } from "@/lib/types";
@@ -23,7 +23,21 @@ type TradeSideItem = TradeDetail["items"][number];
  * between two collections — so it says exactly what will happen before you
  * press it, and the button that does it is the only primary one.
  */
-export function TradeList({ trades, userId }: { trades: TradeDetail[]; userId: string }) {
+export function TradeList({
+  trades,
+  userId,
+  highlightId,
+}: {
+  trades: TradeDetail[];
+  userId: string;
+  /**
+   * A trade to pick out of the list, from a notification's `?trade=` link
+   * (see `notificationHref`). Either page this renders on may hold many
+   * trades, and without this the one the notification was about is just
+   * somewhere in the pile.
+   */
+  highlightId?: string;
+}) {
   const [state, accept, accepting] = useActionState(acceptTrade, EMPTY_SOCIAL_STATE);
 
   if (trades.length === 0) {
@@ -46,6 +60,7 @@ export function TradeList({ trades, userId }: { trades: TradeDetail[]; userId: s
           userId={userId}
           accept={accept}
           accepting={accepting}
+          highlighted={trade.id === highlightId}
         />
       ))}
     </div>
@@ -57,12 +72,20 @@ function TradeCard({
   userId,
   accept,
   accepting,
+  highlighted,
 }: {
   trade: TradeDetail;
   userId: string;
   accept: (formData: FormData) => void;
   accepting: boolean;
+  highlighted?: boolean;
 }) {
+  // Scrolls itself into view once, on arrival from a notification's link —
+  // the list can be long enough that the trade in question is off-screen.
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (highlighted) ref.current?.scrollIntoView({ block: "center" });
+  }, [highlighted]);
   const iProposed = trade.proposer_id === userId;
   const other = iProposed ? trade.recipient : trade.proposer;
   // 'countered' is terminal: a counter-offer is a new proposal that supersedes
@@ -85,100 +108,109 @@ function TradeCard({
   const count = (items: typeof givingUp) => items.reduce((sum, i) => sum + i.quantity, 0);
 
   return (
-    <Panel className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold">
-            {iProposed ? "You offered" : "Offer from"} {other?.username ?? "someone"}
-          </h2>
-          <p className="text-xs text-ink-muted">
-            {new Date(trade.created_at).toLocaleDateString()} · {count(givingUp)} for{" "}
-            {count(receiving)}
-            {proposed && timeLeft ? (
-              <span className={expired ? " text-danger" : ""}> · {timeLeft}</span>
-            ) : null}
-          </p>
+    <div ref={ref}>
+      <Panel
+        className={cx(
+          "space-y-3",
+          // The ring is the notification link's whole payoff: without it,
+          // landing here just re-shows the same list you'd have seen anyway.
+          highlighted && "ring-2 ring-accent ring-offset-2 ring-offset-surface",
+        )}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">
+              {iProposed ? "You offered" : "Offer from"} {other?.username ?? "someone"}
+            </h2>
+            <p className="text-xs text-ink-muted">
+              {new Date(trade.created_at).toLocaleDateString()} · {count(givingUp)} for{" "}
+              {count(receiving)}
+              {proposed && timeLeft ? (
+                <span className={expired ? " text-danger" : ""}> · {timeLeft}</span>
+              ) : null}
+            </p>
+          </div>
+
+          <Badge>{expired && proposed ? "Expired" : TRADE_STATUS_LABELS[trade.status]}</Badge>
         </div>
 
-        <Badge>{expired && proposed ? "Expired" : TRADE_STATUS_LABELS[trade.status]}</Badge>
-      </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ItemColumn title="You give" items={givingUp} />
+          <ItemColumn title="You get" items={receiving} />
+        </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <ItemColumn title="You give" items={givingUp} />
-        <ItemColumn title="You get" items={receiving} />
-      </div>
+        {open ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            {/* Only the recipient may accept; the database enforces that too. */}
+            {!iProposed ? (
+              <form action={accept}>
+                <input type="hidden" name="trade_id" value={trade.id} />
+                <Button type="submit" disabled={accepting}>
+                  {accepting ? "Completing…" : "Accept and swap cards"}
+                </Button>
+              </form>
+            ) : null}
 
-      {open ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          {/* Only the recipient may accept; the database enforces that too. */}
-          {!iProposed ? (
-            <form action={accept}>
+            <form action={closeTrade}>
               <input type="hidden" name="trade_id" value={trade.id} />
-              <Button type="submit" disabled={accepting}>
-                {accepting ? "Completing…" : "Accept and swap cards"}
+              <input type="hidden" name="as_proposer" value={String(iProposed)} />
+              <Button variant="secondary" type="submit" className="text-xs">
+                {iProposed ? "Cancel offer" : "Decline"}
               </Button>
             </form>
-          ) : null}
 
-          <form action={closeTrade}>
-            <input type="hidden" name="trade_id" value={trade.id} />
-            <input type="hidden" name="as_proposer" value={String(iProposed)} />
-            <Button variant="secondary" type="submit" className="text-xs">
-              {iProposed ? "Cancel offer" : "Decline"}
-            </Button>
-          </form>
+            {/* Counter: hand the offer back changed. It opens the same proposal
+                builder on their profile, pre-filled with this trade mirrored, and
+                submitting it supersedes this one. */}
+            {!iProposed && other?.username ? (
+              <Link
+                href={`/u/${encodeURIComponent(other.username)}?counter=${trade.id}`}
+                className="text-xs text-accent underline"
+              >
+                Counter
+              </Link>
+            ) : null}
 
-          {/* Counter: hand the offer back changed. It opens the same proposal
-              builder on their profile, pre-filled with this trade mirrored, and
-              submitting it supersedes this one. */}
-          {!iProposed && other?.username ? (
-            <Link
-              href={`/u/${encodeURIComponent(other.username)}?counter=${trade.id}`}
-              className="text-xs text-accent underline"
-            >
-              Counter
-            </Link>
-          ) : null}
+            {!iProposed ? (
+              <p className="text-xs text-ink-muted">
+                Accepting moves these cards between your collections straight away.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
-          {!iProposed ? (
-            <p className="text-xs text-ink-muted">
-              Accepting moves these cards between your collections straight away.
+        {proposed && expired ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <p className="text-xs text-danger">
+              This offer expired and can no longer be accepted.
             </p>
-          ) : null}
-        </div>
-      ) : null}
+            <form action={closeTrade}>
+              <input type="hidden" name="trade_id" value={trade.id} />
+              <input type="hidden" name="as_proposer" value={String(iProposed)} />
+              <Button variant="secondary" type="submit" className="text-xs">
+                Dismiss
+              </Button>
+            </form>
+            {!iProposed && other?.username ? (
+              <Link
+                href={`/u/${encodeURIComponent(other.username)}?counter=${trade.id}`}
+                className="text-xs text-accent underline"
+              >
+                Make a fresh offer
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
 
-      {proposed && expired ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          <p className="text-xs text-danger">
-            This offer expired and can no longer be accepted.
+        {wasCountered ? (
+          <p className="border-t border-border pt-3 text-xs text-ink-muted">
+            {iProposed
+              ? `${other?.username ?? "They"} countered this with a new offer.`
+              : "You countered this offer. Your new proposal replaces it."}
           </p>
-          <form action={closeTrade}>
-            <input type="hidden" name="trade_id" value={trade.id} />
-            <input type="hidden" name="as_proposer" value={String(iProposed)} />
-            <Button variant="secondary" type="submit" className="text-xs">
-              Dismiss
-            </Button>
-          </form>
-          {!iProposed && other?.username ? (
-            <Link
-              href={`/u/${encodeURIComponent(other.username)}?counter=${trade.id}`}
-              className="text-xs text-accent underline"
-            >
-              Make a fresh offer
-            </Link>
-          ) : null}
-        </div>
-      ) : null}
-
-      {wasCountered ? (
-        <p className="border-t border-border pt-3 text-xs text-ink-muted">
-          {iProposed
-            ? `${other?.username ?? "They"} countered this with a new offer.`
-            : "You countered this offer. Your new proposal replaces it."}
-        </p>
-      ) : null}
-    </Panel>
+        ) : null}
+      </Panel>
+    </div>
   );
 }
 

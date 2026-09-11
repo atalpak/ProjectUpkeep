@@ -28,6 +28,23 @@ test("open offers route to the friends page, settled ones to the archive", () =>
   assert.equal(notificationHref("trade_cancelled"), "/trades");
 });
 
+test("a notification naming a trade links to that trade specifically", () => {
+  // Same destination page as before, plus the id so it can be picked out of
+  // the list rather than left for you to find.
+  assert.equal(notificationHref("trade_proposed", "abc-123"), "/friends?trade=abc-123");
+  assert.equal(notificationHref("trade_accepted", "abc-123"), "/trades?trade=abc-123");
+});
+
+test("no trade id, or a null one, leaves the plain list link untouched", () => {
+  assert.equal(notificationHref("trade_proposed"), "/friends");
+  assert.equal(notificationHref("trade_proposed", null), "/friends");
+  assert.equal(notificationHref("trade_proposed", undefined), "/friends");
+});
+
+test("a trade id with characters that need escaping is encoded", () => {
+  assert.equal(notificationHref("trade_accepted", "a/b c"), "/trades?trade=a%2Fb%20c");
+});
+
 test("relativeTime scales from minutes to a date", () => {
   const now = Date.parse("2026-09-01T12:00:00Z");
   const ago = (ms: number) => new Date(now - ms).toISOString();

@@ -12,7 +12,17 @@ export const metadata = { title: "Past trades · Project Upkeep" };
  * which is where trading starts. This is the archive you follow a link to when
  * you want to check what actually happened.
  */
-export default async function PastTradesPage() {
+export default async function PastTradesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ trade?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  // A trade notification links here with ?trade=<id> (see
+  // src/lib/social/notifications.ts) so the one it is about is picked out of
+  // the archive rather than left for you to find among everything else here.
+  const highlightId = Array.isArray(params.trade) ? params.trade[0] : params.trade;
+
   const user = await getCurrentUser();
   const trades = await getMyTrades();
   // 'countered' is terminal now (superseded by a fresh proposal), so it belongs
@@ -28,7 +38,7 @@ export default async function PastTradesPage() {
         backLabel="Friends"
       />
 
-      <TradeList trades={settled} userId={user?.id ?? ""} />
+      <TradeList trades={settled} userId={user?.id ?? ""} highlightId={highlightId} />
     </div>
   );
 }

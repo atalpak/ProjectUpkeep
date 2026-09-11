@@ -90,6 +90,9 @@ function Hero({ summary }: { summary: Summary }) {
         <p className="font-display text-5xl font-semibold tracking-tight tabular-nums">
           {formatPrice(value.total)}
         </p>
+        {summary.pricesAsOf ? (
+          <p className="text-xs text-ink-muted">Prices as of {formatShortDate(summary.pricesAsOf)}</p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
@@ -120,6 +123,12 @@ function Hero({ summary }: { summary: Summary }) {
       ) : null}
     </section>
   );
+}
+
+/** "Sep 8" — short enough to caption a hero number without competing with it. */
+function formatShortDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 const COLOUR_DOT_CLASS: Partial<Record<ColourBucket, string>> = {
@@ -317,10 +326,10 @@ function StarIcon() {
 
 /**
  * A small glance strip, not the six-large-image section this replaces. A
- * proper "newest first" way to browse the collection belongs on /collection
- * itself (a future sort option) — this is just enough to catch "oh, that's
- * the one I added yesterday" without the page reserving a fifth of the
- * screen for it.
+ * proper "newest first" way to browse the collection lives on /collection
+ * itself, as the Added column and its sort — this is just enough to catch
+ * "oh, that's the one I added yesterday" without the page reserving a fifth
+ * of the screen for it.
  */
 function RecentlyAdded({ summary }: { summary: Summary }) {
   if (summary.recent.length === 0) return null;
