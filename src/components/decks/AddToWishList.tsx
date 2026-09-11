@@ -127,9 +127,7 @@ export function AddToWishList({ deckId }: { deckId: string }) {
                   }}
                   className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-muted"
                 >
-                  <span className="min-w-0 flex-1 truncate">
-                    {result.sample_flavor_name ?? result.name}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate">{result.name}</span>
                   <span className="shrink-0 text-[11px] text-ink-muted">
                     {result.printing_count} printing{result.printing_count === 1 ? "" : "s"}
                   </span>

@@ -7,10 +7,10 @@ import { test } from "node:test";
 
 import { cardDisplayName } from "../src/lib/types";
 
-test("cardDisplayName prefers the printed flavor name", () => {
+test("cardDisplayName leads with the real name, printed alternate in parens", () => {
   assert.equal(
     cardDisplayName({ name: "Spark Double", flavor_name: "Loki's Double" }),
-    "Loki's Double",
+    "Spark Double (Loki's Double)",
   );
 });
 

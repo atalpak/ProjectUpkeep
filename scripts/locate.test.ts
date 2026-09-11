@@ -121,7 +121,7 @@ test("a row with no card is skipped, not thrown on", () => {
   assert.equal(found.length, 1);
 });
 
-test("a printed flavor name is findable by either spelling, and shown over the real name", () => {
+test("a printed flavor name is findable by either spelling, and shown alongside the real name", () => {
   // The Marvel Super Heroes Commander printing of "Spark Double", physically
   // printed as "Loki's Double."
   const spark = row("Spark Double", 1, box, "spark-double-oracle", "Loki's Double");
@@ -129,7 +129,11 @@ test("a printed flavor name is findable by either spelling, and shown over the r
   const byFlavor = locateCards([spark], "loki");
   assert.equal(byFlavor.length, 1, "should be findable by the printed name");
   assert.equal(byFlavor[0].name, "Spark Double", "the real name is what /collection?q= searches");
-  assert.equal(byFlavor[0].displayName, "Loki's Double", "the printed name is what renders");
+  assert.equal(
+    byFlavor[0].displayName,
+    "Spark Double (Loki's Double)",
+    "the real name leads, the printed name follows in parens",
+  );
 
   const byReal = locateCards([spark], "spark");
   assert.equal(byReal.length, 1, "should still be findable by the real name too");

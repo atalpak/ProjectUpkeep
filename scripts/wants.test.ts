@@ -130,8 +130,8 @@ test("a printed flavor name is matchable by either spelling", () => {
   assert.equal(matchTradablesByTerm("spark", [spark]).length, 1, "and by the real name");
   assert.equal(
     matchTradablesByTerm("loki", [spark])[0].displayName,
-    "Loki's Double",
-    "the printed name is what renders",
+    "Spark Double (Loki's Double)",
+    "the real name leads, the printed name follows in parens",
   );
 });
 

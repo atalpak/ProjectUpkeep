@@ -202,7 +202,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                   ) : (
                     <span className="h-[42px] w-[30px] rounded-sm bg-surface-muted" />
                   )}
-                  <span className="font-medium">{s.sample_flavor_name ?? s.name}</span>
+                  <span className="font-medium">{s.name}</span>
                   <span className="ml-auto text-xs text-ink-muted">
                     {s.printing_count} printing{s.printing_count === 1 ? "" : "s"}
                   </span>

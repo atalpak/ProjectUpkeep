@@ -223,9 +223,7 @@ export function HeaderSearch() {
                         )}
                       >
                         <span className="flex items-baseline justify-between gap-2">
-                          <span className="truncate font-medium">
-                            {card.sample_flavor_name ?? card.name}
-                          </span>
+                          <span className="truncate font-medium">{card.name}</span>
                           <span className="shrink-0 text-xs text-ink-muted">
                             {card.printing_count} print{card.printing_count === 1 ? "" : "s"}
                           </span>
