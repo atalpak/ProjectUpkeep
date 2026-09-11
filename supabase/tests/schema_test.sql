@@ -1097,6 +1097,261 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 15. Self-service account deletion (migration 30).
+--
+-- This is the direct regression test for the bug that motivated the
+-- migration: before it, deleting a user who had ever completed a trade
+-- aborted outright (trades cascade-deleted -> ownership_history.trade_id went
+-- to null as a real UPDATE -> the append-only trigger from migration 6
+-- rejected it -> the whole delete rolled back). Case (a) below is exactly that
+-- scenario, and it must now succeed.
+--
+-- Dedicated users (erin / frank / grace) rather than reusing alice / bob, so
+-- deleting one of them does not reach back into every earlier section's
+-- fixtures and complicate what each assertion is checking.
+--
+-- One limitation worth stating plainly: _shim_auth.sql stands auth.users up as
+-- a plain table with no real privilege model, so everything below proves the
+-- FK graph and the RPC's own logic, but it cannot prove that the function
+-- owner actually holds DELETE on the real auth.users, which belongs to
+-- supabase_auth_admin in a real Supabase project. That was confirmed once, by
+-- hand, against the live project (select has_table_privilege('postgres',
+-- 'auth.users', 'DELETE') returned true) — this suite cannot re-check it, and
+-- a green run here does not mean the live grant is still in place.
+-- --------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('77777777-7777-7777-7777-777777777777', 'erin@example.com',  '{"username":"erin"}'),
+  ('88888888-8888-8888-8888-888888888888', 'frank@example.com', '{"username":"frank"}'),
+  ('99999999-9999-9999-9999-999999999999', 'grace@example.com', '{"username":"grace"}');
+
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('77777777-7777-7777-7777-777777777777', '88888888-8888-8888-8888-888888888888', 'accepted');
+
+insert into public.locations (id, user_id, name, type) values
+  ('bbbbbbbb-0000-0000-0000-000000000020', '77777777-7777-7777-7777-777777777777',
+   'Erin Trade Binder', 'binder'),
+  ('bbbbbbbb-0000-0000-0000-000000000021', '77777777-7777-7777-7777-777777777777',
+   'Erin Cube', 'deck');
+
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('bbbbbbbb-0000-0000-0000-000000000021', 'aaaaaaaa-0000-0000-0000-000000000002', 4);
+
+insert into public.want_list (id, user_id, card_id) values
+  ('eeeeeeee-0000-0000-0000-000000000020', '77777777-7777-7777-7777-777777777777',
+   'aaaaaaaa-0000-0000-0000-000000000003');
+
+insert into public.feedback (user_id, body) values
+  ('77777777-7777-7777-7777-777777777777', 'Testing account deletion.');
+
+-- One card erin is about to trade away, and one she keeps -- the second is
+-- what proves "her own remaining copies" actually go with the account.
+insert into public.card_instances (id, owner_user_id, card_id, location_id, quantity) values
+  ('cccccccc-0000-0000-0000-000000000020', '77777777-7777-7777-7777-777777777777',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000020', 1),
+  ('cccccccc-0000-0000-0000-000000000021', '77777777-7777-7777-7777-777777777777',
+   'aaaaaaaa-0000-0000-0000-000000000002', null, 1);
+
+-- Trade 1: erin -> frank, completed. Run through accept_trade() for real
+-- rather than inserted pre-completed, so the ordinary insert/accept triggers
+-- fire and leave the notification this section actually checks.
+insert into public.trades (id, proposer_id, recipient_id, status) values
+  ('dddddddd-0000-0000-0000-000000000020', '77777777-7777-7777-7777-777777777777',
+   '88888888-8888-8888-8888-888888888888', 'proposed');
+
+insert into public.trade_items (trade_id, card_instance_id, direction, quantity, card_id, finish)
+values
+  ('dddddddd-0000-0000-0000-000000000020', 'cccccccc-0000-0000-0000-000000000020',
+   'from_proposer', 1, 'aaaaaaaa-0000-0000-0000-000000000001', 'nonfoil');
+
+do $$
+begin
+  perform set_config('request.jwt.claim.sub',
+                     '88888888-8888-8888-8888-888888888888', true);
+  set local role authenticated;
+  perform public.accept_trade('dddddddd-0000-0000-0000-000000000020');
+  reset role;
+end $$;
+
+-- Trade 2: erin proposes to grace, still open when erin deletes -- must close
+-- as 'cancelled' (erin is the proposer), and grace must be told.
+insert into public.trades (id, proposer_id, recipient_id, status) values
+  ('dddddddd-0000-0000-0000-000000000021', '77777777-7777-7777-7777-777777777777',
+   '99999999-9999-9999-9999-999999999999', 'proposed');
+
+-- Trade 3: frank proposes to erin, still open when erin deletes -- must close
+-- as 'declined' (erin is the recipient), and frank must be told.
+insert into public.trades (id, proposer_id, recipient_id, status) values
+  ('dddddddd-0000-0000-0000-000000000022', '88888888-8888-8888-8888-888888888888',
+   '77777777-7777-7777-7777-777777777777', 'proposed');
+
+-- (b) A confirm_username that does not match erin's own must refuse, and
+--     must not touch anything -- proved by re-reading her profile afterwards.
+do $$
+declare still_there int;
+begin
+  perform set_config('request.jwt.claim.sub',
+                     '77777777-7777-7777-7777-777777777777', true);
+  set local role authenticated;
+  begin
+    perform public.delete_own_account('not-erin');
+    assert false, 'a wrong confirm_username must refuse the deletion';
+  exception when invalid_parameter_value then null;
+  end;
+  reset role;
+
+  select count(*) into still_there from public.profiles
+   where id = '77777777-7777-7777-7777-777777777777';
+  assert still_there = 1, 'a refused deletion must not touch the account';
+end $$;
+
+-- (c) An anonymous caller must be refused outright.
+do $$
+begin
+  perform set_config('request.jwt.claim.sub', '', true);
+  set local role authenticated;
+  begin
+    perform public.delete_own_account('erin');
+    assert false, 'delete_own_account must refuse an anonymous caller';
+  exception when insufficient_privilege then null;
+  end;
+  reset role;
+end $$;
+
+-- (a) The real deletion. This is the direct regression case: erin has a
+--     completed trade (dddddddd-...020) behind her, which is exactly the
+--     shape that used to roll the whole delete back.
+do $$
+begin
+  perform set_config('request.jwt.claim.sub',
+                     '77777777-7777-7777-7777-777777777777', true);
+  set local role authenticated;
+  perform public.delete_own_account('erin');
+  reset role;
+end $$;
+
+do $$
+declare
+  n              int;
+  card_owner     uuid;
+  card_location  uuid;
+  t1_status      text; t1_proposer uuid; t1_recipient uuid;
+  t2_status      text; t2_proposer uuid; t2_recipient uuid;
+  t3_status      text; t3_proposer uuid; t3_recipient uuid;
+  proposed_actor uuid;
+  cancel_actor   uuid;
+  decline_actor  uuid;
+begin
+  -- erin herself: gone.
+  select count(*) into n from public.profiles
+   where id = '77777777-7777-7777-7777-777777777777';
+  assert n = 0, 'the deleted user''s profile must be gone';
+
+  select count(*) into n from public.locations
+   where user_id = '77777777-7777-7777-7777-777777777777';
+  assert n = 0, 'the deleted user''s locations must be gone';
+
+  select count(*) into n from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000021';
+  assert n = 0, 'deck_cards must go with the deck it belonged to';
+
+  select count(*) into n from public.want_list
+   where user_id = '77777777-7777-7777-7777-777777777777';
+  assert n = 0, 'the deleted user''s want list must be gone';
+
+  select count(*) into n from public.friendships
+   where requester_id = '77777777-7777-7777-7777-777777777777'
+      or addressee_id = '77777777-7777-7777-7777-777777777777';
+  assert n = 0, 'the deleted user''s friendships must be gone';
+
+  select count(*) into n from public.feedback
+   where user_id = '77777777-7777-7777-7777-777777777777';
+  assert n = 0, 'the deleted user''s feedback must be gone';
+
+  -- Her own remaining copy -- never part of any trade -- is gone too.
+  select count(*) into n from public.card_instances
+   where id = 'cccccccc-0000-0000-0000-000000000021';
+  assert n = 0, 'the deleted user''s remaining card_instances must be gone';
+
+  -- (item 3) The card she traded away still exists, still frank's. Ownership
+  -- and location are bare columns (hard constraint 6), so this falls out of
+  -- the FK graph rather than needing special-case logic anywhere.
+  select owner_user_id, location_id into card_owner, card_location
+    from public.card_instances where id = 'cccccccc-0000-0000-0000-000000000020';
+  assert card_owner = '88888888-8888-8888-8888-888888888888',
+    'a card traded away before deletion must still belong to the friend who received it';
+  assert card_location is null, 'the transferred card stays unfiled, as accept_trade left it';
+
+  -- (item 4) The completed trade survives, frank's side intact, erin's nulled.
+  select status, proposer_id, recipient_id into t1_status, t1_proposer, t1_recipient
+    from public.trades where id = 'dddddddd-0000-0000-0000-000000000020';
+  assert t1_status = 'completed', 'a completed trade must survive account deletion';
+  assert t1_proposer is null, 'the departed party''s id on a surviving trade must be null';
+  assert t1_recipient = '88888888-8888-8888-8888-888888888888',
+    'the surviving party''s id on that trade must be untouched';
+
+  -- The notification frank got when erin proposed the trade survives too,
+  -- with actor_id null -- matching migration 14's own comment on that column.
+  -- Existence is checked explicitly first: `select into` on zero rows leaves
+  -- the variable at its default null, which would make a missing notification
+  -- pass the same assertion as a surviving one with actor_id cleared.
+  select count(*) into n from public.notifications
+   where trade_id = 'dddddddd-0000-0000-0000-000000000020'
+     and user_id = '88888888-8888-8888-8888-888888888888'
+     and type = 'trade_proposed';
+  assert n = 1, 'frank''s notification of the original proposal must survive';
+
+  select actor_id into proposed_actor from public.notifications
+   where trade_id = 'dddddddd-0000-0000-0000-000000000020'
+     and user_id = '88888888-8888-8888-8888-888888888888'
+     and type = 'trade_proposed';
+  assert proposed_actor is null,
+    'a surviving notification''s actor_id must be null once the actor''s account is gone';
+
+  -- (item 5, sent side) erin was the proposer of an open trade -> cancelled,
+  -- and grace -- who receives that news -- is still named on it.
+  select status, proposer_id, recipient_id into t2_status, t2_proposer, t2_recipient
+    from public.trades where id = 'dddddddd-0000-0000-0000-000000000021';
+  assert t2_status = 'cancelled',
+    'an open trade erin proposed must close as cancelled, not be left dangling';
+  assert t2_proposer is null, 'erin''s id on it must be null';
+  assert t2_recipient = '99999999-9999-9999-9999-999999999999',
+    'grace''s id on it must be untouched';
+
+  select count(*) into n from public.notifications
+   where trade_id = 'dddddddd-0000-0000-0000-000000000021'
+     and user_id = '99999999-9999-9999-9999-999999999999'
+     and type = 'trade_cancelled';
+  assert n = 1, 'grace must have been notified that erin cancelled';
+
+  select actor_id into cancel_actor from public.notifications
+   where trade_id = 'dddddddd-0000-0000-0000-000000000021'
+     and user_id = '99999999-9999-9999-9999-999999999999'
+     and type = 'trade_cancelled';
+  assert cancel_actor is null, 'grace''s cancellation notice must survive with actor_id null';
+
+  -- (item 5, received side) erin was the recipient of an open trade ->
+  -- declined, and frank -- who receives that news -- is still named on it.
+  select status, proposer_id, recipient_id into t3_status, t3_proposer, t3_recipient
+    from public.trades where id = 'dddddddd-0000-0000-0000-000000000022';
+  assert t3_status = 'declined',
+    'an open trade erin received must close as declined, not be left dangling';
+  assert t3_recipient is null, 'erin''s id on it must be null';
+  assert t3_proposer = '88888888-8888-8888-8888-888888888888',
+    'frank''s id on it must be untouched';
+
+  select count(*) into n from public.notifications
+   where trade_id = 'dddddddd-0000-0000-0000-000000000022'
+     and user_id = '88888888-8888-8888-8888-888888888888'
+     and type = 'trade_declined';
+  assert n = 1, 'frank must have been notified that erin declined';
+
+  select actor_id into decline_actor from public.notifications
+   where trade_id = 'dddddddd-0000-0000-0000-000000000022'
+     and user_id = '88888888-8888-8888-8888-888888888888'
+     and type = 'trade_declined';
+  assert decline_actor is null, 'frank''s decline notice must survive with actor_id null';
+end $$;
 
 rollback;
 

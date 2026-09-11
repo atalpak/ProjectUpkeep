@@ -4,13 +4,13 @@ import { redirect } from "next/navigation";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { getMyTosStatus } from "@/lib/social/queries";
 import { CURRENT_TOS_VERSION, hasAcceptedTos } from "@/lib/social/tos";
-import { SUPPORT_EMAIL } from "@/lib/support";
 import {
   EmailForm,
   PasswordForm,
   UsernameForm,
 } from "@/components/settings/AccountForms";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
+import { DeleteAccountForm } from "@/components/settings/DeleteAccountForm";
 import { Card as Panel, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Settings · Project Upkeep" };
@@ -125,19 +125,33 @@ export default async function SettingsPage() {
               — deleting one never deletes cards; they become unsorted.
             </span>
           </li>
-          <li className="text-ink-muted">
-            Account since {new Date(joined).toLocaleDateString()}. There is no self-service
-            delete yet — email{" "}
-            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline">
-              {SUPPORT_EMAIL}
+          <li>
+            <a href="/api/collection/export?format=csv" className="text-accent underline">
+              Export your collection
             </a>{" "}
-            to close your account and remove your data (see the{" "}
+            <span className="text-ink-muted">as a CSV, or a decklist with ?format=txt.</span>
+          </li>
+          <li className="text-ink-muted">Account since {new Date(joined).toLocaleDateString()}.</li>
+        </ul>
+      </Section>
+
+      <Section
+        title="Danger zone"
+        description="Deleting your account cannot be undone. Export your collection first if you might want it later."
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-ink-muted">
+            This removes your collection, locations, decks, want list, friendships and feedback.
+            One thing survives on purpose: a friend&rsquo;s own copy of a trade you completed with
+            them stays in their history, with your identity removed from it — closing your
+            account cannot erase their record of what they own. See the{" "}
             <Link href="/privacy" className="text-accent underline">
               privacy notice
-            </Link>
-            ).
-          </li>
-        </ul>
+            </Link>{" "}
+            for the full picture.
+          </p>
+          <DeleteAccountForm username={profile?.username ?? ""} />
+        </div>
       </Section>
     </div>
   );

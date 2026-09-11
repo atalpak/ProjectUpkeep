@@ -433,7 +433,9 @@ async function hydrateTrades(trades: Trade[]): Promise<TradeDetail[]> {
   if (trades.length === 0) return [];
 
   const supabase = await createClient();
-  const profiles = await profilesByIds(trades.flatMap((t) => [t.proposer_id, t.recipient_id]));
+  const profiles = await profilesByIds(
+    trades.flatMap((t) => [t.proposer_id, t.recipient_id].filter((id): id is string => !!id)),
+  );
 
   const { data: itemRows } = await supabase
     .from("trade_items")
@@ -479,8 +481,8 @@ async function hydrateTrades(trades: Trade[]): Promise<TradeDetail[]> {
 
   return trades.map((trade) => ({
     ...trade,
-    proposer: profiles.get(trade.proposer_id) ?? null,
-    recipient: profiles.get(trade.recipient_id) ?? null,
+    proposer: (trade.proposer_id ? profiles.get(trade.proposer_id) : null) ?? null,
+    recipient: (trade.recipient_id ? profiles.get(trade.recipient_id) : null) ?? null,
     items: items
       .filter((i) => i.trade_id === trade.id)
       .map((i) => {
