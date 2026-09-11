@@ -15,12 +15,14 @@ import {
 } from "@/app/(app)/decks/check/check-state";
 import { MAX_INPUT_BYTES } from "@/app/(app)/collection/import/action-state";
 import { groupDeck } from "@/lib/collection/deck-view";
+import { describeElsewhere, describeSpare } from "@/lib/collection/list-check";
 import { cardDisplayName } from "@/lib/types";
 import { CardPreviewTarget } from "@/components/CardPanel";
 import { ManaCost } from "@/components/ManaCost";
+import { Price, PriceToggle } from "@/components/PriceToggle";
 import { SetSymbol } from "@/components/SetSymbol";
 import { ListCheckMark } from "@/components/decks/DeckStateMark";
-import { Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
 
 const PLACEHOLDER = `1 Atraxa, Grand Unifier
 1 Sol Ring
@@ -192,17 +194,21 @@ function CheckResult({
       <Verdict result={result} />
 
       {rows.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>
-            All {summary.entries}
-          </FilterTab>
-          <FilterTab
-            active={filter === "attention"}
-            onClick={() => setFilter("attention")}
-            disabled={attention === 0}
-          >
-            Needs a decision {attention}
-          </FilterTab>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterTab active={filter === "all"} onClick={() => setFilter("all")}>
+              All {summary.entries}
+            </FilterTab>
+            <FilterTab
+              active={filter === "attention"}
+              onClick={() => setFilter("attention")}
+              disabled={attention === 0}
+            >
+              Needs a decision {attention}
+            </FilterTab>
+          </div>
+
+          <PriceToggle />
         </div>
       ) : null}
 
@@ -335,12 +341,24 @@ function Leg({ tone, value, label }: { tone: string; value: number; label: strin
 /** Where this entry's copies would come from, in words. */
 function origin(row: CheckRow): string {
   const parts = [
-    row.fromFree > 0 ? `${row.fromFree} free` : null,
-    row.fromDecks > 0 ? `${row.fromDecks} in another deck` : null,
+    describeSpare(row.fromFree, row.spareIn),
+    describeElsewhere(row.fromDecks, row.elsewhereDecks),
     row.short > 0 ? `${row.short} to find` : null,
   ].filter(Boolean);
 
   return parts.join(" · ");
+}
+
+/** Full detail for the origin line's tooltip — the truncated text above it
+ *  names at most one container and collapses multiple decks to a count, so
+ *  hovering is how the rest is read. */
+function originTitle(row: CheckRow): string | undefined {
+  const parts = [
+    row.spareIn.length > 0 ? `Free in: ${row.spareIn.join(", ")}` : null,
+    row.elsewhereDecks.length > 0 ? `Sleeved in: ${row.elsewhereDecks.join(", ")}` : null,
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 function Row({ row }: { row: CheckRow }) {
@@ -372,8 +390,25 @@ function Row({ row }: { row: CheckRow }) {
         </CardPreviewTarget>
         <div className="flex items-center gap-1.5 text-xs text-ink-muted">
           <SetSymbol code={card.set_code} />
-          <span className="truncate">{origin(row)}</span>
+          <span className="truncate" title={originTitle(row)}>
+            {origin(row)}
+          </span>
         </div>
+
+        {/* Not owned: what it would cost, and who in the circle already has
+            it open for trade — the most useful line on this whole screen. */}
+        {row.short > 0 && (card.price_usd !== null || row.friendSupply.length > 0) ? (
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+            <Price value={card.price_usd} className="text-ink-muted" />
+            {row.friendSupply.length > 0 ? (
+              <Badge>
+                {row.friendSupply[0].username} has {row.friendSupply[0].available}
+                {row.friendSupply[0].locations[0] ? ` in ${row.friendSupply[0].locations[0]}` : ""}
+                {row.friendSupply.length > 1 ? ` +${row.friendSupply.length - 1} more` : ""}
+              </Badge>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <ManaCost cost={card.mana_cost} size="xs" className="hidden shrink-0 sm:flex" />

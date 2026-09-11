@@ -34,7 +34,7 @@ import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
 import { ManaCost } from "@/components/ManaCost";
 import { SetSymbol } from "@/components/SetSymbol";
-import { Badge, Button, Field, Input, Select } from "@/components/ui";
+import { Badge, Button, Dialog, Field, Input, Select } from "@/components/ui";
 
 /**
  * Card details, delivered three ways.
@@ -687,29 +687,23 @@ function CardTooltip() {
  * Card details as a bottom sheet.
  *
  * The answer for touch, where there is no hover to hang either other
- * presentation off. A real <dialog> via showModal(), so it comes with a focus
- * trap, an Escape handler and an inert page behind it.
+ * presentation off. `Dialog` renders through a real <dialog> via showModal(),
+ * so it comes with a focus trap, an Escape handler and an inert page behind
+ * it. Not portalled: this only ever mounts from CardPanelOutlet, in the
+ * signed-in layout above any page content, so it can never end up nested
+ * inside a page's own <form>.
  */
 function CardSheet() {
   const ctx = useContext(Ctx);
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const el = dialog.current;
-    if (el && !el.open) el.showModal();
-  }, []);
-
   if (!ctx) return null;
 
   return (
-    <dialog
-      ref={dialog}
+    <Dialog
+      open
       onClose={() => ctx.hide()}
-      onClick={(event) => {
-        if (event.target === dialog.current) ctx.hide();
-      }}
-      aria-label="Card detail"
-      className="m-0 mt-auto max-h-[85dvh] w-full max-w-none rounded-t-2xl bg-surface p-0 text-ink backdrop:bg-scrim sm:mx-auto sm:my-auto sm:max-w-2xl sm:rounded-2xl"
+      label="Card detail"
+      portal={false}
+      className="m-0 mt-auto max-h-[85dvh] w-full max-w-none rounded-t-2xl sm:mx-auto sm:my-auto sm:max-w-2xl sm:rounded-2xl"
     >
       <div className="max-h-[85dvh] overflow-y-auto p-4">
         <div className="mb-3 flex justify-end">
@@ -734,7 +728,7 @@ function CardSheet() {
         </div>
         <CardDetails card={ctx.card} state={ctx.state} idleMessage="Loading…" interactive wide />
       </div>
-    </dialog>
+    </Dialog>
   );
 }
 

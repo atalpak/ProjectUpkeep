@@ -19,7 +19,7 @@
  * Lightning Bolt.
  */
 
-import type { Availability } from "@/lib/collection/availability";
+import { ZERO_AVAILABILITY, type Availability } from "@/lib/collection/availability";
 
 export const DECK_CARD_STATES = ["sleeved", "available", "missing"] as const;
 export type DeckCardState = (typeof DECK_CARD_STATES)[number];
@@ -94,4 +94,67 @@ export function deckProgress(states: EntryState[]): DeckProgress {
     sleeved: states.reduce((sum, s) => sum + Math.min(s.sleeved, s.wanted), 0),
     missingEntries: states.filter((s) => s.state === "missing").length,
   };
+}
+
+/**
+ * The least a decklist row needs to be placed into a state, across every deck
+ * rather than just one — `deckId` is what separates "sleeved in this deck"
+ * from "sleeved in a different one".
+ */
+export type DeckEntryRow = {
+  deckId: string;
+  /** `cardKey`'s output (availability.ts) — null for a row with no card to key on. */
+  key: string | null;
+  wanted: number;
+};
+
+/**
+ * How many decklist entries, across every deck the user owns, are sitting in
+ * the `available` state: not sleeved, but spare copies exist somewhere else in
+ * the collection right now.
+ *
+ * Pure, so it can be tested without a database — see getCrossDeckAvailableCount
+ * in queries.ts for the query that gathers the three ingredients this takes.
+ * They are the same three every deck's own page already computes (the
+ * decklist, what is physically sleeved per deck, and collection-wide
+ * availability), so this aggregate can never disagree with what a deck page
+ * shows for the same entry.
+ *
+ * `availability.get(key).available` is a *global* spare count for that card —
+ * it has no notion of how many different decks are simultaneously short it.
+ * Checking each entry against that number independently double-counts a
+ * scarce shared spare: two decks each missing one Sol Ring, with exactly one
+ * spare Sol Ring in the binder, would both read as "available" even though
+ * pulling the spare into one deck leaves the other still short. So a card's
+ * spare pool has to be allocated once across every entry asking for it, not
+ * re-read by each entry as if it had the whole pool to itself: entries that
+ * are not yet fully sleeved are grouped by card key across every deck first,
+ * and only then is each key's `available` count spent against however many
+ * entries are competing for it, capped at `min(available, shortEntries)`.
+ */
+export function countAvailableAcrossDecks(
+  rows: readonly DeckEntryRow[],
+  sleevedByDeck: ReadonlyMap<string, ReadonlyMap<string, number>>,
+  availability: ReadonlyMap<string, Availability>,
+): number {
+  // How many *distinct* deck entries, per card key, are still short — a fully
+  // sleeved entry is done and does not compete for the key's spare pool.
+  const shortEntriesByKey = new Map<string, number>();
+  for (const row of rows) {
+    if (row.key === null) continue;
+    const sleeved = sleevedByDeck.get(row.deckId)?.get(row.key) ?? 0;
+    const outstanding = Math.max(0, row.wanted - sleeved);
+    if (outstanding === 0) continue;
+    shortEntriesByKey.set(row.key, (shortEntriesByKey.get(row.key) ?? 0) + 1);
+  }
+
+  let count = 0;
+  for (const [key, shortEntries] of shortEntriesByKey) {
+    const available = (availability.get(key) ?? ZERO_AVAILABILITY).available;
+    // Each entry is a yes/no — "is there a spare for this one" — exactly what
+    // entryState() decides for a single entry; the cap is what stops the same
+    // spare from saying yes to more entries than actually exist to give it to.
+    count += Math.min(available, shortEntries);
+  }
+  return count;
 }

@@ -11,6 +11,11 @@ import { ManaSymbol } from "@/components/ManaCost";
 export { cx } from "@/lib/cx";
 import { cx } from "@/lib/cx";
 
+// Re-exported rather than defined here: Dialog needs hooks, and this file is
+// imported directly by Server Components (the dashboard, for one) for the
+// primitives that do not. See Dialog.tsx for the full reasoning.
+export { Dialog } from "@/components/Dialog";
+
 // 44px is the smallest target Apple and Google both call reliably tappable,
 // and this app gets used standing at a table with a phone in one hand. It grows
 // under `coarse` rather than at a breakpoint for the reason globals.css gives:
@@ -230,6 +235,62 @@ export function PageHeader({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * One row of a hairline-divided list — Direction A's answer to the bordered
+ * card this file used to reach for regardless of what it was showing. A
+ * `border-bottom` between rows and no box around the whole list, rather than
+ * a `Card` with `divide-y` wrapped around everything.
+ *
+ * Three slots, the same shape `Field` uses for label/children/hint: `icon`
+ * for a mark or thumbnail, the children for the row's own content (which is
+ * free to be as simple or as composed as it needs to be), `trailing` for a
+ * count or chevron pinned to the end. None are required — a caller with
+ * nothing to put in `icon` just omits it, rather than the row reserving dead
+ * space for it.
+ *
+ * Renders as a `Link` when given `href`, so a whole row is the tap target
+ * rather than a smaller link floating inside it; `coarse:min-h-11` on that
+ * path keeps it clear of the 44px touch floor.
+ */
+export function ListRow({
+  icon,
+  children,
+  trailing,
+  href,
+  className,
+}: {
+  icon?: ReactNode;
+  children: ReactNode;
+  trailing?: ReactNode;
+  href?: string;
+  className?: string;
+}) {
+  const row = (
+    <div
+      className={cx(
+        "flex items-center gap-3 border-b border-border py-3 last:border-b-0",
+        href && "transition-colors hover:bg-surface-muted",
+        className,
+      )}
+    >
+      {icon ? (
+        <span aria-hidden="true" className="flex shrink-0 items-center justify-center">
+          {icon}
+        </span>
+      ) : null}
+      <div className="min-w-0 flex-1">{children}</div>
+      {trailing ? <div className="shrink-0">{trailing}</div> : null}
+    </div>
+  );
+
+  if (!href) return row;
+  return (
+    <Link href={href} className="block coarse:min-h-11">
+      {row}
+    </Link>
   );
 }
 

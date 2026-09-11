@@ -7,6 +7,15 @@
 
 import type { CheckCard, CheckedEntry, ListCheckSummary } from "@/lib/collection/list-check";
 
+/** A friend who has a "not owned" card open for trade — same shape as the
+ *  deck page's `WishSupplierView`, plus the container, for "Dave has 4 in
+ *  Trade Binder B". */
+export type CheckSupplier = {
+  username: string;
+  available: number;
+  locations: string[];
+};
+
 /** One card on the list, with where its copies would come from. */
 export type CheckRow = CheckedEntry & {
   /** `cardKey` of the card — unique per row, so it doubles as the React key. */
@@ -16,6 +25,13 @@ export type CheckRow = CheckedEntry & {
   card: CheckCard;
   /** How many distinct printings of this card the list named. */
   printings: number;
+  /** Containers holding the free copies counted in `fromFree`. */
+  spareIn: string[];
+  /** Decks already holding a copy of this card — where `fromDecks` comes from. */
+  elsewhereDecks: string[];
+  /** Friends with this card open for trade, best first. Only ever populated
+   *  when `short > 0` — there is nothing to source otherwise. */
+  friendSupply: CheckSupplier[];
 };
 
 export type ListCheckResult = {

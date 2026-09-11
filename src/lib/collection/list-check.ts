@@ -54,6 +54,9 @@ export type CheckCard = {
   rarity: string | null;
   colors: string[] | null;
   image_uri_small: string | null;
+  /** Already on every card row — no extra read to show what a missing copy
+   *  would cost. */
+  price_usd: number | null;
 };
 
 export type CheckCounts = {
@@ -92,6 +95,35 @@ export function checkEntry(counts: CheckCounts): CheckedEntry {
   const state: ListCheckState = short > 0 ? "missing" : fromDecks > 0 ? "elsewhere" : "ready";
 
   return { ...counts, state, fromFree, fromDecks, short };
+}
+
+/**
+ * The free portion of an entry, in words — "3 free" on its own, or "3 free
+ * (Box 3)" once it is known which container. Multiple containers are listed
+ * in full: at check-list scale a card rarely sits in more than two or three,
+ * and naming them beats a vague "+2 more" for something you are about to go
+ * and get.
+ */
+export function describeSpare(fromFree: number, spareIn: readonly string[]): string {
+  if (fromFree === 0) return "";
+  if (spareIn.length === 0) return `${fromFree} free`;
+  return `${fromFree} free (${spareIn.join(", ")})`;
+}
+
+/**
+ * The sleeved-elsewhere portion of an entry, in words.
+ *
+ * "N in another deck" used to leave "another" doing all the work — naming the
+ * deck is what turns this into something actionable ("go unsleeve it from
+ * Mono-Red Aggro"). Two or more decks collapse to a count rather than a list:
+ * unlike a container, a deck you would raid is a bigger decision, and which
+ * one is worth a second look before it is worth a sentence.
+ */
+export function describeElsewhere(fromDecks: number, deckNames: readonly string[]): string {
+  if (fromDecks === 0) return "";
+  if (deckNames.length === 0) return `${fromDecks} in another deck`;
+  if (deckNames.length === 1) return `${fromDecks} in ${deckNames[0]}`;
+  return `${fromDecks} in ${deckNames.length} other decks`;
 }
 
 /** Counts for one entry, from the availability map. */

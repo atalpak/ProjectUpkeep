@@ -12,6 +12,8 @@ import { test } from "node:test";
 import {
   checkEntry,
   countsFrom,
+  describeElsewhere,
+  describeSpare,
   foldByCard,
   summarize,
   type CheckCard,
@@ -31,6 +33,7 @@ const card = (over: Partial<CheckCard> = {}): CheckCard => ({
   rarity: "common",
   colors: ["R"],
   image_uri_small: null,
+  price_usd: null,
   ...over,
 });
 
@@ -87,6 +90,46 @@ test("countsFrom reads an availability row the way the map stores it", () => {
   assert.equal(e.fromFree, 2);
   assert.equal(e.fromDecks, 2);
   assert.equal(e.state, "elsewhere");
+});
+
+// ---------------------------------------------------------------------------
+// Naming where a copy would come from
+// ---------------------------------------------------------------------------
+
+test("describeSpare says nothing when nothing is free", () => {
+  assert.equal(describeSpare(0, []), "");
+  assert.equal(describeSpare(0, ["Box 3"]), "", "a stale location list with no free copies is not shown");
+});
+
+test("describeSpare names the container once known", () => {
+  assert.equal(describeSpare(3, []), "3 free");
+  assert.equal(describeSpare(3, ["Box 3"]), "3 free (Box 3)");
+});
+
+test("describeSpare lists every container a free copy sits in", () => {
+  assert.equal(describeSpare(2, ["Binder A", "Box 3"]), "2 free (Binder A, Box 3)");
+});
+
+test("describeElsewhere says nothing when nothing is sleeved elsewhere", () => {
+  assert.equal(describeElsewhere(0, []), "");
+  assert.equal(describeElsewhere(0, ["Mono-Red Aggro"]), "");
+});
+
+test("describeElsewhere names the one deck it is in", () => {
+  assert.equal(describeElsewhere(1, ["Mono-Red Aggro"]), "1 in Mono-Red Aggro");
+});
+
+test("describeElsewhere collapses to a count across several decks", () => {
+  assert.equal(
+    describeElsewhere(2, ["Mono-Red Aggro", "Boros Convoke"]),
+    "2 in 2 other decks",
+  );
+});
+
+test("describeElsewhere falls back to 'another deck' if no name is known", () => {
+  // Belt-and-braces: fromDecks and deck names come from two different reads,
+  // so a caller that forgets to wire one through should not read as "in ".
+  assert.equal(describeElsewhere(1, []), "1 in another deck");
 });
 
 // ---------------------------------------------------------------------------
