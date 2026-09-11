@@ -34,6 +34,17 @@
      can go heavier — the same 50% that reads as a scrim over a white page is
      barely visible over a dark one. */
   --color-scrim: var(--scrim);
+
+  /* Magic's five colours — White, Blue, Black, Red, Green, in that order
+     because every Magic player already reads WUBRG without thinking. A real
+     functional accent system (colour identity dots, deck/card colour marks),
+     not decoration: these are the one place the app's palette is allowed to
+     be five colours instead of one, because the game itself already is. */
+  --color-w: var(--w);
+  --color-u: var(--u);
+  --color-b: var(--b);
+  --color-r: var(--r);
+  --color-g: var(--g);
 }
 
 /*
@@ -56,6 +67,21 @@
   --danger: #bf4429;
   --scrim: rgb(38 27 10 / 0.45);
 
+  /* WUBRG, tuned to sit on the parchment canvas rather than lifted verbatim
+     off a card frame — a black pip at Magic's own near-black would all but
+     disappear against warm cream, so `--b` leans toward a dark plum instead.
+     `--w` is nudged a step darker than a literal old-school white mana gold,
+     but even nudged it only clears ~3.3:1 against `--canvas`, short of the
+     4.3+:1 the other four reach — fine only because all five are used today
+     as small `aria-hidden` decorative dots, where the 3:1 non-text threshold
+     is what applies, not full AA text contrast. Revisit this if `--w` is ever
+     used to render text. */
+  --w: #a37f1f;
+  --u: #3f6ea6;
+  --b: #463a52;
+  --r: #c0432b;
+  --g: #4c7a52;
+
   color-scheme: light;
 }
 
@@ -77,6 +103,15 @@
   --accent-soft: #3a2d14;
   --danger: #e2836a;
   --scrim: rgb(10 8 4 / 0.65);
+
+  /* Brightened off the dark canvas the same way --accent goes from #d98a2c to
+     #f2a93c: lifted, not just reused, so each colour still reads as itself
+     rather than sinking toward --surface. */
+  --w: #d4b13a;
+  --u: #6a9bd6;
+  --b: #8a7a9e;
+  --r: #d9634a;
+  --g: #7aab7e;
 
   color-scheme: dark;
 }

@@ -1,30 +1,27 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useActionState, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useActionState, useState } from "react";
 
 import { sendFeedback } from "@/app/(app)/feedback-actions";
-import { Banner, Button, Field, Textarea, cx } from "@/components/ui";
+import { Banner, Button, Dialog, Field, Textarea, cx } from "@/components/ui";
 import { EMPTY_FEEDBACK_STATE, MAX_BODY_LENGTH } from "@/lib/feedback/validate";
 
 /**
  * "Send feedback" — a trigger in the header cluster and a modal behind it.
  *
- * The <dialog> is portalled to <body> for the same reason NewLocationDialog is:
- * nearly every signed-in page under (app) is itself one big <form>, and a
- * <form> nested in a <form> is invalid HTML the parser silently drops, taking
- * the server action with it. The portal lifts the dialog clear of that
- * ancestor.
+ * `Dialog` portals to <body> by default (its own note explains why: nearly
+ * every signed-in page under (app) is itself one big <form>, and a <form>
+ * nested in a <form> is invalid HTML the parser silently drops, taking the
+ * server action with it).
  *
- * Native <dialog> + showModal() gives the focus trap, the Escape handler and
- * return-focus-on-close for free — the same call AppNav's drawer makes. There
- * is no toast system in this app and one call site does not justify building
- * one, so a successful send just swaps the form for a thank-you and a Close.
+ * `keepMounted` because the dialog's own state has to survive a close: a
+ * successful send swaps the form for a thank-you, and reopening after
+ * dismissing that should not show it again. There is no toast system in this
+ * app and one call site does not justify building one.
  */
 export function FeedbackButton() {
   const [open, setOpen] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
   const pathname = usePathname();
   const [state, action, pending] = useActionState(
     sendFeedback,
@@ -48,15 +45,6 @@ export function FeedbackButton() {
   // resolves, so the old banner would flash under the "Sending…" button. The
   // render predicate folds in `pending` to cover that window.
   const [errorStale, setErrorStale] = useState(false);
-
-  // Drive the native dialog from React state — a DOM API with its own
-  // open/closed flag, which is the case effects are for. It sets no state.
-  useEffect(() => {
-    const el = dialog.current;
-    if (!el) return;
-    if (open && !el.open) el.showModal();
-    else if (!open && el.open) el.close();
-  }, [open]);
 
   function openDialog() {
     setErrorStale(true);
@@ -97,89 +85,73 @@ export function FeedbackButton() {
         </svg>
       </button>
 
-      {typeof document === "undefined"
-        ? null
-        : createPortal(
-            <dialog
-              ref={dialog}
-              onClose={close}
-              // A click whose target is the dialog itself landed on the
-              // backdrop; clicks on the content hit a descendant instead.
-              onClick={(event) => {
-                if (event.target === dialog.current) close();
-              }}
-              aria-labelledby="feedback-heading"
-              className={cx(
-                "m-auto w-[min(30rem,calc(100vw-2rem))] rounded-xl border border-border",
-                "bg-surface p-0 text-ink backdrop:bg-scrim",
-              )}
-            >
-              <div className="space-y-4 p-4">
-                <div>
-                  <h2 id="feedback-heading" className="text-sm font-semibold">
-                    Send feedback
-                  </h2>
-                  {!justSent && (
-                    <p className="mt-1 text-xs text-ink-muted">
-                      Bugs, confusion, something you wish it did — all useful.
-                    </p>
-                  )}
-                </div>
+      <Dialog
+        open={open}
+        onClose={close}
+        keepMounted
+        labelledBy="feedback-heading"
+        className="m-auto w-[min(30rem,calc(100vw-2rem))] rounded-xl border border-border"
+      >
+        <div className="space-y-4 p-4">
+          <div>
+            <h2 id="feedback-heading" className="text-sm font-semibold">
+              Send feedback
+            </h2>
+            {!justSent && (
+              <p className="mt-1 text-xs text-ink-muted">
+                Bugs, confusion, something you wish it did — all useful.
+              </p>
+            )}
+          </div>
 
-                {justSent ? (
-                  <>
-                    <Banner kind="success">{state.notice}</Banner>
-                    <div className="flex justify-end">
-                      <Button type="button" onClick={close}>
-                        Close
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <form
-                    action={(formData) => {
-                      setErrorStale(false);
-                      action(formData);
-                    }}
-                    className="space-y-4"
-                  >
-                    <Field label="Your message">
-                      <Textarea
-                        name="body"
-                        rows={5}
-                        maxLength={MAX_BODY_LENGTH}
-                        required
-                        autoFocus
-                        placeholder="What happened, or what you were trying to do…"
-                      />
-                    </Field>
-
-                    {/* The route the reader is on, for triage context. Hidden:
-                        it is context, not something to edit. */}
-                    <input type="hidden" name="page" value={pathname} />
-
-                    <Banner kind="error">
-                      {errorStale || pending ? null : state.error}
-                    </Banner>
-
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={close}
-                      >
-                        Cancel
-                      </Button>
-                      <Button type="submit" disabled={pending}>
-                        {pending ? "Sending…" : "Send"}
-                      </Button>
-                    </div>
-                  </form>
-                )}
+          {justSent ? (
+            <>
+              <Banner kind="success">{state.notice}</Banner>
+              <div className="flex justify-end">
+                <Button type="button" onClick={close}>
+                  Close
+                </Button>
               </div>
-            </dialog>,
-            document.body,
+            </>
+          ) : (
+            <form
+              action={(formData) => {
+                setErrorStale(false);
+                action(formData);
+              }}
+              className="space-y-4"
+            >
+              <Field label="Your message">
+                <Textarea
+                  name="body"
+                  rows={5}
+                  maxLength={MAX_BODY_LENGTH}
+                  required
+                  autoFocus
+                  placeholder="What happened, or what you were trying to do…"
+                />
+              </Field>
+
+              {/* The route the reader is on, for triage context. Hidden:
+                  it is context, not something to edit. */}
+              <input type="hidden" name="page" value={pathname} />
+
+              <Banner kind="error">
+                {errorStale || pending ? null : state.error}
+              </Banner>
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={close}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={pending}>
+                  {pending ? "Sending…" : "Send"}
+                </Button>
+              </div>
+            </form>
           )}
+        </div>
+      </Dialog>
     </>
   );
 }

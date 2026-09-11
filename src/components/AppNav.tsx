@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { signOut } from "@/app/auth/actions";
 import { NavLink } from "@/components/NavLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Button, cx } from "@/components/ui";
+import { Button, Dialog, cx } from "@/components/ui";
 import { Wordmark } from "@/components/Wordmark";
 
 /**
@@ -18,9 +18,9 @@ import { Wordmark } from "@/components/Wordmark";
  * controls do not fit a phone's top bar, and they are tight even on a tablet —
  * hence `lg` rather than `md` for the switch.
  *
- * The drawer is a native <dialog> opened with showModal(), which gives the
- * focus trap, the Escape handler and the return-focus-on-close behaviour that
- * would otherwise have to be hand-rolled and got subtly wrong.
+ * The drawer is `Dialog` with `keepMounted`, which gives the focus trap, the
+ * Escape handler and the return-focus-on-close behaviour a native <dialog>
+ * carries for free, without hand-rolling that wiring here.
  */
 
 export const NAV_LINKS = [
@@ -48,18 +48,7 @@ export function AppNavLinks() {
 /** The hamburger and its drawer. Hidden from `lg` up. */
 export function AppNavDrawer({ username }: { username: string | null }) {
   const [open, setOpen] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
   const pathname = usePathname();
-
-  // Drive the native dialog from state. This is an effect synchronising React
-  // with a DOM API that has its own open/closed state — the case effects exist
-  // for — and it sets no state of its own.
-  useEffect(() => {
-    const el = dialog.current;
-    if (!el) return;
-    if (open && !el.open) el.showModal();
-    else if (!open && el.open) el.close();
-  }, [open]);
 
   const close = () => setOpen(false);
 
@@ -85,21 +74,18 @@ export function AppNavDrawer({ username }: { username: string | null }) {
         </svg>
       </button>
 
-      <dialog
-        ref={dialog}
+      <Dialog
+        open={open}
         onClose={close}
-        // A click whose target is the dialog itself landed on the backdrop —
-        // clicks on the content hit a descendant instead.
-        onClick={(event) => {
-          if (event.target === dialog.current) close();
-        }}
-        aria-label="Menu"
-        className={cx(
-          // showModal() centres a dialog; ml-auto pins it to the right edge and
-          // h-dvh makes it full height against mobile browser chrome.
-          "m-0 ml-auto h-dvh max-h-none w-72 max-w-[85vw] bg-surface p-0 text-ink",
-          "backdrop:bg-scrim",
-        )}
+        keepMounted
+        // Not portalled: this only ever mounts from the signed-in layout,
+        // above any page content, so it can never end up nested inside a
+        // page's own <form>.
+        portal={false}
+        label="Menu"
+        // showModal() centres a dialog; ml-auto pins it to the right edge and
+        // h-dvh makes it full height against mobile browser chrome.
+        className="m-0 ml-auto h-dvh max-h-none w-72 max-w-[85vw]"
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -174,7 +160,7 @@ export function AppNavDrawer({ username }: { username: string | null }) {
             </div>
           </div>
         </div>
-      </dialog>
+      </Dialog>
     </>
   );
 }

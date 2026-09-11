@@ -1,12 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useActionState, useState } from "react";
 
 import { createDeck, deleteDeck } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
 import { ManaSymbol } from "@/components/ManaCost";
+import { DeckFace } from "@/components/decks/DeckFace";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
 import type { DeckSummary } from "@/lib/collection/queries";
 
@@ -76,7 +76,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
 
   return (
     <div className="relative flex gap-3 rounded-2xl border border-border bg-surface p-3 transition-colors hover:border-accent/50">
-      <DeckFace deck={deck} />
+      <DeckFace image={deck.commanderImage} size="thumb" />
 
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex items-start justify-between gap-2">
@@ -146,39 +146,6 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         ) : null}
       </div>
     </div>
-  );
-}
-
-/**
- * The commander, as a small card.
- *
- * Shown whole rather than cropped to the illustration. Cropping to the art
- * band is prettier on a normal creature and wrong everywhere else — a
- * planeswalker, a saga, a full-art land and a transforming card all put their
- * illustration in a different place, and one fixed crop lands on the type line
- * of about a third of them. A whole card at thumbnail size is instantly
- * readable as a Magic card, in every frame ever printed.
- */
-function DeckFace({ deck }: { deck: DeckSummary }) {
-  if (!deck.commanderImage) {
-    return (
-      <div className="flex h-[4.9rem] w-14 shrink-0 items-center justify-center rounded-lg border border-dashed border-border">
-        <span className="text-lg opacity-40" aria-hidden="true">
-          ✦
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <Image
-      src={deck.commanderImage}
-      alt=""
-      width={146}
-      height={204}
-      unoptimized
-      className="h-[4.9rem] w-14 shrink-0 rounded-lg object-cover"
-    />
   );
 }
 

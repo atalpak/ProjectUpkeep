@@ -36,6 +36,7 @@ import {
   type Availability,
   type CountableRow,
 } from "@/lib/collection/availability";
+import { countAvailableAcrossDecks, type DeckEntryRow } from "@/lib/collection/deck-state";
 import { locateCards, MIN_TERM, type LocatableRow, type LocatedCard } from "@/lib/collection/locate";
 import { rowValue, summariseValue, type ValueSummary } from "@/lib/collection/pricing";
 import {
@@ -587,9 +588,13 @@ export async function getDashboardSummary(
       )
       .eq("owner_user_id", owner)
       .limit(MAX_ROWS),
+    // Colours only: the dashboard no longer draws the by-set breakdown, so
+    // set_code/set_name are not worth the extra bytes on a query that already
+    // runs on every load. summariseBreakdown still returns an (empty) `sets`
+    // list from rows shaped like this; nothing reads it.
     supabase
       .from("card_instances")
-      .select("quantity, cards ( colors, set_code, set_name )")
+      .select("quantity, cards ( colors )")
       .eq("owner_user_id", owner)
       .limit(MAX_ROWS),
     supabase
@@ -636,6 +641,56 @@ export async function getDashboardSummary(
     recent: (recent ?? []) as unknown as CardInstanceWithCard[],
     breakdown: summariseBreakdown((shape ?? []) as unknown as BreakdownRow[]),
   };
+}
+
+/**
+ * How many of the user's unsorted cards (`location_id is null`) arrived by
+ * trade, rather than by import or manual entry.
+ *
+ * Nothing on `card_instances` itself records that distinction — there is no
+ * column for "why is this one unsorted". `ownership_history` (migration 6)
+ * already carries it, though: every transfer records `to_user_id` and, only
+ * for a trade, `trade_id`. Two narrow reads rather than a join, because RLS
+ * on `ownership_history` also returns a friend's history with you (migration
+ * 9's "read own and friends'" policy) — the explicit `to_user_id` filter is
+ * what keeps this "arrived at me", not "arrived at anyone I know".
+ */
+export async function getUnsortedFromTradeCount(): Promise<number> {
+  const supabase = await createClient();
+  const owner = await ownerId();
+  if (!owner) return 0;
+
+  const { data: history, error: historyError } = await supabase
+    .from("ownership_history")
+    .select("card_instance_id")
+    .eq("to_user_id", owner)
+    .not("trade_id", "is", null)
+    .limit(MAX_ROWS);
+
+  if (historyError) {
+    // A secondary "needs attention" line is not worth taking the dashboard
+    // down over — ownership_history predates every other table this file
+    // reads and a read failure here should degrade, not throw.
+    console.error("Could not read ownership history:", historyError.message);
+    return 0;
+  }
+
+  const instanceIds = [
+    ...new Set((history ?? []).map((row) => row.card_instance_id as string)),
+  ];
+  if (instanceIds.length === 0) return 0;
+
+  const { count, error } = await supabase
+    .from("card_instances")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_user_id", owner)
+    .is("location_id", null)
+    .in("id", instanceIds);
+
+  if (error) {
+    throw new Error(`Could not count unsorted trade arrivals: ${error.message}`);
+  }
+  return count ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -773,6 +828,48 @@ export async function getSpareLocations(): Promise<Map<string, string[]>> {
 }
 
 /**
+ * For every card, the decks already holding a copy of it.
+ *
+ * The inverse of `getSpareLocations`: instead of "not sleeved anywhere", this
+ * is "sleeved in a deck", named. Feeds the list check's "in Mono-Red Aggro"
+ * naming (src/app/(app)/decks/check/actions.ts) — the deck page already names
+ * a spare copy's container the same way, this is the sleeved-elsewhere half
+ * of that same idea.
+ */
+export async function getDeckLocations(): Promise<Map<string, string[]>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("card_instances")
+    .select("cards ( oracle_id, name ), locations!location_id ( name, type )")
+    .eq("owner_user_id", await ownerId())
+    .limit(MAX_ROWS);
+
+  if (error) throw new Error(`Could not locate sleeved copies: ${error.message}`);
+
+  const rows = (data ?? []) as unknown as Array<{
+    cards: { oracle_id: string | null; name: string } | null;
+    locations: { name: string; type: string } | null;
+  }>;
+
+  const byCard = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.locations?.type !== "deck") continue;
+    const key = cardKey(row.cards);
+    if (!key) continue;
+    const set = byCard.get(key) ?? new Set<string>();
+    set.add(row.locations.name);
+    byCard.set(key, set);
+  }
+
+  return new Map(
+    [...byCard.entries()].map(([key, names]) => [
+      key,
+      [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    ]),
+  );
+}
+
+/**
  * Where every copy of the cards matching `term` physically lives.
  *
  * The whole "does my inventory match reality" premise, made answerable in one
@@ -836,6 +933,33 @@ export async function locateInCollection(term: string): Promise<LocatedCard[]> {
   }));
 
   return locateCards(rows, term);
+}
+
+/** The `collection_entries` columns needed to work out what is sleeved where. */
+type SleevedRow = {
+  location_id: string | null;
+  quantity: number;
+  card_oracle_id: string | null;
+  card_name: string;
+};
+
+/**
+ * Physical copies per deck, keyed the way availability keys cards — any
+ * printing of Lightning Bolt is a Lightning Bolt. Shared by `getDecks()` and
+ * `getCrossDeckAvailableCount()` so "what's sleeved where" is never computed
+ * two different ways.
+ */
+function sleevedByDeckFrom(rows: SleevedRow[]): Map<string, Map<string, number>> {
+  const sleevedByDeck = new Map<string, Map<string, number>>();
+  for (const raw of rows) {
+    if (!raw.location_id) continue;
+    const key = cardKey({ oracle_id: raw.card_oracle_id, name: raw.card_name });
+    if (!key) continue;
+    const forDeck = sleevedByDeck.get(raw.location_id) ?? new Map<string, number>();
+    forDeck.set(key, (forDeck.get(key) ?? 0) + raw.quantity);
+    sleevedByDeck.set(raw.location_id, forDeck);
+  }
+  return sleevedByDeck;
 }
 
 export type DeckSummary = Location & {
@@ -906,22 +1030,7 @@ export async function getDecks(): Promise<DeckSummary[]> {
     throw new Error(`Could not load what is sleeved: ${sleevedError.message}`);
   }
 
-  // Physical copies per deck, keyed the way availability keys cards — any
-  // printing of Lightning Bolt is a Lightning Bolt.
-  const sleevedByDeck = new Map<string, Map<string, number>>();
-  for (const raw of (sleeved ?? []) as unknown as Array<{
-    location_id: string | null;
-    quantity: number;
-    card_oracle_id: string | null;
-    card_name: string;
-  }>) {
-    if (!raw.location_id) continue;
-    const key = cardKey({ oracle_id: raw.card_oracle_id, name: raw.card_name });
-    if (!key) continue;
-    const forDeck = sleevedByDeck.get(raw.location_id) ?? new Map<string, number>();
-    forDeck.set(key, (forDeck.get(key) ?? 0) + raw.quantity);
-    sleevedByDeck.set(raw.location_id, forDeck);
-  }
+  const sleevedByDeck = sleevedByDeckFrom((sleeved ?? []) as unknown as SleevedRow[]);
 
   const totalByDeck = new Map<string, number>();
   const namesByDeck = new Map<string, Set<string>>();
@@ -990,6 +1099,60 @@ export async function getDecks(): Promise<DeckSummary[]> {
       commanderColors: art?.colors ?? [],
     };
   });
+}
+
+/**
+ * How many decklist entries, across every deck the user owns, are `available`
+ * — not sleeved, but spare copies exist somewhere else in the collection.
+ *
+ * `countAvailableAcrossDecks` (deck-state.ts) does the counting, from the same
+ * three ingredients `getDecks()` already batches: the decklists, what's
+ * physically sleeved per deck (`sleevedByDeckFrom`, shared with `getDecks()`),
+ * and collection-wide availability (`getAvailability()`). One query each,
+ * not one per deck — scale here is a handful of decks for one user, so there
+ * is no reason to be cleverer than that.
+ *
+ * `deck_cards` carries no `owner_user_id` of its own; like `getDecks()`, this
+ * relies on its RLS policy (migration 10, reached through `locations.user_id`)
+ * rather than an explicit filter. That is safe here the way it is not for
+ * `card_instances` / `locations`: unlike those two, nothing makes a friend's
+ * deck_cards row visible to you, so there is no cross-user row for an
+ * unscoped select to return.
+ */
+export async function getCrossDeckAvailableCount(): Promise<number> {
+  const supabase = await createClient();
+  const owner = await ownerId();
+
+  const [{ data: deckCards, error: dcError }, { data: sleeved, error: sleevedError }, availability] =
+    await Promise.all([
+      supabase.from("deck_cards").select("deck_id, quantity, cards ( name, oracle_id )").limit(MAX_ROWS),
+      supabase
+        .from("collection_entries")
+        .select("location_id, quantity, card_oracle_id, card_name")
+        .eq("owner_user_id", owner)
+        .eq("location_type", "deck")
+        .limit(MAX_ROWS),
+      getAvailability(),
+    ]);
+
+  if (dcError) throw new Error(`Could not load decklists: ${dcError.message}`);
+  if (sleevedError) {
+    throw new Error(`Could not load what is sleeved: ${sleevedError.message}`);
+  }
+
+  const sleevedByDeck = sleevedByDeckFrom((sleeved ?? []) as unknown as SleevedRow[]);
+
+  const rows: DeckEntryRow[] = ((deckCards ?? []) as unknown as Array<{
+    deck_id: string;
+    quantity: number;
+    cards: { name: string; oracle_id: string | null } | null;
+  }>).map((row) => ({
+    deckId: row.deck_id,
+    key: cardKey(row.cards),
+    wanted: row.quantity,
+  }));
+
+  return countAvailableAcrossDecks(rows, sleevedByDeck, availability);
 }
 
 /** One deck, or null when the id is not a deck this user owns. */

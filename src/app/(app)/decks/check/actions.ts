@@ -7,7 +7,7 @@ import { MAX_INPUT_BYTES } from "@/app/(app)/collection/import/action-state";
 import { parseImport } from "@/lib/import/parse";
 import { resolveRows } from "@/lib/import/resolve";
 import { planDeckImport } from "@/lib/import/deck-plan";
-import { getAvailabilityForCards } from "@/lib/collection/queries";
+import { getAvailabilityForCards, getDeckLocations, getSpareLocations } from "@/lib/collection/queries";
 import { availabilityFor } from "@/lib/collection/availability";
 import {
   countsFrom,
@@ -19,10 +19,18 @@ import {
 import {
   MAX_CHECK_ENTRIES,
   type CheckRow,
+  type CheckSupplier,
   type ListCheckResult,
   type ListCheckState,
   type SaveDeckState,
 } from "@/app/(app)/decks/check/check-state";
+// A card not owned at all is exactly what the want list already matches
+// against friends' trade binders — same plumbing, a throwaway want row per
+// "not owned" card instead of a saved one. matchSuppliersFor deliberately
+// reads across every friend's tradables (see its own header comment); it is
+// not scoped to the signed-in user, by design, the same as /wants.
+import { matchSuppliersFor } from "@/lib/social/queries";
+import type { WantRow } from "@/lib/social/wants";
 
 /**
  * Checking a list without committing to it.
@@ -44,7 +52,7 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 /** Exactly the columns `CheckCard` declares — one literal so the query, the
  *  type and the folding cannot drift apart. */
 const CHECK_CARD_COLUMNS =
-  "scryfall_id, oracle_id, name, flavor_name, set_code, collector_number, type_line, mana_cost, cmc, rarity, colors, image_uri_small";
+  "scryfall_id, oracle_id, name, flavor_name, set_code, collector_number, type_line, mana_cost, cmc, rarity, colors, image_uri_small, price_usd";
 
 function fail(message: string): ListCheckState {
   return { error: message, notice: null, result: null };
@@ -146,15 +154,55 @@ export async function checkList(
   }
 
   const entries = foldByCard(lines);
-  const availability = await getAvailabilityForCards(entries.map((entry) => entry.card));
+  // Three independent reads over the same collection — availability,
+  // "which binder is a spare copy in", "which deck already has it" — run
+  // together rather than one after another.
+  const [availability, spareLocations, elsewhereDecks] = await Promise.all([
+    getAvailabilityForCards(entries.map((entry) => entry.card)),
+    getSpareLocations(),
+    getDeckLocations(),
+  ]);
 
-  const rows: CheckRow[] = entries.map((entry) => ({
+  const rowsWithoutSuppliers: Array<Omit<CheckRow, "friendSupply">> = entries.map((entry) => ({
     ...countsFrom(entry.wanted, availabilityFor(availability, entry.card)),
     key: entry.key,
     line: entry.line,
     card: entry.card,
     printings: entry.printings,
+    // `entry.key` is already `cardKey(entry.card)` (see foldByCard), so it
+    // doubles as the lookup key into both maps without recomputing it.
+    spareIn: spareLocations.get(entry.key) ?? [],
+    elsewhereDecks: elsewhereDecks.get(entry.key) ?? [],
   }));
+
+  // "Not owned" rows, matched against every friend's trade binder the same
+  // way the want list is — a throwaway want row per short card, rather than
+  // one saved to the database.
+  const shortWants: WantRow[] = rowsWithoutSuppliers
+    .filter((row) => row.short > 0)
+    .map((row) => ({
+      id: row.key,
+      key: row.key,
+      name: row.card.name,
+      displayName: row.card.flavor_name ?? row.card.name,
+      cardId: row.card.scryfall_id,
+      image: row.card.image_uri_small,
+      quantity: row.short,
+      note: null,
+    }));
+  const { matches: supplierMatches, suppliers } = await matchSuppliersFor(shortWants);
+
+  const rows: CheckRow[] = rowsWithoutSuppliers.map((row) => {
+    const matched = supplierMatches.get(row.key);
+    const friendSupply: CheckSupplier[] = matched
+      ? matched.map((s) => ({
+          username: suppliers.get(s.ownerId)?.username ?? "a friend",
+          available: s.available,
+          locations: s.locations,
+        }))
+      : [];
+    return { ...row, friendSupply };
+  });
 
   return {
     error: null,

@@ -25,6 +25,7 @@ import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
+import { DeckFace } from "@/components/decks/DeckFace";
 import { DeckStateMark } from "@/components/decks/DeckStateMark";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Select, cx } from "@/components/ui";
 import { availabilityFor, cardKey, type Availability } from "@/lib/collection/availability";
@@ -69,6 +70,7 @@ export function DeckWorkspace({
   availability,
   spareLocations,
   commanderEntryId,
+  commanderImage,
   price,
   wishList,
   wishMatches,
@@ -81,6 +83,9 @@ export function DeckWorkspace({
   /** oracle key -> containers holding spare copies, for the "in Box 3" tag. */
   spareLocations: Map<string, string[]>;
   commanderEntryId: string | null;
+  /** The commander's full-resolution art, read off its own list entry — null
+   *  when no commander is nominated. */
+  commanderImage: string | null;
   /** Deck value, by section and overall — see computeDeckStats. */
   price: DeckPrice;
   /** Want-list entries tagged to this deck (migration 00000000000017). */
@@ -184,7 +189,12 @@ export function DeckWorkspace({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="flex items-center gap-3">
+          {/* The commander as this page's visual anchor — the list page's
+              DeckFace, just larger, since this is the one page about this
+              deck rather than a row among many. */}
+          <DeckFace image={commanderImage} size="hero" />
+
           <p className="text-sm text-ink-muted">
             <span className="font-medium text-ink">
               {progress.sleeved} of {progress.wanted}

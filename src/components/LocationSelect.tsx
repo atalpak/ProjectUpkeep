@@ -1,10 +1,9 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { createPortal } from "react-dom";
 
 import { createLocationInline } from "@/app/(app)/locations/actions";
-import { Banner, Button, Field, Input, Select, cx } from "@/components/ui";
+import { Banner, Button, Dialog, Field, Input, Select } from "@/components/ui";
 import {
   LOCATION_TYPES,
   LOCATION_TYPE_LABELS,
@@ -161,11 +160,11 @@ export function LocationSelect({
  * and a parent picker would turn it into the locations page. A container made
  * here can be moved inside another one later.
  *
- * Portalled to <body>, and that is load-bearing rather than tidiness. Every
- * destination picker sits inside a form — the add-card form, the importer, the
- * row editor, the bulk move — and a <form> inside a <form> is invalid HTML that
- * the parser silently drops, taking this dialog's submit handler with it. The
- * portal moves it out of that ancestor entirely.
+ * Portalled to <body> (Dialog's default), and that is load-bearing rather than
+ * tidiness. Every destination picker sits inside a form — the add-card form,
+ * the importer, the row editor, the bulk move — and a <form> inside a <form>
+ * is invalid HTML that the parser silently drops, taking this dialog's submit
+ * handler with it. The portal moves it out of that ancestor entirely.
  */
 function NewLocationDialog({
   onCreated,
@@ -176,14 +175,6 @@ function NewLocationDialog({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  // Opening on mount rather than toggling: the dialog is only rendered while it
-  // should be open, so there is no closed state to synchronise.
-  const open = (el: HTMLDialogElement | null) => {
-    if (el && !el.open) el.showModal();
-    dialog.current = el;
-  };
 
   // Awaited straight from the submit handler rather than through
   // useActionState: the result has to become selected state, and reading an
@@ -200,20 +191,12 @@ function NewLocationDialog({
     });
   }
 
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <dialog
-      ref={open}
+  return (
+    <Dialog
+      open
       onClose={onClose}
-      onClick={(event) => {
-        if (event.target === dialog.current) onClose();
-      }}
-      aria-label="New location"
-      className={cx(
-        "m-auto w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-border",
-        "bg-surface p-0 text-ink backdrop:bg-scrim",
-      )}
+      label="New location"
+      className="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-border"
     >
       <form action={submit} className="space-y-4 p-4">
         <h2 className="text-sm font-semibold">New location</h2>
@@ -249,7 +232,6 @@ function NewLocationDialog({
           </Button>
         </div>
       </form>
-    </dialog>,
-    document.body,
+    </Dialog>
   );
 }

@@ -96,10 +96,16 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
   // physical copy that might not even exist.
   const commanderCardId =
     (deck as { commander_card_id?: string | null }).commander_card_id ?? null;
-  const commanderEntryId =
+  const commanderEntry =
     commanderCardId === null
       ? null
-      : (entries.find((entry) => entry.card_id === commanderCardId)?.id ?? null);
+      : (entries.find((entry) => entry.card_id === commanderCardId) ?? null);
+  const commanderEntryId = commanderEntry?.id ?? null;
+  // The full-resolution image, already on the entry via CARD_FIELDS
+  // (getDeckList) — no extra read. The list page uses the small thumbnail for
+  // a row; this page renders the commander much larger, so it asks for the
+  // bigger source image instead.
+  const commanderImage = commanderEntry?.cards?.image_uri ?? null;
 
   // Who in your circle already has a wish-list card open for trade — the same
   // matching /wants does, scoped to just this deck's wishes so a deck page
@@ -176,6 +182,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         availability={availability}
         spareLocations={spareLocations}
         commanderEntryId={commanderEntryId}
+        commanderImage={commanderImage}
         price={stats.price}
         wishList={wishList}
         wishMatches={wishMatchesView}
