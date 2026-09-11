@@ -44,7 +44,7 @@ src/
       decks/                decks-as-locations · [id]/ · check/ · import/
       find/                 "where is my card?"
       dashboard/            stats and anything awaiting a decision
-      friends/  trades/  wants/  notifications/  settings/
+      friends/  wants/  notifications/  settings/
       u/[username]/         public profile + tradable binder
     api/
       cards/                search/ · printings/ · [id]/

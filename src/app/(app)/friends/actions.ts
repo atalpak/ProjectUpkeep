@@ -29,7 +29,6 @@ function ok(message: string): SocialState {
 function revalidate() {
   revalidatePath("/friends");
   revalidatePath("/dashboard");
-  revalidatePath("/trades");
 }
 
 /**
@@ -155,5 +154,4 @@ export async function setLocationTradable(formData: FormData): Promise<void> {
 
   revalidatePath("/locations");
   revalidatePath("/friends");
-  revalidatePath("/trades");
 }

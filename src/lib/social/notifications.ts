@@ -29,34 +29,24 @@ export function notificationSentence(type: NotificationType, actor: string): str
 /**
  * Where clicking a notification should land.
  *
- * Everything trade-related lives on the friends page (open offers) or, once
- * settled, the past-trades archive — there is no per-trade page — so that is
- * where these point. Accepted, declined and cancelled are done; the rest are
- * still on the friends page waiting for a response.
+ * Everything social — trades, open or settled, and friend requests — lives on
+ * the friends page; there is no separate trades page and no per-trade page.
  *
  * When the row names a `trade_id`, the link carries it as a `?trade=` query
  * param — the same shape `/collection?location=` and `/u/[username]?counter=`
- * already use for "land here, then pick out this one thing" — so the list
+ * already use for "land here, then pick out this one thing" — so the friends
  * page can highlight and scroll to it instead of leaving you to find it among
  * everything else there.
  */
-export function notificationHref(type: NotificationType, tradeId?: string | null): string {
-  let base: string;
-  switch (type) {
-    case "trade_accepted":
-    case "trade_declined":
-    case "trade_cancelled":
-      base = "/trades";
-      break;
-    case "trade_proposed":
-    case "trade_countered":
-    case "friend_request":
-    case "friend_accepted":
-      base = "/friends";
-      break;
-  }
-
-  return tradeId ? `${base}?trade=${encodeURIComponent(tradeId)}` : base;
+export function notificationHref(
+  // `type` no longer changes the destination — every NotificationType lands
+  // on /friends now, trades open or settled alike — but it stays a parameter
+  // so callers keep passing it and this signature is the one place that
+  // would need to change if a type ever needed its own page again.
+  _type: NotificationType,
+  tradeId?: string | null,
+): string {
+  return tradeId ? `/friends?trade=${encodeURIComponent(tradeId)}` : "/friends";
 }
 
 /** A compact relative time: "just now", "3h ago", "2d ago", or a date. */

@@ -20,19 +20,19 @@ test("every notification type has a sentence naming the actor", () => {
   }
 });
 
-test("open offers route to the friends page, settled ones to the archive", () => {
+test("every trade notification routes to the friends page, open or settled", () => {
   assert.equal(notificationHref("trade_proposed"), "/friends");
   assert.equal(notificationHref("trade_countered"), "/friends");
-  assert.equal(notificationHref("trade_accepted"), "/trades");
-  assert.equal(notificationHref("trade_declined"), "/trades");
-  assert.equal(notificationHref("trade_cancelled"), "/trades");
+  assert.equal(notificationHref("trade_accepted"), "/friends");
+  assert.equal(notificationHref("trade_declined"), "/friends");
+  assert.equal(notificationHref("trade_cancelled"), "/friends");
 });
 
 test("a notification naming a trade links to that trade specifically", () => {
   // Same destination page as before, plus the id so it can be picked out of
   // the list rather than left for you to find.
   assert.equal(notificationHref("trade_proposed", "abc-123"), "/friends?trade=abc-123");
-  assert.equal(notificationHref("trade_accepted", "abc-123"), "/trades?trade=abc-123");
+  assert.equal(notificationHref("trade_accepted", "abc-123"), "/friends?trade=abc-123");
 });
 
 test("no trade id, or a null one, leaves the plain list link untouched", () => {
@@ -42,7 +42,7 @@ test("no trade id, or a null one, leaves the plain list link untouched", () => {
 });
 
 test("a trade id with characters that need escaping is encoded", () => {
-  assert.equal(notificationHref("trade_accepted", "a/b c"), "/trades?trade=a%2Fb%20c");
+  assert.equal(notificationHref("trade_accepted", "a/b c"), "/friends?trade=a%2Fb%20c");
 });
 
 test("relativeTime scales from minutes to a date", () => {

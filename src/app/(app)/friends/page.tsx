@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { getCurrentUser } from "@/lib/supabase/server";
 import {
   getFeed,
@@ -53,7 +51,13 @@ export default async function FriendsPage({
   // only 'proposed' trades are still outstanding. Expired ones still show in the
   // list (so they can be dismissed) but no longer count as live.
   const open = trades.filter((t) => t.status === "proposed");
-  const settledCount = trades.length - open.length;
+  const settled = trades.filter((t) => t.status !== "proposed");
+
+  // The notification link (?trade=) can point at a trade that has since
+  // settled. If it does, the <details> holding it has to render open, or the
+  // highlight this link exists for is hidden behind a click.
+  const highlightInSettled =
+    highlightId !== undefined && settled.some((t) => t.id === highlightId);
 
   // Offers actually waiting on you: yours to accept, and not timed out.
   const awaitingYou = open.filter(
@@ -78,23 +82,15 @@ export default async function FriendsPage({
       ) : (
         <>
           <section className="space-y-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-sm font-semibold">
-                Outstanding trades
-                {open.length > 0 ? ` (${open.length})` : ""}
-                {awaitingYou > 0 ? (
-                  <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
-                    {awaitingYou} waiting on you
-                  </span>
-                ) : null}
-              </h2>
-
-              {settledCount > 0 ? (
-                <Link href="/trades" className="text-xs text-accent underline">
-                  Past trades ({settledCount})
-                </Link>
+            <h2 className="text-sm font-semibold">
+              Outstanding trades
+              {open.length > 0 ? ` (${open.length})` : ""}
+              {awaitingYou > 0 ? (
+                <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
+                  {awaitingYou} waiting on you
+                </span>
               ) : null}
-            </div>
+            </h2>
 
             {/* A one-liner rather than the full empty state: this section sits at
                 the top of the page, and having nothing pending is the normal case
@@ -106,6 +102,17 @@ export default async function FriendsPage({
             ) : (
               <TradeList trades={open} userId={user?.id ?? ""} highlightId={highlightId} />
             )}
+
+            {settled.length > 0 ? (
+              <details className="rounded-lg border border-border" open={highlightInSettled}>
+                <summary className="cursor-pointer px-3 py-2 text-xs font-medium">
+                  Past trades ({settled.length})
+                </summary>
+                <div className="space-y-4 border-t border-border p-3">
+                  <TradeList trades={settled} userId={user?.id ?? ""} highlightId={highlightId} />
+                </div>
+              </details>
+            ) : null}
           </section>
 
           <section className="space-y-3">
