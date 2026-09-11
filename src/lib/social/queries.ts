@@ -195,12 +195,17 @@ export async function getProfileByUsername(username: string): Promise<Profile | 
  * cards sit in a location they flagged. There is no "are we friends" check in
  * this function on purpose: duplicating the rule in application code would
  * create a second place for it to be wrong.
+ *
+ * Deliberately does not join `locations` — a friend agreeing to show what they
+ * have open for trade is not the same as agreeing to show which binder or box
+ * it is sitting in. `CardInstanceWithCard.locations` comes back `undefined`
+ * here, which every caller already treats the same as `null`.
  */
 export async function getTradableCards(ownerId: string): Promise<CardInstanceWithCard[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("card_instances")
-    .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
+    .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}`)
     .eq("owner_user_id", ownerId)
     .limit(5000);
 
@@ -352,6 +357,13 @@ export async function getFriendWants(friendId: string): Promise<WantRow[]> {
  * Carries the card's name and flavor name, not just its key, so the same read
  * also backs `matchFriendTradablesByTerm` below — a free-text search has no
  * key to match on until a name match finds one.
+ *
+ * `locationName` always comes back `null` here — deliberately not joined.
+ * Which binder or box a friend's copy sits in is not part of what marking a
+ * container tradable shares; every caller of `matchWants` /
+ * `matchTradablesByTerm` shows "who has it," never "where," for a friend's
+ * supply. `getMyTradablesForMatching` below is the same shape for *your own*
+ * cards, where showing the location is exactly the point.
  */
 export async function getFriendTradables(): Promise<NamedTradableRow[]> {
   const user = await getCurrentUser();
@@ -360,9 +372,7 @@ export async function getFriendTradables(): Promise<NamedTradableRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("card_instances")
-    .select(
-      "owner_user_id, quantity, cards ( oracle_id, name, flavor_name ), locations!location_id ( name )",
-    )
+    .select("owner_user_id, quantity, cards ( oracle_id, name, flavor_name )")
     .neq("owner_user_id", user.id)
     .limit(5000);
 
@@ -372,12 +382,11 @@ export async function getFriendTradables(): Promise<NamedTradableRow[]> {
     owner_user_id: string;
     quantity: number;
     cards: { oracle_id: string | null; name: string; flavor_name: string | null } | null;
-    locations: { name: string } | null;
   }>).map((r) => ({
     ownerId: r.owner_user_id,
     key: cardKey(r.cards) ?? "",
     quantity: r.quantity,
-    locationName: r.locations?.name ?? null,
+    locationName: null,
     name: r.cards?.name ?? "",
     flavorName: r.cards?.flavor_name ?? null,
   }));

@@ -231,7 +231,6 @@ function TradableRow({ row }: { row: CardInstanceWithCard }) {
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
           <span>{card?.set_name ?? card?.set_code?.toUpperCase()}</span>
           <Badge>{CONDITION_LABELS[row.condition] ?? row.condition}</Badge>
-          <span>in {row.locations?.name ?? "their binder"}</span>
         </div>
       </div>
     </div>
