@@ -12,9 +12,11 @@ import { test } from "node:test";
 import {
   displayPrice,
   formatPrice,
+  mostRecentPriceDate,
   priceFor,
   rowValue,
   summariseValue,
+  topCardLabel,
   type PriceableCard,
 } from "../src/lib/collection/pricing";
 import type { CardInstanceWithCard } from "../src/lib/types";
@@ -200,4 +202,54 @@ test("displayPrice does not invent a non-foil price that isn't there", () => {
 test("displayPrice leaves priceFor's collection-value semantics untouched", () => {
   // priceFor still returns null for the unpriced foil — totals stay honest.
   assert.equal(priceFor(priced(16.84, null), "foil"), null);
+});
+
+// ---------------------------------------------------------------------------
+// mostRecentPriceDate — the "as of" freshness caption
+// ---------------------------------------------------------------------------
+
+test("mostRecentPriceDate picks the newest of several timestamps", () => {
+  assert.equal(
+    mostRecentPriceDate([
+      "2026-09-01T00:00:00Z",
+      "2026-09-08T00:00:00Z",
+      "2026-08-20T00:00:00Z",
+    ]),
+    "2026-09-08T00:00:00Z",
+  );
+});
+
+test("mostRecentPriceDate skips missing rows rather than treating them as newest", () => {
+  assert.equal(
+    mostRecentPriceDate([null, undefined, "2026-09-01T00:00:00Z", null]),
+    "2026-09-01T00:00:00Z",
+  );
+});
+
+test("mostRecentPriceDate is null when nothing is priced yet", () => {
+  assert.equal(mostRecentPriceDate([]), null);
+  assert.equal(mostRecentPriceDate([null, undefined]), null);
+});
+
+// ---------------------------------------------------------------------------
+// topCardLabel — the "Top: <card>, <price>" caption on a location row
+// ---------------------------------------------------------------------------
+
+test("topCardLabel names the card and its per-copy price", () => {
+  assert.deepEqual(topCardLabel("Rhystic Study", priced(38), "nonfoil"), {
+    name: "Rhystic Study",
+    value: 38,
+  });
+});
+
+test("topCardLabel takes the foil price for a foil copy", () => {
+  assert.deepEqual(topCardLabel("Rhystic Study", priced(12, 45), "foil"), {
+    name: "Rhystic Study",
+    value: 45,
+  });
+});
+
+test("topCardLabel is null for an unpriced copy, not a $0 claim", () => {
+  assert.equal(topCardLabel("Bulk Common", priced(null), "nonfoil"), null);
+  assert.equal(topCardLabel("Bulk Common", null, "nonfoil"), null);
 });

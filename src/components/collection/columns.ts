@@ -34,7 +34,8 @@ export type ColumnId =
   | "artist"
   | "notes"
   | "available"
-  | "price";
+  | "price"
+  | "acquired";
 
 export type ColumnDef = {
   id: ColumnId;
@@ -129,12 +130,26 @@ export const COLUMNS: ColumnDef[] = [
     id: "location",
     label: "Location",
     sqlOrder: "location_name",
-    default: false,
+    // On by default: knowing which binder, box or deck a card sits in is the
+    // whole differentiating idea of this product, and hiding that column by
+    // default on its own main table undercut it.
+    default: true,
     // Unsorted sorts last rather than first: it is the absence of a location.
     sortBy: (r) => r.locations?.name?.toLowerCase() ?? "￿",
   },
   { id: "artist", label: "Artist", default: false, sqlOrder: "card_artist", sortBy: (r) => r.cards?.artist ?? "" },
   { id: "notes", label: "Notes", default: false, sqlOrder: "notes", sortBy: (r) => r.notes ?? "" },
+  {
+    id: "acquired",
+    label: "Added",
+    sqlOrder: "acquired_at",
+    default: false,
+    // `card_instances.acquired_at` defaults to `now()` at insert and nothing
+    // in the app writes to it since — see the migration that added it. It is
+    // not exposed as a date you can set; this column only lets you see and
+    // sort by the moment the app recorded, not back-date it.
+    sortBy: (r) => new Date(r.acquired_at).getTime(),
+  },
   {
     id: "price",
     label: "Price",

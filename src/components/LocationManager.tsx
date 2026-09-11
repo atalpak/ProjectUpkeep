@@ -253,6 +253,21 @@ function LocationRow({
                   </span>
                 </>
               ) : null}
+
+              {/*
+                The one thing five small thumbnails cannot say on their own:
+                which of them is the impressive one. Named rather than left to
+                be spotted in the peek — the peek is decorative and hidden
+                below `sm`, this is the fact itself.
+              */}
+              {stats?.topCard ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="min-w-0 truncate" title={`The most valuable card in ${location.name}`}>
+                    Top: {stats.topCard.name}, {formatPrice(stats.topCard.value)}
+                  </span>
+                </>
+              ) : null}
             </div>
 
             {/* Decorative, and the first thing to go when space is tight. */}

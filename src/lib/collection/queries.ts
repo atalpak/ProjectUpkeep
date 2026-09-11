@@ -38,7 +38,13 @@ import {
 } from "@/lib/collection/availability";
 import { countAvailableAcrossDecks, type DeckEntryRow } from "@/lib/collection/deck-state";
 import { locateCards, MIN_TERM, type LocatableRow, type LocatedCard } from "@/lib/collection/locate";
-import { rowValue, summariseValue, type ValueSummary } from "@/lib/collection/pricing";
+import {
+  mostRecentPriceDate,
+  rowValue,
+  summariseValue,
+  topCardLabel,
+  type ValueSummary,
+} from "@/lib/collection/pricing";
 import {
   summariseBreakdown,
   type BreakdownRow,
@@ -421,6 +427,12 @@ export type LocationStats = {
    * finishes is two stacks.
    */
   stacks: number;
+  /**
+   * The single most valuable card in here, so a row is identifiable by more
+   * than five small thumbnails. Null when nothing in the location has a
+   * listed price — there is no honest "top" card to name.
+   */
+  topCard: { name: string; value: number } | null;
 };
 
 /**
@@ -507,23 +519,31 @@ export const getLocationTree = async (): Promise<{
     names.add(raw.card_name.toLowerCase());
     namesSeen.set(key, names);
 
+    const priceableCard = {
+      price_usd: raw.card_price_usd,
+      price_usd_foil: raw.card_price_usd_foil,
+      price_usd_etched: raw.card_price_usd_etched,
+    };
+
     // Priced through `rowValue`, not the view's own `display_price` column.
     // They differ deliberately: the column mirrors what the UI *shows*, which
     // falls back from a missing foil price to the non-foil one, while the
     // dashboard's total refuses that substitution. Using the column here would
     // make a location's value quietly exceed the collection value on the
     // dashboard, and one of the two numbers would be wrong.
-    const value = rowValue({
-      cards: {
-        price_usd: raw.card_price_usd,
-        price_usd_foil: raw.card_price_usd_foil,
-        price_usd_etched: raw.card_price_usd_etched,
-      },
-      finish: raw.finish,
-      quantity: raw.quantity,
-    });
+    const value = rowValue({ cards: priceableCard, finish: raw.finish, quantity: raw.quantity });
 
-    const current = stats.get(key) ?? { value: 0, unpriced: 0, distinct: 0, stacks: 0 };
+    const current = stats.get(key) ?? {
+      value: 0,
+      unpriced: 0,
+      distinct: 0,
+      stacks: 0,
+      // Set once, from the first row seen for this key: the query orders
+      // every row by price descending, so the first one for a given location
+      // is its most valuable — the same card the peek images above are
+      // already choosing from.
+      topCard: topCardLabel(raw.card_name, priceableCard, raw.finish),
+    };
     if (value === null) current.unpriced += raw.quantity;
     else current.value += value;
     current.distinct = names.size;
@@ -553,6 +573,12 @@ export type DashboardSummary = {
   recent: CardInstanceWithCard[];
   /** The collection split by colour and by set. */
   breakdown: CollectionBreakdown;
+  /**
+   * The newest `prices_updated_at` across every priced row, so the value hero
+   * can say when its number is from. Null when nothing in the collection has
+   * a price yet.
+   */
+  pricesAsOf: string | null;
 };
 
 /**
@@ -584,7 +610,7 @@ export async function getDashboardSummary(
     supabase
       .from("card_instances")
       .select(
-        "quantity, finish, cards ( name, flavor_name, price_usd, price_usd_foil, price_usd_etched )",
+        "quantity, finish, cards ( name, flavor_name, price_usd, price_usd_foil, price_usd_etched, prices_updated_at )",
       )
       .eq("owner_user_id", owner)
       .limit(MAX_ROWS),
@@ -604,7 +630,10 @@ export async function getDashboardSummary(
       // row already carries every column it renders.
       .select(`${INSTANCE_FIELDS}, ${CARD_FIELDS}, locations!location_id ( id, name, type )`)
       .eq("owner_user_id", owner)
-      .order("created_at", { ascending: false })
+      // acquired_at, not created_at: it is the column that means "when this
+      // copy joined the collection", and the two only stay interchangeable by
+      // accident of every insert path leaving it at its `default now()`.
+      .order("acquired_at", { ascending: false })
       .limit(recentLimit),
   ]);
 
@@ -631,6 +660,10 @@ export async function getDashboardSummary(
     return bTotal - aTotal;
   });
 
+  const priceableRows = (priceable ?? []) as unknown as Array<{
+    cards: { prices_updated_at: string | null } | null;
+  }>;
+
   return {
     value: summariseValue((priceable ?? []) as unknown as CardInstanceWithCard[]),
     totalCards: summary.totalCards,
@@ -640,6 +673,7 @@ export async function getDashboardSummary(
     locations: ranked,
     recent: (recent ?? []) as unknown as CardInstanceWithCard[],
     breakdown: summariseBreakdown((shape ?? []) as unknown as BreakdownRow[]),
+    pricesAsOf: mostRecentPriceDate(priceableRows.map((r) => r.cards?.prices_updated_at)),
   };
 }
 

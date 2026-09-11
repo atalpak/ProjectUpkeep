@@ -144,7 +144,7 @@ export function AlertsMenu({ unread }: { unread: number }) {
               {items.map((item) => (
                 <li key={item.id}>
                   <Link
-                    href={notificationHref(item.type)}
+                    href={notificationHref(item.type, item.trade_id)}
                     role="menuitem"
                     onClick={() => setOpen(false)}
                     className="flex items-start gap-2 px-3 py-2 text-sm transition-colors hover:bg-surface-muted"

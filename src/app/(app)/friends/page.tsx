@@ -30,10 +30,14 @@ export const metadata = { title: "Friends · Project Upkeep" };
 export default async function FriendsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[]; trade?: string | string[] }>;
 }) {
   const params = await searchParams;
   const query = (Array.isArray(params.q) ? params.q[0] : params.q) ?? "";
+  // A trade notification links here with ?trade=<id> (see
+  // src/lib/social/notifications.ts) when the offer it is about is still
+  // outstanding, so it can be picked out among everything else pending.
+  const highlightId = Array.isArray(params.trade) ? params.trade[0] : params.trade;
 
   const [user, edges, results, locations, trades, feed, tos] = await Promise.all([
     getCurrentUser(),
@@ -100,7 +104,7 @@ export default async function FriendsPage({
                 Nothing pending. Offers you send or receive appear here.
               </p>
             ) : (
-              <TradeList trades={open} userId={user?.id ?? ""} />
+              <TradeList trades={open} userId={user?.id ?? ""} highlightId={highlightId} />
             )}
           </section>
 

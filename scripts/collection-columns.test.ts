@@ -176,6 +176,19 @@ test("unsorted rows sort after every named location", () => {
   ]);
 });
 
+test("the acquired column sorts by when a copy actually joined the collection", () => {
+  const rows = [
+    row("1", { name: "Oldest" }, { acquired_at: "2024-01-01T00:00:00Z" }),
+    row("2", { name: "Newest" }, { acquired_at: "2026-06-01T00:00:00Z" }),
+    row("3", { name: "Middle" }, { acquired_at: "2025-03-01T00:00:00Z" }),
+  ];
+  assert.deepEqual(names(sortRows(rows, { column: "acquired", direction: "desc" })), [
+    "Newest",
+    "Middle",
+    "Oldest",
+  ]);
+});
+
 // ---------------------------------------------------------------------------
 // Stored column choice
 // ---------------------------------------------------------------------------
@@ -209,16 +222,20 @@ test("junk falls back to the defaults instead of throwing", () => {
   );
 });
 
-test("the default columns are quantity, name, set, price and availability", () => {
+test("the default columns are quantity, name, set, location, price and availability", () => {
   // Availability joined the original three when decks arrived: "have I got a
   // spare copy" is the question this product exists to answer, and a column
   // hidden behind the picker would not answer it.
   //
   // Price joined them when the separate "$ Prices" toggle was retired. This
-  // column is now the only switch for showing prices, so it has to start on —
-  // and the order matters: it is asserted whole so a column silently changing
-  // its default shows up here rather than in someone's table.
-  assert.deepEqual(DEFAULT_COLUMNS, ["quantity", "name", "set", "price", "available"]);
+  // column is now the only switch for showing prices, so it has to start on.
+  //
+  // Location joined them because "where is this card" is the whole
+  // differentiating idea of the product, and it had been hidden by default on
+  // the product's own main table — the order matters: it is asserted whole so
+  // a column silently changing its default shows up here rather than in
+  // someone's table.
+  assert.deepEqual(DEFAULT_COLUMNS, ["quantity", "name", "set", "location", "price", "available"]);
 });
 
 test("a saved choice containing the retired Finish column still works", () => {
@@ -263,9 +280,9 @@ test("every column the database can sort names a real view column", () => {
   // The two definitions of a sort must agree. A typo here would silently order
   // by something else, or fail the query at runtime.
   const viewColumns = new Set([
-    "quantity", "condition", "language", "notes", "created_at", "location_name",
-    "card_name", "card_set_name", "card_collector_number", "card_rarity",
-    "card_mana_cost", "card_cmc", "card_type_line", "card_artist",
+    "quantity", "condition", "language", "notes", "created_at", "acquired_at",
+    "location_name", "card_name", "card_set_name", "card_collector_number",
+    "card_rarity", "card_mana_cost", "card_cmc", "card_type_line", "card_artist",
     "available_quantity", "display_price",
   ]);
   for (const column of COLUMNS) {

@@ -647,6 +647,9 @@ function Cell({
     case "notes":
       return <span className="text-ink-muted">{row.notes ?? "—"}</span>;
 
+    case "acquired":
+      return <span className="text-ink-muted">{formatShortDate(row.acquired_at)}</span>;
+
     case "price":
       // Per copy, for this row's finish — a foil is not worth its non-foil
       // price. Multiplied by quantity in the title, which is the number that
@@ -666,8 +669,9 @@ function Cell({
  * This is the question the product exists to answer, and it used to be a bare
  * digit: a `0` in a column headed "Available", with the reason — that the copy
  * is sleeved into a deck — available only in a tooltip, or by turning on the
- * Location column, which is off by default. A zero that does not say why reads
- * as "you have none", which is the opposite of the truth: you own it, it is
+ * Location column, which used to be off by default and even now sits beside
+ * this one rather than replacing it. A zero that does not say why reads as
+ * "you have none", which is the opposite of the truth: you own it, it is
  * just busy.
  *
  * So a committed copy names the deck it is in instead of counting to zero. The
@@ -705,6 +709,15 @@ function AvailableCell({
       {free}
     </span>
   );
+}
+
+/** "Sep 8, 2026" — a full date, unlike the dashboard's shorter caption, because
+ *  this sits in a table someone may be scanning across years of additions. */
+function formatShortDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? "—"
+    : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
 /**
