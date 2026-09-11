@@ -13,11 +13,20 @@ const INITIAL: AuthState = { error: null, notice: null };
 
 function LoginForm() {
   const [state, action, pending] = useActionState(signIn, INITIAL);
-  const next = useSearchParams().get("next") ?? "";
+  const params = useSearchParams();
+  const next = params.get("next") ?? "";
+  // Set by deleteAccount's post-deletion redirect (settings/delete-account-actions.ts).
+  // Reusing the `next` param's existing useSearchParams()+Suspense plumbing rather
+  // than adding a second mechanism for one more query param.
+  const justDeleted = params.get("deleted") === "1";
 
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="next" value={next} />
+
+      {justDeleted ? (
+        <Banner kind="success">Your account has been deleted. Take care.</Banner>
+      ) : null}
 
       <Field label="Email">
         <Input name="email" type="email" autoComplete="email" required autoFocus />

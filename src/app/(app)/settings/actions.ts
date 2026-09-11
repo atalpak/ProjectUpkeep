@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { validateNewPassword } from "@/lib/auth/password";
+import { reauthErrorMessage } from "@/lib/auth/reauth";
 import type { SettingsState } from "@/app/(app)/settings/action-state";
 
 /**
@@ -140,15 +141,7 @@ export async function updatePassword(
     email: user.email,
     password: currentPassword,
   });
-  if (reauthError) {
-    // This call shares Supabase's sign-in rate limit, so a run of wrong guesses
-    // starts coming back as 429 rather than an auth failure. Naming it keeps a
-    // rate-limited person from re-reading a password they typed correctly.
-    if (reauthError.status === 429 || reauthError.code === "over_request_rate_limit") {
-      return fail("Too many attempts — wait a minute and try again.");
-    }
-    return fail("That current password isn't right.");
-  }
+  if (reauthError) return fail(reauthErrorMessage(reauthError));
 
   const { error } = await supabase.auth.updateUser({ password });
 

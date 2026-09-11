@@ -56,8 +56,11 @@ export const TRADE_STATUS_LABELS: Record<TradeStatus, string> = {
 
 export type Trade = {
   id: string;
-  proposer_id: string;
-  recipient_id: string;
+  /** Null once that party has deleted their account (migration 30) — the
+   *  trade and the other side's copy of it survive; see accept_trade's
+   *  neighbour, delete_own_account, for why. */
+  proposer_id: string | null;
+  recipient_id: string | null;
   status: TradeStatus;
   /** The trade this one was proposed to replace, when it is a counter-offer. */
   countered_from: string | null;

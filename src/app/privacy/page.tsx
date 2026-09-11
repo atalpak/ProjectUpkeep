@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { SUPPORT_EMAIL } from "@/lib/support";
 import { LegalFooter } from "@/components/LegalFooter";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -26,7 +28,7 @@ export default function PrivacyPage() {
 
       <div className="space-y-2">
         <h1 className="font-display text-xl font-semibold tracking-tight">Privacy</h1>
-        <p className="text-sm text-ink-muted">Last updated: 10 September 2026</p>
+        <p className="text-sm text-ink-muted">Last updated: 11 September 2026</p>
       </div>
 
       <div className="space-y-4 text-sm leading-relaxed">
@@ -81,11 +83,19 @@ export default function PrivacyPage() {
         <section className="space-y-2">
           <h2 className="font-semibold">Deleting your data</h2>
           <p>
-            Email us at{" "}
+            Delete your account any time from{" "}
+            <Link href="/settings" className="text-accent underline">
+              Settings
+            </Link>{" "}
+            — it removes your collection, locations, decks, want list, friendships, and
+            feedback immediately. One thing survives on purpose: a friend&rsquo;s own copy of a
+            trade you completed with them, with your identity removed from it, so closing your
+            account cannot erase their record of what they own. Trouble with the form, or a
+            question about any of this: email{" "}
             <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline">
               {SUPPORT_EMAIL}
-            </a>{" "}
-            to have your account and all associated data removed.
+            </a>
+            .
           </p>
         </section>
 
