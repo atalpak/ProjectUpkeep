@@ -183,10 +183,20 @@ function HandCard({
   const preview = useCardPreview(card.cardId, { sheetOnClick: !selectable });
 
   if (!selectable) {
+    // A focusable div, not a button, matching every other hover-only preview
+    // target in the app (ProfileTradables, CollectionTable, DeckWorkspace).
+    // `useCardPreview` only binds an onClick in the touch "sheet"
+    // presentation, so a <button> here would promise a keyboard and mouse
+    // user that Enter does something when nothing is bound at all. The div
+    // still gets focus and still opens the sheet on tap.
     return (
-      <button type="button" className="shrink-0 rounded-lg coarse:min-h-11" {...preview}>
+      <div
+        {...preview}
+        tabIndex={0}
+        className="shrink-0 cursor-default rounded-lg coarse:min-h-11"
+      >
         {face}
-      </button>
+      </div>
     );
   }
 
