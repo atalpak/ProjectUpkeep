@@ -14,6 +14,7 @@ import type {
   TradeItem,
 } from "@/lib/social/types";
 import type { TosStatus } from "@/lib/social/tos";
+import type { WantExportRow } from "@/lib/social/want-export";
 import { expiringSoon, isExpired } from "@/lib/social/trade-status";
 import { cardKey } from "@/lib/collection/availability";
 import { MIN_TERM } from "@/lib/collection/locate";
@@ -332,6 +333,41 @@ async function getWantListWithoutDeckTag(userId: string): Promise<WantRow[]> {
   return ((data ?? []) as unknown as RawWant[]).map(toWantRow);
 }
 
+/**
+ * The signed-in user's want list, shaped for export.
+ *
+ * `getWantList` above joins just enough of `cards` to render a row on screen
+ * (name, flavor name, image) — export additionally needs `collector_number`,
+ * which nothing else on this page uses, so this is its own query rather than
+ * widening `WANT_CARD_FIELDS` for every reader of the wish list.
+ */
+export async function getWantExportRows(): Promise<WantExportRow[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("want_list")
+    .select("quantity, cards ( name, set_code, collector_number )")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw new Error(`Could not load your wish list: ${error.message}`);
+  }
+
+  return ((data ?? []) as unknown as Array<{
+    quantity: number;
+    cards: { name: string; set_code: string | null; collector_number: string | null } | null;
+  }>).map((row) => ({
+    name: row.cards?.name ?? "Unknown card",
+    setCode: row.cards?.set_code ?? null,
+    collectorNumber: row.cards?.collector_number ?? null,
+    quantity: row.quantity,
+  }));
+}
+
 /** A friend's want list — readable because you are friends (migration 15 policy). */
 export async function getFriendWants(friendId: string): Promise<WantRow[]> {
   const supabase = await createClient();
@@ -466,6 +502,39 @@ export async function matchSuppliersFor(
   const suppliers = await profilesByIds([...supplierIds]);
 
   return { matches, suppliers };
+}
+
+/**
+ * Who among your friends has *this* card open for trade — for a card you are
+ * looking at but have not committed to wanting yet.
+ *
+ * The wish list's own matching (`getWantListView` / `matchSuppliersFor`) needs
+ * a saved `want_list` row to key off. The add flow wants the same answer for a
+ * card sitting in a draft row on screen, so this builds one synthetic
+ * `WantRow` — everything but `key` is unused by `matchWants` — rather than
+ * teaching that function a second calling convention.
+ */
+export async function matchSuppliersForCard(
+  key: string,
+): Promise<{ suppliers: WantSupplier[]; profiles: Map<string, Profile> }> {
+  if (!key) return { suppliers: [], profiles: new Map() };
+
+  const tradables = await getFriendTradables();
+  const draft: WantRow = {
+    id: "draft",
+    key,
+    name: "",
+    displayName: "",
+    cardId: null,
+    image: null,
+    quantity: 0,
+    note: null,
+  };
+  const matches = matchWants([draft], tradables);
+  const suppliers = matches.get("draft") ?? [];
+  const profiles = await profilesByIds(suppliers.map((s) => s.ownerId));
+
+  return { suppliers, profiles };
 }
 
 /** The want list plus, for each entry, which friends have it open for trade. */
