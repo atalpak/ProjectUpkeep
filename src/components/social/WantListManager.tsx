@@ -4,11 +4,18 @@ import Image from "next/image";
 import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 
-import { addWant, removeWant, setWantDeck, setWantQuantity } from "@/app/(app)/wants/actions";
+import {
+  addWants,
+  removeWant,
+  setWantDeck,
+  setWantQuantity,
+} from "@/app/(app)/wants/actions";
 import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
-import { CardPreviewLink } from "@/components/CardPanel";
+import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
+import { cardKey } from "@/lib/collection/availability";
+import { displayPrice, formatPrice } from "@/lib/collection/pricing";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select } from "@/components/ui";
-import type { CardNameSuggestion } from "@/lib/types";
+import type { Card, CardNameSuggestion } from "@/lib/types";
 import { describeSupplier, type WantRow } from "@/lib/social/wants";
 
 /** A supplier of one want, resolved to a name on the server. */
@@ -25,9 +32,13 @@ export type DeckOption = { id: string; name: string };
 /**
  * The wish list, and who can fill it.
  *
- * Adding is by card name — the same autocomplete the add-card form uses — and
- * the server picks a printing. Each row then says which friends have that card
- * open for trade right now, which is the whole reason the list exists.
+ * Adding is by card name — the same autocomplete the add-card form uses — but
+ * picking a name only opens a *draft row*, not a save. The card's printing,
+ * quantity and who among your friends already has it open for trade are all
+ * settled before anything is written, and several cards can be queued this
+ * way before one "Add" commits the lot. That is the whole reason `addWants`
+ * exists as a batch action rather than the single-row `addWant` this page used
+ * to call directly.
  */
 export function WantListManager({
   wants,
@@ -65,30 +76,59 @@ export function WantListManager({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Adding: search -> draft rows -> one batch commit
+// ---------------------------------------------------------------------------
+
+type PrintingOption = {
+  scryfall_id: string;
+  set_name: string | null;
+  set_code: string | null;
+  collector_number: string | null;
+  released_at: string | null;
+};
+
+/** A card queued to add, before it is saved. */
+type DraftRow = {
+  /** Client-only id — never sent to the server, just a React key. */
+  draftId: string;
+  /** The name search resolved to; carried so a failed card fetch still shows something. */
+  name: string;
+  card: Card | null;
+  printings: PrintingOption[] | null;
+  quantity: number;
+  suppliers: SupplierView[];
+  loadingSuppliers: boolean;
+};
+
+function printingLabel(p: PrintingOption): string {
+  const set = p.set_name ?? p.set_code?.toUpperCase() ?? "Unknown set";
+  const number = p.collector_number ? ` · #${p.collector_number}` : "";
+  return `${set}${number}`;
+}
+
 function AddWant() {
-  const [state, action, pending] = useActionState(addWant, EMPTY_SOCIAL_STATE);
+  const [state, action, pending] = useActionState(addWants, EMPTY_SOCIAL_STATE);
 
   const [query, setQuery] = useState("");
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState(1);
   const [suggestions, setSuggestions] = useState<CardNameSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
 
   const lastNonce = useRef(state.nonce);
   useEffect(() => {
     if (!state.nonce || state.nonce === lastNonce.current) return;
     lastNonce.current = state.nonce;
+    setDrafts([]);
     setQuery("");
-    setChosen(null);
-    setQuantity(1);
     setSuggestions([]);
   }, [state.nonce]);
 
   useEffect(() => {
     const term = query.trim();
-    // Nothing to fetch. Stale suggestions are cleared by the input handler, not
-    // here, so this effect never sets state synchronously.
-    if (chosen !== null || term.length < 2) return;
+    // Nothing to fetch. Stale suggestions are cleared by the input handler,
+    // not here, so this effect never sets state synchronously.
+    if (term.length < 2) return;
 
     const controller = new AbortController();
     const timer = setTimeout(async () => {
@@ -112,86 +152,117 @@ function AddWant() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [query, chosen]);
+  }, [query]);
+
+  /** Adds a new draft row for a name just picked from search, and loads its detail. */
+  function addDraft(name: string, sampleCardId: string) {
+    const draftId = crypto.randomUUID();
+    setDrafts((prev) => [
+      ...prev,
+      { draftId, name, card: null, printings: null, quantity: 1, suppliers: [], loadingSuppliers: false },
+    ]);
+    setQuery("");
+    setSuggestions([]);
+
+    void loadCard(draftId, sampleCardId);
+    void loadPrintings(draftId, name);
+  }
+
+  async function loadCard(draftId: string, cardId: string) {
+    try {
+      const res = await fetch(`/api/cards/${cardId}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const body = (await res.json()) as { card: Card };
+      setDrafts((prev) => prev.map((d) => (d.draftId === draftId ? { ...d, card: body.card } : d)));
+
+      const key = cardKey(body.card);
+      if (key) void loadSuppliers(draftId, key);
+    } catch {
+      // The row just stays without a card; the remove button still works.
+    }
+  }
+
+  async function loadPrintings(draftId: string, name: string) {
+    try {
+      const res = await fetch(`/api/cards/printings?name=${encodeURIComponent(name)}`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { printings: PrintingOption[] };
+      setDrafts((prev) =>
+        prev.map((d) => (d.draftId === draftId ? { ...d, printings: body.printings ?? [] } : d)),
+      );
+    } catch {
+      setDrafts((prev) => prev.map((d) => (d.draftId === draftId ? { ...d, printings: [] } : d)));
+    }
+  }
+
+  async function loadSuppliers(draftId: string, key: string) {
+    setDrafts((prev) =>
+      prev.map((d) => (d.draftId === draftId ? { ...d, loadingSuppliers: true } : d)),
+    );
+    try {
+      const res = await fetch(`/api/cards/friend-suppliers?key=${encodeURIComponent(key)}`);
+      const body = res.ok ? ((await res.json()) as { suppliers: SupplierView[] }) : { suppliers: [] };
+      setDrafts((prev) =>
+        prev.map((d) =>
+          d.draftId === draftId
+            ? { ...d, suppliers: body.suppliers ?? [], loadingSuppliers: false }
+            : d,
+        ),
+      );
+    } catch {
+      setDrafts((prev) =>
+        prev.map((d) => (d.draftId === draftId ? { ...d, loadingSuppliers: false } : d)),
+      );
+    }
+  }
+
+  function setDraftQuantity(draftId: string, quantity: number) {
+    setDrafts((prev) =>
+      prev.map((d) => (d.draftId === draftId ? { ...d, quantity: Math.max(1, Math.min(99, quantity)) } : d)),
+    );
+  }
+
+  function removeDraft(draftId: string) {
+    setDrafts((prev) => prev.filter((d) => d.draftId !== draftId));
+  }
+
+  async function switchPrinting(draftId: string, scryfallId: string) {
+    setDrafts((prev) => prev.map((d) => (d.draftId === draftId ? { ...d, card: null } : d)));
+    await loadCard(draftId, scryfallId);
+  }
+
+  const rowsJson = JSON.stringify(
+    drafts
+      .filter((d): d is DraftRow & { card: Card } => d.card !== null)
+      .map((d) => ({ cardId: d.card.scryfall_id, quantity: d.quantity })),
+  );
+  const readyCount = drafts.filter((d) => d.card !== null).length;
 
   return (
-    <Panel className="space-y-3">
-      <form action={action} className="space-y-3">
-        <input type="hidden" name="card_name" value={chosen ?? ""} />
-        <input type="hidden" name="quantity" value={quantity} />
+    <Panel className="space-y-4">
+      <div className="space-y-1">
+        <span className="text-xs font-medium text-ink-muted">Add a card to your wish list</span>
+        <Input
+          value={query}
+          onChange={(e) => {
+            const next = e.target.value;
+            setQuery(next);
+            if (next.trim().length < 2) setSuggestions([]);
+          }}
+          placeholder="Rhystic Study"
+          aria-label="Card name"
+        />
+      </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="min-w-56 flex-1 space-y-1">
-            <span className="text-xs font-medium text-ink-muted">Add a card to your wish list</span>
-            <Input
-              value={query}
-              onChange={(e) => {
-                const next = e.target.value;
-                setQuery(next);
-                if (chosen !== null) setChosen(null);
-                if (next.trim().length < 2) setSuggestions([]);
-              }}
-              placeholder="Rhystic Study"
-              aria-label="Card name"
-            />
-          </label>
+      {searching ? <p className="text-xs text-ink-muted">Searching…</p> : null}
 
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              className="size-8 rounded border border-border text-sm disabled:opacity-40 coarse:size-11"
-              disabled={quantity <= 1}
-              aria-label="One fewer"
-            >
-              −
-            </button>
-            <span className="w-6 text-center text-sm tabular-nums">{quantity}</span>
-            <button
-              type="button"
-              onClick={() => setQuantity((q) => Math.min(99, q + 1))}
-              className="size-8 rounded border border-border text-sm coarse:size-11"
-              aria-label="One more"
-            >
-              +
-            </button>
-          </div>
-
-          <Button type="submit" disabled={pending || !chosen}>
-            {pending ? "Adding…" : "Add"}
-          </Button>
-        </div>
-
-        {chosen ? (
-          <p className="text-xs text-ink-muted">
-            Adding <span className="font-medium text-ink">{chosen}</span> ×{quantity}.{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setChosen(null);
-                setQuery("");
-              }}
-              className="text-accent underline"
-            >
-              change
-            </button>
-          </p>
-        ) : searching ? (
-          <p className="text-xs text-ink-muted">Searching…</p>
-        ) : null}
-      </form>
-
-      {!chosen && suggestions.length > 0 ? (
+      {suggestions.length > 0 ? (
         <ul className="divide-y divide-border rounded-md border border-border">
           {suggestions.map((s) => (
             <li key={s.name}>
               <button
                 type="button"
-                onClick={() => {
-                  setChosen(s.name);
-                  setQuery(s.name);
-                  setSuggestions([]);
-                }}
+                onClick={() => addDraft(s.name, s.sample_card_id)}
                 className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-muted"
               >
                 {s.sample_image_uri ? (
@@ -216,11 +287,164 @@ function AddWant() {
         </ul>
       ) : null}
 
+      {drafts.length > 0 ? (
+        <ul className="space-y-2">
+          {drafts.map((draft) => (
+            <DraftRowView
+              key={draft.draftId}
+              draft={draft}
+              onQuantityChange={(q) => setDraftQuantity(draft.draftId, q)}
+              onRemove={() => removeDraft(draft.draftId)}
+              onSwitchPrinting={(id) => void switchPrinting(draft.draftId, id)}
+            />
+          ))}
+        </ul>
+      ) : null}
+
+      <form action={action} className="flex flex-wrap items-center gap-3">
+        <input type="hidden" name="rows" value={rowsJson} />
+        {/* Deliberately bigger than a normal action button — this now commits
+            everything queued above, not one quick add. */}
+        <Button
+          type="submit"
+          disabled={pending || readyCount === 0}
+          className="px-6 py-3 text-base"
+        >
+          {pending
+            ? "Adding…"
+            : `Add ${readyCount > 0 ? readyCount : ""} card${readyCount === 1 ? "" : "s"} to wish list`}
+        </Button>
+        {drafts.length > readyCount ? (
+          <span className="text-xs text-ink-muted">Still loading {drafts.length - readyCount}…</span>
+        ) : null}
+      </form>
+
       <Banner kind="error">{state.error}</Banner>
       <Banner kind="success">{state.notice}</Banner>
     </Panel>
   );
 }
+
+function DraftRowView({
+  draft,
+  onQuantityChange,
+  onRemove,
+  onSwitchPrinting,
+}: {
+  draft: DraftRow;
+  onQuantityChange: (quantity: number) => void;
+  onRemove: () => void;
+  onSwitchPrinting: (scryfallId: string) => void;
+}) {
+  const { card } = draft;
+  const price = card ? displayPrice(card, "nonfoil") : null;
+
+  return (
+    <li className="rounded-lg border border-border bg-surface p-3">
+      <div className="flex gap-3">
+        <CardPreviewTarget
+          card={card ?? undefined}
+          className="relative block aspect-[488/680] w-12 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
+        >
+          {card?.image_uri_small ? (
+            <Image
+              src={card.image_uri_small}
+              alt=""
+              fill
+              sizes="3rem"
+              className="object-cover"
+              unoptimized
+            />
+          ) : null}
+        </CardPreviewTarget>
+
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="font-medium">{card ? card.name : draft.name}</span>
+            {price && price.value !== null ? (
+              <span className="text-xs tabular-nums text-ink-muted">
+                {price.approximate ? "~" : ""}
+                {formatPrice(price.value)}
+              </span>
+            ) : null}
+
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => onQuantityChange(draft.quantity - 1)}
+                disabled={draft.quantity <= 1}
+                className="size-7 rounded border border-border text-sm disabled:opacity-40 coarse:size-11"
+                aria-label={`One fewer ${draft.name}`}
+              >
+                −
+              </button>
+              <span className="w-6 text-center text-sm tabular-nums">{draft.quantity}</span>
+              <button
+                type="button"
+                onClick={() => onQuantityChange(draft.quantity + 1)}
+                className="size-7 rounded border border-border text-sm coarse:size-11"
+                aria-label={`One more ${draft.name}`}
+              >
+                +
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label={`Remove ${draft.name} from this batch`}
+              className="text-ink-muted hover:text-danger"
+            >
+              ×
+            </button>
+          </div>
+
+          {draft.printings && draft.printings.length > 1 && card ? (
+            <Select
+              value={card.scryfall_id}
+              onChange={(e) => onSwitchPrinting(e.target.value)}
+              aria-label={`Printing of ${draft.name}`}
+              className="w-full max-w-xs py-1 text-xs"
+            >
+              {draft.printings.map((p) => (
+                <option key={p.scryfall_id} value={p.scryfall_id}>
+                  {printingLabel(p)}
+                </option>
+              ))}
+            </Select>
+          ) : null}
+
+          <div className="text-sm">
+            {!card ? (
+              <span className="text-ink-muted">Loading…</span>
+            ) : draft.loadingSuppliers ? (
+              <span className="text-ink-muted">Checking your circle…</span>
+            ) : draft.suppliers.length === 0 ? (
+              <span className="text-ink-muted">No one in your circle has this open for trade.</span>
+            ) : (
+              <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                <Badge>Available</Badge>
+                {draft.suppliers.map((s, i) => (
+                  <span key={s.username}>
+                    <Link href={`/u/${encodeURIComponent(s.username)}`} className="text-accent hover:underline">
+                      {s.username}
+                    </Link>{" "}
+                    <span className="text-ink-muted">has {describeSupplier(s.available, s.locations)}</span>
+                    {i < draft.suppliers.length - 1 ? <span className="text-ink-muted">,</span> : null}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The saved wish list
+// ---------------------------------------------------------------------------
 
 function WantRowView({
   want,

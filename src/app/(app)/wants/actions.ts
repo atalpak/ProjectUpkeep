@@ -138,6 +138,116 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
   return ok(`Added ${name} to your wish list.`);
 }
 
+/** One row of a batch add, as the client sends it. */
+type DraftWantRow = { cardId: string; quantity: number };
+
+/** How many draft rows a single "Add" click will accept. */
+const MAX_BATCH_ROWS = 50;
+
+function parseDraftRows(raw: string): DraftWantRow[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+
+  const rows: DraftWantRow[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const cardId = String((entry as Record<string, unknown>).cardId ?? "").trim();
+    const rawQty = Number((entry as Record<string, unknown>).quantity);
+    if (!cardId) continue;
+    const quantity = Number.isFinite(rawQty) && rawQty > 0 ? Math.min(Math.floor(rawQty), 10000) : 1;
+    rows.push({ cardId, quantity });
+  }
+  return rows;
+}
+
+/**
+ * Adds several cards to the wish list in one commit.
+ *
+ * The counterpart to `addWant` for the draft-row flow on /wants: a card gets
+ * curated there — printing, quantity — before anything is written, so by the
+ * time this runs every row already names an exact printing rather than a name
+ * for `pickRepresentative` to resolve. Rows are deduplicated by printing here
+ * (not trusted from the client) and checked against the database's own
+ * `cards` table before insert, so a client cannot file an id that was never a
+ * real printing.
+ *
+ * A row already on the wish list is skipped rather than merged — the same
+ * "do not silently change an existing quantity" rule `setWantQuantity`'s
+ * caller relies on — and the skip is named in the result so it is not mistaken
+ * for a card that failed outright.
+ */
+export async function addWants(_prev: SocialState, formData: FormData): Promise<SocialState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+
+  const rows = parseDraftRows(String(formData.get("rows") ?? ""));
+  if (!rows || rows.length === 0) return fail("Add at least one card first.");
+  if (rows.length > MAX_BATCH_ROWS) {
+    return fail(`Add at most ${MAX_BATCH_ROWS} cards at once.`);
+  }
+
+  // Two draft rows can name the same printing (searched twice); combine them
+  // rather than fighting over which one wins the insert.
+  const byCardId = new Map<string, number>();
+  for (const row of rows) {
+    byCardId.set(row.cardId, (byCardId.get(row.cardId) ?? 0) + row.quantity);
+  }
+
+  const supabase = await createClient();
+
+  const cardIds = [...byCardId.keys()];
+  const { data: validCards, error: cardsError } = await supabase
+    .from("cards")
+    .select("scryfall_id")
+    .in("scryfall_id", cardIds);
+  if (cardsError) return fail(cardsError.message);
+
+  const validIds = new Set((validCards ?? []).map((c) => (c as { scryfall_id: string }).scryfall_id));
+  const usableCardIds = cardIds.filter((id) => validIds.has(id));
+  if (usableCardIds.length === 0) {
+    return fail("None of those printings could be found in the database.");
+  }
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("want_list")
+    .select("card_id")
+    .eq("user_id", user.id)
+    .in("card_id", usableCardIds);
+  if (existingError) return fail(existingError.message);
+
+  const already = new Set((existingRows ?? []).map((r) => (r as { card_id: string }).card_id));
+  const toInsert = usableCardIds
+    .filter((id) => !already.has(id))
+    .map((id) => ({ user_id: user.id, card_id: id, quantity: byCardId.get(id)! }));
+
+  if (toInsert.length === 0) {
+    return fail("Every one of those cards is already on your wish list.");
+  }
+
+  const { error } = await supabase.from("want_list").insert(toInsert);
+  if (error) {
+    if (error.code === "PGRST205") {
+      return fail("The wish list is not set up on the database yet — apply migration 00000000000015.");
+    }
+    return fail(error.message);
+  }
+
+  revalidate();
+
+  const skipped = already.size;
+  const parts = [
+    `Added ${toInsert.length} card${toInsert.length === 1 ? "" : "s"} to your wish list`,
+    skipped > 0 ? `${skipped} already there` : null,
+  ].filter(Boolean);
+
+  return ok(`${parts.join(" — ")}.`);
+}
+
 export async function setWantQuantity(_prev: SocialState, formData: FormData): Promise<SocialState> {
   const user = await getCurrentUser();
   if (!user) return fail("You need to be signed in.");

@@ -1,9 +1,12 @@
+import Link from "next/link";
+
 import { getWantListView } from "@/lib/social/queries";
 import { getDecks } from "@/lib/collection/queries";
 import {
   WantListManager,
   type SupplierView,
 } from "@/components/social/WantListManager";
+import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Wish List · Project Upkeep" };
@@ -50,6 +53,20 @@ export default async function WantsPage() {
               : `None of the ${wants.length} card${
                   wants.length === 1 ? "" : "s"
                 } on your wish list are open for trade in your circle yet.`
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <Link
+              href="/wants/import"
+              className="rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-surface-muted"
+            >
+              Import
+            </Link>
+            <ExportButtons
+              source={{ kind: "remote", href: "/api/wants/export" }}
+              filenameBase="wish-list"
+            />
+          </div>
         }
       />
 
