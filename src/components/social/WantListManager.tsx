@@ -505,52 +505,53 @@ function WantRowView({
   decks: DeckOption[];
 }) {
   return (
-    <li className="rounded-lg border border-border bg-surface p-3">
-      <div className="flex gap-3">
-        <CardPreviewLink
-          card={want.cardId ?? undefined}
-          href={`/collection?q=${encodeURIComponent(want.name)}`}
-          className="relative block aspect-[488/680] w-12 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
-        >
-          {want.image ? (
-            <Image src={want.image} alt="" fill sizes="3rem" className="object-cover" unoptimized />
-          ) : null}
-        </CardPreviewLink>
+    <li className="flex items-center gap-2.5 rounded-lg border border-border bg-surface px-2.5 py-2">
+      <CardPreviewLink
+        card={want.cardId ?? undefined}
+        href={`/collection?q=${encodeURIComponent(want.name)}`}
+        // object-contain, not object-cover: a small crop's own aspect ratio
+        // doesn't quite match aspect-[488/680], and at this size that was
+        // cropping a sliver off the card rather than showing the whole thing.
+        className="relative block aspect-[488/680] w-9 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
+      >
+        {want.image ? (
+          <Image src={want.image} alt="" fill sizes="2.25rem" className="object-contain" unoptimized />
+        ) : null}
+      </CardPreviewLink>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium">{want.displayName}</span>
-            <WantPrice want={want} />
-            <QuantityStepper want={want} />
-            <RemoveWantButton want={want} />
-          </div>
-
-          <div className="mt-1.5 text-sm">
-            {suppliers.length === 0 ? (
-              <span className="text-ink-muted">No one in your circle has this open for trade.</span>
-            ) : (
-              <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                <Badge>Available</Badge>
-                {suppliers.map((s, i) => (
-                  <span key={s.userId}>
-                    <Link
-                      href={`/u/${encodeURIComponent(s.username)}`}
-                      className="text-accent hover:underline"
-                    >
-                      {s.username}
-                    </Link>{" "}
-                    <span className="text-ink-muted">
-                      has {describeSupplier(s.available, s.locations)}
-                    </span>
-                    {i < suppliers.length - 1 ? <span className="text-ink-muted">,</span> : null}
-                  </span>
-                ))}
-              </span>
-            )}
-          </div>
-
-          {decks.length > 0 ? <DeckTag want={want} decks={decks} /> : null}
+      <div className="min-w-0 flex-1">
+        {/* Same row shape as the gallery tile — name, price and the ⋯ menu
+            together, "For <deck>" taking the name's place once one is
+            assigned. Quantity/deck/remove live in the menu now rather than
+            three controls stretching the row every time. */}
+        <div className="flex items-center gap-1.5 text-sm">
+          {want.deckName ? (
+            <span
+              className="min-w-0 flex-1 truncate italic text-ink-muted"
+              title={`For ${want.deckName}`}
+            >
+              For {want.deckName}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate font-medium" title={want.displayName}>
+              {want.displayName}
+            </span>
+          )}
+          <WantPrice want={want} />
+          <WantCardMenu want={want} decks={decks} />
         </div>
+
+        <p className="truncate text-xs">
+          {suppliers.length === 0 ? (
+            <span className="text-ink-muted">No one in your circle has this yet.</span>
+          ) : (
+            <span className="text-ink-muted">
+              <span className="text-ink">{suppliers[0].username}</span> has{" "}
+              {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+              {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
+            </span>
+          )}
+        </p>
       </div>
     </li>
   );
