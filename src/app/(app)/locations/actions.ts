@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import { LOCATION_TYPES, type Location, type LocationType } from "@/lib/types";
+import {
+  LOCATION_COLORS,
+  LOCATION_TYPES,
+  type Location,
+  type LocationColor,
+  type LocationType,
+} from "@/lib/types";
 import type { LocationActionState } from "@/app/(app)/locations/action-state";
 
 function fail(message: string): LocationActionState {
@@ -38,6 +44,14 @@ function optionalId(value: FormDataEntryValue | null): string | null {
   return s === "" ? null : s;
 }
 
+/** The "no colour" radio submits `""`, same convention as `optionalId`. An
+ *  unrecognised value (a stale client, a hand-crafted request) is treated the
+ *  same as none, rather than failing the whole save over a cosmetic field. */
+function optionalColor(value: FormDataEntryValue | null): LocationColor | null {
+  const s = typeof value === "string" ? value.trim() : "";
+  return (LOCATION_COLORS as readonly string[]).includes(s) ? (s as LocationColor) : null;
+}
+
 export async function createLocation(
   _prev: LocationActionState,
   formData: FormData,
@@ -57,6 +71,7 @@ export async function createLocation(
     name,
     type,
     parent_location_id: optionalId(formData.get("parent_location_id")),
+    color: optionalColor(formData.get("color")),
   });
 
   if (error) return fail(friendly(error.message));
@@ -103,6 +118,7 @@ export async function createLocationInline(
       name,
       type,
       parent_location_id: optionalId(formData.get("parent_location_id")),
+      color: optionalColor(formData.get("color")),
     })
     .select("*")
     .single();
@@ -127,11 +143,13 @@ export async function renameLocation(
   const type = String(formData.get("type") ?? "other") as LocationType;
   if (!LOCATION_TYPES.includes(type)) return fail("Unknown location type.");
 
+  const color = optionalColor(formData.get("color"));
+
   const supabase = await createClient();
   // RLS scopes this to the user's own locations.
   const { error } = await supabase
     .from("locations")
-    .update({ name, type })
+    .update({ name, type, color })
     .eq("id", id);
 
   if (error) return fail(friendly(error.message));

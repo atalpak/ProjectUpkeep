@@ -71,6 +71,40 @@ export const LOCATION_TYPE_PLURALS: Record<LocationType, string> = {
 };
 
 /**
+ * A location's own label colour, matching the CHECK on `locations.color`
+ * (migration 31). Deliberately separate from WUBRG (globals.css): those five
+ * colours already mean "Magic colour identity" everywhere else in this app,
+ * and reusing them for an arbitrary folder-colour tag would make a green box
+ * read as saying something about the cards inside it. `null` is "no colour,"
+ * the default — not a colour of its own.
+ */
+export const LOCATION_COLORS = [
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "teal",
+  "blue",
+  "purple",
+  "pink",
+] as const;
+export type LocationColor = (typeof LOCATION_COLORS)[number];
+
+/** Fixed hex rather than a theme token: a tag reads the same small dot or
+ *  border in either theme, the same way the three fixed tones on
+ *  `/decks/check`'s legend do (ListCheck.tsx) — it doesn't need to invert. */
+export const LOCATION_COLOR_HEX: Record<LocationColor, string> = {
+  red: "#c0392b",
+  orange: "#d97a2c",
+  yellow: "#c9a227",
+  green: "#4c9a5c",
+  teal: "#2f9e94",
+  blue: "#3f7fc4",
+  purple: "#8f5fc9",
+  pink: "#c9518f",
+};
+
+/**
  * Sentinel a `LocationSelect` in `requireChoice` mode starts on — distinct
  * from `""`, which is the real destination "Unsorted." Shared here (rather
  * than exported from the component file) so a server action can check for it
@@ -198,6 +232,9 @@ export type Location = {
   notes: string | null;
   format: string | null;
   tags: string[];
+
+  /** User-chosen label colour (migration 31). Null is the common case. */
+  color: LocationColor | null;
 };
 
 /** Formats offered in the deck details editor. Free text is still accepted. */

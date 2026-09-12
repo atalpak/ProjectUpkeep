@@ -15,10 +15,13 @@ import { formatPrice } from "@/lib/collection/pricing";
 import type { LocationStats } from "@/lib/collection/queries";
 import { Badge, Banner, Button, Card as Panel, Input, Select, cx } from "@/components/ui";
 import {
+  LOCATION_COLOR_HEX,
+  LOCATION_COLORS,
   LOCATION_TYPES,
   LOCATION_TYPE_LABELS,
   LOCATION_TYPE_PLURALS,
   type Location,
+  type LocationColor,
   type LocationNode,
   type LocationType,
 } from "@/lib/types";
@@ -88,6 +91,23 @@ function Peek({ images, name }: { images: string[]; name: string }) {
 }
 
 /**
+ * The illustration alone, no frame or text — for a deck tile's background,
+ * where a whole card (a rectangle of white border and rules text) reads as
+ * clutter rather than atmosphere.
+ *
+ * Derived from the whole-card URL already on hand rather than fetched or
+ * stored separately: every Scryfall card image lives at
+ * `cards.scryfall.io/<version>/front/<a>/<b>/<id>.jpg`, where `<version>` is
+ * one of `small` / `normal` / `large` / `art_crop` / ... — swapping that one
+ * path segment is Scryfall's own documented way to get a different crop of
+ * the same image, not a guess about their CDN's internals.
+ */
+function artCropUrl(imageUri: string | null): string | null {
+  if (!imageUri) return null;
+  return imageUri.replace(/\/(?:small|normal|large)\/front\//, "/art_crop/front/");
+}
+
+/**
  * The switch that makes a location's cards visible to friends.
  *
  * It lived only on the Friends page, five sections down, which is a strange
@@ -136,6 +156,59 @@ function TradableToggle({ location }: { location: Location }) {
         {on ? "Open for trade" : "Private"}
       </button>
     </form>
+  );
+}
+
+/**
+ * A row of colour swatches, radio-button semantics under the hood so it works
+ * as a plain form field — no controlled state, same as every other field in
+ * these forms. "No colour" is its own dashed circle rather than just letting
+ * someone leave every swatch unchecked, so clearing a colour is a deliberate
+ * click rather than an absence of one.
+ */
+function ColorSwatchPicker({ defaultValue }: { defaultValue: LocationColor | null }) {
+  return (
+    <fieldset className="space-y-1">
+      <legend className="text-xs font-medium text-ink-muted">Colour</legend>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <label className="cursor-pointer">
+          <input
+            type="radio"
+            name="color"
+            value=""
+            defaultChecked={!defaultValue}
+            aria-label="No colour"
+            className="peer sr-only"
+          />
+          <span
+            aria-hidden="true"
+            title="No colour"
+            className="flex size-6 items-center justify-center rounded-full border border-dashed border-border text-xs text-ink-muted peer-checked:ring-2 peer-checked:ring-accent peer-checked:ring-offset-2 peer-checked:ring-offset-surface"
+          >
+            ×
+          </span>
+        </label>
+
+        {LOCATION_COLORS.map((c) => (
+          <label key={c} className="cursor-pointer">
+            <input
+              type="radio"
+              name="color"
+              value={c}
+              defaultChecked={defaultValue === c}
+              aria-label={c}
+              className="peer sr-only"
+            />
+            <span
+              aria-hidden="true"
+              title={c}
+              style={{ backgroundColor: LOCATION_COLOR_HEX[c] }}
+              className="block size-6 rounded-full border border-border peer-checked:ring-2 peer-checked:ring-accent peer-checked:ring-offset-2 peer-checked:ring-offset-surface"
+            />
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -305,6 +378,7 @@ function LocationRow({
               ))}
             </Select>
           </label>
+          <ColorSwatchPicker defaultValue={location.color} />
           <Button type="submit" disabled={pending}>
             {pending ? "Saving…" : "Save"}
           </Button>
@@ -316,6 +390,135 @@ function LocationRow({
           </div>
         </form>
       ) : null}
+    </div>
+  );
+}
+
+/** A location tile: the same facts as `LocationRow`, minus the ones that only
+ *  earn their place at full row width (distinct-card count, top card) — a
+ *  grid of these is for scanning many locations at once, not reading one
+ *  closely. A nested location shows "in {parent}" where a top-level one shows
+ *  its type, since the grid has no indentation to say so instead. */
+function LocationTile({
+  location,
+  count,
+  images,
+  stats,
+  parentName,
+}: {
+  location: Location;
+  count: number;
+  images: string[];
+  stats?: LocationStats;
+  parentName?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [state, action, pending] = useActionState(renameLocation, EMPTY_LOCATION_STATE);
+
+  // A deck reads as a deck box, not a binder page: its most notable card's
+  // illustration washes the whole tile instead of sitting in a foreground
+  // strip, the way a binder or box's peek does below.
+  const isDeck = location.type === "deck";
+  const art = isDeck ? artCropUrl(images[0] ?? null) : null;
+
+  // A folder-colour accent, the thing that lets a grid of otherwise-identical
+  // boxes be told apart at a glance. Set as an inline style rather than a
+  // Tailwind class: the value is one of a fixed vocabulary but still data, not
+  // a class name Tailwind's compiler can see statically.
+  const accent = location.color ? LOCATION_COLOR_HEX[location.color] : null;
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-2xl border border-border bg-surface p-3"
+      style={accent ? { borderTopColor: accent, borderTopWidth: 3 } : undefined}
+    >
+      {art ? (
+        <Image
+          src={art}
+          alt=""
+          fill
+          unoptimized
+          sizes="(min-width: 1280px) 20vw, (min-width: 640px) 33vw, 50vw"
+          className="absolute inset-0 object-cover opacity-15"
+        />
+      ) : null}
+
+      {/* Positioned so it stacks above the background art regardless of DOM
+          order — an absolutely-positioned image with no z-index still paints
+          over ordinary in-flow content. */}
+      <div className="relative z-10 flex flex-col gap-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <Link
+              href={`/collection?location=${location.id}`}
+              className="block truncate font-medium hover:underline"
+            >
+              {location.name}
+            </Link>
+            <span className="block truncate text-[11px] text-ink-muted">
+              {parentName ? `in ${parentName}` : LOCATION_TYPE_LABELS[location.type]}
+            </span>
+          </div>
+
+          <LocationMenu
+            location={location}
+            open={menuOpen}
+            setOpen={setMenuOpen}
+            onRename={() => {
+              setEditing((v) => !v);
+              setMenuOpen(false);
+            }}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
+          <span className="tabular-nums">
+            <span className="font-medium text-ink">{count}</span> card{count === 1 ? "" : "s"}
+          </span>
+          {stats && stats.value > 0 ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums">
+                {formatPrice(stats.value)}
+                {stats.unpriced > 0 ? "+" : ""}
+              </span>
+            </>
+          ) : null}
+        </div>
+
+        {location.type !== "deck" ? <TradableToggle location={location} /> : null}
+
+        {editing ? (
+          <form action={action} className="flex flex-wrap items-end gap-2 border-t border-border pt-2.5">
+            <input type="hidden" name="location_id" value={location.id} />
+            <label className="min-w-0 flex-1 space-y-1">
+              <span className="text-xs font-medium text-ink-muted">Name</span>
+              <Input name="name" defaultValue={location.name} maxLength={80} required />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium text-ink-muted">Type</span>
+              <Select name="type" defaultValue={location.type}>
+                {LOCATION_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {LOCATION_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <ColorSwatchPicker defaultValue={location.color} />
+            <Button type="submit" disabled={pending}>
+              {pending ? "Saving…" : "Save"}
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+            <div className="w-full">
+              <Banner kind="error">{state.error}</Banner>
+            </div>
+          </form>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -395,6 +598,9 @@ export function LocationManager({
   );
   const collapsedTypes = useMemo(() => parseStoredCollapsed(storedCollapsed), [storedCollapsed]);
 
+  const storedView = useSyncExternalStore(subscribeToView, readStoredView, readStoredViewOnServer);
+  const view: LocationView = storedView === "tiles" ? "tiles" : "list";
+
   function toggleType(type: LocationType) {
     const next = new Set(collapsedTypes);
     if (next.has(type)) next.delete(type);
@@ -437,11 +643,32 @@ export function LocationManager({
         <h2 className="font-display text-base font-semibold tracking-tight">
           Your locations{tree.length > 0 ? ` (${tree.length})` : ""}
         </h2>
-        {/* The form used to sit open above the list, so the first thing this
-            page showed was data entry rather than the shelf it describes. */}
-        <Button type="button" variant="secondary" onClick={() => setAdding((v) => !v)}>
-          {adding ? "Cancel" : "New location"}
-        </Button>
+
+        <div className="flex items-center gap-2">
+          <div className="inline-flex overflow-hidden rounded-md border border-border">
+            {(["list", "tiles"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => writeStoredView(option)}
+                aria-pressed={view === option}
+                aria-label={option === "list" ? "List view" : "Tile view"}
+                className={cx(
+                  "px-2.5 py-1.5 text-xs font-medium capitalize transition-colors",
+                  view === option ? "bg-accent text-accent-ink" : "hover:bg-surface-muted",
+                )}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+
+          {/* The form used to sit open above the list, so the first thing this
+              page showed was data entry rather than the shelf it describes. */}
+          <Button type="button" variant="secondary" onClick={() => setAdding((v) => !v)}>
+            {adding ? "Cancel" : "New location"}
+          </Button>
+        </div>
       </div>
 
       {adding ? (
@@ -474,6 +701,8 @@ export function LocationManager({
                 ))}
               </Select>
             </label>
+
+            <ColorSwatchPicker defaultValue={null} />
 
             <Button type="submit" disabled={pending}>
               {pending ? "Creating…" : "Create"}
@@ -526,7 +755,7 @@ export function LocationManager({
               </span>
             </button>
 
-            {collapsed ? null : (
+            {collapsed ? null : view === "list" ? (
               <Panel className="divide-y divide-border p-0 px-4">
                 {section.nodes.map((node) => (
                   <div key={node.id}>
@@ -549,6 +778,32 @@ export function LocationManager({
                   </div>
                 ))}
               </Panel>
+            ) : (
+              // Flattened rather than nested: a grid has no indentation to say
+              // "inside," so a child location carries its parent's name as a
+              // caption instead (see LocationTile) and sits in the grid as its
+              // own tile, right after its parent's.
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {section.nodes.flatMap((node) => [
+                  <LocationTile
+                    key={node.id}
+                    location={node}
+                    count={node.instance_count}
+                    images={peek.get(node.id) ?? []}
+                    stats={stats.get(node.id)}
+                  />,
+                  ...node.children.map((child) => (
+                    <LocationTile
+                      key={child.id}
+                      location={child}
+                      count={counts.get(child.id) ?? 0}
+                      images={peek.get(child.id) ?? []}
+                      stats={stats.get(child.id)}
+                      parentName={node.name}
+                    />
+                  )),
+                ])}
+              </div>
             )}
           </section>
         );
@@ -624,4 +879,49 @@ function parseStoredCollapsed(raw: string | null): Set<LocationType> {
   } catch {
     return new Set();
   }
+}
+
+// ---------------------------------------------------------------------------
+// List vs. tiles
+// ---------------------------------------------------------------------------
+
+/** Same external-store shape as the collapsed-sections store above, for the
+ *  same reason: the choice lives in localStorage, which the server cannot
+ *  read, so the server snapshot is null (list — the layout this page has
+ *  always had) and React reconciles the real value after hydration. */
+export type LocationView = "list" | "tiles";
+
+const VIEW_STORAGE_KEY = "project-upkeep-locations-view";
+
+const viewListeners = new Set<() => void>();
+
+function subscribeToView(onChange: () => void): () => void {
+  viewListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    viewListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+let unsavedView: string | null = null;
+
+function readStoredView(): string | null {
+  try {
+    return unsavedView ?? localStorage.getItem(VIEW_STORAGE_KEY);
+  } catch {
+    return unsavedView;
+  }
+}
+
+const readStoredViewOnServer = (): string | null => null;
+
+function writeStoredView(view: LocationView): void {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+    unsavedView = null;
+  } catch {
+    unsavedView = view;
+  }
+  for (const listener of viewListeners) listener();
 }
