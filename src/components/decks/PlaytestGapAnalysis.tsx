@@ -74,7 +74,7 @@ export function PlaytestGapAnalysis({
   }
 
   return (
-    <section className="space-y-3 border-t border-border pt-4">
+    <section className="space-y-3 border-t border-border pt-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">What the missing cards are costing you</h2>

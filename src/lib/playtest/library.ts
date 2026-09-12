@@ -31,6 +31,12 @@ export type PlaytestCard = {
   /** Groups every printing of a card, the same way availability and the
    *  decklist itself do — see `cardKey`. What `cardByTurnOdds` matches on. */
   key: string;
+  /** `card.scryfall_id` — a specific printing, not the oracle key `key`
+   *  groups by. `key` is what the odds math matches on (every printing
+   *  shares one draw probability), but the card preview panel
+   *  (`useCardPreview` in CardPanel.tsx) needs an id it can actually fetch,
+   *  and an oracle key isn't one. */
+  cardId: string;
   name: string;
   typeLine: string;
   manaCost: string | null;
@@ -88,6 +94,7 @@ export type BuildLibraryResult = {
 function toPlaytestCard(card: Card): PlaytestCard {
   return {
     key: cardKey(card)!,
+    cardId: card.scryfall_id,
     name: card.name,
     typeLine: card.type_line ?? "",
     manaCost: card.mana_cost,

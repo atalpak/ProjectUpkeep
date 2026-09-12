@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { BarChart, LinesByTurnChart, type Bar, type LineSeries } from "@/components/decks/PlaytestCharts";
-import { Button, EmptyState, ListRow, Select, Stat } from "@/components/ui";
+import { Button, EmptyState, Select, Stat } from "@/components/ui";
 import type { KeepRule } from "@/lib/playtest/keep";
 import type { PlaytestCard } from "@/lib/playtest/library";
 import {
@@ -12,9 +12,9 @@ import {
   landThresholdShares,
   notableLandCounts,
   peakIndex,
-  uniqueLibraryCards,
+  uniqueLibraryCardsWithCounts,
 } from "@/lib/playtest/present";
-import { cardByTurnOdds, simulate, type SimulateStats } from "@/lib/playtest/simulate";
+import { cardByTurnOdds, copiesByTurnOdds, simulate, type SimulateStats } from "@/lib/playtest/simulate";
 
 const HANDS = 10_000;
 const LAND_THRESHOLDS = [3, 4, 5];
@@ -49,8 +49,20 @@ export function PlaytestResults({
   const [running, setRunning] = useState(false);
   const [oddsKey, setOddsKey] = useState("");
 
-  const cards = useMemo(() => uniqueLibraryCards(library), [library]);
+  // Commander is singleton, so a plain list of distinct cards would offer
+  // ~99 options whose odds are all the same number — see the module header
+  // on `uniqueLibraryCardsWithCounts`. Only cards with 2+ copies are worth a
+  // picker entry; everything else is covered once by `singleCopyOdds` below.
+  const cardsWithCounts = useMemo(
+    () => uniqueLibraryCardsWithCounts(library).filter((c) => c.count >= 2),
+    [library],
+  );
+  const selectedCard = cardsWithCounts.find((c) => c.card.key === oddsKey)?.card ?? null;
   const odds = oddsKey ? cardByTurnOdds(library, oddsKey, turns, true) : null;
+  const singleCopyOdds = useMemo(
+    () => copiesByTurnOdds(1, library.length, turns, true),
+    [library.length, turns],
+  );
 
   if (library.length === 0) {
     return <EmptyState title="Nothing to simulate">This mode&apos;s library is empty.</EmptyState>;
@@ -74,7 +86,7 @@ export function PlaytestResults({
   const colorDataReliable = hasReliableColorData(library);
 
   return (
-    <section className="space-y-5">
+    <section className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">Run the numbers</h2>
         <Button type="button" onClick={run} disabled={running}>
@@ -84,7 +96,7 @@ export function PlaytestResults({
 
       {stats ? (
         <>
-          <div className="rounded-2xl border border-border bg-surface-raised px-6 py-8 text-center">
+          <div className="rounded-2xl border border-border bg-surface-raised px-6 py-6 text-center">
             <div className="font-display text-6xl font-semibold tabular-nums tracking-tight">
               {formatPercent(stats.keepRate)}
             </div>
@@ -93,7 +105,7 @@ export function PlaytestResults({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <Stat
               label="Mulligans at all"
               value={formatPercent(1 - stats.mulliganDistribution["0"])}
@@ -120,37 +132,62 @@ export function PlaytestResults({
       )}
 
       <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-ink-muted">Card odds</h3>
-        <Select value={oddsKey} onChange={(e) => setOddsKey(e.target.value)} className="max-w-xs">
-          <option value="">Choose a card…</option>
-          {cards.map((card) => (
-            <option key={card.key} value={card.key}>
-              {card.name}
-            </option>
-          ))}
-        </Select>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-xs font-semibold text-ink-muted">Card odds</h3>
+          {cardsWithCounts.length > 0 ? (
+            <Select
+              value={oddsKey}
+              onChange={(e) => setOddsKey(e.target.value)}
+              className="max-w-[16rem] text-xs"
+            >
+              <option value="">Choose a card…</option>
+              {cardsWithCounts.map(({ card, count }) => (
+                <option key={card.key} value={card.key}>
+                  {card.name} ({count})
+                </option>
+              ))}
+            </Select>
+          ) : null}
+        </div>
 
-        {odds ? (
+        {/* Commander is singleton, so every one-of shares this exact number —
+            worth stating once even when the picker above has nothing to
+            offer (a deck with no 2+-copy card at all still gets this line). */}
+        <p className="text-xs text-ink-muted">
+          Any single copy: {formatPercent(singleCopyOdds[0] ?? 0)} by turn 1, rising to{" "}
+          {formatPercent(singleCopyOdds[singleCopyOdds.length - 1] ?? 0)} by turn {turns} — the
+          odds only depend on copies and deck size, not which card it is.
+        </p>
+
+        {odds && selectedCard ? (
           <div>
             <p className="mb-1 text-xs text-ink-muted">
               Exact odds, not simulated — the hypergeometric chance of holding at least one copy
               by each turn, given how many copies are in this library.
             </p>
-            <div>
-              {odds.map((chance, i) => (
-                <ListRow
-                  key={i}
-                  trailing={<span className="tabular-nums text-sm text-ink">{formatPercent(chance)}</span>}
-                >
-                  Turn {i + 1}
-                </ListRow>
-              ))}
-            </div>
+            <CardOddsChart title={`${selectedCard.name}, by turn`} odds={odds} />
           </div>
         ) : null}
       </div>
     </section>
   );
+}
+
+/**
+ * The exact per-turn odds for one named card, as a bar per turn rather than
+ * the twelve-row list this replaced — same numbers, far less height. Unlike
+ * `OpeningLandChart` and `CommanderTurnChart` below, every bar here is
+ * "notable": the whole point of this chart is the exact figure for each
+ * turn, not a single standout count.
+ */
+function CardOddsChart({ title, odds }: { title: string; odds: number[] }) {
+  const bars: Bar[] = odds.map((chance, i) => ({
+    key: String(i + 1),
+    axisLabel: String(i + 1),
+    value: chance,
+    notable: true,
+  }));
+  return <BarChart title={title} bars={bars} />;
 }
 
 function OpeningLandChart({ distribution, rule }: { distribution: number[]; rule: KeepRule }) {

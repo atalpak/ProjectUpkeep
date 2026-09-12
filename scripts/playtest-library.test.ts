@@ -58,6 +58,9 @@ test("designed mode uses quantity, one library element per copy", () => {
   });
   assert.equal(library.length, 4);
   assert.ok(library.every((c) => c.name === "Lightning Bolt"));
+  // cardId is the printing's own scryfall id, not the oracle key `key`
+  // groups printings by — the card preview panel needs an id it can fetch.
+  assert.ok(library.every((c) => c.cardId === bolt.scryfall_id));
 });
 
 test("built mode caps a single printing at what is sleeved", () => {

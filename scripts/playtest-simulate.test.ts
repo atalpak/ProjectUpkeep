@@ -15,11 +15,12 @@ import { test } from "node:test";
 import { defaultKeepRule } from "../src/lib/playtest/keep";
 import { parseCost, producedColors, type Color } from "../src/lib/playtest/mana";
 import type { PlaytestCard } from "../src/lib/playtest/library";
-import { cardByTurnOdds, simulate, type SimDeck } from "../src/lib/playtest/simulate";
+import { cardByTurnOdds, copiesByTurnOdds, simulate, type SimDeck } from "../src/lib/playtest/simulate";
 
 function makeLand(name: string, colors: Color[], key = name): PlaytestCard {
   return {
     key,
+    cardId: key,
     name,
     typeLine: "Basic Land",
     manaCost: null,
@@ -35,6 +36,7 @@ function makeLand(name: string, colors: Color[], key = name): PlaytestCard {
 function makeSpell(name: string, cost: string, key = name): PlaytestCard {
   return {
     key,
+    cardId: key,
     name,
     typeLine: "Instant",
     manaCost: cost,
@@ -213,6 +215,32 @@ test("cardByTurnOdds is 1 once every copy has necessarily been seen", () => {
   // 8-card deck, opening 7 on the play plus 1 draw a turn: by turn 1 you have
   // already seen all but one card, and by turn 2 you have seen the whole deck.
   assert.ok(Math.abs(odds[1] - 1) < 1e-9);
+});
+
+// ---------------------------------------------------------------------------
+// copiesByTurnOdds — the shared machinery behind cardByTurnOdds, callable
+// without an actual card in hand (the "any single copy" figure the card-odds
+// picker shows for a singleton deck).
+// ---------------------------------------------------------------------------
+
+test("copiesByTurnOdds matches cardByTurnOdds for a genuine single-copy card", () => {
+  const library = [
+    makeSpell("Sol Ring", "{1}", "sol-ring"),
+    ...repeat((i) => makeSpell("Filler", "{1}", `filler-${i}`), 59),
+  ];
+  const viaCard = cardByTurnOdds(library, "sol-ring", 3, true);
+  const direct = copiesByTurnOdds(1, library.length, 3, true);
+  assert.deepEqual(direct, viaCard);
+});
+
+test("copiesByTurnOdds scales with copy count the same way the exact hypergeometric tail does", () => {
+  const oneCopy = copiesByTurnOdds(1, 60, 3, true);
+  const fourCopies = copiesByTurnOdds(4, 60, 3, true);
+  // More copies of the same population can only raise the odds of holding
+  // at least one, turn for turn.
+  for (let i = 0; i < oneCopy.length; i++) {
+    assert.ok(fourCopies[i] > oneCopy[i]);
+  }
 });
 
 /**

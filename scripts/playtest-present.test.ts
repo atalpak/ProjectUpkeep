@@ -27,6 +27,7 @@ import {
   rankGapResults,
   selectTopMissing,
   uniqueLibraryCards,
+  uniqueLibraryCardsWithCounts,
   type GapResult,
   type MissingEntry,
 } from "../src/lib/playtest/present";
@@ -42,6 +43,7 @@ import {
 function land(name: string, colors: string[] | null, key = name, typeLine = "Basic Land"): PlaytestCard {
   return {
     key,
+    cardId: key,
     name,
     typeLine,
     manaCost: null,
@@ -57,6 +59,7 @@ function land(name: string, colors: string[] | null, key = name, typeLine = "Bas
 function spell(name: string, cost: string | null, key = name): PlaytestCard {
   return {
     key,
+    cardId: key,
     name,
     typeLine: "Instant",
     manaCost: cost,
@@ -206,6 +209,40 @@ test("uniqueLibraryCards dedupes by key and sorts by name", () => {
   assert.deepEqual(
     unique.map((c) => c.name),
     ["Bolt", "Zap"],
+  );
+});
+
+test("uniqueLibraryCardsWithCounts counts copies per distinct card, sorted by name", () => {
+  const library = [
+    spell("Zap", "{R}", "zap"),
+    spell("Bolt", "{R}", "bolt"),
+    spell("Bolt", "{R}", "bolt"),
+    spell("Bolt", "{R}", "bolt"),
+  ];
+  const counted = uniqueLibraryCardsWithCounts(library);
+  assert.deepEqual(
+    counted.map((c) => [c.card.name, c.count]),
+    [
+      ["Bolt", 3],
+      ["Zap", 1],
+    ],
+  );
+});
+
+test("uniqueLibraryCardsWithCounts: a singleton deck reports 1 for everything but the duplicated cards", () => {
+  // The shape a Commander deck actually has: 98 distinct one-ofs plus a
+  // handful of basics stacked well past 2 copies.
+  const library = [
+    ...Array.from({ length: 98 }, (_, i) => spell(`Card ${i}`, "{1}", `card-${i}`)),
+    // No explicit key: every copy defaults to key = "Mountain", the same way
+    // nine physical Mountains all group under one oracle id.
+    ...Array.from({ length: 9 }, () => land("Mountain", ["R"])),
+  ];
+  const counted = uniqueLibraryCardsWithCounts(library);
+  const twoOrMore = counted.filter((c) => c.count >= 2);
+  assert.deepEqual(
+    twoOrMore.map((c) => [c.card.name, c.count]),
+    [["Mountain", 9]],
   );
 });
 
