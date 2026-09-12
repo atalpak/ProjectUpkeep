@@ -2,28 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { MIN_TERM, type LocatedCard } from "@/lib/collection/locate";
-import {
-  COLORS,
-  COLOR_LABELS,
-  COLOR_MODES,
-  COLOR_MODE_LABELS,
-  NUMERIC_OPS,
-  NUMERIC_OP_LABELS,
-  RARITIES,
-  type NumericFilter,
-} from "@/lib/collection/filters";
-import {
-  EMPTY_ADVANCED_FILTER,
-  advancedFilterToParams,
-  isAdvancedFilterActive,
-  type AdvancedCardFilter,
-} from "@/lib/cards/search-query";
+import { isAdvancedFilterActive, parseScryfallQuery } from "@/lib/cards/search-query";
 import { readRecentSearches, recordRecentSearch } from "@/lib/search/recent-searches";
 import { useCardPanel } from "@/components/CardPanel";
-import { ManaSymbol } from "@/components/ManaCost";
 import { cx } from "@/components/ui";
 
 /**
@@ -37,18 +21,26 @@ import { cx } from "@/components/ui";
  * the card popup — full detail, a printing switcher, and add-to-collection /
  * add-to-deck — over whatever page you were on, owned or not.
  *
- * Three things layer on top of that basic lookup:
+ * Stays a basic, fast name finder by default, but literal Scryfall syntax
+ * "just works" if typed directly into it — no separate mode to switch into.
+ * `parseScryfallQuery` runs over whatever is typed; the moment it recognises
+ * a real operator (`c:r`, `cmc<=2`, `t:creature`, …) the lookup switches from
+ * a plain name search to the same structured query `/api/cards/search`'s
+ * advanced path understands, rather than treating the colons as literal name
+ * characters. See `src/lib/cards/search-query.ts` for exactly what is read.
+ *
+ * Three more things layer on top of that basic lookup:
  *   - A spinner replaces the search icon the instant there is enough to look
  *     up, and stays until that lookup resolves — the field never sits still
  *     while a request is in flight.
  *   - Focusing an empty field surfaces the searches actually run recently
  *     (settled fetches, not every keystroke), in italic, so returning to a
  *     card you looked up a minute ago does not mean retyping it.
- *   - "Advanced Search" — where a link out to /find used to sit — expands a
- *     panel of Scryfall-style facets (colour, mana value, type, oracle text,
- *     set, rarity) plus a box that takes literal Scryfall syntax and passes
- *     it through the same way. See `src/lib/cards/search-query.ts` for
- *     exactly which slice of that syntax is understood.
+ *   - "Advanced Search" at the bottom of the dropdown is a link to `/search`
+ *     — a dedicated page shaped like Scryfall's own advanced search, with the
+ *     structured facets, a raw syntax box, and a Search button, rather than a
+ *     panel that used to expand in place here. Whatever is half-typed carries
+ *     over as that page's initial query.
  *
  * Below lg there is no room for the field, so the same thing is an icon that
  * goes to the full card finder.
@@ -97,13 +89,18 @@ export function HeaderSearch() {
   // sync-across-tabs cases in this app use.
   const [recent, setRecent] = useState<string[]>([]);
 
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [advanced, setAdvanced] = useState<AdvancedCardFilter>(EMPTY_ADVANCED_FILTER);
-  const [rawQuery, setRawQuery] = useState("");
   const [unsupported, setUnsupported] = useState<string[]>([]);
 
   const term = value.trim();
-  const advancedActive = isAdvancedFilterActive(advanced) || rawQuery.trim() !== "";
+
+  // Whatever is typed, read as if it might be literal Scryfall syntax. Once it
+  // recognises a real operator — a colour, a mana-value comparison, a type or
+  // oracle or set or rarity clause — the lookup below sends it through as a
+  // structured query instead of a plain name; a query with only bare words
+  // (or nothing at all) is indistinguishable from before this existed.
+  const parsedTerm = useMemo(() => parseScryfallQuery(term), [term]);
+  const looksAdvanced =
+    isAdvancedFilterActive({ ...parsedTerm.filter, name: "" }) || parsedTerm.unsupported.length > 0;
 
   // Cmd/Ctrl-K focuses the field, the shortcut people already try.
   useEffect(() => {
@@ -130,40 +127,30 @@ export function HeaderSearch() {
 
   // Debounced lookup: every card matching the fragment, plus which of them are
   // in the collection. Aborted when the query moves on so a slow response can
-  // never land after a newer one. Fires either for a plain name (the common
-  // case, unchanged) or, once Advanced Search has a facet or a raw query set,
-  // for that instead — a color/type/etc. search with no name typed still runs.
+  // never land after a newer one. Sends `q` for a plain name (the common
+  // case) or `raw` once `looksAdvanced` says the typed text carries real
+  // Scryfall syntax — either way the same route, `/api/cards/search`, decides
+  // how to answer it.
   useEffect(() => {
-    if (term.length < MIN_TERM && !advancedActive) return;
+    if (term.length < MIN_TERM) return;
 
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const cardParams = new URLSearchParams();
-        if (rawQuery.trim() !== "") {
-          cardParams.set("raw", rawQuery.trim());
-        } else {
-          if (term) cardParams.set("q", term);
-          for (const [key, val] of advancedFilterToParams(advanced)) {
-            if (key !== "q") cardParams.set(key, val);
-          }
-        }
+        if (looksAdvanced) cardParams.set("raw", term);
+        else cardParams.set("q", term);
 
-        const requests: Promise<Response>[] = [
+        const [cardsRes, mineRes] = await Promise.all([
           fetch(`/api/cards/search?${cardParams}`, { signal: controller.signal }),
-        ];
-        // The "do I already have this?" / "does a friend?" lookup only makes
-        // sense for a name — a colour-only search has no single term to ask it.
-        if (term.length >= MIN_TERM) {
-          requests.push(
-            fetch(`/api/collection/locate?q=${encodeURIComponent(term)}`, {
-              signal: controller.signal,
-            }),
-          );
-        }
-
-        const [cardsRes, mineRes] = await Promise.all(requests);
+          // The "do I already have this?" / "does a friend?" lookup treats
+          // whatever was typed as a literal name — harmless when it is really
+          // Scryfall syntax, since that just matches nothing.
+          fetch(`/api/collection/locate?q=${encodeURIComponent(term)}`, {
+            signal: controller.signal,
+          }),
+        ]);
         if (!cardsRes.ok) return;
 
         const cardsJson = await cardsRes.json();
@@ -188,8 +175,7 @@ export function HeaderSearch() {
 
         // A search that actually ran and came back, not every keystroke —
         // the debounce above already keeps this to settled lookups.
-        const settledTerm = rawQuery.trim() || term;
-        if (settledTerm) setRecent(recordRecentSearch(settledTerm));
+        setRecent(recordRecentSearch(term));
       } catch {
         // Aborted, or offline. The field still works as a way to reach /find.
       } finally {
@@ -206,7 +192,7 @@ export function HeaderSearch() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [term, advancedActive, advanced, rawQuery]);
+  }, [term, looksAdvanced]);
 
   function pick(result: Result) {
     if (!result.sample_card_id) return;
@@ -217,7 +203,6 @@ export function HeaderSearch() {
 
   function pickRecent(searched: string) {
     setValue(searched);
-    setRawQuery("");
     setLoading(true);
     input.current?.focus();
   }
@@ -252,18 +237,21 @@ export function HeaderSearch() {
     }
   }
 
-  const showRecent = dropdownOpen && term.length < MIN_TERM && !advancedActive;
+  const showRecent = dropdownOpen && term.length < MIN_TERM;
+
+  // Carries whatever is half-typed over to the dedicated page: syntax goes as
+  // `raw` so it lands in the right fields there, a plain fragment as `q`.
+  const advancedHref = !term ? "/search" : `/search?${looksAdvanced ? "raw" : "q"}=${encodeURIComponent(term)}`;
 
   return (
     // A growing spacer, not just the field itself: this is what lets the
-    // account cluster stay flush with the right edge of the bar without an
-    // `ml-auto` on it. Below `lg` the only visible child is the icon link, so
-    // `justify-end` keeps it glued to that cluster exactly where `ml-auto`
-    // used to put it; from `lg` up the field itself grows (`lg:flex-1` below),
-    // so `lg:justify-start` lets it hug the nav links instead, leaving any
-    // space beyond its cap in front of the icons rather than before it.
-    <div className="flex min-w-0 flex-1 items-center justify-end lg:justify-start">
-      <div ref={container} className="relative hidden min-w-0 lg:block lg:flex-1 lg:max-w-md xl:max-w-lg">
+    // nav links stay flush with the left edge of the bar without needing an
+    // `ml-auto` elsewhere. `justify-end` at every width keeps the field (or,
+    // below `lg`, the icon link) glued to the account cluster that follows
+    // it, so any slack in the bar collects before the search field rather
+    // than between it and the alerts icon.
+    <div className="flex min-w-0 flex-1 items-center justify-end">
+      <div ref={container} className="relative hidden min-w-0 lg:block lg:w-full lg:max-w-md xl:max-w-lg">
         <label className="relative block">
           <span className="sr-only">Search all cards</span>
           {loading ? (
@@ -277,8 +265,7 @@ export function HeaderSearch() {
             onChange={(event) => {
               const next = event.target.value;
               setValue(next);
-              setRawQuery("");
-              if (next.trim().length < MIN_TERM && !advancedActive) {
+              if (next.trim().length < MIN_TERM) {
                 setResults([]);
                 setDropdownOpen(false);
                 setLoading(false);
@@ -310,7 +297,13 @@ export function HeaderSearch() {
           <div
             id="header-search-results"
             role="listbox"
-            className="absolute right-0 top-full z-30 mt-1 w-80 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
+            // Full width of the input, not a fixed 20rem anchored to its right
+            // edge — a wide match ("Lightning Bolt // Lightning Bolt") used to
+            // truncate against a box narrower than the field above it. z-40 is
+            // a deliberate step above the sticky header's own z-10: nothing in
+            // the tree currently competes with it, but a full-bleed page
+            // banner sitting behind the header should never be able to.
+            className="absolute inset-x-0 top-full z-40 mt-1 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
           >
             {showRecent ? (
               recent.length > 0 ? (
@@ -334,7 +327,7 @@ export function HeaderSearch() {
               )
             ) : results.length === 0 ? (
               <p className="px-3 py-3 text-sm text-ink-muted">
-                {loading ? "Searching…" : `No card matches “${rawQuery.trim() || term}”.`}
+                {loading ? "Searching…" : `No card matches “${term}”.`}
               </p>
             ) : (
               <ul className="max-h-96 overflow-y-auto py-1">
@@ -393,31 +386,14 @@ export function HeaderSearch() {
               </p>
             ) : null}
 
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen((v) => !v)}
-              aria-expanded={advancedOpen}
-              className={cx(
-                "flex w-full items-center justify-between gap-2 border-t border-border px-3 py-2.5 text-left text-sm font-medium text-accent transition-colors hover:bg-surface-muted coarse:min-h-11",
-                advancedActive && "bg-accent-soft",
-              )}
+            <Link
+              href={advancedHref}
+              onClick={() => setDropdownOpen(false)}
+              className="flex w-full items-center justify-between gap-2 border-t border-border px-3 py-2.5 text-left text-sm font-medium text-accent transition-colors hover:bg-surface-muted coarse:min-h-11"
             >
-              <span>Advanced Search{advancedActive ? " (active)" : ""}</span>
-              <ChevronIcon className={cx("size-4 transition-transform", advancedOpen && "rotate-180")} />
-            </button>
-
-            {advancedOpen ? (
-              <AdvancedSearchPanel
-                filter={advanced}
-                onFilterChange={setAdvanced}
-                raw={rawQuery}
-                onRawChange={setRawQuery}
-                onClear={() => {
-                  setAdvanced(EMPTY_ADVANCED_FILTER);
-                  setRawQuery("");
-                }}
-              />
-            ) : null}
+              <span>Advanced Search</span>
+              <ArrowRightIcon className="size-4" />
+            </Link>
           </div>
         ) : null}
       </div>
@@ -431,193 +407,6 @@ export function HeaderSearch() {
       >
         <SearchIcon className="size-4" />
       </Link>
-    </div>
-  );
-}
-
-/**
- * The facet controls under "Advanced Search" — modelled directly on
- * `CollectionFilters`' own disclosure panel, cut down to the handful of
- * Scryfall facets most worth having first: colour, mana value, type, oracle
- * text, set and rarity. The raw box at the bottom takes literal syntax
- * (`c:r cmc<=2 t:creature`, straight from https://scryfall.com/docs/syntax)
- * and, when it has anything in it, speaks for the whole search — see
- * `src/lib/cards/search-query.ts` for exactly what it understands.
- */
-function AdvancedSearchPanel({
-  filter,
-  onFilterChange,
-  raw,
-  onRawChange,
-  onClear,
-}: {
-  filter: AdvancedCardFilter;
-  onFilterChange: (filter: AdvancedCardFilter) => void;
-  raw: string;
-  onRawChange: (raw: string) => void;
-  onClear: () => void;
-}) {
-  const set = <K extends keyof AdvancedCardFilter>(key: K, value: AdvancedCardFilter[K]) =>
-    onFilterChange({ ...filter, [key]: value });
-
-  const rawActive = raw.trim() !== "";
-
-  return (
-    <div className="space-y-3 border-t border-border bg-surface p-3">
-      <div className="flex flex-wrap gap-1.5">
-        {COLORS.map((color) => {
-          const on = filter.colors.includes(color);
-          return (
-            <label
-              key={color}
-              title={COLOR_LABELS[color]}
-              className={cx(
-                "flex cursor-pointer items-center justify-center rounded-md border p-1.5 transition-colors",
-                rawActive && "opacity-40",
-                on
-                  ? "border-accent bg-accent-soft ring-1 ring-accent"
-                  : "border-border opacity-60 hover:bg-surface-muted hover:opacity-100",
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={on}
-                disabled={rawActive}
-                onChange={() =>
-                  set("colors", on ? filter.colors.filter((c) => c !== color) : [...filter.colors, color])
-                }
-                className="sr-only"
-              />
-              <ManaSymbol code={color} />
-              <span className="sr-only">{COLOR_LABELS[color]}</span>
-            </label>
-          );
-        })}
-        <select
-          value={filter.colorMode}
-          disabled={rawActive}
-          onChange={(e) => set("colorMode", e.target.value as AdvancedCardFilter["colorMode"])}
-          aria-label="How to match colors"
-          className="rounded-md border border-border bg-surface px-2 text-xs disabled:opacity-40"
-        >
-          {COLOR_MODES.filter((m) => m !== "any").map((mode) => (
-            <option key={mode} value={mode}>
-              {COLOR_MODE_LABELS[mode]}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <label className="space-y-1">
-          <span className="text-xs font-medium text-ink-muted">Mana value</span>
-          <div className="flex gap-1">
-            <select
-              value={filter.cmc?.op ?? "eq"}
-              disabled={rawActive}
-              onChange={(e) => {
-                const op = e.target.value as NonNullable<NumericFilter>["op"];
-                if (filter.cmc === null) return;
-                set("cmc", { op, value: filter.cmc.value });
-              }}
-              className="w-20 rounded-md border border-border bg-surface px-1 text-xs disabled:opacity-40"
-            >
-              {NUMERIC_OPS.map((op) => (
-                <option key={op} value={op}>
-                  {NUMERIC_OP_LABELS[op]}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              value={filter.cmc === null ? "" : String(filter.cmc.value)}
-              disabled={rawActive}
-              onChange={(e) => {
-                const text = e.target.value;
-                if (text.trim() === "") return set("cmc", null);
-                const n = Number.parseFloat(text);
-                set("cmc", Number.isFinite(n) ? { op: filter.cmc?.op ?? "eq", value: n } : null);
-              }}
-              className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-xs disabled:opacity-40"
-            />
-          </div>
-        </label>
-
-        <label className="space-y-1">
-          <span className="text-xs font-medium text-ink-muted">Rarity</span>
-          <select
-            value={filter.rarity}
-            disabled={rawActive}
-            onChange={(e) => set("rarity", e.target.value)}
-            className="w-full rounded-md border border-border bg-surface px-2 py-1 text-xs disabled:opacity-40"
-          >
-            <option value="">Any</option>
-            {RARITIES.map((r) => (
-              <option key={r} value={r}>
-                {r[0].toUpperCase() + r.slice(1)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="col-span-2 space-y-1">
-          <span className="text-xs font-medium text-ink-muted">Type line</span>
-          <input
-            value={filter.type}
-            disabled={rawActive}
-            onChange={(e) => set("type", e.target.value)}
-            placeholder="Creature — Goblin"
-            className="w-full rounded-md border border-border bg-surface px-2 py-1 text-xs disabled:opacity-40"
-          />
-        </label>
-
-        <label className="col-span-2 space-y-1">
-          <span className="text-xs font-medium text-ink-muted">Rules text</span>
-          <input
-            value={filter.oracle}
-            disabled={rawActive}
-            onChange={(e) => set("oracle", e.target.value)}
-            placeholder="draw a card"
-            className="w-full rounded-md border border-border bg-surface px-2 py-1 text-xs disabled:opacity-40"
-          />
-        </label>
-
-        <label className="space-y-1">
-          <span className="text-xs font-medium text-ink-muted">Set</span>
-          <input
-            value={filter.set}
-            disabled={rawActive}
-            onChange={(e) => set("set", e.target.value)}
-            placeholder="znr"
-            className="w-full rounded-md border border-border bg-surface px-2 py-1 text-xs disabled:opacity-40"
-          />
-        </label>
-      </div>
-
-      <label className="block space-y-1">
-        <span className="text-xs font-medium text-ink-muted">
-          Or paste Scryfall syntax — takes over from the fields above
-        </span>
-        <input
-          value={raw}
-          onChange={(e) => onRawChange(e.target.value)}
-          placeholder="c:r cmc<=2 t:creature"
-          className={cx(
-            "w-full rounded-md border bg-surface px-2 py-1 text-xs",
-            rawActive ? "border-accent" : "border-border",
-          )}
-        />
-      </label>
-
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={onClear}
-          className="text-xs text-ink-muted underline hover:text-ink"
-        >
-          Clear advanced search
-        </button>
-      </div>
     </div>
   );
 }
@@ -639,7 +428,7 @@ function SearchIcon({ className }: { className?: string }) {
   );
 }
 
-function ChevronIcon({ className }: { className?: string }) {
+function ArrowRightIcon({ className }: { className?: string }) {
   return (
     <svg
       aria-hidden="true"
@@ -651,7 +440,7 @@ function ChevronIcon({ className }: { className?: string }) {
       strokeLinejoin="round"
       className={className}
     >
-      <path d="m5 7.5 5 5 5-5" />
+      <path d="m7.5 5 5 5-5 5" />
     </svg>
   );
 }
