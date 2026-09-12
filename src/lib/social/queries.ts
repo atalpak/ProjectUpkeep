@@ -18,9 +18,11 @@ import { expiringSoon, isExpired } from "@/lib/social/trade-status";
 import { cardKey } from "@/lib/collection/availability";
 import { MIN_TERM } from "@/lib/collection/locate";
 import {
+  matchFriendCardStock,
   matchTradablesByTerm,
   matchWants,
   type FriendCardMatch,
+  type FriendPrintingSupplier,
   type NamedTradableRow,
   type TradableRow,
   type WantRow,
@@ -372,7 +374,7 @@ export async function getFriendTradables(): Promise<NamedTradableRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("card_instances")
-    .select("owner_user_id, quantity, cards ( oracle_id, name, flavor_name )")
+    .select("owner_user_id, quantity, cards ( scryfall_id, oracle_id, name, flavor_name )")
     .neq("owner_user_id", user.id)
     .limit(5000);
 
@@ -381,15 +383,43 @@ export async function getFriendTradables(): Promise<NamedTradableRow[]> {
   return ((data ?? []) as unknown as Array<{
     owner_user_id: string;
     quantity: number;
-    cards: { oracle_id: string | null; name: string; flavor_name: string | null } | null;
+    cards: {
+      scryfall_id: string;
+      oracle_id: string | null;
+      name: string;
+      flavor_name: string | null;
+    } | null;
   }>).map((r) => ({
     ownerId: r.owner_user_id,
     key: cardKey(r.cards) ?? "",
+    cardId: r.cards?.scryfall_id ?? null,
     quantity: r.quantity,
     locationName: null,
     name: r.cards?.name ?? "",
     flavorName: r.cards?.flavor_name ?? null,
   }));
+}
+
+/**
+ * Which friends have a specific card open for trade, and whether their copy
+ * is this printing or a different one — the card popup's "Friends have this"
+ * line.
+ *
+ * Reuses `getFriendTradables()` rather than a query scoped to one card: the
+ * popup opens over any card, so a per-card round trip would just be a smaller
+ * version of the same friend-plus-tradable-container read that already backs
+ * the want list and /find's cross-friend search. See that function's comment
+ * for why this is a safe cross-person read — RLS (migration 9) never returns
+ * a friend's row unless it sits in a container they marked tradable.
+ */
+export async function getFriendCardSuppliers(
+  cardId: string,
+  key: string,
+): Promise<{ suppliers: FriendPrintingSupplier[]; profiles: Map<string, Profile> }> {
+  const tradables = await getFriendTradables();
+  const suppliers = matchFriendCardStock(cardId, key, tradables);
+  const profiles = await profilesByIds(suppliers.map((s) => s.ownerId));
+  return { suppliers, profiles };
 }
 
 /** My own tradables, flattened — for "this friend wants something you have". */

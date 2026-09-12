@@ -12,6 +12,7 @@ import {
   capSuppliers,
   countMatchedWants,
   describeSupplier,
+  matchFriendCardStock,
   matchTradablesByTerm,
   matchWants,
   type NamedTradableRow,
@@ -205,5 +206,65 @@ test("more than one location is listed in full, not folded to a count", () => {
   assert.equal(
     describeSupplier(3, ["Trade Binder B", "Box 2"]),
     "3 in Trade Binder B, Box 2",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// matchFriendCardStock — the card popup's "Friends have this" line, which
+// (unlike matchWants) needs to know whether a friend's copy is the exact
+// printing on screen or a different one of the same card
+// ---------------------------------------------------------------------------
+
+const printed = (
+  ownerId: string,
+  key: string,
+  cardId: string,
+  quantity: number,
+): TradableRow => ({ ownerId, key, quantity, locationName: null, cardId });
+
+test("a friend with only the exact printing is reported as this printing", () => {
+  const found = matchFriendCardStock("bolt-lea", "bolt", [
+    printed("alice", "bolt", "bolt-lea", 2),
+  ]);
+  assert.deepEqual(found, [{ ownerId: "alice", count: 2, samePrinting: true }]);
+});
+
+test("a friend with only a different printing is reported as another printing", () => {
+  const found = matchFriendCardStock("bolt-lea", "bolt", [
+    printed("alice", "bolt", "bolt-m10", 3),
+  ]);
+  assert.deepEqual(found, [{ ownerId: "alice", count: 3, samePrinting: false }]);
+});
+
+test("a friend with both is reported once, by the exact printing alone", () => {
+  const found = matchFriendCardStock("bolt-lea", "bolt", [
+    printed("alice", "bolt", "bolt-lea", 1),
+    printed("alice", "bolt", "bolt-m10", 5),
+  ]);
+  assert.deepEqual(found, [{ ownerId: "alice", count: 1, samePrinting: true }]);
+});
+
+test("suppliers of a different card entirely are excluded", () => {
+  const found = matchFriendCardStock("bolt-lea", "bolt", [
+    printed("alice", "path-to-exile", "path-lea", 4),
+  ]);
+  assert.deepEqual(found, []);
+});
+
+test("zero-quantity stock is ignored, same as matchWants", () => {
+  const found = matchFriendCardStock("bolt-lea", "bolt", [
+    printed("alice", "bolt", "bolt-lea", 0),
+  ]);
+  assert.deepEqual(found, []);
+});
+
+test("multiple friends are ordered by count, best first", () => {
+  const found = matchFriendCardStock("bolt-lea", "bolt", [
+    printed("alice", "bolt", "bolt-lea", 1),
+    printed("bob", "bolt", "bolt-m10", 4),
+  ]);
+  assert.deepEqual(
+    found.map((s) => s.ownerId),
+    ["bob", "alice"],
   );
 });

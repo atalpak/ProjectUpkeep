@@ -1056,12 +1056,16 @@ type ActionsData = {
   decks: Array<{ id: string; name: string }>;
   locations: Array<{ id: string; name: string; type: LocationType }>;
   owned: { total: number; available: number; places: Array<{ name: string; quantity: number }> };
+  /** Friends who have this open for trade — this printing, or another one of
+   *  the same card. Empty when no one in the circle does. */
+  friends: Array<{ username: string; count: number; samePrinting: boolean }>;
 };
 
 const EMPTY_ACTIONS: ActionsData = {
   decks: [],
   locations: [],
   owned: { total: 0, available: 0, places: [] },
+  friends: [],
 };
 
 /**
@@ -1140,9 +1144,9 @@ function CardActions({ card }: { card: Card }) {
     let alive = true;
     (async () => {
       try {
-        const a = await fetch(
-          `/api/card-actions?name=${encodeURIComponent(card.name)}`,
-        ).then((r) => r.json());
+        const params = new URLSearchParams({ name: card.name, cardId: card.scryfall_id });
+        if (card.oracle_id) params.set("oracleId", card.oracle_id);
+        const a = await fetch(`/api/card-actions?${params.toString()}`).then((r) => r.json());
         if (alive) setData(a && !a.error ? (a as ActionsData) : EMPTY_ACTIONS);
       } catch {
         if (alive) setData(EMPTY_ACTIONS);
@@ -1151,11 +1155,15 @@ function CardActions({ card }: { card: Card }) {
     return () => {
       alive = false;
     };
-  }, [card.name]);
+    // Re-fetch on a printing switch too, not just a different card by name —
+    // `friends` below distinguishes "this printing" from "another printing",
+    // so it has to know which one is on screen.
+  }, [card.name, card.scryfall_id, card.oracle_id]);
 
   const owned = data?.owned;
   const decks = data?.decks ?? [];
   const locations = data?.locations ?? [];
+  const friends = data?.friends ?? [];
 
   return (
     <div className="space-y-3 border-t border-border pt-3">
@@ -1170,6 +1178,22 @@ function CardActions({ card }: { card: Card }) {
         ) : (
           <p className="text-xs text-ink-muted">Not in your collection yet.</p>
         )
+      ) : null}
+
+      {friends.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-ink-muted">Friends have this</p>
+          <ul className="space-y-0.5 text-xs text-ink-muted">
+            {friends.map((f) => (
+              <li key={f.username}>
+                <Link href={`/u/${encodeURIComponent(f.username)}`} className="text-accent hover:underline">
+                  {f.username}
+                </Link>{" "}
+                has {f.count} ({f.samePrinting ? "this printing" : "another printing"})
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div className="flex flex-wrap gap-2">
