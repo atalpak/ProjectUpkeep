@@ -15,9 +15,9 @@ import { cx } from "@/components/ui";
  * on <html>, which ThemeScript set before hydration. Reading it through
  * useSyncExternalStore is how you subscribe to state React does not own.
  *
- * `useIsDarkTheme` and `setDarkTheme` are exported so AccountMenu's theme row
- * can drive the same class-on-<html> / localStorage pair this button does,
- * rather than keeping a second copy of that logic. This button and the
+ * `useIsDarkTheme` and `toggleDarkTheme` are exported so AccountMenu's theme
+ * row can drive the same class-on-<html> / localStorage pair this button
+ * does, rather than keeping a second copy of that logic. This button and the
  * drawer's copy of it (AppNav.tsx, below `lg`) both go through them too.
  */
 
@@ -42,15 +42,25 @@ export function useIsDarkTheme(): boolean {
 }
 
 /** The one place that writes the theme: flips the class on <html> and
- *  persists the choice, so a toggle and a menu row can share it instead of
- *  each keeping their own copy of the DOM/localStorage handling. */
-export function setDarkTheme(dark: boolean): void {
+ *  persists the choice. Not exported — callers get `toggleDarkTheme` below,
+ *  which is the only thing either of them actually wants and cannot be
+ *  handed a stale value. */
+function setDarkTheme(dark: boolean): void {
   document.documentElement.classList.toggle("dark", dark);
   try {
     localStorage.setItem(THEME_STORAGE_KEY, dark ? "dark" : "light");
   } catch {
     /* Storage blocked: the theme still applies for this page view. */
   }
+}
+
+/** Flip it, reading the current value fresh rather than taking it from a
+ *  caller. Two things now offer this — the icon button below and a row in
+ *  the account menu — and a caller passing its own last-rendered snapshot
+ *  would be trusting state that the other one could have moved. Neither can
+ *  get that wrong if neither is asked for the current value. */
+export function toggleDarkTheme(): void {
+  setDarkTheme(!isDarkNow());
 }
 
 export function ThemeToggle({ className }: { className?: string }) {
@@ -60,7 +70,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   return (
     <button
       type="button"
-      onClick={() => setDarkTheme(!isDarkNow())}
+      onClick={toggleDarkTheme}
       aria-label={label}
       title={label}
       className={cx(

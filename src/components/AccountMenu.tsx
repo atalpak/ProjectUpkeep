@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { signOut } from "@/app/auth/actions";
 import { setCardPreviewMode, useCardPreviewMode } from "@/components/CardPreviewMode";
-import { setDarkTheme, useIsDarkTheme } from "@/components/ThemeToggle";
+import { toggleDarkTheme, useIsDarkTheme } from "@/components/ThemeToggle";
 import { cx } from "@/components/ui";
 
 /**
@@ -105,7 +105,7 @@ export function AccountMenu({ label }: { label: string }) {
             type="button"
             role="menuitemcheckbox"
             aria-checked={darkOn}
-            onClick={() => setDarkTheme(!darkOn)}
+            onClick={toggleDarkTheme}
             className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted coarse:min-h-11"
           >
             Dark theme
