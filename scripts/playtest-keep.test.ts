@@ -27,6 +27,7 @@ function land(colors: string[]): PlaytestCard {
     produces: producedColors({ produced_mana: colors, type_line: "Land" }),
     manaDataKnown: true,
     imageUri: null,
+    oracleText: null,
   };
 }
 
@@ -44,6 +45,7 @@ function spell(name: string, cost: string | null, cmc: number): PlaytestCard {
     produces: [],
     manaDataKnown: true,
     imageUri: null,
+    oracleText: null,
   };
 }
 

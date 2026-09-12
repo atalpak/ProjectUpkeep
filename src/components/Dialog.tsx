@@ -89,6 +89,7 @@ export function Dialog({
   labelledBy,
   portal = true,
   keepMounted = false,
+  dismissOnBackdrop = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -100,6 +101,17 @@ export function Dialog({
   labelledBy?: string;
   portal?: boolean;
   keepMounted?: boolean;
+  /**
+   * Whether a click that lands on the backdrop closes the dialog. On by
+   * default, matching every dialog before this one — a small, centred
+   * dialog's backdrop is most of the viewport, so a click out there reads as
+   * "I meant to dismiss this." Turn it off for a dialog that covers most of
+   * the screen itself (the playtest popup): the backdrop shrinks to a thin
+   * frame, so a mis-aimed tap is far more likely to be an accident than
+   * intent, and here that accident would discard a session's drawn hand,
+   * mulligan state and 10,000-hand result. Escape still closes either way.
+   */
+  dismissOnBackdrop?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const canPortal = useCanPortal();
@@ -134,7 +146,7 @@ export function Dialog({
       // A click whose target is the dialog itself landed on the backdrop;
       // clicks on the content hit a descendant instead.
       onClick={(event) => {
-        if (event.target === ref.current) onClose();
+        if (dismissOnBackdrop && event.target === ref.current) onClose();
       }}
       aria-label={label}
       aria-labelledby={labelledBy}

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -22,6 +21,7 @@ import { cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
 import { DeckCharts } from "@/components/decks/DeckCharts";
 import { DeckHeaderMeta } from "@/components/decks/DeckDetails";
 import { DeckWorkspace, type WishSupplierView } from "@/components/decks/DeckWorkspace";
+import { PlaytestLauncher } from "@/components/decks/PlaytestLauncher";
 import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/ui";
 
@@ -95,9 +95,9 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
 
   // The commander names a card directly (migration 00000000000018), so
   // finding its list entry is one direct match — no more going by way of a
-  // physical copy that might not even exist.
-  const commanderCardId =
-    (deck as { commander_card_id?: string | null }).commander_card_id ?? null;
+  // physical copy that might not even exist. `Location` already declares
+  // this field, so there is nothing to cast.
+  const commanderCardId = deck.commander_card_id;
   const commanderEntry =
     commanderCardId === null
       ? null
@@ -200,12 +200,16 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
           backLabel="All decks"
           actions={
             <>
-              <Link
-                href={`/decks/${id}/test`}
-                className="inline-flex items-center rounded-full border border-border px-3.5 py-1.5 text-sm font-medium transition-colors hover:bg-surface-muted coarse:min-h-11"
-              >
-                Playtest
-              </Link>
+              {/* /decks/[id]/test still exists as a real route — the deep
+                  link and refresh-safe fallback — but from here Playtest
+                  opens as a near-fullscreen popup instead of a navigation.
+                  No new queries: entries and commanderCardId are already
+                  loaded above for the page itself. */}
+              <PlaytestLauncher
+                deckName={deck.name}
+                entries={entries}
+                commanderCardId={commanderCardId}
+              />
               {entries.length > 0 || contents.length > 0 ? (
                 <ExportButtons
                   // Inline: a deck is a hundred rows the page already holds.
