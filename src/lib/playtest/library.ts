@@ -38,6 +38,21 @@ export type PlaytestCard = {
   land: boolean;
   cost: ParsedCost;
   produces: Color[];
+  /** Whether `produces` came from the synced `produced_mana` column rather
+   *  than `producedColors`'s basic-land-type fallback — i.e. `card.produced_mana`
+   *  was not null. `produces` alone can't say this: an empty result means
+   *  either "really produces nothing" or "haven't been told yet," and those
+   *  are different things to the colour-screw gate in `present.ts`, which
+   *  needs to tell a synced Command Tower apart from one the next Scryfall
+   *  sync hasn't reached.
+   *
+   *  One limit worth knowing: `produced_mana` is null both for a row no sync
+   *  has reached *and* for a card Scryfall says taps for nothing at all — a
+   *  utility land with no mana ability reads as `false` here forever. The gate
+   *  in present.ts therefore treats such a land as unresolved, which errs
+   *  toward hiding a number rather than overstating one, and the hint it shows
+   *  stops short of promising a re-sync will change it. */
+  manaDataKnown: boolean;
   imageUri: string | null;
 };
 
@@ -80,6 +95,7 @@ function toPlaytestCard(card: Card): PlaytestCard {
     land: isLand(card.type_line),
     cost: parseCost(card.mana_cost),
     produces: producedColors(card),
+    manaDataKnown: card.produced_mana != null,
     imageUri: card.image_uri,
   };
 }

@@ -23,6 +23,7 @@ function land(colors: string[]): PlaytestCard {
     land: true,
     cost: parseCost(null),
     produces: producedColors({ produced_mana: colors, type_line: "Land" }),
+    manaDataKnown: true,
     imageUri: null,
   };
 }
@@ -37,6 +38,7 @@ function spell(name: string, cost: string | null, cmc: number): PlaytestCard {
     land: false,
     cost: parseCost(cost),
     produces: [],
+    manaDataKnown: true,
     imageUri: null,
   };
 }

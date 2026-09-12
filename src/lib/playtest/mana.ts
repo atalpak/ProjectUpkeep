@@ -158,78 +158,156 @@ export function isLand(typeLine: string | null | undefined): boolean {
 }
 
 /**
+ * A twobrid pip has exactly two ways to pay it: its named colour, or 2
+ * generic. Which one is *right* depends on what else is competing for that
+ * colour source — there is no local rule for it, which is why this used to
+ * be a greedy assignment and was wrong. Capped so a pathological cost (no
+ * real card comes close) can't force an exponential enumeration: beyond the
+ * cap, the excess twobrid pips are always priced as generic and never tried
+ * for their colour. That can only make `canPay` too conservative, never too
+ * generous — consistent with the rest of this module preferring to undercount
+ * sources over inventing a "yes" — and no real cost has ever needed it.
+ */
+const MAX_ENUMERATED_TWOBRIDS = 8;
+
+// Scratch buffers for the bipartite matching below, grown on demand and
+// reused across calls. `canPay` runs in `simulate()`'s inner loop — hands ×
+// turns × cards seen — so a fresh array per call here is the difference
+// between a simulation that runs in a second and one that stutters the tab.
+const demandingScratch: Color[][] = [];
+let matchOfSource: number[] = [];
+let visitedSource: boolean[] = [];
+
+function ensureDemandingScratch(size: number): void {
+  while (demandingScratch.length < size) demandingScratch.push([]);
+}
+
+function ensureSourceScratch(size: number): void {
+  if (matchOfSource.length < size) {
+    matchOfSource = new Array(size).fill(-1);
+    visitedSource = new Array(size).fill(false);
+  }
+}
+
+/**
+ * Kuhn's algorithm: is there an augmenting path from demanding pip
+ * `pipIndex` to some source not already claimed along the path? Reassigns
+ * `matchOfSource` in place when one is found.
+ */
+function tryAugment(pipIndex: number, demanding: Color[][], sources: Color[][], sourceCount: number): boolean {
+  const acceptable = demanding[pipIndex];
+  for (let s = 0; s < sourceCount; s++) {
+    if (visitedSource[s]) continue;
+    if (!sources[s].some((c) => acceptable.includes(c))) continue;
+    visitedSource[s] = true;
+    if (matchOfSource[s] === -1 || tryAugment(matchOfSource[s], demanding, sources, sourceCount)) {
+      matchOfSource[s] = pipIndex;
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Maximum bipartite matching between the first `pipCount` entries of
+ * `demanding` and `sources` — how many of those pips can be assigned a
+ * distinct source that produces one of their acceptable colours? Returns the
+ * match size; the caller compares it against `pipCount` to know whether every
+ * pip found a source.
+ */
+function maxMatch(demanding: Color[][], pipCount: number, sources: Color[][]): number {
+  const sourceCount = sources.length;
+  ensureSourceScratch(sourceCount);
+  for (let s = 0; s < sourceCount; s++) matchOfSource[s] = -1;
+
+  let matched = 0;
+  for (let p = 0; p < pipCount; p++) {
+    for (let s = 0; s < sourceCount; s++) visitedSource[s] = false;
+    if (tryAugment(p, demanding, sources, sourceCount)) matched++;
+  }
+  return matched;
+}
+
+/**
  * Can `cost` be paid from `sources` — the colour sets of the untapped mana
  * available right now?
  *
- * Costs in a real deck are small (at most a handful of coloured pips), so
- * this is a plain greedy assignment rather than a max-flow solver:
+ * There is no local, order-independent rule for "spend this source on this
+ * pip" once twobrid pips are in play, because the right choice depends on
+ * what *else* wants that source. A twobrid pip is only worth spending a
+ * colour source on if some other pip has no fallback — and that can only be
+ * answered by actually trying both options and checking whether the rest of
+ * the cost still lines up. So this is an exact decision, not a heuristic:
  *
- *   1. Phyrexian pips are dropped first. Paying 2 life is always an option,
- *      so a phyrexian pip never fails and never consumes a source — it is
- *      "the cheapest payable option" the module header promises.
- *   2. Every colour-constrained pip (a plain colour, a hybrid, or a twobrid
- *      trying for its colour before falling back to generic) is matched
- *      against the sources that could pay it. At each step the *most
- *      constrained remaining pip* — the one with the fewest matching sources
- *      left — is assigned first, to a source picked for having the fewest
- *      other colours (so flexible multi-colour sources stay free for later
- *      pips). Recomputing "most constrained" after every assignment, rather
- *      than sorting once up front, is what makes a hand like {W}{U}{B} with
- *      three duals — two WU, one UB — resolve correctly: fixing the only
- *      black source to the {B} pip before either flexible pip claims it is
- *      the entire trick.
- *   3. A twobrid pip with no matching source left is not a failure: it falls
- *      back to 2 generic, exactly as printed.
- *   4. {C} pips are folded into the generic total — see the note on
+ *   1. Phyrexian pips are dropped first — paying 2 life is always available,
+ *      so a phyrexian pip never fails and never consumes a source.
+ *   2. {C} pips fold into the generic total — see the note on
  *      `Pip["colorless"]` above.
- *   5. Whatever sources remain after all of that must cover the generic
- *      total.
+ *   3. Every twobrid pip is *either* a colour-demanding pip for its named
+ *      colour, *or* 2 generic — two options each, so this enumerates every
+ *      subset of "which twobrid pips are paid as generic" (capped — see
+ *      `MAX_ENUMERATED_TWOBRIDS`) and checks each one.
+ *   4. For a given subset, every remaining colour-demanding pip (plain,
+ *      hybrid, or a twobrid not in the subset) must be matched to a *distinct*
+ *      source that produces one of its colours. That is a maximum bipartite
+ *      matching (Kuhn's algorithm, `maxMatch`/`tryAugment` above) — not a
+ *      greedy pick, because the correct assignment sometimes only exists by
+ *      *reassigning* a source another pip was already holding. `{W}{U}{B}`
+ *      from a UB dual and two WU duals is exactly this: the greedy this
+ *      replaced would burn the only black source on a flexible {U} pip and
+ *      then fail {B}; an augmenting path un-does that assignment and gives
+ *      the WU dual to {U} instead, freeing the UB dual for {B}.
+ *   5. A subset is payable if it produces a perfect match *and* the sources
+ *      left unmatched cover that subset's generic total (the cost's own
+ *      generic, plus 2 per twobrid paid as generic). The whole cost is
+ *      payable if any subset is.
  */
 export function canPay(cost: ParsedCost, sources: Color[][]): boolean {
-  const pool = sources.map((colors) => ({ colors, used: false }));
-  let genericNeeded = cost.generic;
-
-  type Constrained = { colors: Color[]; twobrid: boolean };
-  const pending: Constrained[] = [];
+  let genericBase = cost.generic;
+  const colorPips: Color[][] = [];
+  const twobridColors: Color[][] = [];
 
   for (const pip of cost.pips) {
-    if (pip.kind === "phyrexian") continue; // always payable, consumes nothing
-    if (pip.kind === "colorless") {
-      genericNeeded += 1;
-      continue;
+    switch (pip.kind) {
+      case "phyrexian":
+        break;
+      case "colorless":
+        genericBase += 1;
+        break;
+      case "twobrid":
+        twobridColors.push([pip.color]);
+        break;
+      case "color":
+        colorPips.push(pip.colors);
+        break;
     }
-    if (pip.kind === "twobrid") {
-      pending.push({ colors: [pip.color], twobrid: true });
-      continue;
-    }
-    pending.push({ colors: pip.colors, twobrid: false });
   }
 
-  const matchCount = (pip: Constrained) =>
-    pool.filter((s) => !s.used && s.colors.some((c) => pip.colors.includes(c))).length;
+  const enumerated = Math.min(twobridColors.length, MAX_ENUMERATED_TWOBRIDS);
+  const forcedGeneric = twobridColors.length - enumerated;
+  genericBase += 2 * forcedGeneric; // beyond the cap: always priced as generic
 
-  const remaining = [...pending];
-  while (remaining.length > 0) {
-    // Most constrained first: fewest matching sources, ties broken by fewer
-    // candidate colours, ties after that by original order (stable sort).
-    remaining.sort((a, b) => matchCount(a) - matchCount(b) || a.colors.length - b.colors.length);
-    const pip = remaining.shift()!;
-    const matches = pool.filter((s) => !s.used && s.colors.some((c) => pip.colors.includes(c)));
+  ensureDemandingScratch(colorPips.length + enumerated);
+  const subsetCount = 1 << enumerated;
 
-    if (matches.length === 0) {
-      if (pip.twobrid) {
-        genericNeeded += 2;
-        continue;
-      }
-      return false;
+  for (let mask = 0; mask < subsetCount; mask++) {
+    let pipCount = 0;
+    for (const colors of colorPips) demandingScratch[pipCount++] = colors;
+
+    let genericAsTwobrid = 0;
+    for (let i = 0; i < enumerated; i++) {
+      if ((mask >> i) & 1) genericAsTwobrid++;
+      else demandingScratch[pipCount++] = twobridColors[i];
     }
 
-    // Spend the least flexible matching source, leaving multi-colour sources
-    // free for whatever pip is still waiting.
-    matches.sort((a, b) => a.colors.length - b.colors.length);
-    matches[0].used = true;
+    if (pipCount > sources.length) continue; // can't match more pips than sources exist
+
+    if (maxMatch(demandingScratch, pipCount, sources) === pipCount) {
+      const genericNeeded = genericBase + 2 * genericAsTwobrid;
+      const sourcesLeft = sources.length - pipCount;
+      if (sourcesLeft >= genericNeeded) return true;
+    }
   }
 
-  const sourcesLeft = pool.filter((s) => !s.used).length;
-  return sourcesLeft >= genericNeeded;
+  return false;
 }

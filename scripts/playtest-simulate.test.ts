@@ -27,6 +27,7 @@ function makeLand(name: string, colors: Color[], key = name): PlaytestCard {
     land: true,
     cost: parseCost(null),
     produces: producedColors({ produced_mana: colors, type_line: "Land" }),
+    manaDataKnown: true,
     imageUri: null,
   };
 }
@@ -41,6 +42,7 @@ function makeSpell(name: string, cost: string, key = name): PlaytestCard {
     land: false,
     cost: parseCost(cost),
     produces: [],
+    manaDataKnown: true,
     imageUri: null,
   };
 }
@@ -211,4 +213,52 @@ test("cardByTurnOdds is 1 once every copy has necessarily been seen", () => {
   // 8-card deck, opening 7 on the play plus 1 draw a turn: by turn 1 you have
   // already seen all but one card, and by turn 2 you have seen the whole deck.
   assert.ok(Math.abs(odds[1] - 1) < 1e-9);
+});
+
+/**
+ * Regression guard for the London mulligan.
+ *
+ * Under London (the rule since 2019) every mulligan draws a *fresh seven* and
+ * the cost is paid afterwards, by putting one card per mulligan on the bottom.
+ * Under the old Paris rule you drew one card fewer each time, so a hand got
+ * strictly harder to keep as you went.
+ *
+ * A rule demanding six lands makes the two rules diverge sharply. Every London
+ * attempt is the same seven-card draw, so four attempts compound:
+ *
+ *     P(>=6 lands in 7 of 60, 30 lands) = 0.05139
+ *     1 - (1 - 0.05139)^4               = 0.1903
+ *
+ * Paris would draw 7, then 6, then 5, then 4 — and six lands is outright
+ * impossible below six cards, so only the first two attempts can ever succeed:
+ *
+ *     0.05139 + (1 - 0.05139) x 0.01186 = 0.0626
+ *
+ * Both figures are exact hypergeometric values computed independently of this
+ * codebase. The band below admits the first and excludes the second, so
+ * "simplifying" the mulligan back to Paris fails this test rather than quietly
+ * changing every number the feature reports.
+ */
+test("mulligans follow the London rule, not the pre-2019 Paris rule", () => {
+  const library = [
+    ...repeat((i) => makeLand("Plains", ["W"], `plains-${i}`), 30),
+    ...repeat((i) => makeSpell("Bolt", "{W}", `bolt-${i}`), 30),
+  ];
+  const stats = simulate(
+    { library, commander: null },
+    {
+      hands: 20000,
+      turns: 3,
+      onThePlay: true,
+      // Six lands is the point: reachable in seven cards, impossible in five.
+      rule: { minLands: 6, maxLands: 7, requireCastableByTurn: null },
+      seed: 20260912,
+    },
+  );
+
+  assert.ok(
+    stats.keepRate > 0.17 && stats.keepRate < 0.21,
+    `expected the London keep rate of ~0.190, got ${stats.keepRate.toFixed(4)} ` +
+      `(the Paris rule would land near 0.063)`,
+  );
 });
