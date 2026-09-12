@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 
 import {
   addWants,
@@ -589,6 +589,10 @@ function WantGalleryCard({
   suppliers: SupplierView[];
   decks: DeckOption[];
 }) {
+  // The full-resolution crop, not the list row's small one — stretched to
+  // this tile's width, the small crop read as blurry.
+  const image = want.imageLarge ?? want.image;
+
   return (
     <li className="space-y-1.5">
       <CardPreviewLink
@@ -596,9 +600,9 @@ function WantGalleryCard({
         href={`/collection?q=${encodeURIComponent(want.name)}`}
         className="relative block aspect-[488/680] overflow-hidden rounded-lg border border-border bg-surface-muted"
       >
-        {want.image ? (
+        {image ? (
           <Image
-            src={want.image}
+            src={image}
             alt={want.displayName}
             fill
             sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
@@ -612,21 +616,25 @@ function WantGalleryCard({
         )}
       </CardPreviewLink>
 
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-xs font-medium" title={want.displayName}>
+      <div className="space-y-0.5 text-center">
+        <div className="flex items-center justify-center gap-1">
+          <span className="min-w-0 truncate text-xs font-medium" title={want.displayName}>
             {want.displayName}
           </span>
-          <QuantityStepper want={want} />
+          <WantCardMenu want={want} decks={decks} />
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs">
+        {/* Read-only — the picker to change it lives in the ⋯ menu now. */}
+        {want.deckName ? (
+          <p className="truncate text-[11px] italic text-ink-muted">For {want.deckName}</p>
+        ) : null}
+
+        <div className="flex items-center justify-center gap-1.5 text-xs">
           <WantPrice want={want} />
-          <RemoveWantButton want={want} />
         </div>
 
         {suppliers.length > 0 ? (
-          <p className="flex flex-wrap items-center gap-1 text-xs">
+          <p className="flex flex-wrap items-center justify-center gap-1 text-xs">
             <Badge>Available</Badge>
             <span className="truncate text-ink-muted">
               {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
@@ -634,10 +642,99 @@ function WantGalleryCard({
             </span>
           </p>
         ) : null}
-
-        {decks.length > 0 ? <DeckTag want={want} decks={decks} /> : null}
       </div>
     </li>
+  );
+}
+
+/**
+ * The gallery tile's one control: quantity, deck assignment and Remove,
+ * folded behind a ⋯ menu instead of three separate controls competing for a
+ * tile that's mostly image. Same pattern as the deck page's row menu
+ * (RowActions in DeckWorkspace.tsx) — outside-click and Escape close it, and
+ * opening one closes any other that happens to be open.
+ */
+const WANT_MENU_OPEN = "want-card-menu-open";
+
+function WantCardMenu({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
+  const menuId = useId();
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  function openMenu() {
+    window.dispatchEvent(new CustomEvent(WANT_MENU_OPEN, { detail: menuId }));
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    function onOtherOpen(event: Event) {
+      if ((event as CustomEvent<string>).detail !== menuId) setOpen(false);
+    }
+    window.addEventListener(WANT_MENU_OPEN, onOtherOpen);
+    return () => window.removeEventListener(WANT_MENU_OPEN, onOtherOpen);
+  }, [menuId]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(event: MouseEvent) {
+      if (!container.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={container} className="relative shrink-0">
+      <button
+        ref={trigger}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Actions for ${want.displayName}`}
+        className={cx(
+          "rounded px-1 text-sm leading-none text-ink-muted transition-colors hover:text-ink",
+          open && "text-ink",
+        )}
+      >
+        ⋯
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          className="absolute left-1/2 top-full z-30 mt-1 w-48 -translate-x-1/2 space-y-2 rounded-lg border border-border bg-surface-raised p-2.5 text-left shadow-xl"
+        >
+          <div>
+            <span className="mb-1 block text-[11px] font-medium text-ink-muted">Quantity</span>
+            <QuantityStepper want={want} />
+          </div>
+
+          {decks.length > 0 ? (
+            <div className="border-t border-border pt-2">
+              <DeckTag want={want} decks={decks} />
+            </div>
+          ) : null}
+
+          <div className="border-t border-border pt-2">
+            <RemoveWantButton want={want} />
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
