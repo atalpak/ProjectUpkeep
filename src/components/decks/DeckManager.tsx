@@ -104,7 +104,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         ) : null}
 
         <p className="truncate text-xs text-ink-muted">
-          {deck.commanderName ?? `${deck.uniqueCount} different cards`}
+          {deck.commanderName ?? `${deck.uniqueCount} unique cards`}
         </p>
 
         {deck.cardCount > 0 ? (

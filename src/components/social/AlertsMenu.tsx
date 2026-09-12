@@ -110,7 +110,7 @@ export function AlertsMenu({ unread }: { unread: number }) {
             : "text-ink-muted hover:bg-surface-muted hover:text-ink",
         )}
       >
-        <BubbleIcon className="size-5" />
+        <BubbleIcon className="size-5 -scale-x-100" />
         {unread > 0 ? (
           // Overlaps the button's corner rather than sitting inside its
           // padding, so the border-radius clipping nothing here can never
