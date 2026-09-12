@@ -14,6 +14,10 @@
  *   - `c:` / `color:`, with `:`/`=`/`<=` (no `>=`, `<`, `>` — Scryfall's colour
  *     comparisons past "contains" / "exactly" / "at most" are rare in practice)
  *   - `cmc:` / `mv:`, with every numeric comparator
+ *   - `loy:` / `loyalty:`, with every numeric comparator — matched in
+ *     application code, not pushed into SQL, because `cards.loyalty` is text
+ *     (some values are "X", not a number) the way `statToNumber` already
+ *     treats power/toughness for the collection filter
  *   - `t:` / `type:` — substring against the type line
  *   - `o:` / `oracle:` — substring against the oracle text
  *   - `s:` / `set:` — exact set code
@@ -32,6 +36,8 @@ import {
   NUMERIC_OPS,
   colorsOf,
   matchesColors,
+  matchesNumeric,
+  statToNumber,
   type Color,
   type ColorMode,
   type NumericFilter,
@@ -44,6 +50,7 @@ export type AdvancedCardFilter = {
   colors: Color[];
   colorMode: ColorMode;
   cmc: NumericFilter;
+  loyalty: NumericFilter;
   type: string;
   oracle: string;
   set: string;
@@ -55,6 +62,7 @@ export const EMPTY_ADVANCED_FILTER: AdvancedCardFilter = {
   colors: [],
   colorMode: "all",
   cmc: null,
+  loyalty: null,
   type: "",
   oracle: "",
   set: "",
@@ -66,6 +74,7 @@ export function isAdvancedFilterActive(filter: AdvancedCardFilter): boolean {
     filter.name.trim() !== "" ||
     filter.colors.length > 0 ||
     filter.cmc !== null ||
+    filter.loyalty !== null ||
     filter.type.trim() !== "" ||
     filter.oracle.trim() !== "" ||
     filter.set.trim() !== "" ||
@@ -89,6 +98,7 @@ export function advancedFilterToParams(filter: AdvancedCardFilter): URLSearchPar
     if (filter.colorMode !== "all") params.set("colorMode", filter.colorMode);
   }
   if (filter.cmc) params.set("cmc", `${filter.cmc.op}:${filter.cmc.value}`);
+  if (filter.loyalty) params.set("loyalty", `${filter.loyalty.op}:${filter.loyalty.value}`);
   set("type", filter.type);
   set("oracle", filter.oracle);
   set("set", filter.set);
@@ -130,6 +140,7 @@ export function advancedFilterFromParams(
       ? (mode as ColorMode)
       : "all",
     cmc: asNumeric(get("cmc")),
+    loyalty: asNumeric(get("loyalty")),
     type: get("type") ?? "",
     oracle: get("oracle") ?? "",
     set: get("set") ?? "",
@@ -230,11 +241,19 @@ export function parseScryfallQuery(raw: string): ParsedScryfallQuery {
       }
     }
 
-    const numeric = lower.match(/^(?:cmc|mv)(:|=|!=|>=|<=|>|<)(-?\d+(?:\.\d+)?)$/);
-    if (numeric) {
-      const [, opText, valueText] = numeric;
+    const cmcMatch = lower.match(/^(?:cmc|mv)(:|=|!=|>=|<=|>|<)(-?\d+(?:\.\d+)?)$/);
+    if (cmcMatch) {
+      const [, opText, valueText] = cmcMatch;
       const op = NUMERIC_COMPARATORS.find(([o]) => o === opText)?.[1] ?? "eq";
       filter.cmc = { op, value: Number.parseFloat(valueText) };
+      continue;
+    }
+
+    const loyaltyMatch = lower.match(/^(?:loy|loyalty)(:|=|!=|>=|<=|>|<)(-?\d+(?:\.\d+)?)$/);
+    if (loyaltyMatch) {
+      const [, opText, valueText] = loyaltyMatch;
+      const op = NUMERIC_COMPARATORS.find(([o]) => o === opText)?.[1] ?? "eq";
+      filter.loyalty = { op, value: Number.parseFloat(valueText) };
       continue;
     }
 
@@ -283,15 +302,21 @@ export function parseScryfallQuery(raw: string): ParsedScryfallQuery {
 /** The least a printing needs for `matchesAdvancedCard` to judge it. */
 export type AdvancedMatchableCard = {
   colors: string[] | null;
+  loyalty: string | null;
 };
 
 /**
- * Colour matching, same rule as the collection filter: PostgREST's array
- * operators can express "contains" but not "exactly these" or "at most
- * these", so a query pre-filters everything it can (name, cmc, type, oracle,
- * set, rarity — see `route.ts`) and this finishes the colour comparison over
- * that already-narrow result.
+ * Finishes what PostgREST couldn't push into SQL: colour matching (its array
+ * operators express "contains" but not "exactly these" or "at most these")
+ * and loyalty (the column is text, since some cards print "X" there, so a
+ * numeric comparison has to happen after `statToNumber` reads it, not in the
+ * database). A query pre-filters everything else it can (name, cmc, type,
+ * oracle, set, rarity — see `search.ts`) and this finishes the rest over that
+ * already-narrow result.
  */
 export function matchesAdvancedCard(card: AdvancedMatchableCard, filter: AdvancedCardFilter): boolean {
-  return matchesColors(colorsOf(card.colors), filter.colors, filter.colorMode);
+  return (
+    matchesColors(colorsOf(card.colors), filter.colors, filter.colorMode) &&
+    matchesNumeric(statToNumber(card.loyalty), filter.loyalty)
+  );
 }

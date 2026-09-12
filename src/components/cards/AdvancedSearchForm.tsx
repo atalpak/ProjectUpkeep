@@ -86,21 +86,22 @@ export function AdvancedSearchForm({
 
   return (
     <div className="space-y-3">
-      <form onSubmit={submitRaw} className="relative">
+      <form onSubmit={submitRaw} className="flex gap-2">
         <Input
           value={raw}
           onChange={(e) => setRaw(e.target.value)}
           placeholder="c:r cmc<=2 t:creature — or paste any Scryfall search"
           aria-label="Search with Scryfall syntax"
-          className="py-3 pl-4 pr-12 text-base"
+          className="py-3 pl-4 text-base"
         />
-        <button
+        <Button
           type="submit"
-          aria-label="Search"
-          className="absolute right-2 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
+          className="shrink-0 gap-2 px-6 py-3 text-base"
+          disabled={pending}
         >
           {pending ? <Spinner className="size-5" /> : <SearchIcon className="size-5" />}
-        </button>
+          Search
+        </Button>
       </form>
 
       <div className="overflow-hidden rounded-lg border border-border">
@@ -205,6 +206,40 @@ export function AdvancedSearchForm({
                       if (text.trim() === "") return set("cmc", null);
                       const n = Number.parseFloat(text);
                       set("cmc", Number.isFinite(n) ? { op: filter.cmc?.op ?? "eq", value: n } : null);
+                    }}
+                    className="w-24"
+                  />
+                </div>
+              </Field>
+
+              <Field label="Loyalty">
+                <div className="flex gap-1.5">
+                  <Select
+                    value={filter.loyalty?.op ?? "eq"}
+                    onChange={(e) => {
+                      const op = e.target.value as NonNullable<NumericFilter>["op"];
+                      if (filter.loyalty === null) return;
+                      set("loyalty", { op, value: filter.loyalty.value });
+                    }}
+                    className="w-28"
+                  >
+                    {NUMERIC_OPS.map((op) => (
+                      <option key={op} value={op}>
+                        {NUMERIC_OP_LABELS[op]}
+                      </option>
+                    ))}
+                  </Select>
+                  <Input
+                    type="number"
+                    value={filter.loyalty === null ? "" : String(filter.loyalty.value)}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      if (text.trim() === "") return set("loyalty", null);
+                      const n = Number.parseFloat(text);
+                      set(
+                        "loyalty",
+                        Number.isFinite(n) ? { op: filter.loyalty?.op ?? "eq", value: n } : null,
+                      );
                     }}
                     className="w-24"
                   />
