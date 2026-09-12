@@ -74,12 +74,12 @@ src/
                             notifications · tos · types
     supabase/               client · server · session · errors
 supabase/
-  migrations/               29 files, numbered, applied in order
+  migrations/               32 files, numbered, applied in order
   tests/schema_test.sql     assertions the schema must keep satisfying
 scripts/
   sync-scryfall.ts          the scheduled sync job
   verify-migrations.sh      migrations against a throwaway Postgres
-  *.test.ts                 29 unit-test files over the pure logic in src/lib
+  *.test.ts                 43 unit-test files over the pure logic in src/lib
 ```
 
 ## Data model in one paragraph

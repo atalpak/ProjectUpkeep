@@ -43,7 +43,6 @@ import {
 function land(name: string, colors: string[] | null, key = name, typeLine = "Basic Land"): PlaytestCard {
   return {
     key,
-    cardId: key,
     name,
     typeLine,
     manaCost: null,
@@ -53,13 +52,13 @@ function land(name: string, colors: string[] | null, key = name, typeLine = "Bas
     produces: producedColors({ produced_mana: colors, type_line: typeLine }),
     manaDataKnown: colors !== null,
     imageUri: null,
+    oracleText: null,
   };
 }
 
 function spell(name: string, cost: string | null, key = name): PlaytestCard {
   return {
     key,
-    cardId: key,
     name,
     typeLine: "Instant",
     manaCost: cost,
@@ -69,6 +68,7 @@ function spell(name: string, cost: string | null, key = name): PlaytestCard {
     produces: [],
     manaDataKnown: true,
     imageUri: null,
+    oracleText: null,
   };
 }
 

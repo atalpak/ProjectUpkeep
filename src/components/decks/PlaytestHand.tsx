@@ -2,7 +2,6 @@
 
 import { useRef, useState } from "react";
 
-import { useCardPreview } from "@/components/CardPanel";
 import { DeckFace } from "@/components/decks/DeckFace";
 import { Button, cx, EmptyState } from "@/components/ui";
 import { evaluateHand, type KeepRule } from "@/lib/playtest/keep";
@@ -36,10 +35,29 @@ import { mulberry32, type RNG } from "@/lib/playtest/rng";
  * copy of. Rather than reconcile that here, the parent remounts this
  * component with a fresh `key` on mode change (see Playtest.tsx), which
  * resets every piece of state below for free.
+ *
+ * `onCardActivate` reports whichever card was last hovered, focused or
+ * tapped, so `Playtest`'s own reader panel can show it — the shared
+ * CardPanel preview (a docked sidebar or a portalled tooltip, depending on
+ * viewport) sits below the playtest popup's top layer and so was invisible
+ * there, and it fed the card by id, a slow path (an API fetch behind three
+ * Supabase round trips) for data already sitting in `PlaytestCard`. This
+ * component now knows nothing about any of that — it just reports what was
+ * looked at.
  */
 type Stage = "idle" | "final" | "selecting-bottom";
 
-export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule: KeepRule }) {
+export function PlaytestHand({
+  library,
+  rule,
+  onCardActivate,
+}: {
+  library: PlaytestCard[];
+  rule: KeepRule;
+  /** Called with whichever hand card was hovered, focused or tapped, or with
+   *  `null` to clear the reader — a new hand's cards are not the old one's. */
+  onCardActivate: (card: PlaytestCard | null) => void;
+}) {
   const [stage, setStage] = useState<Stage>("idle");
   const [drawnHand, setDrawnHand] = useState<PlaytestCard[] | null>(null);
   const [finalHand, setFinalHand] = useState<PlaytestCard[] | null>(null);
@@ -64,6 +82,9 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
     setSelected(new Set());
     setDrawnHand(hand);
     setFinalHand(hand);
+    // These are different cards; the reader must not keep showing one from
+    // the hand just discarded.
+    onCardActivate(null);
     setStage("final");
   }
 
@@ -75,6 +96,7 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
     setFinalHand(null);
     setSelected(new Set());
     setStage("selecting-bottom");
+    onCardActivate(null);
   }
 
   // London: a fresh seven every time, but one more card goes to the bottom
@@ -123,6 +145,7 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
               selectable={stage === "selecting-bottom"}
               selected={selected.has(i)}
               onToggle={() => toggleSelect(i)}
+              onActivate={onCardActivate}
             />
           ))}
         </div>
@@ -157,41 +180,46 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
   );
 }
 
+/** Matches `DeckFace`'s `hand` box width at each breakpoint, so the name
+ *  caption sits under the card rather than truncating narrower than it. */
+const CAPTION_WIDTH = "w-20 sm:w-[6.25rem] lg:w-[7.5rem]";
+
 function HandCard({
   card,
   selectable,
   selected,
   onToggle,
+  onActivate,
 }: {
   card: PlaytestCard;
   selectable: boolean;
   selected: boolean;
   onToggle: () => void;
+  onActivate: (card: PlaytestCard) => void;
 }) {
   const face = (
     <>
       <DeckFace image={card.imageUri} size="hand" />
-      <p className="mt-1 w-20 truncate text-center text-[10px] text-ink-muted">{card.name}</p>
+      <p className={cx("mt-1 truncate text-center text-[10px] text-ink-muted", CAPTION_WIDTH)}>
+        {card.name}
+      </p>
     </>
   );
 
-  // `sheetOnClick: false` only while a mulligan is asking the player to
-  // choose what to bottom: that button's own `onClick` already means "put
-  // this one on the bottom," and a touch tap can only answer one question at
-  // a time. The settled hand has no competing handler, so it opens the sheet
-  // on tap like any other card thumbnail in the app.
-  const preview = useCardPreview(card.cardId, { sheetOnClick: !selectable });
+  const activate = () => onActivate(card);
 
   if (!selectable) {
     // A focusable div, not a button, matching every other hover-only preview
     // target in the app (ProfileTradables, CollectionTable, DeckWorkspace).
-    // `useCardPreview` only binds an onClick in the touch "sheet"
-    // presentation, so a <button> here would promise a keyboard and mouse
-    // user that Enter does something when nothing is bound at all. The div
-    // still gets focus and still opens the sheet on tap.
+    // Hover, focus and tap all call the same handler — the reader panel
+    // (Playtest.tsx) is a passive display, not a second answer competing
+    // with a tap the way the old sheet presentation was, so there is no
+    // "touch only gets one gesture" tension left to resolve here.
     return (
       <div
-        {...preview}
+        onMouseEnter={activate}
+        onFocus={activate}
+        onClick={activate}
         tabIndex={0}
         className="shrink-0 cursor-default rounded-lg coarse:min-h-11"
       >
@@ -203,11 +231,15 @@ function HandCard({
   return (
     <button
       type="button"
-      onClick={onToggle}
+      onClick={() => {
+        onToggle();
+        activate();
+      }}
+      onMouseEnter={activate}
+      onFocus={activate}
       aria-pressed={selected}
       aria-label={`${selected ? "Deselect" : "Select"} ${card.name} for the bottom of the library`}
       className="shrink-0 rounded-lg coarse:min-h-11"
-      {...preview}
     >
       <span
         className={cx(
@@ -222,7 +254,9 @@ function HandCard({
           </span>
         ) : null}
       </span>
-      <p className="mt-1 w-20 truncate text-center text-[10px] text-ink-muted">{card.name}</p>
+      <p className={cx("mt-1 truncate text-center text-[10px] text-ink-muted", CAPTION_WIDTH)}>
+        {card.name}
+      </p>
     </button>
   );
 }

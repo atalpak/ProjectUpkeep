@@ -17,7 +17,6 @@ function land(colors: string[]): PlaytestCard {
   const key = `land-${colors.join("")}-${Math.random()}`;
   return {
     key,
-    cardId: key,
     name: "Land",
     typeLine: "Land",
     manaCost: null,
@@ -27,6 +26,7 @@ function land(colors: string[]): PlaytestCard {
     produces: producedColors({ produced_mana: colors, type_line: "Land" }),
     manaDataKnown: true,
     imageUri: null,
+    oracleText: null,
   };
 }
 
@@ -34,7 +34,6 @@ function spell(name: string, cost: string | null, cmc: number): PlaytestCard {
   const key = `spell-${name}`;
   return {
     key,
-    cardId: key,
     name,
     typeLine: "Instant",
     manaCost: cost,
@@ -44,6 +43,7 @@ function spell(name: string, cost: string | null, cmc: number): PlaytestCard {
     produces: [],
     manaDataKnown: true,
     imageUri: null,
+    oracleText: null,
   };
 }
 

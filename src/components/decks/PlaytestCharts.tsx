@@ -38,7 +38,13 @@ export function BarChart({ title, bars }: { title: string; bars: Bar[] }) {
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-semibold text-ink-muted">{title}</h3>
-      <div className="overflow-x-auto">
+      {/* touch-pan-x + overscroll-x-contain: this can now sit inside a popup's
+          own vertical scroll container (Playtest rendered in a Dialog), not
+          just the document. Without them, an iOS swipe that starts on this bar
+          chart is ambiguous between scrolling it sideways and scrolling the
+          popup down, and a chart that hits its own horizontal edge can chain
+          the gesture into scrolling its ancestor instead of just stopping. */}
+      <div className="touch-pan-x overflow-x-auto overscroll-x-contain">
         <div className={`flex items-end ${BAR_GAP}`} style={{ minWidth: Math.max(bars.length * 28, 160) }}>
           {bars.map((bar) => (
             <div key={bar.key} className="flex flex-1 flex-col items-center gap-1">
@@ -228,7 +234,10 @@ function ChartData({ children }: { children: ReactNode }) {
       <summary className="cursor-pointer select-none coarse:min-h-11 coarse:flex coarse:items-center">
         Show the numbers
       </summary>
-      <div className="mt-2 overflow-x-auto">{children}</div>
+      {/* Same touch-pan-x + overscroll-x-contain reasoning as BarChart's own
+          scroller above — this table can end up inside a popup's vertical
+          scroll container too. */}
+      <div className="mt-2 touch-pan-x overflow-x-auto overscroll-x-contain">{children}</div>
     </details>
   );
 }

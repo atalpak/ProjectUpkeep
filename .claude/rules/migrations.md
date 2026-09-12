@@ -12,7 +12,7 @@ developer's database have already run it; changing the file makes the numbered
 sequence a lie. Add a new numbered file instead.
 
 - Naming: `000000000000NN_snake_case_name.sql`, `NN` continuing the sequence.
-  29 files exist as of 2026-09-10.
+  32 files exist as of 2026-09-12.
 - **Every migration opens with a comment explaining *why*.** This is the
   house style and it has repeatedly paid for itself — migration 20's header is
   the record of the `deck_cards` corruption. Match the surrounding tone: plain

@@ -20,7 +20,6 @@ import { cardByTurnOdds, copiesByTurnOdds, simulate, type SimDeck } from "../src
 function makeLand(name: string, colors: Color[], key = name): PlaytestCard {
   return {
     key,
-    cardId: key,
     name,
     typeLine: "Basic Land",
     manaCost: null,
@@ -30,13 +29,13 @@ function makeLand(name: string, colors: Color[], key = name): PlaytestCard {
     produces: producedColors({ produced_mana: colors, type_line: "Land" }),
     manaDataKnown: true,
     imageUri: null,
+    oracleText: null,
   };
 }
 
 function makeSpell(name: string, cost: string, key = name): PlaytestCard {
   return {
     key,
-    cardId: key,
     name,
     typeLine: "Instant",
     manaCost: cost,
@@ -46,6 +45,7 @@ function makeSpell(name: string, cost: string, key = name): PlaytestCard {
     produces: [],
     manaDataKnown: true,
     imageUri: null,
+    oracleText: null,
   };
 }
 

@@ -20,8 +20,16 @@ const SIZES = {
   /** A deck's own page — the commander as the page's visual anchor. */
   hero: { box: "h-[9.8rem] w-28", srcWidth: 292, srcHeight: 408 },
   /** An opening-hand card in Playtest — big enough to read at a glance, small
-   *  enough that seven fit on a phone screen without much scrolling. */
-  hand: { box: "h-[7rem] w-20", srcWidth: 220, srcHeight: 306 },
+   *  enough that seven fit on a phone screen without much scrolling. `box` is
+   *  a plain class string, so it can carry breakpoints: the popup and the
+   *  route both have far more room past `sm`/`lg` than a phone screen does,
+   *  and "bigger on desktop" and "seven still fit on a phone" are different
+   *  sizes, not one compromise between them. */
+  hand: {
+    box: "h-[7rem] w-20 sm:h-[8.75rem] sm:w-[6.25rem] lg:h-[10.5rem] lg:w-[7.5rem]",
+    srcWidth: 220,
+    srcHeight: 306,
+  },
 } as const;
 
 export function DeckFace({

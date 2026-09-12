@@ -16,7 +16,7 @@ npm run test:db # ./scripts/verify-migrations.sh — real Postgres, real RLS
 
 ## Unit tests
 
-29 files in `scripts/`, one per module, named after what they cover
+43 files in `scripts/`, one per module, named after what they cover
 (`stacking.test.ts`, `import-plan.test.ts`, `trade-status.test.ts`, …). They use
 node's built-in test runner through `tsx` — no Jest, no Vitest, **do not add a
 test framework.**
