@@ -245,14 +245,13 @@ export function HeaderSearch() {
 
   return (
     // A growing spacer, not just the field itself: this is what lets the
-    // account cluster stay flush with the right edge of the bar without an
-    // `ml-auto` on it. Below `lg` the only visible child is the icon link, so
-    // `justify-end` keeps it glued to that cluster exactly where `ml-auto`
-    // used to put it; from `lg` up the field itself grows (`lg:flex-1` below),
-    // so `lg:justify-start` lets it hug the nav links instead, leaving any
-    // space beyond its cap in front of the icons rather than before it.
-    <div className="flex min-w-0 flex-1 items-center justify-end lg:justify-start">
-      <div ref={container} className="relative hidden min-w-0 lg:block lg:flex-1 lg:max-w-md xl:max-w-lg">
+    // nav links stay flush with the left edge of the bar without needing an
+    // `ml-auto` elsewhere. `justify-end` at every width keeps the field (or,
+    // below `lg`, the icon link) glued to the account cluster that follows
+    // it, so any slack in the bar collects before the search field rather
+    // than between it and the alerts icon.
+    <div className="flex min-w-0 flex-1 items-center justify-end">
+      <div ref={container} className="relative hidden min-w-0 lg:block lg:w-full lg:max-w-md xl:max-w-lg">
         <label className="relative block">
           <span className="sr-only">Search all cards</span>
           {loading ? (

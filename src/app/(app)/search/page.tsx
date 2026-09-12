@@ -63,7 +63,7 @@ export default async function SearchPage({
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="mx-auto max-w-6xl space-y-5">
       <PageHeader
         title="Advanced Search"
         subtitle="Every card Scryfall knows — not just what's in your collection."
