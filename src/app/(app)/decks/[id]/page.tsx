@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -198,13 +199,21 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
           backHref="/decks"
           backLabel="All decks"
           actions={
-            entries.length > 0 || contents.length > 0 ? (
-              <ExportButtons
-                // Inline: a deck is a hundred rows the page already holds.
-                source={{ kind: "inline", decklistText: deckDecklistText, csv: deckCsv }}
-                filenameBase={`deck-${slugify(deck.name)}`}
-              />
-            ) : null
+            <>
+              <Link
+                href={`/decks/${id}/test`}
+                className="inline-flex items-center rounded-full border border-border px-3.5 py-1.5 text-sm font-medium transition-colors hover:bg-surface-muted coarse:min-h-11"
+              >
+                Playtest
+              </Link>
+              {entries.length > 0 || contents.length > 0 ? (
+                <ExportButtons
+                  // Inline: a deck is a hundred rows the page already holds.
+                  source={{ kind: "inline", decklistText: deckDecklistText, csv: deckCsv }}
+                  filenameBase={`deck-${slugify(deck.name)}`}
+                />
+              ) : null}
+            </>
           }
         />
 

@@ -181,6 +181,12 @@ export type Card = {
   card_faces: CardFace[] | null;
   set_type: string | null;
 
+  /** Colours (plus "C") this card can tap for (migration 00000000000032).
+   *  Null on any row that has not been through a sync since that migration
+   *  was applied — the playtest engine falls back to basic land types in
+   *  that case. */
+  produced_mana: string[] | null;
+
   // Price columns (migration 00000000000011). Null on any row that has not
   // been through a sync since that migration was applied, and null for any
   // finish with no recent sale — which is not the same as free.

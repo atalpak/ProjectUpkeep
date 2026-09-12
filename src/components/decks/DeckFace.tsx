@@ -10,15 +10,18 @@ import { cx } from "@/lib/cx";
  * transforming card all put their illustration in a different place, and one
  * fixed crop lands on the type line of about a third of them. A whole card is
  * instantly readable as a Magic card, in every frame ever printed, at any
- * size — which is why this one component serves both the decks list (a row's
- * `thumb`) and a deck's own page (its `hero`), rather than each inventing its
- * own crop.
+ * size — which is why this one component serves the decks list (a row's
+ * `thumb`), a deck's own page (its `hero`), and a Playtest opening hand
+ * (`hand`) rather than each inventing its own crop.
  */
 const SIZES = {
   /** The decks list — one row among many, art as a small identifying mark. */
   thumb: { box: "h-[4.9rem] w-14", srcWidth: 146, srcHeight: 204 },
   /** A deck's own page — the commander as the page's visual anchor. */
   hero: { box: "h-[9.8rem] w-28", srcWidth: 292, srcHeight: 408 },
+  /** An opening-hand card in Playtest — big enough to read at a glance, small
+   *  enough that seven fit on a phone screen without much scrolling. */
+  hand: { box: "h-[7rem] w-20", srcWidth: 220, srcHeight: 306 },
 } as const;
 
 export function DeckFace({
