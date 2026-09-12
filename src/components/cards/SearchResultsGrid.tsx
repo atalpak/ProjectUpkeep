@@ -25,7 +25,7 @@ export function SearchResultsGrid({ results }: { results: CardSearchResult[] }) 
   const { open } = useCardPanel();
 
   return (
-    <ul className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-4">
+    <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-5">
       {results.map((card) => (
         <li key={card.name}>
           <MagnifierTile
@@ -93,7 +93,7 @@ function MagnifierTile({
       className="relative block aspect-[488/680] w-full cursor-none overflow-hidden rounded-lg border border-border bg-surface-muted"
     >
       {image ? (
-        <Image src={image} alt="" fill sizes="(min-width: 1024px) 16rem, (min-width: 640px) 33vw, 45vw" className="object-cover" unoptimized />
+        <Image src={image} alt="" fill sizes="(min-width: 1024px) 20rem, (min-width: 640px) 40vw, 50vw" className="object-cover" unoptimized />
       ) : null}
 
       {lens && image ? (

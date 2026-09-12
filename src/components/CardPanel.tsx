@@ -299,8 +299,13 @@ function usePresentation(): Presentation {
  *
  * Two lists because `/decks` and `/decks/[id]` disagree: the index is a list of
  * deck names with nothing to hover, while a deck itself is full of cards.
+ *
+ * `/search` has cards, but nothing there wires up `useCardPreview` — its
+ * results grid opens the full popup on click (`useCardPanel`, always a
+ * sheet, not a hover) — so the sidebar column would sit reserved and empty,
+ * costing the grid width for a hover interaction the page never offers.
  */
-const NO_CARDS_EXACT = ["/decks", "/settings"];
+const NO_CARDS_EXACT = ["/decks", "/settings", "/search"];
 const NO_CARDS_PREFIX = ["/friends", "/locations", "/notifications", "/settings"];
 
 function routeHasCards(pathname: string): boolean {
