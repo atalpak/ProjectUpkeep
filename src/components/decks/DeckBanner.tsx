@@ -91,8 +91,8 @@ export function DeckBanner({
             className={cx(
               "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
               art
-                ? "border-white/30 text-white/90 hover:bg-white/10"
-                : "border-dashed border-border text-ink-muted hover:bg-surface hover:text-ink",
+                ? "border-white/30 bg-white/10 text-white/90 hover:bg-white/20"
+                : "border-border bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink",
             )}
           >
             {deck.format || tags.length > 0 || deck.notes ? "Edit details" : "Add format, tags, notes"}
@@ -132,11 +132,15 @@ export function DeckBanner({
           ) : null}
         </p>
 
-        <div className="flex flex-wrap items-center gap-2">{actions}</div>
-
-        <p className={cx("text-xs", art ? "text-white/70" : "text-ink-muted")}>
-          Created {formatDate(deck.created_at)} · Updated {formatDate(deck.updated_at)}
-        </p>
+        {/* Dates on the left, actions pinned to the bottom-right corner — the
+            one thing on the banner that isn't identity or stats reads as
+            secondary, tucked out of the way of the title. */}
+        <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
+          <p className={cx("text-xs", art ? "text-white/70" : "text-ink-muted")}>
+            Created {formatDate(deck.created_at)} · Updated {formatDate(deck.updated_at)}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">{actions}</div>
+        </div>
       </div>
     </div>
   );

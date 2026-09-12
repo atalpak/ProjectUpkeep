@@ -31,8 +31,13 @@ export default async function AppLayout({
   return (
     <CardPanelProvider>
       <div className="min-h-screen">
-        {/* Sticky so the nav stays reachable down a long collection list. */}
-        <header className="sticky top-0 z-10 border-b border-border bg-surface/85 backdrop-blur">
+        {/* Sticky so the nav stays reachable down a long collection list.
+            Fully opaque, not translucent: a page can now scroll a full-bleed
+            background image under it (the deck page's commander-art banner),
+            and a blurred/translucent nav let that art show through enough to
+            blend into the bar rather than read as a header the content
+            scrolls behind. */}
+        <header className="sticky top-0 z-20 border-b border-border bg-surface">
           <nav className="flex w-full items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
             <Link href="/dashboard">
               <Wordmark />

@@ -114,8 +114,11 @@ export function ExportButtons({
     }
   }
 
+  // Explicit text-ink for the same reason as the trigger button above — this
+  // panel is its own solid bg-surface-raised regardless of what forces white
+  // text around it.
   const itemClass =
-    "block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted disabled:cursor-progress disabled:opacity-60";
+    "block w-full px-3 py-2 text-left text-sm text-ink transition-colors hover:bg-surface-muted disabled:cursor-progress disabled:opacity-60";
 
   return (
     <div ref={container} className="relative">
@@ -126,7 +129,14 @@ export function ExportButtons({
         aria-haspopup="menu"
         aria-expanded={open}
         className={cx(
-          "inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-2 text-sm font-medium transition-colors",
+          // Explicit text-ink rather than inheriting ambient color: this sits
+          // on a bg-surface/bg-surface-muted fill wherever it's used, and a
+          // caller that forces white text around it (the deck banner, over
+          // its dark art scrim) would otherwise pair white text with a light
+          // "surface" fill in light mode and make the label unreadable.
+          // text-ink is the token bg-surface is always designed to contrast
+          // with, in either theme, so pinning it here is the general fix.
+          "inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-2 text-sm font-medium text-ink transition-colors",
           open ? "bg-surface-muted" : "bg-surface hover:bg-surface-muted",
         )}
       >
