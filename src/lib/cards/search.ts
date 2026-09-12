@@ -17,7 +17,12 @@ import { matchesAdvancedCard, type AdvancedCardFilter } from "@/lib/cards/search
 export type CardSearchResult = {
   name: string;
   printing_count: number;
+  /** Small crop — right for the header dropdown's compact thumbnail. */
   sample_image_uri: string | null;
+  /** Full-resolution crop — for the `/search` page's own larger grid, where a
+   *  small crop stretched up reads as blurry (the same fix the wish list's
+   *  gallery view needed). */
+  sample_image_uri_large: string | null;
   sample_card_id: string | null;
   sample_flavor_name: string | null;
 };
@@ -25,6 +30,7 @@ export type CardSearchResult = {
 type AdvancedRow = {
   name: string;
   flavor_name: string | null;
+  image_uri: string | null;
   image_uri_small: string | null;
   scryfall_id: string;
   released_at: string | null;
@@ -41,7 +47,7 @@ function buildFilteredQuery(
 ) {
   let query = supabase
     .from("cards")
-    .select("name, flavor_name, image_uri_small, scryfall_id, released_at, colors, loyalty")
+    .select("name, flavor_name, image_uri, image_uri_small, scryfall_id, released_at, colors, loyalty")
     .eq("digital", false)
     .order("released_at", { ascending: false, nullsFirst: false });
 
@@ -135,6 +141,7 @@ export async function searchCards(
       name: row.name,
       printing_count: 1,
       sample_image_uri: row.image_uri_small,
+      sample_image_uri_large: row.image_uri,
       sample_card_id: row.scryfall_id,
       sample_flavor_name: row.flavor_name,
     });
