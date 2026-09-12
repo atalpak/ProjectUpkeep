@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useActionState, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
+  bulkRemoveEntries,
   bulkSleeveEntries,
   bulkUnsleeveEntries,
   listDeckCard,
@@ -20,16 +21,15 @@ import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { useCardPreview } from "@/components/CardPanel";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
-import { Price, PriceToggle, useShowPrices } from "@/components/PriceToggle";
+import { Price, PriceToggle } from "@/components/PriceToggle";
 import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
-import { DeckFace } from "@/components/decks/DeckFace";
 import { DeckStateMark, type FriendSupplyView } from "@/components/decks/DeckStateMark";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Select, cx } from "@/components/ui";
 import { availabilityFor, cardKey, type Availability } from "@/lib/collection/availability";
-import { countsFor, deckProgress, type EntryState } from "@/lib/collection/deck-state";
+import { countsFor, type EntryState } from "@/lib/collection/deck-state";
 import {
   DECK_SORTS,
   DECK_SORT_LABELS,
@@ -73,7 +73,6 @@ export function DeckWorkspace({
   availability,
   spareLocations,
   commanderEntryId,
-  commanderImage,
   price,
   wishList,
   wishMatches,
@@ -87,9 +86,6 @@ export function DeckWorkspace({
   /** oracle key -> containers holding spare copies, for the "in Box 3" tag. */
   spareLocations: Map<string, string[]>;
   commanderEntryId: string | null;
-  /** The commander's full-resolution art, read off its own list entry — null
-   *  when no commander is nominated. */
-  commanderImage: string | null;
   /** Deck value, by section and overall — see computeDeckStats. */
   price: DeckPrice;
   /** Want-list entries tagged to this deck (migration 00000000000017). */
@@ -127,7 +123,6 @@ export function DeckWorkspace({
   // on every render.
   const stopAdding = useCallback(() => setAdding(false), []);
 
-  const showPrices = useShowPrices();
   // section -> priced total, or null when nothing in it carried a price.
   const priceBySection = useMemo(() => {
     const map = new Map<DeckSection, number | null>();
@@ -161,11 +156,6 @@ export function DeckWorkspace({
     [stateful, sort, commanderEntryId],
   );
 
-  const progress = useMemo(
-    () => deckProgress(stateful.map((e) => e.entryState)),
-    [stateful],
-  );
-
   // Entries that a bulk "Sleeve" would actually act on: not fully sleeved, and
   // enough spare copies owned to finish them. This is also what "Select
   // sleeveable" ticks, so the selection matches what the button will do.
@@ -174,6 +164,12 @@ export function DeckWorkspace({
       stateful
         .filter((e) => e.entryState.outstanding > 0 && e.entryState.available >= e.entryState.outstanding)
         .map((e) => e.id),
+    [stateful],
+  );
+
+  // Entries already fully sleeved — what "Select sleeved" ticks.
+  const sleevedIds = useMemo(
+    () => stateful.filter((e) => e.entryState.state === "sleeved").map((e) => e.id),
     [stateful],
   );
 
@@ -194,41 +190,12 @@ export function DeckWorkspace({
 
   const allSleeveableSelected =
     sleeveableIds.length > 0 && sleeveableIds.every((id) => selected.has(id));
+  const allSleevedSelected =
+    sleevedIds.length > 0 && sleevedIds.every((id) => selected.has(id));
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          {/* The commander as this page's visual anchor — the list page's
-              DeckFace, just larger, since this is the one page about this
-              deck rather than a row among many. */}
-          <DeckFace image={commanderImage} size="hero" />
-
-          <p className="text-sm text-ink-muted">
-            <span className="font-medium text-ink">
-              {progress.sleeved} of {progress.wanted}
-            </span>{" "}
-            sleeved · {progress.entries} card{progress.entries === 1 ? "" : "s"} on the list
-            {progress.missingEntries > 0 ? (
-              // "Not available", not "you do not own": this counts entries with
-              // no *spare* copies, which includes cards you own that are
-              // sleeved into another deck. Saying you do not own those is
-              // simply false, and it is the kind of wrong number that makes
-              // everything else on the page look untrustworthy.
-              <> · {progress.missingEntries} not available</>
-            ) : null}
-            {showPrices ? (
-              <>
-                {" · "}
-                <Price value={price.total} className="text-ink" />
-                {price.unpriced > 0 ? (
-                  <span className="text-ink-muted"> ({price.unpriced} unpriced)</span>
-                ) : null}
-              </>
-            ) : null}
-          </p>
-        </div>
-
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1.5 text-xs text-ink-muted">
             Sort
@@ -259,23 +226,60 @@ export function DeckWorkspace({
             Multi-select
           </Button>
 
-          {multiSelect && sleeveableIds.length > 0 ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() =>
-                setSelected((prev) => {
-                  const next = new Set(prev);
-                  if (allSleeveableSelected) sleeveableIds.forEach((id) => next.delete(id));
-                  else sleeveableIds.forEach((id) => next.add(id));
-                  return next;
-                })
-              }
-            >
-              {allSleeveableSelected
-                ? "Clear selection"
-                : `Select sleeveable (${sleeveableIds.length})`}
-            </Button>
+          {multiSelect ? (
+            <>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() =>
+                  setSelected((prev) =>
+                    prev.size === stateful.length
+                      ? new Set()
+                      : new Set(stateful.map((e) => e.id)),
+                  )
+                }
+              >
+                {selected.size === stateful.length && stateful.length > 0
+                  ? "Clear selection"
+                  : `Select all (${stateful.length})`}
+              </Button>
+
+              {sleevedIds.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    setSelected((prev) => {
+                      const next = new Set(prev);
+                      if (allSleevedSelected) sleevedIds.forEach((id) => next.delete(id));
+                      else sleevedIds.forEach((id) => next.add(id));
+                      return next;
+                    })
+                  }
+                >
+                  {allSleevedSelected ? "Clear selection" : `Select sleeved (${sleevedIds.length})`}
+                </Button>
+              ) : null}
+
+              {sleeveableIds.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    setSelected((prev) => {
+                      const next = new Set(prev);
+                      if (allSleeveableSelected) sleeveableIds.forEach((id) => next.delete(id));
+                      else sleeveableIds.forEach((id) => next.add(id));
+                      return next;
+                    })
+                  }
+                >
+                  {allSleeveableSelected
+                    ? "Clear selection"
+                    : `Select sleeveable (${sleeveableIds.length})`}
+                </Button>
+              ) : null}
+            </>
           ) : null}
 
           <Button type="button" onClick={() => setAdding((v) => !v)}>
@@ -1048,20 +1052,25 @@ function DeckBulkBar({
     bulkUnsleeveEntries,
     EMPTY_DECK_STATE,
   );
+  const [removeState, removeAction, removingBulk] = useActionState(
+    bulkRemoveEntries,
+    EMPTY_DECK_STATE,
+  );
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
 
   // A nonce appears only on success (see ok() in decks/actions.ts). When one
   // does, the batch is done — hand control back so the toolbar closes.
   // onComplete is a useCallback in the parent, so this fires on the nonce
   // change, not every render.
-  const doneNonce = sleeveState.nonce ?? unsleeveState.nonce;
+  const doneNonce = sleeveState.nonce ?? unsleeveState.nonce ?? removeState.nonce;
   useEffect(() => {
     if (doneNonce) onComplete();
   }, [doneNonce, onComplete]);
 
   const ids = entryIds.join(",");
-  const busy = sleevingBulk || unsleevingBulk;
-  const error = sleeveState.error ?? unsleeveState.error;
-  const notice = sleeveState.notice ?? unsleeveState.notice;
+  const busy = sleevingBulk || unsleevingBulk || removingBulk;
+  const error = sleeveState.error ?? unsleeveState.error ?? removeState.error;
+  const notice = sleeveState.notice ?? unsleeveState.notice ?? removeState.notice;
 
   return (
     <div className="sticky bottom-4 z-20 rounded-lg border border-border bg-surface-raised p-3 shadow-lg">
@@ -1083,6 +1092,34 @@ function DeckBulkBar({
             Unsleeve
           </Button>
         </form>
+
+        {confirmingRemove ? (
+          <form action={removeAction} className="flex items-center gap-1.5">
+            <input type="hidden" name="deck_id" value={deckId} />
+            <input type="hidden" name="entry_ids" value={ids} />
+            <span className="text-xs text-danger">Remove {entryIds.length} for good?</span>
+            <Button type="submit" variant="danger" disabled={busy} className="text-xs">
+              Confirm
+            </Button>
+            <button
+              type="button"
+              onClick={() => setConfirmingRemove(false)}
+              className="text-xs text-ink-muted underline hover:text-ink"
+            >
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <Button
+            type="button"
+            variant="danger"
+            disabled={busy}
+            className="text-xs"
+            onClick={() => setConfirmingRemove(true)}
+          >
+            Delete
+          </Button>
+        )}
 
         <button
           type="button"

@@ -102,7 +102,7 @@ function Peek({ images, name }: { images: string[]; name: string }) {
  * path segment is Scryfall's own documented way to get a different crop of
  * the same image, not a guess about their CDN's internals.
  */
-function artCropUrl(imageUri: string | null): string | null {
+export function artCropUrl(imageUri: string | null): string | null {
   if (!imageUri) return null;
   return imageUri.replace(/\/(?:small|normal|large)\/front\//, "/art_crop/front/");
 }
