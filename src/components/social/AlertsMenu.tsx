@@ -99,16 +99,27 @@ export function AlertsMenu({ unread }: { unread: number }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={unread > 0 ? `Alerts, ${unread} unread` : "Alerts"}
+        // Icon-only, sized and bordered like its sibling icon buttons in the
+        // header cluster. `relative` gives the unread badge below something to
+        // anchor to; there is no text left for the count to sit beside, so it
+        // becomes a badge on the icon instead.
         className={cx(
-          "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+          "relative inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border transition-colors coarse:size-11",
           open
             ? "bg-surface-muted text-ink"
             : "text-ink-muted hover:bg-surface-muted hover:text-ink",
         )}
       >
-        Alerts
+        <BubbleIcon className="size-5" />
         {unread > 0 ? (
-          <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-semibold tabular-nums text-accent-ink">
+          // Overlaps the button's corner rather than sitting inside its
+          // padding, so the border-radius clipping nothing here can never
+          // trim it. `aria-hidden`: the count is already in the button's own
+          // `aria-label`, so a screen reader would otherwise hear it twice.
+          <span
+            aria-hidden="true"
+            className="absolute -right-1 -top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[11px] font-semibold tabular-nums text-accent-ink"
+          >
             {unread > 99 ? "99+" : unread}
           </span>
         ) : null}
@@ -180,5 +191,25 @@ export function AlertsMenu({ unread }: { unread: number }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** The speech-bubble path FeedbackButton used to show, before Feedback became
+ *  a labelled button and gave the icon up. One bubble in the app now, and
+ *  this is what it means. */
+function BubbleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 20l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5Z" />
+    </svg>
   );
 }

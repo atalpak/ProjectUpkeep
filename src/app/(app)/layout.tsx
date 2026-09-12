@@ -6,11 +6,9 @@ import { getUnreadNotificationCount } from "@/lib/social/queries";
 import { AccountMenu } from "@/components/AccountMenu";
 import { AppNavDrawer, AppNavLinks } from "@/components/AppNav";
 import { CardPanelProvider, CardPanelOutlet } from "@/components/CardPanel";
-import { CardPreviewToggle } from "@/components/CardPreviewMode";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { HeaderSearch } from "@/components/HeaderSearch";
 import { AlertsMenu } from "@/components/social/AlertsMenu";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { Wordmark } from "@/components/Wordmark";
 
 /**
@@ -44,40 +42,21 @@ export default async function AppLayout({
                 from lg up and behind a drawer below that. */}
             <AppNavLinks />
 
-            <div className="ml-auto flex items-center gap-2">
-              <HeaderSearch />
+            {/* A flex-growing spacer as much as a search field — see its own
+                header comment for why that also retires the `ml-auto` this
+                row used to lean on to push the cluster below to the right. */}
+            <HeaderSearch />
 
+            <div className="flex items-center gap-2">
               {/* Alerts sits in the right cluster rather than the nav so the
                   unread count reads as a status, not another destination. It stays
                   visible at every width — being told about a trade is the point. */}
               <AlertsMenu unread={unread} />
 
-              {/* Feedback sits in the cluster beside Alerts, not the nav: it is
-                  an action reachable from every page, not another destination.
-                  It stays visible at every width — the whole point is to catch a
-                  reaction the moment someone has one. */}
-              <FeedbackButton />
-
-              {/* Hides itself below xl, where there is no sidebar to switch off. */}
-              <CardPreviewToggle />
-
-              {/* Wrapped rather than given `hidden lg:inline-flex` directly.
-                  ThemeToggle sets its own `inline-flex`, and two display
-                  utilities in the same layer are settled by stylesheet order,
-                  not by the order they appear in the class attribute — so
-                  `hidden` lost and the button showed at every width, pushing
-                  the header 42px past the viewport on a 375px phone. Same
-                  Tailwind v4 quirk that needed `!p-0` on the landing page.
-                  A wrapper has no display utility of its own to lose to.
-                  Below lg the drawer carries its own ThemeToggle, so nothing
-                  is lost — which is what the note below already claimed. */}
-              <div className="hidden lg:flex">
-                <ThemeToggle />
-              </div>
-
-              {/* The username, and behind it Settings and Log out. Below lg these
-                  live in the drawer instead, so the bar keeps to the logo,
-                  search, alerts and the hamburger. */}
+              {/* The username, and behind it the card-sidebar and theme
+                  switches, Settings and Log out. Below lg these live in the
+                  drawer instead, so the bar keeps to the logo, search, alerts
+                  and the hamburger. */}
               <AccountMenu label={profile?.username ?? user.email ?? "Account"} />
 
               <AppNavDrawer username={profile?.username ?? user.email ?? null} />
@@ -100,6 +79,20 @@ export default async function AppLayout({
           <main className="min-w-0 flex-1">{children}</main>
           <CardPanelOutlet />
         </div>
+
+        {/* Below the content div rather than inside its flex row, so it spans
+            the full width under the card sidebar too instead of sitting
+            beside it. The drawer has no feedback entry, so this is the only
+            route to it at every width — a hairline, not a card, because it
+            belongs on every page without asking for attention. */}
+        <footer className="border-t border-border px-4 py-4 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-ink-muted">
+              Spot something wrong or missing? It goes into a table the owner reads.
+            </p>
+            <FeedbackButton />
+          </div>
+        </footer>
       </div>
     </CardPanelProvider>
   );

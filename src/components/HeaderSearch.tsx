@@ -167,8 +167,15 @@ export function HeaderSearch() {
   }
 
   return (
-    <>
-      <div ref={container} className="relative hidden lg:block">
+    // A growing spacer, not just the field itself: this is what lets the
+    // account cluster stay flush with the right edge of the bar without an
+    // `ml-auto` on it. Below `lg` the only visible child is the icon link, so
+    // `justify-end` keeps it glued to that cluster exactly where `ml-auto`
+    // used to put it; from `lg` up the field itself grows (`lg:flex-1` below),
+    // so `lg:justify-start` lets it hug the nav links instead, leaving any
+    // space beyond its cap in front of the icons rather than before it.
+    <div className="flex min-w-0 flex-1 items-center justify-end lg:justify-start">
+      <div ref={container} className="relative hidden min-w-0 lg:block lg:flex-1 lg:max-w-md xl:max-w-lg">
         <label className="relative block">
           <span className="sr-only">Search all cards</span>
           <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
@@ -192,7 +199,7 @@ export function HeaderSearch() {
             aria-expanded={dropdownOpen}
             aria-controls="header-search-results"
             aria-autocomplete="list"
-            className="w-48 rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-sm placeholder:text-ink-muted"
+            className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-sm placeholder:text-ink-muted"
           />
         </label>
 
@@ -282,7 +289,7 @@ export function HeaderSearch() {
       >
         <SearchIcon className="size-4" />
       </Link>
-    </>
+    </div>
   );
 }
 

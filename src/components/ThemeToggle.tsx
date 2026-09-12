@@ -6,7 +6,7 @@ import { THEME_STORAGE_KEY } from "@/components/ThemeScript";
 import { cx } from "@/components/ui";
 
 /**
- * Two-state light/dark switch.
+ * Two-state light/dark switch, plus the read/write pair behind it.
  *
  * The icons swap via the `dark:` variant rather than from React state, so the
  * button renders identically on the server and the client. The one thing React
@@ -14,6 +14,11 @@ import { cx } from "@/components/ui";
  * the accessible label honest — and the source of truth for that is the class
  * on <html>, which ThemeScript set before hydration. Reading it through
  * useSyncExternalStore is how you subscribe to state React does not own.
+ *
+ * `useIsDarkTheme` and `setDarkTheme` are exported so AccountMenu's theme row
+ * can drive the same class-on-<html> / localStorage pair this button does,
+ * rather than keeping a second copy of that logic. This button and the
+ * drawer's copy of it (AppNav.tsx, below `lg`) both go through them too.
  */
 
 function subscribe(onChange: () => void) {
@@ -31,25 +36,31 @@ const isDarkNow = () => document.documentElement.classList.contains("dark");
 // first client render corrects it, so assuming light here is harmless.
 const isDarkOnServer = () => false;
 
-export function ThemeToggle({ className }: { className?: string }) {
-  const isDark = useSyncExternalStore(subscribe, isDarkNow, isDarkOnServer);
+/** Whether dark mode is on right now, kept live via the class on <html>. */
+export function useIsDarkTheme(): boolean {
+  return useSyncExternalStore(subscribe, isDarkNow, isDarkOnServer);
+}
 
-  function toggle() {
-    const next = !isDarkNow();
-    document.documentElement.classList.toggle("dark", next);
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, next ? "dark" : "light");
-    } catch {
-      /* Storage blocked: the theme still applies for this page view. */
-    }
+/** The one place that writes the theme: flips the class on <html> and
+ *  persists the choice, so a toggle and a menu row can share it instead of
+ *  each keeping their own copy of the DOM/localStorage handling. */
+export function setDarkTheme(dark: boolean): void {
+  document.documentElement.classList.toggle("dark", dark);
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, dark ? "dark" : "light");
+  } catch {
+    /* Storage blocked: the theme still applies for this page view. */
   }
+}
 
+export function ThemeToggle({ className }: { className?: string }) {
+  const isDark = useIsDarkTheme();
   const label = isDark ? "Switch to light theme" : "Switch to dark theme";
 
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={() => setDarkTheme(!isDarkNow())}
       aria-label={label}
       title={label}
       className={cx(

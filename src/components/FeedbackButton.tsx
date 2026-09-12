@@ -4,11 +4,16 @@ import { usePathname } from "next/navigation";
 import { useActionState, useState } from "react";
 
 import { sendFeedback } from "@/app/(app)/feedback-actions";
-import { Banner, Button, Dialog, Field, Textarea, cx } from "@/components/ui";
+import { Banner, Button, Dialog, Field, Textarea } from "@/components/ui";
 import { EMPTY_FEEDBACK_STATE, MAX_BODY_LENGTH } from "@/lib/feedback/validate";
 
 /**
- * "Send feedback" — a trigger in the header cluster and a modal behind it.
+ * "Send feedback" — a trigger in the page footer and a modal behind it.
+ *
+ * Labelled rather than an icon: the speech bubble now belongs to Alerts (it
+ * reads the unread count), and two bubbles in one app would leave someone
+ * guessing which one opens what. `Button`'s own `coarse:min-h-11` covers the
+ * tap floor, so nothing extra is needed here for that.
  *
  * `Dialog` portals to <body> by default (its own note explains why: nearly
  * every signed-in page under (app) is itself one big <form>, and a <form>
@@ -59,31 +64,9 @@ export function FeedbackButton() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={openDialog}
-        aria-label="Send feedback"
-        aria-haspopup="dialog"
-        // Bare <button>, so the 44px touch floor is set here rather than
-        // inherited from Button's `coarse:min-h-11`.
-        className={cx(
-          "inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border",
-          "text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink coarse:size-11",
-        )}
-      >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="size-5"
-        >
-          <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 20l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5Z" />
-        </svg>
-      </button>
+      <Button type="button" variant="secondary" onClick={openDialog} aria-haspopup="dialog">
+        Send feedback
+      </Button>
 
       <Dialog
         open={open}
