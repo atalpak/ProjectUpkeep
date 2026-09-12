@@ -74,12 +74,13 @@ export function PlaytestLauncher({
 
   return (
     <>
-      {/* Same look as the link this replaces — only the behaviour changed,
-          from a navigation to a popup. */}
+      {/* Same filled-pill look as the deck banner's Export button, its
+          neighbour — the two used to differ (this one was a bare outline)
+          which read as an inconsistency rather than a deliberate weighting. */}
       <button
         type="button"
         onClick={launch}
-        className="inline-flex items-center rounded-full border border-border px-3.5 py-1.5 text-sm font-medium transition-colors hover:bg-surface-muted coarse:min-h-11"
+        className="inline-flex items-center rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium transition-colors hover:bg-surface-muted coarse:min-h-11"
       >
         Playtest
       </button>
