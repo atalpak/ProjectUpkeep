@@ -201,7 +201,14 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
 }
 
 /** Matches `DeckFace`'s `hand` box width at each breakpoint, so the name
- *  caption sits under the card rather than truncating narrower than it. */
+ *  caption sits under the card rather than truncating narrower than it.
+ *
+ *  Hidden with `invisible`, not unmounted, while a card is enlarged: the
+ *  caption is inside the scaled box, so it blows up to a giant truncated
+ *  name under a card whose own art already prints the name. Keeping the
+ *  element in the layout matters — dropping it would change the card's
+ *  height and reflow the row, which is the whole thing the transform-only
+ *  approach avoids. */
 const CAPTION_WIDTH = "w-20 sm:w-[6.25rem] lg:w-[7.5rem]";
 
 /**
@@ -288,7 +295,13 @@ function HandCard({
   const face = (
     <>
       <DeckFace image={card.imageUri} size="hand" />
-      <p className={cx("mt-1 truncate text-center text-[10px] text-ink-muted", CAPTION_WIDTH)}>
+      <p
+        className={cx(
+          "mt-1 truncate text-center text-[10px] text-ink-muted",
+          CAPTION_WIDTH,
+          isActive && "invisible",
+        )}
+      >
         {card.name}
       </p>
     </>
@@ -366,7 +379,13 @@ function HandCard({
           </span>
         ) : null}
       </span>
-      <p className={cx("mt-1 truncate text-center text-[10px] text-ink-muted", CAPTION_WIDTH)}>
+      <p
+        className={cx(
+          "mt-1 truncate text-center text-[10px] text-ink-muted",
+          CAPTION_WIDTH,
+          isActive && "invisible",
+        )}
+      >
         {card.name}
       </p>
     </button>
