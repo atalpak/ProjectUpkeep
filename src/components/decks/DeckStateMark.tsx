@@ -77,25 +77,53 @@ const DECK_TONES: Record<EntryState["state"], Tone> = {
   missing: "absent",
 };
 
+/** A friend who has this card open for trade — same shape the wish list and
+ *  /decks/check already use for the same fact. */
+export type FriendSupplyView = { username: string; available: number };
+
 /** The title carries the counts, because "2 of 4" is the follow-up question the
- *  mark always provokes. */
-function describe(entry: EntryState): string {
+ *  mark always provokes. `spareIn` and `friendSupply` fold in what used to be
+ *  a separate "in {location}" tag beside the mark — one place to look instead
+ *  of two, and the same hover that already answered "why this colour" now
+ *  answers "where from" too. */
+function describe(
+  entry: EntryState,
+  spareIn: readonly string[],
+  friendSupply: readonly FriendSupplyView[],
+): string {
   const base = `${DECK_STATE_LABELS[entry.state]} — ${entry.sleeved} of ${entry.wanted} sleeved`;
   if (entry.state === "sleeved") return base;
   if (entry.state === "available") {
-    return `${base}, ${entry.sleevable} more ready to sleeve`;
+    const location = spareIn.length > 0 ? ` (${spareIn.join(", ")})` : "";
+    return `${base}, ${entry.sleevable} more ready to sleeve${location}`;
   }
-  return `${base}, no spare copies in your collection`;
+  if (friendSupply.length > 0) {
+    const parts = friendSupply.map((s) => `${s.username} has ${s.available}`);
+    return `${base}, no spare copies in your collection — but ${parts.join(", ")}`;
+  }
+  return `${base}, no spare copies in your collection or your friends' binders`;
 }
 
 export function DeckStateMark({
   entry,
+  spareIn = [],
+  friendSupply = [],
   size = "sm",
 }: {
   entry: EntryState;
+  /** Containers holding a spare copy — only meaningful on an "available" row. */
+  spareIn?: readonly string[];
+  /** Friends who have this open for trade — only meaningful on a "missing" row. */
+  friendSupply?: readonly FriendSupplyView[];
   size?: "sm" | "lg";
 }) {
-  return <StateMark tone={DECK_TONES[entry.state]} label={describe(entry)} size={size} />;
+  return (
+    <StateMark
+      tone={DECK_TONES[entry.state]}
+      label={describe(entry, spareIn, friendSupply)}
+      size={size}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------

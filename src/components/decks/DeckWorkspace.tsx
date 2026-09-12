@@ -26,7 +26,7 @@ import { displayPrice } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
 import { DeckFace } from "@/components/decks/DeckFace";
-import { DeckStateMark } from "@/components/decks/DeckStateMark";
+import { DeckStateMark, type FriendSupplyView } from "@/components/decks/DeckStateMark";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Select, cx } from "@/components/ui";
 import { availabilityFor, cardKey, type Availability } from "@/lib/collection/availability";
 import { countsFor, deckProgress, type EntryState } from "@/lib/collection/deck-state";
@@ -62,6 +62,8 @@ type StatefulEntry = DeckListEntry & {
   entryState: EntryState;
   /** Containers holding spare copies — shown on rows that are only Available. */
   spareIn: string[];
+  /** Friends who have this card open for trade — shown on Missing rows. */
+  friendSupply: FriendSupplyView[];
 };
 
 export function DeckWorkspace({
@@ -75,6 +77,7 @@ export function DeckWorkspace({
   price,
   wishList,
   wishMatches,
+  missingSupply,
 }: {
   deckId: string;
   entries: DeckListEntry[];
@@ -93,6 +96,10 @@ export function DeckWorkspace({
   wishList: WishListEntry[];
   /** want-row id -> friends who already have it open for trade. */
   wishMatches: Record<string, WishSupplierView[]>;
+  /** decklist-entry id -> friends who have that card open for trade, for
+   *  entries you do not own a spare copy of. Same fact `wishMatches` carries
+   *  for the wish list, computed for the main list's Missing rows instead. */
+  missingSupply: Record<string, WishSupplierView[]>;
 }) {
   const [view, setView] = useState<ViewMode>("list");
   const [sort, setSort] = useState<DeckSort>("name");
@@ -144,8 +151,9 @@ export function DeckWorkspace({
           availabilityFor(availability, entry.cards),
         ),
         spareIn: spareLocations.get(cardKey(entry.cards) ?? "") ?? [],
+        friendSupply: missingSupply[entry.id] ?? [],
       })),
-    [entries, availability, spareLocations],
+    [entries, availability, spareLocations, missingSupply],
   );
 
   const groups = useMemo(
@@ -550,17 +558,10 @@ function ListRow({
           className="text-sm text-ink-muted"
         />
 
-        {/* Where a spare copy is, for a row you could sleeve but have not. */}
-        {state.state === "available" && entry.spareIn.length > 0 ? (
-          <span
-            className="max-w-32 truncate text-xs text-ink-muted"
-            title={`Spare copies in: ${entry.spareIn.join(", ")}`}
-          >
-            in {entry.spareIn.join(", ")}
-          </span>
-        ) : null}
-
-        <DeckStateMark entry={state} />
+        {/* Where a spare copy is (Available) or who has one to trade
+            (Missing) used to be a separate tag beside the mark; it is now
+            what hovering the mark itself answers — see DeckStateMark. */}
+        <DeckStateMark entry={state} spareIn={entry.spareIn} friendSupply={entry.friendSupply} />
 
         <RowActions
           entry={entry}
@@ -982,7 +983,7 @@ function GalleryCard({
         card is dimmed as well as marked.
       */}
       <div className="flex items-center gap-1.5">
-        <DeckStateMark entry={state} />
+        <DeckStateMark entry={state} spareIn={entry.spareIn} friendSupply={entry.friendSupply} />
 
         <span className="shrink-0 text-xs tabular-nums text-ink-muted">
           {entry.quantity}×

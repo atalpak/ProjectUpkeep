@@ -10,7 +10,8 @@ import {
   strandedInDeck,
   type DeckListEntry,
 } from "@/lib/collection/queries";
-import { cardKey } from "@/lib/collection/availability";
+import { availabilityFor, cardKey } from "@/lib/collection/availability";
+import { countsFor } from "@/lib/collection/deck-state";
 import { computeDeckStats } from "@/lib/collection/deck-stats";
 import { groupDeck } from "@/lib/collection/deck-view";
 import { deckToDecklistText, toCsv, type ExportRow } from "@/lib/collection/export";
@@ -133,6 +134,40 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
     }));
   }
 
+  // The same "does a friend have this?" question, asked for the main
+  // decklist's Missing rows instead of the wish list — a throwaway want row
+  // per short entry, the same way /decks/check matches its "not owned" rows,
+  // rather than something saved to the database. Keyed by the decklist
+  // entry's own id: unlike the wish list, these have no want_list row of
+  // their own to key on.
+  const missingWants: WantRow[] = entries
+    .filter(
+      (entry) =>
+        countsFor(entry.quantity, entry.sleeved, availabilityFor(availability, entry.cards))
+          .state === "missing",
+    )
+    .map((entry) => ({
+      id: entry.id,
+      key: cardKey(entry.cards) ?? `id:${entry.card_id}`,
+      name: entry.cards?.name ?? "Unknown card",
+      displayName: entry.cards ? cardDisplayName(entry.cards) : "Unknown card",
+      cardId: entry.cards?.scryfall_id ?? entry.card_id,
+      image: entry.cards?.image_uri_small ?? null,
+      quantity: entry.quantity,
+      note: null,
+    }));
+  const { matches: missingMatches, suppliers: missingSuppliers } =
+    await matchSuppliersFor(missingWants);
+
+  const missingSupplyView: Record<string, WishSupplierView[]> = {};
+  for (const [entryId, list] of missingMatches) {
+    missingSupplyView[entryId] = list.map((s) => ({
+      username: missingSuppliers.get(s.ownerId)?.username ?? "a friend",
+      available: s.available,
+      locations: s.locations,
+    }));
+  }
+
   // The decklist half of the export, grouped the same way the page itself
   // groups it (src/lib/collection/deck-view.ts), with the commander split out
   // into its own bare-header block the way Moxfield/Archidekt expect — see
@@ -187,6 +222,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         price={stats.price}
         wishList={wishList}
         wishMatches={wishMatchesView}
+        missingSupply={missingSupplyView}
       />
 
       {entries.length > 0 ? <DeckCharts stats={stats} /> : null}
