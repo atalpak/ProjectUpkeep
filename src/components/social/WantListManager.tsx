@@ -519,39 +519,35 @@ function WantRowView({
         ) : null}
       </CardPreviewLink>
 
-      <div className="min-w-0 flex-1">
-        {/* Same row shape as the gallery tile — name, price and the ⋯ menu
-            together, "For <deck>" taking the name's place once one is
-            assigned. Quantity/deck/remove live in the menu now rather than
-            three controls stretching the row every time. */}
-        <div className="flex items-center gap-1.5 text-sm">
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-1.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium" title={want.displayName}>
+            {want.displayName}
+          </p>
+          {/* Read-only — the picker to change it lives in the ⋯ menu now. */}
           {want.deckName ? (
-            <span
-              className="min-w-0 flex-1 truncate italic text-ink-muted"
-              title={`For ${want.deckName}`}
-            >
+            <p className="truncate text-xs italic text-ink-muted" title={`For ${want.deckName}`}>
               For {want.deckName}
-            </span>
-          ) : (
-            <span className="min-w-0 flex-1 truncate font-medium" title={want.displayName}>
-              {want.displayName}
-            </span>
-          )}
+            </p>
+          ) : null}
+
+          <p className="mt-1 truncate text-xs">
+            {suppliers.length === 0 ? (
+              <span className="text-ink-muted">No one in your circle has this yet.</span>
+            ) : (
+              <span className="text-ink-muted">
+                <span className="text-ink">{suppliers[0].username}</span> has{" "}
+                {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+                {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
+              </span>
+            )}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5 text-sm">
           <WantPrice want={want} />
           <WantCardMenu want={want} decks={decks} />
         </div>
-
-        <p className="truncate text-xs">
-          {suppliers.length === 0 ? (
-            <span className="text-ink-muted">No one in your circle has this yet.</span>
-          ) : (
-            <span className="text-ink-muted">
-              <span className="text-ink">{suppliers[0].username}</span> has{" "}
-              {describeSupplier(suppliers[0].available, suppliers[0].locations)}
-              {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
-            </span>
-          )}
-        </p>
       </div>
     </li>
   );
@@ -617,39 +613,36 @@ function WantGalleryCard({
         )}
       </CardPreviewLink>
 
-      <div className="space-y-1">
-        {/* Name, price and the ⋯ menu share one row — there isn't room for
-            each to have its own. When a deck is assigned, that's the more
-            useful thing to show here than the name (the image and the popup
-            link both already say what the card is); the picker to change it
-            lives in the ⋯ menu now, this is read-only. */}
-        <div className="flex items-center gap-1.5 text-xs">
+      {/* Same shape as the list row: name and, under it, "For <deck>" (the
+          picker to change it lives in the ⋯ menu now, this is read-only) on
+          the left; price and the ⋯ menu at the top right; who has it, at
+          the bottom left under those. */}
+      <div className="flex items-start justify-between gap-1.5 text-xs">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium" title={want.displayName}>
+            {want.displayName}
+          </p>
           {want.deckName ? (
-            <span
-              className="min-w-0 flex-1 truncate italic text-ink-muted"
-              title={`For ${want.deckName}`}
-            >
+            <p className="truncate italic text-ink-muted" title={`For ${want.deckName}`}>
               For {want.deckName}
-            </span>
-          ) : (
-            <span className="min-w-0 flex-1 truncate font-medium" title={want.displayName}>
-              {want.displayName}
-            </span>
-          )}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
           <WantPrice want={want} />
           <WantCardMenu want={want} decks={decks} />
         </div>
-
-        {suppliers.length > 0 ? (
-          <p className="flex flex-wrap items-center gap-1 text-xs">
-            <Badge>Available</Badge>
-            <span className="truncate text-ink-muted">
-              {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
-              {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
-            </span>
-          </p>
-        ) : null}
       </div>
+
+      {suppliers.length > 0 ? (
+        <p className="flex flex-wrap items-center gap-1 text-xs">
+          <Badge>Available</Badge>
+          <span className="truncate text-ink-muted">
+            {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+            {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
+          </span>
+        </p>
+      ) : null}
     </li>
   );
 }
