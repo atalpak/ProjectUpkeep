@@ -144,14 +144,23 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
         // downward half needs less help: the mulligan controls, the verdict
         // line and the results below already give it somewhere to spill
         // without reaching the container's own bottom edge.
-        <div className="flex flex-wrap gap-3 pt-10 pb-6 sm:pt-16 lg:pt-28">
+        //
+        // The horizontal padding is the same idea and is why every card can
+        // scale from its centre. Sizing it to half the growth at each
+        // breakpoint (half of 0.6x/0.9x/1.5x of the card's own width) means
+        // no card reaches the row's edge, so none needs a special origin.
+        // Measured: 24px of growth against 28px of padding at the narrowest
+        // width, 45 against 48 at sm, 90 against 96 at lg — a few pixels of
+        // headroom each, deliberately, so sub-pixel rounding cannot clip.
+        // An index-based origin cannot work here: once the row wraps, the
+        // *last* card sits at a wrapped line's *left* edge, where growing
+        // from the right throws it off screen.
+        <div className="flex flex-wrap gap-3 px-7 pt-10 pb-6 sm:px-12 sm:pt-16 lg:px-24 lg:pt-28">
           {shown.map((card, i) => (
             <HandCard
               key={i}
               card={card}
               index={i}
-              isFirst={i === 0}
-              isLast={i === shown.length - 1}
               activeIndex={activeIndex}
               onActivate={setActiveIndex}
               selectable={stage === "selecting-bottom"}
@@ -224,8 +233,6 @@ function hasNoHover() {
 function HandCard({
   card,
   index,
-  isFirst,
-  isLast,
   activeIndex,
   onActivate,
   selectable,
@@ -234,8 +241,6 @@ function HandCard({
 }: {
   card: PlaytestCard;
   index: number;
-  isFirst: boolean;
-  isLast: boolean;
   /** Whichever index is enlarged right now, or none. Lifted to the parent
    *  rather than kept per-card: shifting every *other* card away needs to
    *  know where the active one is, not just whether this one is it. */
@@ -260,11 +265,6 @@ function HandCard({
     "transition-transform duration-200 ease-out motion-reduce:transition-none",
     isActive && "relative z-20",
     isActive && ENLARGE_SCALE,
-    // Edge cards grow inward instead of off the edge: the default centre
-    // origin would otherwise push half the growth past the row's own left or
-    // right boundary, which the popup's horizontally-clipped scroll
-    // container (see the padding comment above) cuts off outright.
-    isActive && (isFirst ? "origin-left" : isLast ? "origin-right" : "origin-center"),
     neighbourDirection === "before" && SHIFT_BEFORE,
     neighbourDirection === "after" && SHIFT_AFTER,
   );
