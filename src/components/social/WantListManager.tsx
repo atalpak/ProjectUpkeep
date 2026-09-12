@@ -616,25 +616,31 @@ function WantGalleryCard({
         )}
       </CardPreviewLink>
 
-      <div className="space-y-0.5 text-center">
-        <div className="flex items-center justify-center gap-1">
-          <span className="min-w-0 truncate text-xs font-medium" title={want.displayName}>
-            {want.displayName}
-          </span>
+      <div className="space-y-1">
+        {/* Name, price and the ⋯ menu share one row — there isn't room for
+            each to have its own. When a deck is assigned, that's the more
+            useful thing to show here than the name (the image and the popup
+            link both already say what the card is); the picker to change it
+            lives in the ⋯ menu now, this is read-only. */}
+        <div className="flex items-center gap-1.5 text-xs">
+          {want.deckName ? (
+            <span
+              className="min-w-0 flex-1 truncate italic text-ink-muted"
+              title={`For ${want.deckName}`}
+            >
+              For {want.deckName}
+            </span>
+          ) : (
+            <span className="min-w-0 flex-1 truncate font-medium" title={want.displayName}>
+              {want.displayName}
+            </span>
+          )}
+          <WantPrice want={want} />
           <WantCardMenu want={want} decks={decks} />
         </div>
 
-        {/* Read-only — the picker to change it lives in the ⋯ menu now. */}
-        {want.deckName ? (
-          <p className="truncate text-[11px] italic text-ink-muted">For {want.deckName}</p>
-        ) : null}
-
-        <div className="flex items-center justify-center gap-1.5 text-xs">
-          <WantPrice want={want} />
-        </div>
-
         {suppliers.length > 0 ? (
-          <p className="flex flex-wrap items-center justify-center gap-1 text-xs">
+          <p className="flex flex-wrap items-center gap-1 text-xs">
             <Badge>Available</Badge>
             <span className="truncate text-ink-muted">
               {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
@@ -716,7 +722,7 @@ function WantCardMenu({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
       {open ? (
         <div
           role="menu"
-          className="absolute left-1/2 top-full z-30 mt-1 w-48 -translate-x-1/2 space-y-2 rounded-lg border border-border bg-surface-raised p-2.5 text-left shadow-xl"
+          className="absolute right-0 top-full z-30 mt-1 w-48 space-y-2 rounded-lg border border-border bg-surface-raised p-2.5 text-left shadow-xl"
         >
           <div>
             <span className="mb-1 block text-[11px] font-medium text-ink-muted">Quantity</span>
