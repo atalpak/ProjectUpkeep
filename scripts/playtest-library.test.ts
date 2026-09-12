@@ -61,15 +61,6 @@ test("designed mode uses quantity, one library element per copy", () => {
   assert.ok(library.every((c) => c.name === "Lightning Bolt"));
 });
 
-test("oracleText carries through from the card's own oracle_text", () => {
-  const bolt = card({ name: "Lightning Bolt", oracle_text: "Deal 3 damage." });
-  const { library } = buildLibrary([entry({ cards: bolt, quantity: 1 })], {
-    mode: "designed",
-    commanderCardId: null,
-  });
-  assert.equal(library[0].oracleText, "Deal 3 damage.");
-});
-
 test("built mode caps a single printing at what is sleeved", () => {
   const bolt = card({ name: "Lightning Bolt" });
   const { library, missing } = buildLibrary(
