@@ -383,13 +383,14 @@ export function statToNumber(raw: string | null | undefined): number | null {
   return Number.parseFloat(text);
 }
 
-/** Cards with no colour at all count as colourless for filtering. */
-function colorsOf(raw: string[] | null | undefined): Color[] {
+/** Cards with no colour at all count as colourless for filtering. Exported for
+ *  the header search's advanced filter, which matches colours the same way. */
+export function colorsOf(raw: string[] | null | undefined): Color[] {
   const colors = (raw ?? []).filter((c): c is Color => (COLORS as readonly string[]).includes(c));
   return colors.length > 0 ? colors : ["C"];
 }
 
-function matchesColors(cardColors: Color[], selected: Color[], mode: ColorMode): boolean {
+export function matchesColors(cardColors: Color[], selected: Color[], mode: ColorMode): boolean {
   if (selected.length === 0) return true;
 
   const card = new Set(cardColors);
