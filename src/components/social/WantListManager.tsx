@@ -14,7 +14,7 @@ import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { cardKey } from "@/lib/collection/availability";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
-import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select, cx } from "@/components/ui";
 import type { Card, CardNameSuggestion } from "@/lib/types";
 import { describeSupplier, type WantRow } from "@/lib/social/wants";
 
@@ -28,6 +28,10 @@ export type SupplierView = {
 
 /** Enough of a deck to offer it in the tag picker. */
 export type DeckOption = { id: string; name: string };
+
+/** Text rows, or a card-thumbnail grid — the same choice DeckWorkspace offers
+ *  over a decklist, applied to the saved wish list below the add area. */
+type ViewMode = "list" | "gallery";
 
 /**
  * The wish list, and who can fill it.
@@ -51,6 +55,11 @@ export function WantListManager({
   /** For the "which deck is this for" tag on each row. */
   decks: DeckOption[];
 }) {
+  // Plain component state, not persisted — DeckWorkspace's equivalent toggle
+  // (src/components/decks/DeckWorkspace.tsx) does the same: it is a
+  // per-visit preference, not a setting worth a localStorage key.
+  const [view, setView] = useState<ViewMode>("list");
+
   return (
     <div className="space-y-5">
       <AddWant />
@@ -61,17 +70,57 @@ export function WantListManager({
           for trade.
         </EmptyState>
       ) : (
-        <ul className="space-y-2">
-          {wants.map((want) => (
-            <WantRowView
-              key={want.id}
-              want={want}
-              suppliers={matches[want.id] ?? []}
-              decks={decks}
-            />
-          ))}
-        </ul>
+        <div className="space-y-3">
+          <div className="flex items-center justify-end">
+            <ViewToggle view={view} onChange={setView} />
+          </div>
+
+          {view === "gallery" ? (
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {wants.map((want) => (
+                <WantGalleryCard
+                  key={want.id}
+                  want={want}
+                  suppliers={matches[want.id] ?? []}
+                  decks={decks}
+                />
+              ))}
+            </ul>
+          ) : (
+            <ul className="space-y-2">
+              {wants.map((want) => (
+                <WantRowView
+                  key={want.id}
+                  want={want}
+                  suppliers={matches[want.id] ?? []}
+                  decks={decks}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
       )}
+    </div>
+  );
+}
+
+function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-border">
+      {(["list", "gallery"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          aria-pressed={view === option}
+          className={cx(
+            "px-2.5 py-1.5 text-xs font-medium transition-colors",
+            view === option ? "bg-accent text-accent-ink" : "hover:bg-surface-muted",
+          )}
+        >
+          {option === "list" ? "Text" : "Images"}
+        </button>
+      ))}
     </div>
   );
 }
@@ -471,6 +520,7 @@ function WantRowView({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium">{want.displayName}</span>
+            <WantPrice want={want} />
             <QuantityStepper want={want} />
             <RemoveWantButton want={want} />
           </div>
@@ -501,6 +551,91 @@ function WantRowView({
 
           {decks.length > 0 ? <DeckTag want={want} decks={decks} /> : null}
         </div>
+      </div>
+    </li>
+  );
+}
+
+/** A want's price, shown the same unconditional way a draft row's is — see
+ *  DraftRowView. Renders nothing when the representative printing carries no
+ *  price at all, same as that row. */
+function WantPrice({ want }: { want: WantRow }) {
+  if (!want.price || want.price.value === null) return null;
+  return (
+    <span className="text-xs tabular-nums text-ink-muted">
+      {want.price.approximate ? "~" : ""}
+      {formatPrice(want.price.value)}
+    </span>
+  );
+}
+
+/**
+ * The saved wish list, as a card-thumbnail grid.
+ *
+ * Mirrors DeckWorkspace's Gallery/GalleryCard (src/components/decks/DeckWorkspace.tsx):
+ * the image carries nothing but the art, every badge and control sits below
+ * it. Space is tighter here than on a deck's gallery tile — there is no
+ * per-card menu to fall back on — so the full supplier list `WantRowView`
+ * spells out becomes the same one-line-plus-count `WishRow` on the deck page
+ * already uses (name, whether a friend has it, +N more), rather than a
+ * link per friend.
+ */
+function WantGalleryCard({
+  want,
+  suppliers,
+  decks,
+}: {
+  want: WantRow;
+  suppliers: SupplierView[];
+  decks: DeckOption[];
+}) {
+  return (
+    <li className="space-y-1.5">
+      <CardPreviewLink
+        card={want.cardId ?? undefined}
+        href={`/collection?q=${encodeURIComponent(want.name)}`}
+        className="relative block aspect-[488/680] overflow-hidden rounded-lg border border-border bg-surface-muted"
+      >
+        {want.image ? (
+          <Image
+            src={want.image}
+            alt={want.displayName}
+            fill
+            sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
+            className="object-cover"
+            unoptimized
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
+            {want.displayName}
+          </div>
+        )}
+      </CardPreviewLink>
+
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5">
+          <span className="min-w-0 flex-1 truncate text-xs font-medium" title={want.displayName}>
+            {want.displayName}
+          </span>
+          <QuantityStepper want={want} />
+        </div>
+
+        <div className="flex items-center gap-1.5 text-xs">
+          <WantPrice want={want} />
+          <RemoveWantButton want={want} />
+        </div>
+
+        {suppliers.length > 0 ? (
+          <p className="flex flex-wrap items-center gap-1 text-xs">
+            <Badge>Available</Badge>
+            <span className="truncate text-ink-muted">
+              {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+              {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
+            </span>
+          </p>
+        ) : null}
+
+        {decks.length > 0 ? <DeckTag want={want} decks={decks} /> : null}
       </div>
     </li>
   );

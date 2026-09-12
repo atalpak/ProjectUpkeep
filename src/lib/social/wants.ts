@@ -39,6 +39,15 @@ export type WantRow = {
   /** Representative printing, for the card panel. */
   cardId: string | null;
   image: string | null;
+  /**
+   * The representative printing's non-foil price — a want names a card, not
+   * a finish, so this is always the plain listing, the same choice the add
+   * flow's draft rows make. Optional because a couple of callers (deck-page
+   * matching, /decks/check) build a throwaway `WantRow` purely to feed
+   * `matchSuppliersFor`, which never reads price — they simply omit it.
+   * `null` (as opposed to omitted) means Scryfall has no recent sale.
+   */
+  price?: { value: number | null; approximate: boolean } | null;
   quantity: number;
   note: string | null;
   /**
