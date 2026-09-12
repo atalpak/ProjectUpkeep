@@ -32,35 +32,18 @@ type AdvancedRow = {
   loyalty: string | null;
 };
 
-/**
- * Fetches a generously capped set of matching printings and groups them by
- * name — `sample_*` picked from the newest printing, the same heuristic
- * `search_card_names` uses for the plain-name path — rather than adding a
- * second SQL function to keep in step with the first.
- *
- * The cap has to be generous enough to survive colour and loyalty, the two
- * facets `matchesAdvancedCard` finishes in application code rather than SQL —
- * everything else here (name, cmc, type, oracle, set, rarity) is already a
- * `WHERE` clause, so the cap only has to cover how many printings can match
- * *those* before the rest narrows it further. A type like "planeswalker"
- * alone can be a few thousand printings across every reprint, and this is
- * ordered newest-first, so a cap too tight silently drops older cards from a
- * loyalty search rather than erroring — 2000 is comfortably past any single
- * type line's printing count.
- */
-export async function searchCards(
+/** Every request-scoped filter this query knows how to push into SQL, freshly
+ *  applied — a query builder is single-use per execution, so paging needs a
+ *  new one per page rather than reusing one across `.range()` calls. */
+function buildFilteredQuery(
   supabase: Awaited<ReturnType<typeof createClient>>,
   filter: AdvancedCardFilter,
-  // The dropdown caps at 30 — a compact list, not a browse. The dedicated
-  // `/search` page asks for more, since a full page of results is the point.
-  resultLimit = 30,
-): Promise<{ data: CardSearchResult[]; error: string | null }> {
+) {
   let query = supabase
     .from("cards")
     .select("name, flavor_name, image_uri_small, scryfall_id, released_at, colors, loyalty")
     .eq("digital", false)
-    .order("released_at", { ascending: false, nullsFirst: false })
-    .limit(2000);
+    .order("released_at", { ascending: false, nullsFirst: false });
 
   for (const word of filter.name.trim().split(/\s+/).filter(Boolean)) {
     query = query.ilike("name", `%${word}%`);
@@ -83,10 +66,63 @@ export async function searchCards(
   // fall back to the widest useful pre-filter (any overlap) rather than none.
   if (filter.colors.length > 0) query = query.overlaps("colors", filter.colors);
 
-  const { data, error } = await query.returns<AdvancedRow[]>();
-  if (error) return { data: [], error: error.message };
+  return query;
+}
 
-  const matching = (data ?? []).filter((row) => matchesAdvancedCard(row, filter));
+/** PostgREST's own response cap, independent of whatever `.limit()`/`.range()`
+ *  asks for — confirmed against this project's Supabase instance, not
+ *  documented anywhere `searchCards` could read it from. A single request
+ *  asking for more than this silently gets this many back with no error,
+ *  which is a second, sneakier version of the "cap too tight, no one is
+ *  told" bug the loyalty search timeout turned out to be — so this fetches
+ *  in pages rather than trusting one big `.limit()` to work. */
+const POSTGREST_MAX_ROWS = 1000;
+
+/** See the module-level comment on why this needs to be generous: colour and
+ *  loyalty are matched in application code after the fetch, over whatever a
+ *  type/oracle/etc `WHERE` clause already narrowed it to, ordered
+ *  newest-first — too tight a cap silently drops older matching cards. */
+const FETCH_CAP = 2000;
+
+async function fetchMatchingRows(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  filter: AdvancedCardFilter,
+): Promise<{ data: AdvancedRow[]; error: string | null }> {
+  const rows: AdvancedRow[] = [];
+
+  for (let from = 0; from < FETCH_CAP; from += POSTGREST_MAX_ROWS) {
+    const to = Math.min(from + POSTGREST_MAX_ROWS, FETCH_CAP) - 1;
+    const { data, error } = await buildFilteredQuery(supabase, filter)
+      .range(from, to)
+      .returns<AdvancedRow[]>();
+
+    if (error) return { data: [], error: error.message };
+    if (!data || data.length === 0) break;
+
+    rows.push(...data);
+    if (data.length < to - from + 1) break; // last page was short of full
+  }
+
+  return { data: rows, error: null };
+}
+
+/**
+ * Fetches a generously capped set of matching printings and groups them by
+ * name — `sample_*` picked from the newest printing, the same heuristic
+ * `search_card_names` uses for the plain-name path — rather than adding a
+ * second SQL function to keep in step with the first.
+ */
+export async function searchCards(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  filter: AdvancedCardFilter,
+  // The dropdown caps at 30 — a compact list, not a browse. The dedicated
+  // `/search` page asks for more, since a full page of results is the point.
+  resultLimit = 30,
+): Promise<{ data: CardSearchResult[]; error: string | null }> {
+  const { data, error } = await fetchMatchingRows(supabase, filter);
+  if (error) return { data: [], error };
+
+  const matching = data.filter((row) => matchesAdvancedCard(row, filter));
 
   const byName = new Map<string, CardSearchResult>();
   for (const row of matching) {
