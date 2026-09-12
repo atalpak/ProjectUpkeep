@@ -79,7 +79,7 @@ supabase/
 scripts/
   sync-scryfall.ts          the scheduled sync job
   verify-migrations.sh      migrations against a throwaway Postgres
-  *.test.ts                 29 unit-test files over the pure logic in src/lib
+  *.test.ts                 43 unit-test files over the pure logic in src/lib
 ```
 
 ## Data model in one paragraph
