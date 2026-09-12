@@ -8,7 +8,7 @@ import {
 } from "@/lib/cards/search-query";
 import { AdvancedSearchForm } from "@/components/cards/AdvancedSearchForm";
 import { SearchResultsGrid } from "@/components/cards/SearchResultsGrid";
-import { EmptyState, PageHeader } from "@/components/ui";
+import { Banner, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Advanced Search · Project Upkeep" };
 
@@ -54,10 +54,12 @@ export default async function SearchPage({
   const active = isAdvancedFilterActive(filter);
 
   let results: CardSearchResult[] = [];
+  let searchError: string | null = null;
   if (active) {
     const supabase = await createClient();
-    const { data } = await searchCards(supabase, filter, 90);
+    const { data, error } = await searchCards(supabase, filter, 90);
     results = data;
+    searchError = error;
   }
 
   return (
@@ -75,11 +77,15 @@ export default async function SearchPage({
         </p>
       ) : null}
 
+      <Banner kind="error">
+        {searchError ? `The search couldn't complete: ${searchError}` : null}
+      </Banner>
+
       {!active ? (
         <p className="text-sm text-ink-muted">
           Set at least one filter above, then press Search.
         </p>
-      ) : results.length === 0 ? (
+      ) : searchError ? null : results.length === 0 ? (
         <EmptyState title="Nothing matches those filters." />
       ) : (
         <SearchResultsGrid results={results} />
