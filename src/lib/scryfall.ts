@@ -41,6 +41,9 @@ export type ScryfallFace = {
   loyalty?: string;
   artist?: string;
   image_uris?: ScryfallImageUris;
+  /** Colours (plus "C") this face can tap for. Set on the front face of an
+   *  MDFC land even though the card as a whole has no top-level value. */
+  produced_mana?: string[];
 };
 
 /**
@@ -85,6 +88,7 @@ export type ScryfallCard = ScryfallFace & {
   color_identity?: string[];
   keywords?: string[];
   image_uris?: ScryfallImageUris;
+  produced_mana?: string[];
   /** Present on double-faced/split cards, which carry their detail per face. */
   card_faces?: ScryfallFace[];
   prices?: ScryfallPrices;
@@ -127,6 +131,10 @@ export type CardRow = {
   layout: string | null;
   card_faces: ScryfallFace[] | null;
   set_type: string | null;
+
+  // Colour-aware playtesting needs to know which colours a land can produce;
+  // added in migration 00000000000032.
+  produced_mana: string[] | null;
 
   // Price columns, added in migration 00000000000011.
   price_usd: number | null;
@@ -224,6 +232,7 @@ export function toCardRow(card: ScryfallCard, syncedAt: string): CardRow | null 
     // Only stored when there is genuinely more than one face to show.
     card_faces: card.card_faces && card.card_faces.length > 1 ? card.card_faces : null,
     set_type: card.set_type ?? null,
+    produced_mana: card.produced_mana ?? front?.produced_mana ?? null,
 
     price_usd: price(card.prices?.usd),
     price_usd_foil: price(card.prices?.usd_foil),

@@ -154,6 +154,25 @@ test("maps the detail columns off a single-faced card", () => {
   assert.equal(row.set_type, "core");
   assert.equal(row.layout, "normal");
   assert.equal(row.card_faces, null, "a single-faced card stores no faces");
+  assert.equal(row.produced_mana, null, "Lightning Bolt produces no mana");
+});
+
+test("maps produced_mana off a land", () => {
+  const row = toCardRow(
+    {
+      id: "33333333-3333-3333-3333-333333333333",
+      name: "Steam Vents",
+      set: "guildpact",
+      collector_number: "137",
+      layout: "normal",
+      type_line: "Land — Island Mountain",
+      produced_mana: ["U", "R"],
+    },
+    SYNCED_AT,
+  );
+
+  assert.ok(row);
+  assert.deepEqual(row.produced_mana, ["U", "R"]);
 });
 
 test("takes cost and rules text from the front face of a transform card", () => {
@@ -197,6 +216,47 @@ test("takes cost and rules text from the front face of a transform card", () => 
   assert.equal(row.cmc, 3, "but cmc stays top-level");
   assert.equal(row.power, null, "the front face is not a creature");
   assert.equal(row.card_faces?.length, 2, "both faces are kept for the panel");
+});
+
+test("produced_mana reads the front face, same as colors and oracle_text", () => {
+  // Mirrors the front-face convention `faceOr` already uses for mana_cost,
+  // oracle_text and colors — see the module header. Written against a card
+  // whose front face is itself the land, which is the case this fallback
+  // actually reaches: an MDFC whose land half is the *back* face (Zendikar
+  // Rising's spell // land layout, spell listed first) would not have its
+  // produced_mana picked up by this same-pattern fallback, exactly as it
+  // would not have its `colors` picked up either. That is an existing,
+  // accepted limitation of the front-face convention, not a new one.
+  const row = toCardRow(
+    {
+      id: "44444444-4444-4444-4444-444444444444",
+      name: "Sea Gate Restoration // Sea Gate, Reborn",
+      set: "znr",
+      collector_number: "43",
+      layout: "modal_dfc",
+      color_identity: ["U"],
+      card_faces: [
+        {
+          name: "Sea Gate Restoration",
+          mana_cost: "{5}{U}{U}",
+          type_line: "Sorcery",
+        },
+        {
+          name: "Sea Gate, Reborn",
+          type_line: "Land",
+          produced_mana: ["U"],
+        },
+      ],
+    },
+    SYNCED_AT,
+  );
+
+  assert.ok(row);
+  assert.deepEqual(
+    row.produced_mana,
+    null,
+    "the front face here is the spell half, so this fallback does not reach the land face's production",
+  );
 });
 
 test("keeps a planeswalker's loyalty", () => {

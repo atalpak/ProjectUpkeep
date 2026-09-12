@@ -55,6 +55,7 @@ function card(overrides: Partial<Card> = {}): Card {
     layout: "normal",
     card_faces: null,
     set_type: "core",
+    produced_mana: null,
     price_usd: null,
     price_usd_foil: null,
     price_usd_etched: null,

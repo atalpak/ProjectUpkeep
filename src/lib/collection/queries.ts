@@ -82,9 +82,9 @@ const CARD_FIELDS = `cards ( scryfall_id, oracle_id, name, flavor_name, set_code
            image_uri_small, scryfall_uri, available_finishes, lang, digital,
            last_synced_at, mana_cost, cmc, colors, color_identity, oracle_text,
            flavor_text, keywords, power, toughness, loyalty, artist, layout,
-           card_faces, set_type, price_usd, price_usd_foil, price_usd_etched,
-           price_eur, price_eur_foil, tcgplayer_id, purchase_uri,
-           prices_updated_at )`;
+           card_faces, set_type, produced_mana, price_usd, price_usd_foil,
+           price_usd_etched, price_eur, price_eur_foil, tcgplayer_id,
+           purchase_uri, prices_updated_at )`;
 
 const INSTANCE_FIELDS = `id, owner_user_id, card_id, location_id, condition,
    finish, language, quantity, notes, acquired_at, created_at, updated_at`;
