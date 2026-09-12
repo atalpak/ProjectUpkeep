@@ -69,9 +69,9 @@ export default async function ProfilePage({
           subtitle={
             stacks === 0
               ? "What a friend sees when they open your profile."
-              : `What a friend sees of your trade binder — ${stacks} stack${
-                  stacks === 1 ? "" : "s"
-                }, ${totalCards} card${totalCards === 1 ? "" : "s"} open for trade.`
+              : `What a friend sees of your trade binder — ${totalCards} card${
+                  totalCards === 1 ? "" : "s"
+                } (${stacks} unique) open for trade.`
           }
           backHref="/settings"
           backLabel="Settings"
@@ -170,7 +170,9 @@ export default async function ProfilePage({
         title={profile.username}
         subtitle={
           isFriend
-            ? `${theirCards.length} stacks open for trade`
+            ? `${theirCards.reduce((sum, c) => sum + c.quantity, 0)} cards (${
+                theirCards.length
+              } unique) open for trade`
             : "You are not friends yet."
         }
         backHref="/friends"

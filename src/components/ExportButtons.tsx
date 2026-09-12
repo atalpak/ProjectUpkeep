@@ -126,7 +126,7 @@ export function ExportButtons({
         aria-haspopup="menu"
         aria-expanded={open}
         className={cx(
-          "inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium transition-colors",
+          "inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-2 text-sm font-medium transition-colors",
           open ? "bg-surface-muted" : "bg-surface hover:bg-surface-muted",
         )}
       >

@@ -80,14 +80,13 @@ export default async function CollectionPage({
         title="Collection"
         subtitle={
           <>
-            {/* "Stacks", not "entries". An entry is a row in a table nobody
-                asked to think about; a stack is the physical thing — four
-                identical commons rubber-banded together — and it is the app's
-                own word for it (see stacking.ts). It also makes the difference
-                from a location tile's "138 different cards" self-evident: a
-                foil and a non-foil of one card are two stacks. */}
-            {totalCards} card{totalCards === 1 ? "" : "s"} in {collection.matched} stack
-            {collection.matched === 1 ? "" : "s"}
+            {/* "Unique", not "stacks": a stack is the physical thing — four
+                identical commons rubber-banded together — and it is still the
+                app's own word for it internally (see stacking.ts), but the
+                display copy standardizes on "unique" everywhere we surface a
+                distinct-entry count. A foil and a non-foil of one card are two
+                unique stacks here, same as they were two stacks before. */}
+            {totalCards} card{totalCards === 1 ? "" : "s"} ({collection.matched} unique)
             {hidingSome ? ` (filtered from ${collection.total})` : ""}
           </>
         }
