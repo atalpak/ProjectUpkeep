@@ -344,7 +344,7 @@ function matchesText(haystack: string | null | undefined, needle: string): boole
   return textTerms(needle).every((term) => text.includes(term));
 }
 
-function matchesNumeric(actual: number | null | undefined, filter: NumericFilter): boolean {
+export function matchesNumeric(actual: number | null | undefined, filter: NumericFilter): boolean {
   if (!filter) return true;
   if (actual === null || actual === undefined) return false;
 

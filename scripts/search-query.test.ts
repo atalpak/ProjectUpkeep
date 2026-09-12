@@ -11,6 +11,7 @@ import {
   advancedFilterFromParams,
   advancedFilterToParams,
   isAdvancedFilterActive,
+  matchesAdvancedCard,
   parseScryfallQuery,
 } from "../src/lib/cards/search-query";
 import type { Color } from "../src/lib/collection/filters";
@@ -34,6 +35,7 @@ test("filter round-trips through URL params", () => {
     colors: ["R"] as Color[],
     colorMode: "exactly" as const,
     cmc: { op: "lte" as const, value: 2 },
+    loyalty: { op: "eq" as const, value: 7 },
     type: "instant",
     oracle: "damage",
     set: "lea",
@@ -85,6 +87,35 @@ test("parseScryfallQuery keeps every numeric comparator", () => {
   assert.deepEqual(parseScryfallQuery("cmc>=3").filter.cmc, { op: "gte", value: 3 });
   assert.deepEqual(parseScryfallQuery("mv!=1").filter.cmc, { op: "ne", value: 1 });
   assert.deepEqual(parseScryfallQuery("cmc:0").filter.cmc, { op: "eq", value: 0 });
+});
+
+test("parseScryfallQuery reads loyalty, both spellings and every comparator", () => {
+  assert.deepEqual(parseScryfallQuery("loy=7").filter.loyalty, { op: "eq", value: 7 });
+  assert.deepEqual(parseScryfallQuery("loyalty>=5").filter.loyalty, { op: "gte", value: 5 });
+  assert.deepEqual(parseScryfallQuery("loy:3").filter.loyalty, { op: "eq", value: 3 });
+});
+
+test("parseScryfallQuery reads type and loyalty together, the reported bug", () => {
+  const { filter, unsupported } = parseScryfallQuery("t:planeswalker loy=7");
+  assert.equal(filter.type, "planeswalker");
+  assert.deepEqual(filter.loyalty, { op: "eq", value: 7 });
+  assert.equal(unsupported.length, 0);
+});
+
+test("matchesAdvancedCard checks loyalty against the filter", () => {
+  const filter = { ...EMPTY_ADVANCED_FILTER, loyalty: { op: "eq" as const, value: 7 } };
+  assert.equal(matchesAdvancedCard({ colors: null, loyalty: "7" }, filter), true);
+  assert.equal(matchesAdvancedCard({ colors: null, loyalty: "6" }, filter), false);
+  // "X" loyalty (Gideon, Blaze of Glory and the like) is not a number, so it
+  // never matches a numeric loyalty filter rather than being coerced to 0.
+  assert.equal(matchesAdvancedCard({ colors: null, loyalty: "X" }, filter), false);
+});
+
+test("matchesAdvancedCard with no loyalty filter accepts any loyalty", () => {
+  assert.equal(
+    matchesAdvancedCard({ colors: null, loyalty: "X" }, EMPTY_ADVANCED_FILTER),
+    true,
+  );
 });
 
 test("parseScryfallQuery folds bare words into the name, quotes and all", () => {

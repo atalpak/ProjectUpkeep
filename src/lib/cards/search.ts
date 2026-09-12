@@ -29,6 +29,7 @@ type AdvancedRow = {
   scryfall_id: string;
   released_at: string | null;
   colors: string[] | null;
+  loyalty: string | null;
 };
 
 /**
@@ -36,6 +37,16 @@ type AdvancedRow = {
  * name — `sample_*` picked from the newest printing, the same heuristic
  * `search_card_names` uses for the plain-name path — rather than adding a
  * second SQL function to keep in step with the first.
+ *
+ * The cap has to be generous enough to survive colour and loyalty, the two
+ * facets `matchesAdvancedCard` finishes in application code rather than SQL —
+ * everything else here (name, cmc, type, oracle, set, rarity) is already a
+ * `WHERE` clause, so the cap only has to cover how many printings can match
+ * *those* before the rest narrows it further. A type like "planeswalker"
+ * alone can be a few thousand printings across every reprint, and this is
+ * ordered newest-first, so a cap too tight silently drops older cards from a
+ * loyalty search rather than erroring — 2000 is comfortably past any single
+ * type line's printing count.
  */
 export async function searchCards(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -46,10 +57,10 @@ export async function searchCards(
 ): Promise<{ data: CardSearchResult[]; error: string | null }> {
   let query = supabase
     .from("cards")
-    .select("name, flavor_name, image_uri_small, scryfall_id, released_at, colors")
+    .select("name, flavor_name, image_uri_small, scryfall_id, released_at, colors, loyalty")
     .eq("digital", false)
     .order("released_at", { ascending: false, nullsFirst: false })
-    .limit(600);
+    .limit(2000);
 
   for (const word of filter.name.trim().split(/\s+/).filter(Boolean)) {
     query = query.ilike("name", `%${word}%`);
