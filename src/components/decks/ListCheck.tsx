@@ -411,7 +411,15 @@ function Row({ row }: { row: CheckRow }) {
         ) : null}
       </div>
 
-      <ManaCost cost={card.mana_cost} size="xs" className="hidden shrink-0 sm:flex" />
+      {/* Wrapped, not given `hidden sm:flex` directly: ManaCost sets its own
+          `inline-flex`, and two display utilities in one layer are settled by
+          stylesheet order rather than class-attribute order — so `hidden`
+          lost and this showed below `sm` too, eating width from the
+          truncating name column beside it. Same cascade quirk as the header's
+          ThemeToggle. */}
+      <span className="hidden shrink-0 sm:inline-flex">
+        <ManaCost cost={card.mana_cost} size="xs" />
+      </span>
     </div>
   );
 }

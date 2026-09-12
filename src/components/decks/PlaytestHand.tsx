@@ -310,8 +310,17 @@ function HandCard({
   if (!selectable) {
     // A focusable div, not a button, matching every other hover-only preview
     // target in the app (ProfileTradables, CollectionTable, DeckWorkspace).
+    //
+    // Named explicitly rather than from its own content. The content was the
+    // caption, and the caption is `invisible` while this card is enlarged —
+    // which is exactly when focus is on it — so a screen reader would have
+    // reached an enlarged card with nothing left to announce. `role="img"`
+    // is both the honest description (it is a picture of a card) and a role
+    // that actually accepts a name, which a bare `generic` div does not.
     return (
       <div
+        role="img"
+        aria-label={card.name}
         onMouseEnter={() => !hasNoHover() && activate()}
         onMouseLeave={() => !hasNoHover() && deactivate()}
         onFocus={activate}
