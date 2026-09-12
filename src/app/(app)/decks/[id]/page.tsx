@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -11,19 +12,18 @@ import {
   type DeckListEntry,
 } from "@/lib/collection/queries";
 import { availabilityFor, cardKey } from "@/lib/collection/availability";
-import { countsFor } from "@/lib/collection/deck-state";
+import { countsFor, deckProgress } from "@/lib/collection/deck-state";
 import { computeDeckStats } from "@/lib/collection/deck-stats";
 import { groupDeck } from "@/lib/collection/deck-view";
 import { deckToDecklistText, toCsv, type ExportRow } from "@/lib/collection/export";
 import { matchSuppliersFor } from "@/lib/social/queries";
 import type { WantRow } from "@/lib/social/wants";
 import { cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
+import { DeckBanner } from "@/components/decks/DeckBanner";
 import { DeckCharts } from "@/components/decks/DeckCharts";
-import { DeckHeaderMeta } from "@/components/decks/DeckDetails";
 import { DeckWorkspace, type WishSupplierView } from "@/components/decks/DeckWorkspace";
 import { PlaytestLauncher } from "@/components/decks/PlaytestLauncher";
 import { ExportButtons } from "@/components/ExportButtons";
-import { PageHeader } from "@/components/ui";
 
 /**
  * A decklist entry names a card, not a specific printing someone owns yet
@@ -108,6 +108,16 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
   // a row; this page renders the commander much larger, so it asks for the
   // bigger source image instead.
   const commanderImage = commanderEntry?.cards?.image_uri ?? null;
+  const commanderName = commanderEntry?.cards ? cardDisplayName(commanderEntry.cards) : null;
+
+  // Same per-entry state the list rows and the top-of-page progress line have
+  // always used (see DeckWorkspace) — computed once here so the banner can
+  // show it without duplicating the logic in a second, client-side pass.
+  const progress = deckProgress(
+    entries.map((entry) =>
+      countsFor(entry.quantity, entry.sleeved, availabilityFor(availability, entry.cards)),
+    ),
+  );
 
   // Who in your circle already has a wish-list card open for trade — the same
   // matching /wants does, scoped to just this deck's wishes so a deck page
@@ -193,36 +203,38 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="space-y-5">
-      <div className="space-y-3">
-        <PageHeader
-          title={deck.name}
-          backHref="/decks"
-          backLabel="All decks"
-          actions={
-            <>
-              {/* /decks/[id]/test still exists as a real route — the deep
-                  link and refresh-safe fallback — but from here Playtest
-                  opens as a near-fullscreen popup instead of a navigation.
-                  No new queries: entries and commanderCardId are already
-                  loaded above for the page itself. */}
-              <PlaytestLauncher
-                deckName={deck.name}
-                entries={entries}
-                commanderCardId={commanderCardId}
-              />
-              {entries.length > 0 || contents.length > 0 ? (
-                <ExportButtons
-                  // Inline: a deck is a hundred rows the page already holds.
-                  source={{ kind: "inline", decklistText: deckDecklistText, csv: deckCsv }}
-                  filenameBase={`deck-${slugify(deck.name)}`}
-                />
-              ) : null}
-            </>
-          }
-        />
+      <Link href="/decks" className="text-sm text-accent underline">
+        ← All decks
+      </Link>
 
-        <DeckHeaderMeta deck={deck} />
-      </div>
+      <DeckBanner
+        deck={deck}
+        commanderImage={commanderImage}
+        commanderName={commanderName}
+        progress={progress}
+        price={stats.price}
+        actions={
+          <>
+            {/* /decks/[id]/test still exists as a real route — the deep
+                link and refresh-safe fallback — but from here Playtest
+                opens as a near-fullscreen popup instead of a navigation.
+                No new queries: entries and commanderCardId are already
+                loaded above for the page itself. */}
+            <PlaytestLauncher
+              deckName={deck.name}
+              entries={entries}
+              commanderCardId={commanderCardId}
+            />
+            {entries.length > 0 || contents.length > 0 ? (
+              <ExportButtons
+                // Inline: a deck is a hundred rows the page already holds.
+                source={{ kind: "inline", decklistText: deckDecklistText, csv: deckCsv }}
+                filenameBase={`deck-${slugify(deck.name)}`}
+              />
+            ) : null}
+          </>
+        }
+      />
 
       <DeckWorkspace
         deckId={id}
@@ -231,7 +243,6 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         availability={availability}
         spareLocations={spareLocations}
         commanderEntryId={commanderEntryId}
-        commanderImage={commanderImage}
         price={stats.price}
         wishList={wishList}
         wishMatches={wishMatchesView}

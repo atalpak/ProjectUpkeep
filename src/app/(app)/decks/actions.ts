@@ -480,15 +480,18 @@ export async function setDeckCardQuantity(formData: FormData): Promise<void> {
  * Sleeved copies are matched on oracle id, the same way the list reconciles
  * with the box everywhere else: any printing of the card counts.
  */
-export async function removeDeckCard(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
-
-  const entryId = String(formData.get("entry_id") ?? "").trim();
-  const deckId = String(formData.get("deck_id") ?? "").trim();
-  if (!entryId || !deckId) return;
-
-  const supabase = await createClient();
-
+/**
+ * The guts of removing one list entry: drop its commander nomination if it
+ * had one, return any sleeved copies to Unsorted, then delete the list row
+ * itself. Shared by the single-entry action below and `bulkRemoveEntries`,
+ * which is the same operation repeated under one revalidate instead of one
+ * per entry.
+ */
+async function removeEntryFromList(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  deckId: string,
+  entryId: string,
+): Promise<void> {
   const { data: entry } = await supabase
     .from("deck_cards")
     .select("card_id")
@@ -542,6 +545,17 @@ export async function removeDeckCard(formData: FormData): Promise<void> {
   }
 
   await supabase.from("deck_cards").delete().eq("id", entryId);
+}
+
+export async function removeDeckCard(formData: FormData): Promise<void> {
+  if (!(await getCurrentUser())) return;
+
+  const entryId = String(formData.get("entry_id") ?? "").trim();
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  if (!entryId || !deckId) return;
+
+  const supabase = await createClient();
+  await removeEntryFromList(supabase, deckId, entryId);
 
   revalidate(deckId);
 }
@@ -1134,4 +1148,30 @@ export async function bulkUnsleeveEntries(
   return ok(
     `Returned ${entries.length} ${entries.length === 1 ? "entry" : "entries"} to your collection.`,
   );
+}
+
+/**
+ * Removes every selected list entry, the same as clicking Remove on each row
+ * one at a time — sleeved copies of each come back to Unsorted first, then the
+ * list row itself goes, via `removeEntryFromList`.
+ */
+export async function bulkRemoveEntries(
+  _prev: DeckState,
+  formData: FormData,
+): Promise<DeckState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  const entryIds = parseEntryIds(formData);
+  if (!deckId || entryIds.length === 0) return fail("Nothing selected.");
+
+  const supabase = await createClient();
+
+  for (const entryId of entryIds) {
+    await removeEntryFromList(supabase, deckId, entryId);
+  }
+
+  revalidate(deckId);
+  return ok(`Removed ${entryIds.length} ${entryIds.length === 1 ? "card" : "cards"} from the list.`);
 }
