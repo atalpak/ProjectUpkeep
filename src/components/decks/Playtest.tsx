@@ -43,7 +43,14 @@ export function Playtest({
   // reader panel below. Lives here rather than in PlaytestHand because the
   // panel sits beside the hand, not inside it — see CardReader's own header
   // for why this replaced the shared CardPanel preview outright.
-  const [activeCard, setActiveCard] = useState<PlaytestCard | null>(null);
+  //
+  // Tagged with the mode it was read in. PlaytestHand is reset by a
+  // `key={activeMode}` remount, but this state sits *above* that key and would
+  // otherwise survive it — leaving the reader showing a card from the deck as
+  // designed after a switch to as-built, where that card may not even be in
+  // the pool. Comparing the tag discards it on a switch without an effect,
+  // which `react-hooks/set-state-in-effect` forbids here anyway.
+  const [activeCard, setActiveCard] = useState<{ mode: Mode; card: PlaytestCard } | null>(null);
   const designed = useMemo(
     () => buildLibrary(entries, { mode: "designed", commanderCardId }),
     [entries, commanderCardId],
@@ -93,7 +100,13 @@ export function Playtest({
     <div className="space-y-5">
       <ModeToggle
         mode={mode}
-        onChange={setMode}
+        onChange={(next) => {
+          setMode(next);
+          // Discard the read card outright, rather than relying on the mode
+          // tag below to hide it: the tag would make it reappear on switching
+          // back, pointing at a hand that no longer exists.
+          setActiveCard(null);
+        }}
         designedSize={designedSize}
         builtSize={builtSize}
         fullyAssembled={fullyAssembled}
@@ -115,9 +128,12 @@ export function Playtest({
           key={activeMode}
           library={active.library}
           rule={rule}
-          onCardActivate={setActiveCard}
+          onCardActivate={(card) => setActiveCard(card ? { mode: activeMode, card } : null)}
         />
-        <CardReader card={activeCard} className="mt-4 lg:sticky lg:top-4 lg:mt-0" />
+        <CardReader
+          card={activeCard?.mode === activeMode ? activeCard.card : null}
+          className="mt-4 lg:sticky lg:top-4 lg:mt-0"
+        />
       </div>
 
       <PlaytestResults

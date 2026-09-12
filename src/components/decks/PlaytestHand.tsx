@@ -54,8 +54,9 @@ export function PlaytestHand({
 }: {
   library: PlaytestCard[];
   rule: KeepRule;
-  /** Called with whichever hand card was hovered, focused or tapped. */
-  onCardActivate: (card: PlaytestCard) => void;
+  /** Called with whichever hand card was hovered, focused or tapped, or with
+   *  `null` to clear the reader — a new hand's cards are not the old one's. */
+  onCardActivate: (card: PlaytestCard | null) => void;
 }) {
   const [stage, setStage] = useState<Stage>("idle");
   const [drawnHand, setDrawnHand] = useState<PlaytestCard[] | null>(null);
@@ -81,6 +82,9 @@ export function PlaytestHand({
     setSelected(new Set());
     setDrawnHand(hand);
     setFinalHand(hand);
+    // These are different cards; the reader must not keep showing one from
+    // the hand just discarded.
+    onCardActivate(null);
     setStage("final");
   }
 
@@ -92,6 +96,7 @@ export function PlaytestHand({
     setFinalHand(null);
     setSelected(new Set());
     setStage("selecting-bottom");
+    onCardActivate(null);
   }
 
   // London: a fresh seven every time, but one more card goes to the bottom

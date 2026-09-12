@@ -17,7 +17,6 @@ function land(colors: string[]): PlaytestCard {
   const key = `land-${colors.join("")}-${Math.random()}`;
   return {
     key,
-    cardId: key,
     name: "Land",
     typeLine: "Land",
     manaCost: null,
@@ -35,7 +34,6 @@ function spell(name: string, cost: string | null, cmc: number): PlaytestCard {
   const key = `spell-${name}`;
   return {
     key,
-    cardId: key,
     name,
     typeLine: "Instant",
     manaCost: cost,
