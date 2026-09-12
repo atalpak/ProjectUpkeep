@@ -29,7 +29,6 @@ function makeLand(name: string, colors: Color[], key = name): PlaytestCard {
     produces: producedColors({ produced_mana: colors, type_line: "Land" }),
     manaDataKnown: true,
     imageUri: null,
-    oracleText: null,
   };
 }
 
@@ -45,7 +44,6 @@ function makeSpell(name: string, cost: string, key = name): PlaytestCard {
     produces: [],
     manaDataKnown: true,
     imageUri: null,
-    oracleText: null,
   };
 }
 

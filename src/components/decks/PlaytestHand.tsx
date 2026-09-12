@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 import { DeckFace } from "@/components/decks/DeckFace";
 import { Button, cx, EmptyState } from "@/components/ui";
@@ -36,33 +36,26 @@ import { mulberry32, type RNG } from "@/lib/playtest/rng";
  * component with a fresh `key` on mode change (see Playtest.tsx), which
  * resets every piece of state below for free.
  *
- * `onCardActivate` reports whichever card was last hovered, focused or
- * tapped, so `Playtest`'s own reader panel can show it — the shared
- * CardPanel preview (a docked sidebar or a portalled tooltip, depending on
- * viewport) sits below the playtest popup's top layer and so was invisible
- * there, and it fed the card by id, a slow path (an API fetch behind three
- * Supabase round trips) for data already sitting in `PlaytestCard`. This
- * component now knows nothing about any of that — it just reports what was
- * looked at.
+ * Fully self-contained: this used to report whichever card was hovered,
+ * focused or tapped up to a reader panel Playtest.tsx rendered beside the
+ * hand. That panel is gone — the docked sidebar rendered invisibly below the
+ * playtest popup's `<dialog>` top layer, and it fed a card by id, a fetch for
+ * data already sitting right here in memory. Reading a card now means
+ * enlarging it in place, so there is nothing left to report upward. See
+ * HandCard for how.
  */
 type Stage = "idle" | "final" | "selecting-bottom";
 
-export function PlaytestHand({
-  library,
-  rule,
-  onCardActivate,
-}: {
-  library: PlaytestCard[];
-  rule: KeepRule;
-  /** Called with whichever hand card was hovered, focused or tapped, or with
-   *  `null` to clear the reader — a new hand's cards are not the old one's. */
-  onCardActivate: (card: PlaytestCard | null) => void;
-}) {
+export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule: KeepRule }) {
   const [stage, setStage] = useState<Stage>("idle");
   const [drawnHand, setDrawnHand] = useState<PlaytestCard[] | null>(null);
   const [finalHand, setFinalHand] = useState<PlaytestCard[] | null>(null);
   const [mulliganCount, setMulliganCount] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Index into `shown` (below) of whichever card is enlarged right now —
+  // hovered, focused, or, on a device with no hover to speak of, tapped. One
+  // number rather than a set: only one card is ever held up at a time.
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const rngRef = useRef<RNG | null>(null);
 
   if (library.length === 0) {
@@ -82,9 +75,9 @@ export function PlaytestHand({
     setSelected(new Set());
     setDrawnHand(hand);
     setFinalHand(hand);
-    // These are different cards; the reader must not keep showing one from
-    // the hand just discarded.
-    onCardActivate(null);
+    // A different hand entirely — nothing should still be sitting enlarged
+    // from the one just discarded.
+    setActiveIndex(null);
     setStage("final");
   }
 
@@ -95,8 +88,8 @@ export function PlaytestHand({
     setDrawnHand(hand);
     setFinalHand(null);
     setSelected(new Set());
+    setActiveIndex(null);
     setStage("selecting-bottom");
-    onCardActivate(null);
   }
 
   // London: a fresh seven every time, but one more card goes to the bottom
@@ -116,6 +109,10 @@ export function PlaytestHand({
   function confirmBottom() {
     if (!drawnHand) return;
     setFinalHand(drawnHand.filter((_, i) => !selected.has(i)));
+    // The bottomed cards drop out of the array, so every later index shifts
+    // — whatever was enlarged before confirming may not even be the same
+    // card once `shown` switches over to `finalHand`.
+    setActiveIndex(null);
     setStage("final");
   }
 
@@ -137,15 +134,29 @@ export function PlaytestHand({
       </div>
 
       {shown ? (
-        <div className="flex flex-wrap gap-3">
+        // Generous vertical padding, not just the row's own gap: an enlarged
+        // card grows from its own centre, and CSS forces the popup's
+        // scrolling container to clip *both* axes the moment overflow-y is
+        // anything but visible (a non-`visible` value on one axis makes the
+        // other compute to `auto`, never `visible` — never mind that nobody
+        // asked for horizontal clipping here). Padding gives the upward half
+        // of that growth real, un-clipped box space to bleed into. The
+        // downward half needs less help: the mulligan controls, the verdict
+        // line and the results below already give it somewhere to spill
+        // without reaching the container's own bottom edge.
+        <div className="flex flex-wrap gap-3 pt-10 pb-6 sm:pt-16 lg:pt-28">
           {shown.map((card, i) => (
             <HandCard
               key={i}
               card={card}
+              index={i}
+              isFirst={i === 0}
+              isLast={i === shown.length - 1}
+              activeIndex={activeIndex}
+              onActivate={setActiveIndex}
               selectable={stage === "selecting-bottom"}
               selected={selected.has(i)}
               onToggle={() => toggleSelect(i)}
-              onActivate={onCardActivate}
             />
           ))}
         </div>
@@ -184,19 +195,91 @@ export function PlaytestHand({
  *  caption sits under the card rather than truncating narrower than it. */
 const CAPTION_WIDTH = "w-20 sm:w-[6.25rem] lg:w-[7.5rem]";
 
+/**
+ * Roughly 2.5x at `lg` — ~120px of card becomes ~300px, the point at which a
+ * card's own printed rules text starts to be legible on its Scryfall image.
+ * That is the whole reason this exists: the reader panel it replaces was the
+ * only way to read a hand card, and an enlarge much smaller than this would
+ * quietly take that back. Scaled down at narrower breakpoints, off the same
+ * `hand` box widths `DeckFace` uses, so the enlarged card still fits a phone
+ * screen instead of running off it.
+ */
+const ENLARGE_SCALE = "scale-[1.6] sm:scale-[1.9] lg:scale-[2.5]";
+
+/** "Pushes the other ones away slightly" — the owner's own words for the
+ *  neighbour nudge below, and "slightly" is doing real work: enough to read
+ *  as the hand making room, not enough to read as the row rearranging. */
+const SHIFT_BEFORE = "-translate-x-2.5 motion-reduce:translate-x-0";
+const SHIFT_AFTER = "translate-x-2.5 motion-reduce:translate-x-0";
+
+/** A coarse pointer has no hover at all, so hovering can't be how it reads a
+ *  card — see HandCard's own header for what happens on a tap instead. Read
+ *  fresh on every interaction rather than cached in state: nothing here
+ *  needs to re-render when it changes, only to know the answer at the moment
+ *  a pointer event fires. */
+function hasNoHover() {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+}
+
 function HandCard({
   card,
+  index,
+  isFirst,
+  isLast,
+  activeIndex,
+  onActivate,
   selectable,
   selected,
   onToggle,
-  onActivate,
 }: {
   card: PlaytestCard;
+  index: number;
+  isFirst: boolean;
+  isLast: boolean;
+  /** Whichever index is enlarged right now, or none. Lifted to the parent
+   *  rather than kept per-card: shifting every *other* card away needs to
+   *  know where the active one is, not just whether this one is it. */
+  activeIndex: number | null;
+  /** `setActiveIndex` itself, not a wrapper — passed the raw setter so the
+   *  guarded clear below can use its updater form, reading the *current*
+   *  active index rather than the one this card's own closure was rendered
+   *  with. */
+  onActivate: Dispatch<SetStateAction<number | null>>;
   selectable: boolean;
   selected: boolean;
   onToggle: () => void;
-  onActivate: (card: PlaytestCard) => void;
 }) {
+  const isActive = activeIndex === index;
+  const neighbourDirection =
+    activeIndex !== null && !isActive ? (index < activeIndex ? "before" : "after") : null;
+
+  const transformClasses = cx(
+    // Transform only — scaling or shifting width, margin or anything else
+    // would reflow and re-wrap the whole row on every hover, which is
+    // exactly the "growing the element for real" option the brief rules out.
+    "transition-transform duration-200 ease-out motion-reduce:transition-none",
+    isActive && "relative z-20",
+    isActive && ENLARGE_SCALE,
+    // Edge cards grow inward instead of off the edge: the default centre
+    // origin would otherwise push half the growth past the row's own left or
+    // right boundary, which the popup's horizontally-clipped scroll
+    // container (see the padding comment above) cuts off outright.
+    isActive && (isFirst ? "origin-left" : isLast ? "origin-right" : "origin-center"),
+    neighbourDirection === "before" && SHIFT_BEFORE,
+    neighbourDirection === "after" && SHIFT_AFTER,
+  );
+
+  function activate() {
+    onActivate(index);
+  }
+
+  // Only clears if this card is still the one active — a stray mouseleave
+  // or blur firing after focus or hover has already moved to a different
+  // card must not deactivate that card instead of this one.
+  function deactivate() {
+    onActivate((current) => (current === index ? null : current));
+  }
+
   const face = (
     <>
       <DeckFace image={card.imageUri} size="hand" />
@@ -206,22 +289,28 @@ function HandCard({
     </>
   );
 
-  const activate = () => onActivate(card);
-
   if (!selectable) {
     // A focusable div, not a button, matching every other hover-only preview
     // target in the app (ProfileTradables, CollectionTable, DeckWorkspace).
-    // Hover, focus and tap all call the same handler — the reader panel
-    // (Playtest.tsx) is a passive display, not a second answer competing
-    // with a tap the way the old sheet presentation was, so there is no
-    // "touch only gets one gesture" tension left to resolve here.
     return (
       <div
-        onMouseEnter={activate}
+        onMouseEnter={() => !hasNoHover() && activate()}
+        onMouseLeave={() => !hasNoHover() && deactivate()}
         onFocus={activate}
-        onClick={activate}
+        onBlur={deactivate}
+        onClick={() => {
+          // A coarse pointer never fired the mouseenter above, so the tap
+          // itself has to be what enlarges the card — and has to be able to
+          // un-enlarge it too, since there is no "moving the mouse away"
+          // equivalent to close with. A fine pointer's click is just the
+          // tail end of the hover that already did this; toggling here too
+          // would immediately un-enlarge a card the mouse is still sitting
+          // on top of.
+          if (!hasNoHover()) return;
+          onActivate((current) => (current === index ? null : index));
+        }}
         tabIndex={0}
-        className="shrink-0 cursor-default rounded-lg coarse:min-h-11"
+        className={cx("shrink-0 cursor-default rounded-lg coarse:min-h-11", transformClasses)}
       >
         {face}
       </div>
@@ -231,15 +320,20 @@ function HandCard({
   return (
     <button
       type="button"
-      onClick={() => {
-        onToggle();
-        activate();
-      }}
-      onMouseEnter={activate}
+      // Unchanged from before the enlarge existed: mid-mulligan, a tap's one
+      // job is choosing what goes to the bottom. Layering the coarse-pointer
+      // toggle from the branch above on top of that would mean the same tap
+      // both re-sorts the row *and* selects a card out from under the
+      // player's thumb — hover and focus still enlarge here for anyone with
+      // either, just not a tap.
+      onClick={onToggle}
+      onMouseEnter={() => !hasNoHover() && activate()}
+      onMouseLeave={() => !hasNoHover() && deactivate()}
       onFocus={activate}
+      onBlur={deactivate}
       aria-pressed={selected}
       aria-label={`${selected ? "Deselect" : "Select"} ${card.name} for the bottom of the library`}
-      className="shrink-0 rounded-lg coarse:min-h-11"
+      className={cx("shrink-0 rounded-lg coarse:min-h-11", transformClasses)}
     >
       <span
         className={cx(

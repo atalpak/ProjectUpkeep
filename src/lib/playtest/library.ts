@@ -54,11 +54,6 @@ export type PlaytestCard = {
    *  stops short of promising a re-sync will change it. */
   manaDataKnown: boolean;
   imageUri: string | null;
-  /** `card.oracle_text` — the reader panel's whole reason for needing this
-   *  type to carry more than an id: `imageUri` is already in memory here,
-   *  and so is this, so showing a hand card at a glance costs nothing beyond
-   *  what `buildLibrary` already read. */
-  oracleText: string | null;
 };
 
 export type BuildLibraryOptions = {
@@ -102,7 +97,6 @@ function toPlaytestCard(card: Card): PlaytestCard {
     produces: producedColors(card),
     manaDataKnown: card.produced_mana != null,
     imageUri: card.image_uri,
-    oracleText: card.oracle_text,
   };
 }
 
