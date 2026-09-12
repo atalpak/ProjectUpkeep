@@ -77,7 +77,7 @@ export function Playtest({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <ModeToggle
         mode={mode}
         onChange={setMode}
@@ -208,7 +208,7 @@ function KeepRuleEditor({
   onChange: (patch: Partial<KeepRule>) => void;
 }) {
   return (
-    <div className="space-y-3 rounded-2xl border border-border bg-surface p-4">
+    <div className="space-y-2 rounded-2xl border border-border bg-surface p-3">
       <div>
         <h2 className="text-sm font-semibold">Keep rule</h2>
         <p className="text-xs text-ink-muted">
@@ -217,7 +217,7 @@ function KeepRuleEditor({
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2">
         <Field label="Min lands">
           <Input
             type="number"

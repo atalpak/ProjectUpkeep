@@ -283,10 +283,34 @@ export function simulate(deck: SimDeck, opts: SimulateOptions): SimulateStats {
 }
 
 /**
+ * Chance of having drawn at least one of `successes` copies from a library of
+ * `population` cards, by each turn — computed exactly rather than by
+ * simulation, see odds.ts. `result[i]` is the odds by turn `i + 1`.
+ *
+ * The shared machinery behind `cardByTurnOdds` below (a named card, matched
+ * by key) and the card-odds picker's "any single copy" figure: a singleton
+ * deck's one-ofs all have `successes = 1` over the same `population`, so
+ * they share this exact number — no need for the caller to hold an actual
+ * one-copy card just to ask what the odds would be if it did.
+ */
+export function copiesByTurnOdds(
+  successes: number,
+  population: number,
+  turns: number,
+  onThePlay: boolean,
+): number[] {
+  const odds: number[] = [];
+  for (let turn = 1; turn <= turns; turn++) {
+    const cardsSeenBy = Math.min(population, OPENING_HAND_SIZE + turn - (onThePlay ? 1 : 0));
+    odds.push(atLeast(1, successes, population, cardsSeenBy));
+  }
+  return odds;
+}
+
+/**
  * Chance of having drawn a specific card (matched by `PlaytestCard.key`, so
- * every printing of it counts) by each turn, computed exactly rather than by
- * simulation — see odds.ts. `turns[i]` in the result is the odds by turn
- * `i + 1`.
+ * every printing of it counts) by each turn. `turns[i]` in the result is the
+ * odds by turn `i + 1`.
  */
 export function cardByTurnOdds(
   deck: PlaytestCard[],
@@ -295,12 +319,5 @@ export function cardByTurnOdds(
   onThePlay: boolean,
 ): number[] {
   const successes = deck.filter((c) => c.key === cardKey).length;
-  const population = deck.length;
-
-  const odds: number[] = [];
-  for (let turn = 1; turn <= turns; turn++) {
-    const cardsSeenBy = Math.min(population, OPENING_HAND_SIZE + turn - (onThePlay ? 1 : 0));
-    odds.push(atLeast(1, successes, population, cardsSeenBy));
-  }
-  return odds;
+  return copiesByTurnOdds(successes, deck.length, turns, onThePlay);
 }

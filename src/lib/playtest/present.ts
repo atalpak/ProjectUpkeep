@@ -155,14 +155,35 @@ export function landThresholdShares(landsByTurn: number[][], thresholds: number[
   );
 }
 
-/** Every distinct card in a library, one entry each, alphabetical — what the
- *  card-odds picker lists. */
+/** Every distinct card in a library, one entry each, alphabetical. */
 export function uniqueLibraryCards(library: PlaytestCard[]): PlaytestCard[] {
   const seen = new Map<string, PlaytestCard>();
   for (const card of library) {
     if (!seen.has(card.key)) seen.set(card.key, card);
   }
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export type LibraryCardCount = { card: PlaytestCard; count: number };
+
+/**
+ * Every distinct card in a library alongside how many copies of it are in
+ * there, alphabetical like `uniqueLibraryCards`. What the card-odds picker
+ * actually filters on: Commander is singleton (one copy of everything but
+ * basics and the handful of cards printed with "any number" — Relentless
+ * Rats and the like), so a plain list of distinct cards would offer ~99
+ * options whose odds are all the identical number. Copy count is what tells
+ * the picker which cards are worth asking about at all — see the "2 or more
+ * copies" filter at the call site.
+ */
+export function uniqueLibraryCardsWithCounts(library: PlaytestCard[]): LibraryCardCount[] {
+  const counts = new Map<string, LibraryCardCount>();
+  for (const card of library) {
+    const existing = counts.get(card.key);
+    if (existing) existing.count += 1;
+    else counts.set(card.key, { card, count: 1 });
+  }
+  return [...counts.values()].sort((a, b) => a.card.name.localeCompare(b.card.name));
 }
 
 /** A basic's own name is always in its type line ("Basic Land — Forest"),

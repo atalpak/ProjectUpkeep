@@ -2,8 +2,9 @@
 
 import { useRef, useState } from "react";
 
+import { useCardPreview } from "@/components/CardPanel";
 import { DeckFace } from "@/components/decks/DeckFace";
-import { Button, cx, EmptyState, Field, Input } from "@/components/ui";
+import { Button, cx, EmptyState } from "@/components/ui";
 import { evaluateHand, type KeepRule } from "@/lib/playtest/keep";
 import type { PlaytestCard } from "@/lib/playtest/library";
 import { describeHandEvaluation, drawOpeningHand } from "@/lib/playtest/present";
@@ -21,6 +22,15 @@ import { mulberry32, type RNG } from "@/lib/playtest/rng";
  * through — once confirmed they are just gone, the way they would be at a
  * real table.
  *
+ * Every draw rolls its own random seed. There used to be a seed field for
+ * recovering a specific hand, but nobody goldfishing at a table types a
+ * number back in, and it hid a sharper bug: the box echoed back whatever
+ * seed the last draw had used, so pressing the button again without
+ * clearing it first silently replayed the same hand rather than a fresh
+ * one. `draw` below is the fix — it always picks a new seed, and always
+ * resets the mulligan count, any bottom-selection and the previous verdict,
+ * so a fresh hand never carries yesterday's state with it.
+ *
  * A mode switch changes the whole pool a hand is drawn from — a hand held
  * over from "as designed" could contain a card "as built" doesn't even have a
  * copy of. Rather than reconcile that here, the parent remounts this
@@ -30,7 +40,6 @@ import { mulberry32, type RNG } from "@/lib/playtest/rng";
 type Stage = "idle" | "final" | "selecting-bottom";
 
 export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule: KeepRule }) {
-  const [seedText, setSeedText] = useState("");
   const [stage, setStage] = useState<Stage>("idle");
   const [drawnHand, setDrawnHand] = useState<PlaytestCard[] | null>(null);
   const [finalHand, setFinalHand] = useState<PlaytestCard[] | null>(null);
@@ -47,11 +56,10 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
   }
 
   function draw() {
-    const seed = seedText.trim() ? Number(seedText) : Math.floor(Math.random() * 2 ** 31);
+    const seed = Math.floor(Math.random() * 2 ** 31);
     const rng = mulberry32(seed);
     rngRef.current = rng;
     const hand = drawOpeningHand(library, rng);
-    setSeedText(String(seed));
     setMulliganCount(0);
     setSelected(new Set());
     setDrawnHand(hand);
@@ -94,29 +102,16 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
 
   return (
     <section className="space-y-3">
-      <h2 className="text-sm font-semibold">Draw a hand</h2>
-
-      <div className="flex flex-wrap items-end gap-2">
-        <Field label="Seed" hint="Type one back in and draw to recover that exact hand.">
-          <Input
-            inputMode="numeric"
-            value={seedText}
-            onChange={(e) => setSeedText(e.target.value.replace(/[^0-9]/g, ""))}
-            placeholder="random"
-            className="w-32"
-          />
-        </Field>
-        <Button type="button" onClick={draw}>
-          {stage === "idle" ? "Draw" : "Draw a new hand"}
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={mulligan}
-          disabled={stage !== "final"}
-        >
-          Mulligan
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Draw a hand</h2>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={draw}>
+            {stage === "idle" ? "Draw a hand" : "Draw a new hand"}
+          </Button>
+          <Button type="button" variant="secondary" onClick={mulligan} disabled={stage !== "final"}>
+            Mulligan
+          </Button>
+        </div>
       </div>
 
       {shown ? (
@@ -180,8 +175,19 @@ function HandCard({
     </>
   );
 
+  // `sheetOnClick: false` only while a mulligan is asking the player to
+  // choose what to bottom: that button's own `onClick` already means "put
+  // this one on the bottom," and a touch tap can only answer one question at
+  // a time. The settled hand has no competing handler, so it opens the sheet
+  // on tap like any other card thumbnail in the app.
+  const preview = useCardPreview(card.cardId, { sheetOnClick: !selectable });
+
   if (!selectable) {
-    return <div className="shrink-0">{face}</div>;
+    return (
+      <button type="button" className="shrink-0 rounded-lg coarse:min-h-11" {...preview}>
+        {face}
+      </button>
+    );
   }
 
   return (
@@ -191,6 +197,7 @@ function HandCard({
       aria-pressed={selected}
       aria-label={`${selected ? "Deselect" : "Select"} ${card.name} for the bottom of the library`}
       className="shrink-0 rounded-lg coarse:min-h-11"
+      {...preview}
     >
       <span
         className={cx(

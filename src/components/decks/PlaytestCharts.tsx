@@ -120,7 +120,26 @@ export function LinesByTurnChart({
     <div className="space-y-2">
       <h3 className="text-xs font-semibold text-ink-muted">{title}</h3>
       <div className="flex gap-1">
+        {/* The one shared y-axis the module header promises: ticks at 0/50/100%
+            of games, muted text and a muted gridline rather than a second
+            scale or a series colour bleeding into the chrome. */}
+        <div
+          className="flex w-8 shrink-0 flex-col justify-between text-right text-[10px] tabular-nums text-ink-muted"
+          style={{ height: LINE_HEIGHT_PX }}
+          aria-hidden="true"
+        >
+          <span>100%</span>
+          <span>50%</span>
+          <span>0%</span>
+        </div>
+
         <div className="relative flex-1 border-b border-border" style={{ height: LINE_HEIGHT_PX }}>
+          {/* Gridlines at the same two upper ticks — the 0% tick is the
+              container's own border-b. `bg-border`, never a line's own
+              colour, so these read as structure rather than another series. */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-border" aria-hidden="true" />
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-border" aria-hidden="true" />
+
           <svg
             viewBox="0 0 100 100"
             preserveAspectRatio="none"
@@ -164,7 +183,9 @@ export function LinesByTurnChart({
         </div>
       </div>
 
-      <div className="flex justify-between text-[10px] tabular-nums text-ink-muted">
+      {/* pl-9 lines this up under the plot area, past the y-axis column
+          (w-8) and the gap (gap-1) beside it. */}
+      <div className="flex justify-between pl-9 text-[10px] tabular-nums text-ink-muted">
         <span>Turn 1</span>
         <span>Turn {turns}</span>
       </div>

@@ -14,8 +14,10 @@ import { parseCost, producedColors } from "../src/lib/playtest/mana";
 import type { PlaytestCard } from "../src/lib/playtest/library";
 
 function land(colors: string[]): PlaytestCard {
+  const key = `land-${colors.join("")}-${Math.random()}`;
   return {
-    key: `land-${colors.join("")}-${Math.random()}`,
+    key,
+    cardId: key,
     name: "Land",
     typeLine: "Land",
     manaCost: null,
@@ -29,8 +31,10 @@ function land(colors: string[]): PlaytestCard {
 }
 
 function spell(name: string, cost: string | null, cmc: number): PlaytestCard {
+  const key = `spell-${name}`;
   return {
-    key: `spell-${name}`,
+    key,
+    cardId: key,
     name,
     typeLine: "Instant",
     manaCost: cost,
