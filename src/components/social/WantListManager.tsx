@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 
 import {
   addWants,
@@ -14,7 +14,7 @@ import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { cardKey } from "@/lib/collection/availability";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
-import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select, cx } from "@/components/ui";
 import type { Card, CardNameSuggestion } from "@/lib/types";
 import { describeSupplier, type WantRow } from "@/lib/social/wants";
 
@@ -28,6 +28,10 @@ export type SupplierView = {
 
 /** Enough of a deck to offer it in the tag picker. */
 export type DeckOption = { id: string; name: string };
+
+/** Text rows, or a card-thumbnail grid — the same choice DeckWorkspace offers
+ *  over a decklist, applied to the saved wish list below the add area. */
+type ViewMode = "list" | "gallery";
 
 /**
  * The wish list, and who can fill it.
@@ -51,6 +55,11 @@ export function WantListManager({
   /** For the "which deck is this for" tag on each row. */
   decks: DeckOption[];
 }) {
+  // Plain component state, not persisted — DeckWorkspace's equivalent toggle
+  // (src/components/decks/DeckWorkspace.tsx) does the same: it is a
+  // per-visit preference, not a setting worth a localStorage key.
+  const [view, setView] = useState<ViewMode>("list");
+
   return (
     <div className="space-y-5">
       <AddWant />
@@ -61,17 +70,57 @@ export function WantListManager({
           for trade.
         </EmptyState>
       ) : (
-        <ul className="space-y-2">
-          {wants.map((want) => (
-            <WantRowView
-              key={want.id}
-              want={want}
-              suppliers={matches[want.id] ?? []}
-              decks={decks}
-            />
-          ))}
-        </ul>
+        <div className="space-y-3">
+          <div className="flex items-center justify-end">
+            <ViewToggle view={view} onChange={setView} />
+          </div>
+
+          {view === "gallery" ? (
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {wants.map((want) => (
+                <WantGalleryCard
+                  key={want.id}
+                  want={want}
+                  suppliers={matches[want.id] ?? []}
+                  decks={decks}
+                />
+              ))}
+            </ul>
+          ) : (
+            <ul className="space-y-2">
+              {wants.map((want) => (
+                <WantRowView
+                  key={want.id}
+                  want={want}
+                  suppliers={matches[want.id] ?? []}
+                  decks={decks}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
       )}
+    </div>
+  );
+}
+
+function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-border">
+      {(["list", "gallery"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          aria-pressed={view === option}
+          className={cx(
+            "px-2.5 py-1.5 text-xs font-medium transition-colors",
+            view === option ? "bg-accent text-accent-ink" : "hover:bg-surface-muted",
+          )}
+        >
+          {option === "list" ? "Text" : "Images"}
+        </button>
+      ))}
     </div>
   );
 }
@@ -456,53 +505,236 @@ function WantRowView({
   decks: DeckOption[];
 }) {
   return (
-    <li className="rounded-lg border border-border bg-surface p-3">
-      <div className="flex gap-3">
-        <CardPreviewLink
-          card={want.cardId ?? undefined}
-          href={`/collection?q=${encodeURIComponent(want.name)}`}
-          className="relative block aspect-[488/680] w-12 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
-        >
-          {want.image ? (
-            <Image src={want.image} alt="" fill sizes="3rem" className="object-cover" unoptimized />
-          ) : null}
-        </CardPreviewLink>
+    <li className="flex items-center gap-2.5 rounded-lg border border-border bg-surface px-2.5 py-2">
+      <CardPreviewLink
+        card={want.cardId ?? undefined}
+        href={`/collection?q=${encodeURIComponent(want.name)}`}
+        // object-contain, not object-cover: a small crop's own aspect ratio
+        // doesn't quite match aspect-[488/680], and at this size that was
+        // cropping a sliver off the card rather than showing the whole thing.
+        className="relative block aspect-[488/680] w-9 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
+      >
+        {want.image ? (
+          <Image src={want.image} alt="" fill sizes="2.25rem" className="object-contain" unoptimized />
+        ) : null}
+      </CardPreviewLink>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium">{want.displayName}</span>
-            <QuantityStepper want={want} />
-            <RemoveWantButton want={want} />
+      <div className="flex min-w-0 flex-1 items-start justify-between gap-1.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium" title={want.displayName}>
+            {want.displayName}
+          </p>
+          {/* Read-only — the picker to change it lives in the ⋯ menu now. */}
+          {want.deckName ? (
+            <p className="truncate text-xs italic text-ink-muted" title={`For ${want.deckName}`}>
+              For {want.deckName}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-0.5">
+          <div className="flex items-center gap-1.5 text-sm">
+            <WantPrice want={want} />
+            <WantCardMenu want={want} decks={decks} />
           </div>
 
-          <div className="mt-1.5 text-sm">
+          <p className="max-w-[16rem] truncate text-right text-xs">
             {suppliers.length === 0 ? (
-              <span className="text-ink-muted">No one in your circle has this open for trade.</span>
+              <span className="text-ink-muted">No one in your circle has this yet.</span>
             ) : (
-              <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                <Badge>Available</Badge>
-                {suppliers.map((s, i) => (
-                  <span key={s.userId}>
-                    <Link
-                      href={`/u/${encodeURIComponent(s.username)}`}
-                      className="text-accent hover:underline"
-                    >
-                      {s.username}
-                    </Link>{" "}
-                    <span className="text-ink-muted">
-                      has {describeSupplier(s.available, s.locations)}
-                    </span>
-                    {i < suppliers.length - 1 ? <span className="text-ink-muted">,</span> : null}
-                  </span>
-                ))}
+              <span className="text-ink-muted">
+                <span className="text-ink">{suppliers[0].username}</span> has{" "}
+                {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+                {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
               </span>
             )}
-          </div>
-
-          {decks.length > 0 ? <DeckTag want={want} decks={decks} /> : null}
+          </p>
         </div>
       </div>
     </li>
+  );
+}
+
+/** A want's price, shown the same unconditional way a draft row's is — see
+ *  DraftRowView. Renders nothing when the representative printing carries no
+ *  price at all, same as that row. */
+function WantPrice({ want }: { want: WantRow }) {
+  if (!want.price || want.price.value === null) return null;
+  return (
+    <span className="text-xs tabular-nums text-ink-muted">
+      {want.price.approximate ? "~" : ""}
+      {formatPrice(want.price.value)}
+    </span>
+  );
+}
+
+/**
+ * The saved wish list, as a card-thumbnail grid.
+ *
+ * Mirrors DeckWorkspace's Gallery/GalleryCard (src/components/decks/DeckWorkspace.tsx):
+ * the image carries nothing but the art, every badge and control sits below
+ * it. Space is tighter here than on a deck's gallery tile — there is no
+ * per-card menu to fall back on — so the full supplier list `WantRowView`
+ * spells out becomes the same one-line-plus-count `WishRow` on the deck page
+ * already uses (name, whether a friend has it, +N more), rather than a
+ * link per friend.
+ */
+function WantGalleryCard({
+  want,
+  suppliers,
+  decks,
+}: {
+  want: WantRow;
+  suppliers: SupplierView[];
+  decks: DeckOption[];
+}) {
+  // The full-resolution crop, not the list row's small one — stretched to
+  // this tile's width, the small crop read as blurry.
+  const image = want.imageLarge ?? want.image;
+
+  return (
+    <li className="space-y-1.5">
+      <CardPreviewLink
+        card={want.cardId ?? undefined}
+        href={`/collection?q=${encodeURIComponent(want.name)}`}
+        className="relative block aspect-[488/680] overflow-hidden rounded-lg border border-border bg-surface-muted"
+      >
+        {image ? (
+          <Image
+            src={image}
+            alt={want.displayName}
+            fill
+            sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
+            className="object-cover"
+            unoptimized
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
+            {want.displayName}
+          </div>
+        )}
+      </CardPreviewLink>
+
+      {/* Same shape as the list row: name and, under it, "For <deck>" (the
+          picker to change it lives in the ⋯ menu now, this is read-only) on
+          the left; price and the ⋯ menu at the top right, who has it under
+          those, right-aligned. */}
+      <div className="flex items-start justify-between gap-1.5 text-xs">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium" title={want.displayName}>
+            {want.displayName}
+          </p>
+          {want.deckName ? (
+            <p className="truncate italic text-ink-muted" title={`For ${want.deckName}`}>
+              For {want.deckName}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <WantPrice want={want} />
+          <WantCardMenu want={want} decks={decks} />
+        </div>
+      </div>
+
+      {suppliers.length > 0 ? (
+        <p className="truncate text-right text-xs text-ink-muted">
+          {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+          {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * The gallery tile's one control: quantity, deck assignment and Remove,
+ * folded behind a ⋯ menu instead of three separate controls competing for a
+ * tile that's mostly image. Same pattern as the deck page's row menu
+ * (RowActions in DeckWorkspace.tsx) — outside-click and Escape close it, and
+ * opening one closes any other that happens to be open.
+ */
+const WANT_MENU_OPEN = "want-card-menu-open";
+
+function WantCardMenu({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
+  const menuId = useId();
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  function openMenu() {
+    window.dispatchEvent(new CustomEvent(WANT_MENU_OPEN, { detail: menuId }));
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    function onOtherOpen(event: Event) {
+      if ((event as CustomEvent<string>).detail !== menuId) setOpen(false);
+    }
+    window.addEventListener(WANT_MENU_OPEN, onOtherOpen);
+    return () => window.removeEventListener(WANT_MENU_OPEN, onOtherOpen);
+  }, [menuId]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(event: MouseEvent) {
+      if (!container.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={container} className="relative shrink-0">
+      <button
+        ref={trigger}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Actions for ${want.displayName}`}
+        className={cx(
+          "rounded px-1 text-sm leading-none text-ink-muted transition-colors hover:text-ink",
+          open && "text-ink",
+        )}
+      >
+        ⋯
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-30 mt-1 w-48 space-y-2 rounded-lg border border-border bg-surface-raised p-2.5 text-left shadow-xl"
+        >
+          <div>
+            <span className="mb-1 block text-[11px] font-medium text-ink-muted">Quantity</span>
+            <QuantityStepper want={want} />
+          </div>
+
+          {decks.length > 0 ? (
+            <div className="border-t border-border pt-2">
+              <DeckTag want={want} decks={decks} />
+            </div>
+          ) : null}
+
+          <div className="border-t border-border pt-2">
+            <RemoveWantButton want={want} />
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

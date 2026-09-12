@@ -18,6 +18,7 @@ import type { WantExportRow } from "@/lib/social/want-export";
 import { expiringSoon, isExpired } from "@/lib/social/trade-status";
 import { cardKey } from "@/lib/collection/availability";
 import { MIN_TERM } from "@/lib/collection/locate";
+import { displayPrice } from "@/lib/collection/pricing";
 import {
   matchFriendCardStock,
   matchTradablesByTerm,
@@ -241,7 +242,7 @@ export async function getMyTradableCards(): Promise<CardInstanceWithCard[]> {
 // ---------------------------------------------------------------------------
 
 const WANT_CARD_FIELDS =
-  "cards ( scryfall_id, oracle_id, name, flavor_name, set_name, set_code, image_uri_small )";
+  "cards ( scryfall_id, oracle_id, name, flavor_name, set_name, set_code, image_uri, image_uri_small, price_usd, price_usd_foil, price_usd_etched )";
 
 type RawWant = {
   id: string;
@@ -255,7 +256,11 @@ type RawWant = {
     flavor_name: string | null;
     set_name: string | null;
     set_code: string;
+    image_uri: string | null;
     image_uri_small: string | null;
+    price_usd: number | null;
+    price_usd_foil: number | null;
+    price_usd_etched: number | null;
   } | null;
 };
 
@@ -282,6 +287,8 @@ function toWantRow(raw: RawWant): WantRow {
     displayName: raw.cards ? cardDisplayName(raw.cards) : "Unknown card",
     cardId: raw.cards?.scryfall_id ?? raw.card_id,
     image: raw.cards?.image_uri_small ?? null,
+    imageLarge: raw.cards?.image_uri ?? null,
+    price: raw.cards ? displayPrice(raw.cards, "nonfoil") : null,
     quantity: raw.quantity,
     note: raw.note,
   };

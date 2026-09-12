@@ -38,7 +38,23 @@ export type WantRow = {
   displayName: string;
   /** Representative printing, for the card panel. */
   cardId: string | null;
+  /** Small crop — right for a list row's thumbnail, too soft stretched any
+   *  bigger. */
   image: string | null;
+  /** Full-resolution crop, for the gallery view's larger tile. Optional for
+   *  the same reason `price` is: a couple of callers build a throwaway
+   *  `WantRow` purely to feed `matchSuppliersFor`, which never renders an
+   *  image at gallery size. */
+  imageLarge?: string | null;
+  /**
+   * The representative printing's non-foil price — a want names a card, not
+   * a finish, so this is always the plain listing, the same choice the add
+   * flow's draft rows make. Optional because a couple of callers (deck-page
+   * matching, /decks/check) build a throwaway `WantRow` purely to feed
+   * `matchSuppliersFor`, which never reads price — they simply omit it.
+   * `null` (as opposed to omitted) means Scryfall has no recent sale.
+   */
+  price?: { value: number | null; approximate: boolean } | null;
   quantity: number;
   note: string | null;
   /**
