@@ -9,10 +9,9 @@ import {
 import { getLocations } from "@/lib/collection/queries";
 import { hasAcceptedTos, shouldGateTrading } from "@/lib/social/tos";
 import { isExpired } from "@/lib/social/trade-status";
+import { FriendSearch } from "@/components/social/FriendSearch";
 import { FriendsManager } from "@/components/social/FriendsManager";
-import { TradeFeed } from "@/components/social/TradeFeed";
-import { TradeList } from "@/components/social/TradeList";
-import { TradingTerms } from "@/components/social/TradingTerms";
+import { FriendsSidebar } from "@/components/social/FriendsSidebar";
 import { PageHeader } from "@/components/ui";
 import type { Location } from "@/lib/types";
 
@@ -22,8 +21,12 @@ export const metadata = { title: "Friends · Project Upkeep" };
  * The social hub.
  *
  * One page rather than a Friends tab and a Trades tab, because the two are the
- * same subject: a trade is something that happens with a person. Pending offers
- * sit at the top because they are the only thing here waiting on you.
+ * same subject: a trade is something that happens with a person. Search leads
+ * the page because everything else is downstream of having added someone;
+ * trades and activity sit in a sidebar because they are the ongoing half of a
+ * friendship, checked on every visit rather than browsed once. On a narrow
+ * screen there is no "side" — search, then sidebar, then roster, stacked in
+ * that order (see `.claude/rules/app-router.md`).
  */
 export default async function FriendsPage({
   searchParams,
@@ -74,64 +77,31 @@ export default async function FriendsPage({
         subtitle="Trading happens between friends. Nothing you own is visible to anyone until you both agree and you open a container for trade."
       />
 
-      {gateTrading ? (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold">Trading</h2>
-          <TradingTerms accepted={false} />
-        </section>
-      ) : (
-        <>
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold">
-              Outstanding trades
-              {open.length > 0 ? ` (${open.length})` : ""}
-              {awaitingYou > 0 ? (
-                <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
-                  {awaitingYou} waiting on you
-                </span>
-              ) : null}
-            </h2>
+      <FriendSearch results={results} query={query} />
 
-            {/* A one-liner rather than the full empty state: this section sits at
-                the top of the page, and having nothing pending is the normal case
-                rather than something to announce. */}
-            {open.length === 0 ? (
-              <p className="text-sm text-ink-muted">
-                Nothing pending. Offers you send or receive appear here.
-              </p>
-            ) : (
-              <TradeList trades={open} userId={user?.id ?? ""} highlightId={highlightId} />
-            )}
+      {/* Sidebar first in the DOM: on a narrow screen this stacks between the
+          search box above and the roster below, exactly the order it takes on
+          a wide one where it becomes the left column instead. */}
+      <div className="grid gap-8 lg:grid-cols-[320px_1fr] lg:items-start">
+        <FriendsSidebar
+          gateTrading={gateTrading}
+          tosAccepted={tosAccepted}
+          open={open}
+          settled={settled}
+          feed={feed}
+          userId={user?.id ?? ""}
+          highlightId={highlightId}
+          highlightInSettled={highlightInSettled}
+          awaitingYou={awaitingYou}
+        />
 
-            {settled.length > 0 ? (
-              <details className="rounded-lg border border-border" open={highlightInSettled}>
-                <summary className="cursor-pointer px-3 py-2 text-xs font-medium">
-                  Past trades ({settled.length})
-                </summary>
-                <div className="space-y-4 border-t border-border p-3">
-                  <TradeList trades={settled} userId={user?.id ?? ""} highlightId={highlightId} />
-                </div>
-              </details>
-            ) : null}
-          </section>
-
-          <section className="space-y-3">
-            <h2 className="text-sm font-semibold">Activity</h2>
-            <TradeFeed entries={feed} userId={user?.id ?? ""} />
-          </section>
-
-          {tosAccepted ? <TradingTerms accepted /> : null}
-        </>
-      )}
-
-      <FriendsManager
-        friends={edges.friends}
-        incoming={edges.incoming}
-        outgoing={edges.outgoing}
-        results={results}
-        query={query}
-        locations={locations as Array<Location & { is_tradable?: boolean }>}
-      />
+        <FriendsManager
+          friends={edges.friends}
+          incoming={edges.incoming}
+          outgoing={edges.outgoing}
+          locations={locations as Array<Location & { is_tradable?: boolean }>}
+        />
+      </div>
     </div>
   );
 }
