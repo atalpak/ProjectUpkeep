@@ -60,7 +60,20 @@ export default async function AppLayout({
 
               {/* Hides itself below xl, where there is no sidebar to switch off. */}
               <CardPreviewToggle />
-              <ThemeToggle className="hidden lg:inline-flex" />
+
+              {/* Wrapped rather than given `hidden lg:inline-flex` directly.
+                  ThemeToggle sets its own `inline-flex`, and two display
+                  utilities in the same layer are settled by stylesheet order,
+                  not by the order they appear in the class attribute — so
+                  `hidden` lost and the button showed at every width, pushing
+                  the header 42px past the viewport on a 375px phone. Same
+                  Tailwind v4 quirk that needed `!p-0` on the landing page.
+                  A wrapper has no display utility of its own to lose to.
+                  Below lg the drawer carries its own ThemeToggle, so nothing
+                  is lost — which is what the note below already claimed. */}
+              <div className="hidden lg:flex">
+                <ThemeToggle />
+              </div>
 
               {/* The username, and behind it Settings and Log out. Below lg these
                   live in the drawer instead, so the bar keeps to the logo,

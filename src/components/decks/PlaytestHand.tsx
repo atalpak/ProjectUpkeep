@@ -201,7 +201,14 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
 }
 
 /** Matches `DeckFace`'s `hand` box width at each breakpoint, so the name
- *  caption sits under the card rather than truncating narrower than it. */
+ *  caption sits under the card rather than truncating narrower than it.
+ *
+ *  Hidden with `invisible`, not unmounted, while a card is enlarged: the
+ *  caption is inside the scaled box, so it blows up to a giant truncated
+ *  name under a card whose own art already prints the name. Keeping the
+ *  element in the layout matters — dropping it would change the card's
+ *  height and reflow the row, which is the whole thing the transform-only
+ *  approach avoids. */
 const CAPTION_WIDTH = "w-20 sm:w-[6.25rem] lg:w-[7.5rem]";
 
 /**
@@ -288,7 +295,13 @@ function HandCard({
   const face = (
     <>
       <DeckFace image={card.imageUri} size="hand" />
-      <p className={cx("mt-1 truncate text-center text-[10px] text-ink-muted", CAPTION_WIDTH)}>
+      <p
+        className={cx(
+          "mt-1 truncate text-center text-[10px] text-ink-muted",
+          CAPTION_WIDTH,
+          isActive && "invisible",
+        )}
+      >
         {card.name}
       </p>
     </>
@@ -297,8 +310,17 @@ function HandCard({
   if (!selectable) {
     // A focusable div, not a button, matching every other hover-only preview
     // target in the app (ProfileTradables, CollectionTable, DeckWorkspace).
+    //
+    // Named explicitly rather than from its own content. The content was the
+    // caption, and the caption is `invisible` while this card is enlarged —
+    // which is exactly when focus is on it — so a screen reader would have
+    // reached an enlarged card with nothing left to announce. `role="img"`
+    // is both the honest description (it is a picture of a card) and a role
+    // that actually accepts a name, which a bare `generic` div does not.
     return (
       <div
+        role="img"
+        aria-label={card.name}
         onMouseEnter={() => !hasNoHover() && activate()}
         onMouseLeave={() => !hasNoHover() && deactivate()}
         onFocus={activate}
@@ -366,7 +388,13 @@ function HandCard({
           </span>
         ) : null}
       </span>
-      <p className={cx("mt-1 truncate text-center text-[10px] text-ink-muted", CAPTION_WIDTH)}>
+      <p
+        className={cx(
+          "mt-1 truncate text-center text-[10px] text-ink-muted",
+          CAPTION_WIDTH,
+          isActive && "invisible",
+        )}
+      >
         {card.name}
       </p>
     </button>
