@@ -1,13 +1,14 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useActionState, useState } from "react";
 
 import { createDeck, deleteDeck } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
+import { artCropUrl } from "@/components/LocationManager";
 import { ManaSymbol } from "@/components/ManaCost";
-import { DeckFace } from "@/components/decks/DeckFace";
-import { Badge, Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
+import { Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
 import type { DeckSummary } from "@/lib/collection/queries";
 
 /** The deck list, plus the form for starting a new one. */
@@ -42,7 +43,7 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
           collection — those copies stop counting as available.
         </EmptyState>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {decks.map((deck) => (
             <DeckCard key={deck.id} deck={deck} />
           ))}
@@ -53,97 +54,122 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
 }
 
 /**
- * One deck, as a card with a face.
+ * One deck, as a compact commander-art tile — the same treatment its own
+ * page's banner (`DeckBanner.tsx`) and its Locations-page tile
+ * (`LocationManager.tsx`'s `artCropUrl`) already give a deck: the
+ * commander's art crop washes the whole tile behind a flat dark scrim, so a
+ * grid of decks reads as a shelf of distinct covers rather than a stack of
+ * identical grey cards. Four fit a row on desktop (`xl:grid-cols-4` on the
+ * parent grid) because there is no room left for anything but the essentials
+ * once the tile is that compact: name, commander (or unique-card count),
+ * and how much of the list is actually sleeved.
  *
- * The old row was a line of text with a Delete button as its loudest element —
- * the destructive action styled louder than the deck itself, and nothing on it
- * that another collection tool could not also print. Two changes fix both:
- *
- *   - The commander's art is the deck's face. In Commander the commander *is*
- *     the deck's identity, and a name in 12px grey asks the reader to picture
- *     it themselves.
- *   - The progress bar says how much of the list is actually in the box. That
- *     is the one number only this app can print, and it was the one number the
- *     row left out.
- *
- * Delete moves behind the ⋯ menu: still one click away, no longer the first
- * thing the eye lands on.
+ * Delete stays behind the ⋯ menu: still one click away, never the loudest
+ * thing on the tile.
  */
 function DeckCard({ deck }: { deck: DeckSummary }) {
-  const tags = deck.tags ?? [];
   const complete = deck.cardCount > 0 && deck.sleevedCount >= deck.cardCount;
   const pct = deck.cardCount > 0 ? (deck.sleevedCount / deck.cardCount) * 100 : 0;
+  const art = artCropUrl(deck.commanderImage);
 
   return (
-    <div className="relative flex gap-3 rounded-2xl border border-border bg-surface p-3 transition-colors hover:border-accent/50">
-      <DeckFace image={deck.commanderImage} size="thumb" />
+    <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-border transition-colors hover:border-accent/50">
+      {art ? (
+        <>
+          <Image
+            src={art}
+            alt=""
+            fill
+            unoptimized
+            sizes="(min-width: 1280px) 24vw, (min-width: 640px) 33vw, 50vw"
+            className="absolute inset-0 object-cover"
+          />
+          {/* Same flat scrim DeckBanner uses, for the same reason: a crop's
+              bright spot lands in a different place on every card, and a
+              gradient looks fine on some and leaves the name unreadable on
+              others. */}
+          <div className="absolute inset-0 bg-black/55" />
+        </>
+      ) : (
+        <div className="absolute inset-0 bg-surface-muted" />
+      )}
 
-      <div className="min-w-0 flex-1 space-y-1.5">
+      {/* Stretched so the whole tile is the target, not just the name. */}
+      <Link
+        href={`/decks/${deck.id}`}
+        className="absolute inset-0 z-0"
+        aria-label={deck.name}
+      />
+
+      <div
+        className={cx(
+          "relative z-10 flex h-full flex-col justify-between gap-2 p-3",
+          art ? "text-white" : "text-ink",
+        )}
+      >
         <div className="flex items-start justify-between gap-2">
-          {/* Stretched so the whole card is the target, not just the words —
-              a deck is one thing to click, and the row is big now. */}
-          <Link
-            href={`/decks/${deck.id}`}
-            className="font-display text-base font-semibold leading-tight tracking-tight before:absolute before:inset-0 before:content-['']"
-          >
-            {deck.name}
-          </Link>
+          {deck.commanderColors.length > 0 ? (
+            <div className="flex gap-0.5">
+              {deck.commanderColors.map((code) => (
+                <ManaSymbol key={code} code={code} size="xs" />
+              ))}
+            </div>
+          ) : (
+            <span />
+          )}
 
           {/* Above the stretched link so it stays clickable. */}
-          <div className="relative z-10 shrink-0">
-            <DeleteDeckButton deckId={deck.id} deckName={deck.name} />
+          <div className="relative z-10 -m-1.5 shrink-0">
+            <DeleteDeckButton deckId={deck.id} deckName={deck.name} dark={!!art} />
           </div>
         </div>
 
-        {deck.commanderColors.length > 0 ? (
-          <div className="flex gap-0.5">
-            {deck.commanderColors.map((code) => (
-              <ManaSymbol key={code} code={code} size="xs" />
-            ))}
-          </div>
-        ) : null}
-
-        <p className="truncate text-xs text-ink-muted">
-          {deck.commanderName ?? `${deck.uniqueCount} unique cards`}
-        </p>
-
-        {deck.cardCount > 0 ? (
-          <div className="space-y-1 pt-0.5">
-            <div
-              className="h-1.5 w-full overflow-hidden rounded-full bg-surface-muted"
-              role="img"
-              aria-label={`${deck.sleevedCount} of ${deck.cardCount} cards sleeved`}
-            >
-              <span
-                className={cx("block h-full rounded-full", complete ? "bg-[#1f7a4d]" : "bg-accent")}
-                style={{ width: `${Math.min(100, pct)}%` }}
-              />
-            </div>
-            <p className="text-xs tabular-nums text-ink-muted">
-              {complete ? (
-                <span className="font-medium text-ink">Ready to play</span>
-              ) : (
-                <>
-                  <span className="font-medium text-ink">
-                    {deck.sleevedCount} of {deck.cardCount}
-                  </span>{" "}
-                  sleeved
-                </>
-              )}
+        <div className="space-y-1.5">
+          <div>
+            <p className="truncate font-display text-sm font-semibold leading-tight tracking-tight">
+              {deck.name}
+            </p>
+            <p className={cx("truncate text-xs", art ? "text-white/80" : "text-ink-muted")}>
+              {deck.commanderName ?? `${deck.uniqueCount} unique cards`}
             </p>
           </div>
-        ) : (
-          <p className="text-xs text-ink-muted">Nothing on the list yet.</p>
-        )}
 
-        {deck.format || tags.length > 0 ? (
-          <div className="flex flex-wrap gap-1 pt-0.5">
-            {deck.format ? <Badge>{deck.format}</Badge> : null}
-            {tags.map((tag) => (
-              <Badge key={tag}>{tag}</Badge>
-            ))}
-          </div>
-        ) : null}
+          {deck.cardCount > 0 ? (
+            <div className="space-y-1">
+              <div
+                className={cx(
+                  "h-1.5 w-full overflow-hidden rounded-full",
+                  art ? "bg-white/25" : "bg-surface-muted",
+                )}
+                role="img"
+                aria-label={`${deck.sleevedCount} of ${deck.cardCount} cards sleeved`}
+              >
+                <span
+                  className={cx("block h-full rounded-full", complete ? "bg-[#3fae7a]" : "bg-accent")}
+                  style={{ width: `${Math.min(100, pct)}%` }}
+                />
+              </div>
+              <p className={cx("text-xs tabular-nums", art ? "text-white/80" : "text-ink-muted")}>
+                {complete ? (
+                  <span className={cx("font-medium", art ? "text-white" : "text-ink")}>
+                    Ready to play
+                  </span>
+                ) : (
+                  <>
+                    <span className={cx("font-medium", art ? "text-white" : "text-ink")}>
+                      {deck.sleevedCount} of {deck.cardCount}
+                    </span>{" "}
+                    sleeved
+                  </>
+                )}
+              </p>
+            </div>
+          ) : (
+            <p className={cx("text-xs", art ? "text-white/80" : "text-ink-muted")}>
+              Nothing on the list yet.
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -162,7 +188,18 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
  * Arming it swaps in the full-strength confirmation, where the emphasis
  * belongs.
  */
-function DeleteDeckButton({ deckId, deckName }: { deckId: string; deckName: string }) {
+function DeleteDeckButton({
+  deckId,
+  deckName,
+  dark,
+}: {
+  deckId: string;
+  deckName: string;
+  /** Whether this sits over commander-art + scrim, same rule DeckBanner's
+   *  own buttons use — a fixed light/dark theme colour would go invisible
+   *  or unreadable against the tile's own art background otherwise. */
+  dark: boolean;
+}) {
   const [armed, setArmed] = useState(false);
 
   if (!armed) {
@@ -172,9 +209,12 @@ function DeleteDeckButton({ deckId, deckName }: { deckId: string; deckName: stri
         onClick={() => setArmed(true)}
         aria-label={`Delete ${deckName}`}
         title={`Delete ${deckName}`}
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
+        className={cx(
+          "inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-colors coarse:size-11",
+          dark ? "text-white/80 hover:bg-white/15 hover:text-white" : "text-ink-muted hover:bg-surface-muted hover:text-ink",
+        )}
       >
-        <svg viewBox="0 0 20 20" className="size-5" fill="currentColor" aria-hidden="true">
+        <svg viewBox="0 0 20 20" className="size-4" fill="currentColor" aria-hidden="true">
           <circle cx="4" cy="10" r="1.5" />
           <circle cx="10" cy="10" r="1.5" />
           <circle cx="16" cy="10" r="1.5" />
@@ -184,7 +224,7 @@ function DeleteDeckButton({ deckId, deckName }: { deckId: string; deckName: stri
   }
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
+    <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface-raised p-1 shadow-xl">
       <form action={deleteDeck}>
         <input type="hidden" name="deck_id" value={deckId} />
         <Button variant="danger" type="submit" className="text-xs">
