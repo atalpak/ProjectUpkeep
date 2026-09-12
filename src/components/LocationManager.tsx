@@ -229,6 +229,17 @@ function LocationRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [state, action, pending] = useActionState(renameLocation, EMPTY_LOCATION_STATE);
 
+  // A successful save closes the form the same way Cancel does. Adjusted
+  // during render rather than in an effect — React's own pattern for "react
+  // to a prop/state change" without an extra render pass — and keyed on the
+  // state object itself, not state.notice's text, so two saves in a row that
+  // both land on "Saved." still each trigger this.
+  const [handledState, setHandledState] = useState(state);
+  if (state !== handledState) {
+    setHandledState(state);
+    if (state.notice) setEditing(false);
+  }
+
   return (
     <div className={cx("py-3", nested && "border-t border-border pl-6")}>
       <div className="flex items-start gap-3">
@@ -416,6 +427,17 @@ function LocationTile({
   const [menuOpen, setMenuOpen] = useState(false);
   const [state, action, pending] = useActionState(renameLocation, EMPTY_LOCATION_STATE);
 
+  // A successful save closes the form the same way Cancel does. Adjusted
+  // during render rather than in an effect — React's own pattern for "react
+  // to a prop/state change" without an extra render pass — and keyed on the
+  // state object itself, not state.notice's text, so two saves in a row that
+  // both land on "Saved." still each trigger this.
+  const [handledState, setHandledState] = useState(state);
+  if (state !== handledState) {
+    setHandledState(state);
+    if (state.notice) setEditing(false);
+  }
+
   // A deck reads as a deck box, not a binder page: its most notable card's
   // illustration washes the whole tile instead of sitting in a foreground
   // strip, the way a binder or box's peek does below.
@@ -557,7 +579,7 @@ function LocationMenu({
             onClick={onRename}
             className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted"
           >
-            Rename
+            Edit
           </button>
           <form action={deleteLocation}>
             <input type="hidden" name="location_id" value={location.id} />
