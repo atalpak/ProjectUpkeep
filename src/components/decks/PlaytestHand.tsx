@@ -269,6 +269,11 @@ function HandCard({
     neighbourDirection === "after" && SHIFT_AFTER,
   );
 
+  // Whatever was enlarged when this card was pressed, captured before the
+  // browser's own focus-on-mousedown can change it. See the onPointerDown
+  // below for why the tap toggle cannot read `activeIndex` directly.
+  const activeAtPressRef = useRef<number | null>(null);
+
   function activate() {
     onActivate(index);
   }
@@ -298,6 +303,19 @@ function HandCard({
         onMouseLeave={() => !hasNoHover() && deactivate()}
         onFocus={activate}
         onBlur={deactivate}
+        // Chromium focuses a tabindex element as mousedown's default action,
+        // so on a tap the order is pointerdown, mousedown, *focus*, then
+        // click — and `onFocus` above has already enlarged this card by the
+        // time the click lands. Toggling against the live `activeIndex` there
+        // would read "already active" and switch it straight back off, so the
+        // first tap on any card did nothing at all and only a second tap
+        // worked. (WebKit does not focus divs on tap, which is why this only
+        // bit Android.) Capturing the value at pointerdown — before focus can
+        // move it — makes the toggle decide on the state the user actually
+        // pressed against.
+        onPointerDown={() => {
+          activeAtPressRef.current = activeIndex;
+        }}
         onClick={() => {
           // A coarse pointer never fired the mouseenter above, so the tap
           // itself has to be what enlarges the card — and has to be able to
@@ -307,7 +325,7 @@ function HandCard({
           // would immediately un-enlarge a card the mouse is still sitting
           // on top of.
           if (!hasNoHover()) return;
-          onActivate((current) => (current === index ? null : index));
+          onActivate(activeAtPressRef.current === index ? null : index);
         }}
         tabIndex={0}
         className={cx("shrink-0 cursor-default rounded-lg coarse:min-h-11", transformClasses)}
