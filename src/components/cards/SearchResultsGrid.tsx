@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRef, useState } from "react";
 
 import { useCardPanel } from "@/components/CardPanel";
 import type { CardSearchResult } from "@/lib/cards/search";
@@ -27,55 +28,98 @@ export function SearchResultsGrid({ results }: { results: CardSearchResult[] }) 
     <ul className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-4">
       {results.map((card) => (
         <li key={card.name}>
-          <button
-            type="button"
+          <MagnifierTile
+            image={card.sample_image_uri_large ?? card.sample_image_uri}
+            label={card.sample_flavor_name ?? card.name}
             onClick={() => card.sample_card_id && open(card.sample_card_id)}
             disabled={!card.sample_card_id}
-            aria-label={card.sample_flavor_name ?? card.name}
-            className="group relative block aspect-[488/680] w-full overflow-hidden rounded-lg border border-border bg-surface-muted"
-          >
-            {card.sample_image_uri_large ?? card.sample_image_uri ? (
-              <Image
-                src={(card.sample_image_uri_large ?? card.sample_image_uri) as string}
-                alt=""
-                fill
-                sizes="(min-width: 1024px) 16rem, (min-width: 640px) 33vw, 45vw"
-                className="object-cover transition-transform duration-300 ease-out group-hover:scale-105"
-                unoptimized
-              />
-            ) : null}
-
-            {/* The "look closer" affordance: a magnifying glass that pops in
-                on hover rather than sitting there always, and a matching dark
-                wash so it reads against art of any brightness. Pure CSS
-                (opacity/scale transitions, no JS), so it costs nothing to
-                animate. */}
-            <span
-              aria-hidden="true"
-              className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all duration-200 group-hover:bg-black/25 group-hover:opacity-100"
-            >
-              <MagnifyingGlassIcon className="size-10 scale-75 text-white drop-shadow transition-transform duration-200 ease-out group-hover:scale-100" />
-            </span>
-          </button>
+          />
         </li>
       ))}
     </ul>
   );
 }
 
-function MagnifyingGlassIcon({ className }: { className?: string }) {
+const LENS_SIZE = 130;
+// How much closer the loupe brings you than the tile's own on-screen size.
+const ZOOM = 2.4;
+
+/**
+ * A card tile whose hover state is a literal loupe — the cursor itself
+ * hides, and a circular lens follows it showing a magnified crop of exactly
+ * the art under the pointer, not a static icon or a zoom on the whole tile.
+ *
+ * Plain mouse tracking (position state updated in onMouseMove), scoped to
+ * this one tile so hovering one card never re-renders the rest of the grid.
+ * The lens is a `background-image` at a larger `background-size`, offset by
+ * the pointer's position scaled by the same zoom factor — the standard
+ * "product photo" loupe technique, done in CSS rather than drawing to a
+ * canvas, so it costs nothing beyond the position update itself.
+ */
+function MagnifierTile({
+  image,
+  label,
+  onClick,
+  disabled,
+}: {
+  image: string | null;
+  label: string;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [lens, setLens] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  function onMouseMove(event: React.MouseEvent<HTMLButtonElement>) {
+    const box = ref.current?.getBoundingClientRect();
+    if (!box) return;
+    setLens({
+      x: event.clientX - box.left,
+      y: event.clientY - box.top,
+      w: box.width,
+      h: box.height,
+    });
+  }
+
   return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      className={className}
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      onMouseMove={onMouseMove}
+      onMouseLeave={() => setLens(null)}
+      disabled={disabled}
+      aria-label={label}
+      className="relative block aspect-[488/680] w-full cursor-none overflow-hidden rounded-lg border border-border bg-surface-muted"
     >
-      <circle cx="10.5" cy="10.5" r="6.5" />
-      <path d="m20 20-4.35-4.35" />
-    </svg>
+      {image ? (
+        <Image src={image} alt="" fill sizes="(min-width: 1024px) 16rem, (min-width: 640px) 33vw, 45vw" className="object-cover" unoptimized />
+      ) : null}
+
+      {lens && image ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute rounded-full border-4 border-white shadow-[0_2px_12px_rgba(0,0,0,0.45)]"
+          style={{
+            left: lens.x - LENS_SIZE / 2,
+            top: lens.y - LENS_SIZE / 2,
+            width: LENS_SIZE,
+            height: LENS_SIZE,
+            backgroundImage: `url(${image})`,
+            backgroundSize: `${lens.w * ZOOM}px ${lens.h * ZOOM}px`,
+            backgroundPosition: `${-(lens.x * ZOOM - LENS_SIZE / 2)}px ${-(lens.y * ZOOM - LENS_SIZE / 2)}px`,
+            backgroundRepeat: "no-repeat",
+          }}
+        >
+          {/* The handle — what makes a circle read as a magnifying glass
+              rather than a plain loupe ring. */}
+          <span
+            aria-hidden="true"
+            className="absolute -bottom-2 -right-2 h-2.5 w-6 rounded-full border border-white/70 bg-ink shadow"
+            style={{ transform: "rotate(45deg)" }}
+          />
+        </span>
+      ) : null}
+    </button>
   );
 }
