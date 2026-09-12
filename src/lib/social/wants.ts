@@ -15,6 +15,11 @@
  * that powers /find's "Among your friends" section and the header search's
  * compact echo of it. It matches on name, the same every-word-anywhere rule
  * `nameMatches` applies to a person's own collection, rather than on `key`.
+ *
+ * `matchFriendCardStock` further down answers a third question: the card
+ * popup already knows exactly which card and which printing it is looking
+ * at, and wants to say which friends have it open for trade — and whether
+ * their copy is that printing or a different one of the same card.
  */
 
 import { nameMatches, MIN_TERM } from "@/lib/collection/locate";
@@ -53,6 +58,15 @@ export type TradableRow = {
   key: string;
   quantity: number;
   locationName: string | null;
+  /**
+   * The exact printing this stack is (a `cards.scryfall_id`), when the caller
+   * bothered to load it. Optional because most callers here only ever care
+   * about the oracle-level `key` — "any printing counts" is the whole point
+   * of `matchWants`. `matchFriendCardStock` below is the one place printing
+   * identity matters, because the card popup is looking at one specific
+   * printing and wants to say whether a friend's copy is that one or not.
+   */
+  cardId?: string | null;
 };
 
 /** What one person can supply toward a want. */
@@ -247,4 +261,55 @@ export function capSuppliers(
   max: number,
 ): { shown: WantSupplier[]; more: number } {
   return { shown: suppliers.slice(0, max), more: Math.max(0, suppliers.length - max) };
+}
+
+// ---------------------------------------------------------------------------
+// One card, by printing (the card popup's "Friends have this")
+// ---------------------------------------------------------------------------
+
+/** One friend's stock of a card, and whether it's the printing being looked at. */
+export type FriendPrintingSupplier = {
+  ownerId: string;
+  /** Copies open for trade — of the exact printing if any exist, else of some
+   *  other printing of the same card. Never a sum of both; see below. */
+  count: number;
+  /** True when at least one of those copies is the exact printing asked about. */
+  samePrinting: boolean;
+};
+
+/**
+ * Who has a specific card open for trade, and whether it's this printing or a
+ * different one — the card popup's "Friends have this" line.
+ *
+ * A narrower question than `matchWants`: that function is happy to know a want
+ * is filled by any printing. The popup is looking at one specific printing and
+ * wants to say so, which is why `tradables` here needs `cardId` populated.
+ * When a friend has both the exact printing and another one, the exact
+ * printing is the more useful fact, so it wins outright rather than being
+ * summed with the rest — a friend line never says "3 (this printing and
+ * another)".
+ */
+export function matchFriendCardStock(
+  cardId: string,
+  key: string,
+  tradables: readonly TradableRow[],
+): FriendPrintingSupplier[] {
+  const byOwner = new Map<string, { same: number; other: number }>();
+
+  for (const row of tradables) {
+    if (row.quantity <= 0 || row.key !== key) continue;
+
+    const current = byOwner.get(row.ownerId) ?? { same: 0, other: 0 };
+    if (row.cardId === cardId) current.same += row.quantity;
+    else current.other += row.quantity;
+    byOwner.set(row.ownerId, current);
+  }
+
+  return [...byOwner.entries()]
+    .map(([ownerId, { same, other }]) => ({
+      ownerId,
+      count: same > 0 ? same : other,
+      samePrinting: same > 0,
+    }))
+    .sort((a, b) => b.count - a.count || a.ownerId.localeCompare(b.ownerId));
 }
