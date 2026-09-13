@@ -64,6 +64,9 @@ type StatefulEntry = DeckListEntry & {
   spareIn: string[];
   /** Friends who have this card open for trade — shown on Missing rows. */
   friendSupply: FriendSupplyView[];
+  /** Already on this deck's wish list — a Missing row's mark becomes a static
+   *  🛒 status instead of an "add" button once this is true. */
+  onWishlist: boolean;
 };
 
 export function DeckWorkspace({
@@ -136,6 +139,14 @@ export function DeckWorkspace({
     EMPTY_DECK_STATE,
   );
 
+  // Matched by oracle id (cardKey), not by row id — a want tagged to this
+  // deck was resolved to its own representative printing, which is rarely the
+  // same scryfall_id as any given decklist row for the same card.
+  const wishedKeys = useMemo(
+    () => new Set(wishList.map((w) => cardKey(w.cards)).filter((k): k is string => k !== null)),
+    [wishList],
+  );
+
   const stateful = useMemo<StatefulEntry[]>(
     () =>
       entries.map((entry) => ({
@@ -147,8 +158,9 @@ export function DeckWorkspace({
         ),
         spareIn: spareLocations.get(cardKey(entry.cards) ?? "") ?? [],
         friendSupply: missingSupply[entry.id] ?? [],
+        onWishlist: wishedKeys.has(cardKey(entry.cards) ?? ""),
       })),
-    [entries, availability, spareLocations, missingSupply],
+    [entries, availability, spareLocations, missingSupply, wishedKeys],
   );
 
   const groups = useMemo(
@@ -565,7 +577,13 @@ function ListRow({
         {/* Where a spare copy is (Available) or who has one to trade
             (Missing) used to be a separate tag beside the mark; it is now
             what hovering the mark itself answers — see DeckStateMark. */}
-        <DeckStateMark entry={state} spareIn={entry.spareIn} friendSupply={entry.friendSupply} />
+        <DeckStateMark
+          entry={state}
+          spareIn={entry.spareIn}
+          friendSupply={entry.friendSupply}
+          wishlist={card ? { cardName: card.name, deckId, onList: entry.onWishlist } : undefined}
+          sleeveAction={{ deckId, cardId: entry.card_id, action: sleeve, pending: sleeving }}
+        />
 
         <RowActions
           entry={entry}
@@ -987,7 +1005,13 @@ function GalleryCard({
         card is dimmed as well as marked.
       */}
       <div className="flex items-center gap-1.5">
-        <DeckStateMark entry={state} spareIn={entry.spareIn} friendSupply={entry.friendSupply} />
+        <DeckStateMark
+          entry={state}
+          spareIn={entry.spareIn}
+          friendSupply={entry.friendSupply}
+          wishlist={card ? { cardName: card.name, deckId, onList: entry.onWishlist } : undefined}
+          sleeveAction={{ deckId, cardId: entry.card_id, action: sleeve, pending: sleeving }}
+        />
 
         <span className="shrink-0 text-xs tabular-nums text-ink-muted">
           {entry.quantity}×

@@ -73,7 +73,11 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
   const art = artCropUrl(deck.commanderImage);
 
   return (
-    <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-border transition-colors hover:border-accent/50">
+    // aspect-[9/8], not the [3/4] a Magic card's own proportions would suggest —
+    // a full card's worth of height left the name/progress row fighting the art
+    // for space. 9/8 trims that by a third while staying tall enough for the art
+    // to still read as art rather than a sliver.
+    <div className="relative aspect-[9/8] overflow-hidden rounded-2xl border border-border transition-colors hover:border-accent/50">
       {art ? (
         <>
           <Image
@@ -82,7 +86,10 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
             fill
             unoptimized
             sizes="(min-width: 1280px) 24vw, (min-width: 640px) 33vw, 50vw"
-            className="absolute inset-0 object-cover"
+            // object-top: a shorter tile crops more of the art, and a centred
+            // crop starts eating into faces/heads first — anchoring to the top
+            // keeps the same part of the illustration visible as it did before.
+            className="absolute inset-0 object-cover object-top"
           />
           {/* Same flat scrim DeckBanner uses, for the same reason: a crop's
               bright spot lands in a different place on every card, and a
