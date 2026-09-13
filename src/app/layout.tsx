@@ -1,15 +1,15 @@
 import type { Metadata, Viewport } from "next";
-import { Baloo_2, Plus_Jakarta_Sans } from "next/font/google";
+import { Cinzel, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
 import { cx } from "@/components/ui";
 import { ThemeScript } from "@/components/ThemeScript";
 
-// Rounded, game-box display face for headings and the wordmark — paired with
+// Roman-inscription display face for headings and the wordmark — paired with
 // a clean, dense body face for tables and data. The pairing is the point: no
 // default stack lands on this combination, which is half of what makes an
 // app read as considered rather than generated.
-const display = Baloo_2({
+const display = Cinzel({
   subsets: ["latin"],
   variable: "--font-display",
 });

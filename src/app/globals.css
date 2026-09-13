@@ -153,6 +153,10 @@ body {
 .font-display {
   font-family: var(--font-display), var(--font-body), ui-sans-serif, system-ui,
     sans-serif;
+  /* Cinzel is a variable face (400-900); nudge past the font-semibold/font-bold
+     utilities components pass alongside this class — unlayered, so it wins the
+     cascade over Tailwind's utility layer without touching every call site. */
+  font-weight: 650;
 }
 
 /* Visible focus everywhere. Card management is keyboard-heavy data entry. */
