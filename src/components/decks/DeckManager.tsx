@@ -101,9 +101,14 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         aria-label={deck.name}
       />
 
+      {/* pointer-events-none: this sits above the stretched link (z-10 over
+          z-0) to be visible, but as a plain div spanning the whole tile it
+          would otherwise catch every click before the link ever saw it —
+          nothing here handled the click, so the tile just looked dead.
+          DeleteDeckButton opts back in with pointer-events-auto. */}
       <div
         className={cx(
-          "relative z-10 flex h-full flex-col justify-between gap-2 p-3",
+          "pointer-events-none relative z-10 flex h-full flex-col justify-between gap-2 p-3",
           art ? "text-white" : "text-ink",
         )}
       >
@@ -119,20 +124,15 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
           )}
 
           {/* Above the stretched link so it stays clickable. */}
-          <div className="relative z-10 -m-1.5 shrink-0">
+          <div className="pointer-events-auto -m-1.5 shrink-0">
             <DeleteDeckButton deckId={deck.id} deckName={deck.name} dark={!!art} />
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <div>
-            <p className="truncate font-display text-sm font-semibold leading-tight tracking-tight">
-              {deck.name}
-            </p>
-            <p className={cx("truncate text-xs", art ? "text-white/80" : "text-ink-muted")}>
-              {deck.commanderName ?? `${deck.uniqueCount} unique cards`}
-            </p>
-          </div>
+          <p className="truncate font-display text-xl font-bold leading-tight tracking-tight">
+            {deck.name}
+          </p>
 
           {deck.cardCount > 0 ? (
             <div className="space-y-1">
@@ -149,25 +149,41 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
                   style={{ width: `${Math.min(100, pct)}%` }}
                 />
               </div>
-              <p className={cx("text-xs tabular-nums", art ? "text-white/80" : "text-ink-muted")}>
-                {complete ? (
-                  <span className={cx("font-medium", art ? "text-white" : "text-ink")}>
-                    Ready to play
-                  </span>
-                ) : (
-                  <>
+
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className={cx("truncate", art ? "text-white/80" : "text-ink-muted")}>
+                  {deck.commanderName ?? `${deck.uniqueCount} unique cards`}
+                </span>
+                <span
+                  className={cx(
+                    "shrink-0 tabular-nums",
+                    art ? "text-white/80" : "text-ink-muted",
+                  )}
+                >
+                  {complete ? (
                     <span className={cx("font-medium", art ? "text-white" : "text-ink")}>
-                      {deck.sleevedCount} of {deck.cardCount}
-                    </span>{" "}
-                    sleeved
-                  </>
-                )}
-              </p>
+                      Ready to play
+                    </span>
+                  ) : (
+                    <>
+                      <span className={cx("font-medium", art ? "text-white" : "text-ink")}>
+                        {deck.sleevedCount} of {deck.cardCount}
+                      </span>{" "}
+                      sleeved
+                    </>
+                  )}
+                </span>
+              </div>
             </div>
           ) : (
-            <p className={cx("text-xs", art ? "text-white/80" : "text-ink-muted")}>
-              Nothing on the list yet.
-            </p>
+            <div className="space-y-0.5">
+              <p className={cx("truncate text-xs", art ? "text-white/80" : "text-ink-muted")}>
+                {deck.commanderName ?? `${deck.uniqueCount} unique cards`}
+              </p>
+              <p className={cx("text-xs", art ? "text-white/80" : "text-ink-muted")}>
+                Nothing on the list yet.
+              </p>
+            </div>
           )}
         </div>
       </div>
