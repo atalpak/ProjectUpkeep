@@ -233,7 +233,13 @@ export function HeaderSearch() {
       else if (term) {
         setDropdownOpen(false);
         setRecent(recordRecentSearch(term));
-        router.push(`/find?q=${encodeURIComponent(term)}`);
+        // Runs the query on Advanced Search itself, the same `q`/`raw` split
+        // the live dropdown lookup above already uses — pressing Enter before
+        // picking a result should feel like submitting the raw box there, not
+        // like a detour through `/find` (a different feature: "where is this
+        // among my collection and my friends'", not "what does Magic have").
+        const param = looksAdvanced ? "raw" : "q";
+        router.push(`/search?${param}=${encodeURIComponent(term)}`);
       }
     }
   }
