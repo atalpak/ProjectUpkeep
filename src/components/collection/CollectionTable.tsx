@@ -267,7 +267,7 @@ export function CollectionTable({
       </div>
 
       {view === "image" ? (
-        <CollectionGallery rows={pageRows} availability={availability} size={tileSize} />
+        <CollectionGallery rows={pageRows} size={tileSize} />
       ) : (
         <>
           {/* Below sm, one card per entry. A six-column table is 40rem wide at
@@ -637,7 +637,7 @@ function Cell({
             {...preview}
             onClick={() => card && open(card)}
             disabled={!card}
-            className="cursor-pointer font-medium hover:underline disabled:cursor-default"
+            className="cursor-pointer font-medium disabled:cursor-default"
           >
             {card ? cardDisplayName(card) : "Unknown printing"}
           </button>
@@ -1116,11 +1116,9 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (view: ViewM
  */
 function CollectionGallery({
   rows,
-  availability,
   size,
 }: {
   rows: CardInstanceWithCard[];
-  availability: Map<string, Availability>;
   size: TileSize;
 }) {
   return (
@@ -1129,12 +1127,7 @@ function CollectionGallery({
       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[size].minmax}, 1fr))` }}
     >
       {rows.map((row) => (
-        <GalleryTile
-          key={row.id}
-          row={row}
-          availability={availabilityFor(availability, row.cards)}
-          imageWidth={TILE_SIZES[size].imageWidth}
-        />
+        <GalleryTile key={row.id} row={row} imageWidth={TILE_SIZES[size].imageWidth} />
       ))}
     </ul>
   );
@@ -1142,11 +1135,9 @@ function CollectionGallery({
 
 function GalleryTile({
   row,
-  availability,
   imageWidth,
 }: {
   row: CardInstanceWithCard;
-  availability: Availability;
   imageWidth: string;
 }) {
   const { open } = useCardPanel();
@@ -1176,29 +1167,19 @@ function GalleryTile({
       </button>
 
       <div className="space-y-1 text-xs">
-        <div className="flex items-start justify-between gap-1.5">
+        <div className="flex items-center justify-between gap-1.5">
           <p className="min-w-0 flex-1 truncate font-medium" title={name}>
             {name}
-            <FoilMark finish={row.finish} />
           </p>
           <span className="shrink-0 font-medium tabular-nums">×{row.quantity}</span>
         </div>
 
-        <p className="flex items-center gap-1.5 truncate text-ink-muted">
-          <SetSymbol code={card?.set_code} size={12} />
-          {card?.set_name ?? card?.set_code?.toUpperCase() ?? "—"}
-        </p>
-
-        <div className="flex flex-wrap items-center justify-between gap-1.5">
-          <span className={cx("truncate", row.locations ? "" : "text-ink-muted")}>
-            {row.locations?.name ?? "Unsorted"}
+        <div className="flex items-center justify-between gap-1.5">
+          <span className="flex min-w-0 items-center gap-1.5 truncate text-ink-muted">
+            <SetSymbol code={card?.set_code} size={12} />
+            <span className="truncate">{row.locations?.name ?? "Unsorted"}</span>
           </span>
           <PriceCell row={row} />
-        </div>
-
-        <div className="flex items-center justify-between gap-1.5">
-          <Badge>{CONDITION_LABELS[row.condition] ?? row.condition}</Badge>
-          <AvailableCell row={row} availability={availability} />
         </div>
       </div>
     </li>

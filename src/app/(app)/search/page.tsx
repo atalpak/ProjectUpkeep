@@ -69,7 +69,15 @@ export default async function SearchPage({
         subtitle="Every card Scryfall knows — not just what's in your collection."
       />
 
-      <AdvancedSearchForm initial={filter} initialRaw={raw} />
+      {/* Keyed on the URL's own query string: a client-side navigation to a
+          route this identical (most of all `/search` with no params at all,
+          the "start over" link every entry point into this page uses) leaves
+          the component instance in place, so its own `raw`/`filter` state —
+          only ever read from `initial`/`initialRaw` at mount — would keep
+          showing the previous search. Changing `key` forces React to treat
+          it as a fresh mount instead of a re-render, which is what actually
+          resets it. */}
+      <AdvancedSearchForm key={JSON.stringify(params)} initial={filter} initialRaw={raw} />
 
       {unsupported.length > 0 ? (
         <p className="text-xs text-ink-muted">

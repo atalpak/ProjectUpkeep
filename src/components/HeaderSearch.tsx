@@ -240,9 +240,13 @@ export function HeaderSearch() {
 
   const showRecent = dropdownOpen && term.length < MIN_TERM;
 
-  // Carries whatever is half-typed over to the dedicated page: syntax goes as
-  // `raw` so it lands in the right fields there, a plain fragment as `q`.
-  const advancedHref = !term ? "/search" : `/search?${looksAdvanced ? "raw" : "q"}=${encodeURIComponent(term)}`;
+  // Deliberately never carries the half-typed term over: Advanced Search is
+  // its own fresh session every time, not a continuation of whatever was
+  // mid-type here — landing there with an old query already filled in (and
+  // the Filters panel consequently forced open, since it opens by default
+  // whenever a filter is already active) read as glued to this box rather
+  // than a destination of its own.
+  const advancedHref = "/search";
 
   return (
     // A growing spacer, not just the field itself: this is what lets the
@@ -259,8 +263,8 @@ export function HeaderSearch() {
             <Spinner className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
           ) : (
             // Not just a decorative glyph any more: it is the field's own
-            // shortcut to Advanced Search, carrying over whatever is
-            // half-typed the same way the dropdown's own link does.
+            // shortcut to Advanced Search — always a fresh session there,
+            // never whatever is half-typed here (see `advancedHref` above).
             <Link
               href={advancedHref}
               aria-label="Advanced Search"

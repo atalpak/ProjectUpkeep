@@ -53,12 +53,14 @@ function glow(rgb: string): string {
 
 /** A hotter version of `glow` for the 🛒 marks specifically — the emoji's own
  *  built-in colouring dilutes a normal-strength glow more than the flat text
- *  glyphs do, and read as washed out in dark mode next to them. Fully opaque
- *  blurs compensate for that, rather than wider ones: a wide glow was bleeding
- *  into whatever sat beside it in the row (the price, most often), throwing
- *  off the alignment of everything around the cart rather than just glowing. */
+ *  glyphs do, and read as washed out in dark mode next to them. Tighter *and*
+ *  fully opaque on both passes is what makes it read as brighter rather than
+ *  just smaller: a wider blur at the same opacity looks hazier, not more lit.
+ *  Kept tight rather than wide for the same reason as before — this sits in
+ *  its own fixed-width `SLOT`, but a wide blur still visually bleeds into the
+ *  price beside it before it has bled far enough to matter. */
 function cartGlow(rgb: string): string {
-  return `[text-shadow:0_0_4px_rgba(${rgb},1),0_0_8px_rgba(${rgb},0.95),0_0_1px_rgba(0,0,0,0.8),0_1px_1px_rgba(0,0,0,0.7)]`;
+  return `[text-shadow:0_0_3px_rgba(${rgb},1),0_0_6px_rgba(${rgb},1),0_0_1px_rgba(0,0,0,0.8),0_1px_1px_rgba(0,0,0,0.7)]`;
 }
 
 const GLOW: Record<Tone, string> = {
@@ -80,6 +82,23 @@ const GLYPHS: Record<Tone, string> = {
 
 const CART_GLYPH = "🛒";
 
+/**
+ * Every mark's slot is the same fixed width regardless of tone or glyph —
+ * `↓` and `✕` sit a touch larger than `✓` (a plain checkmark reads fine at
+ * the smaller size; the other two are easier to misread at a glance and
+ * asked to grow), and the wishlist 🛒 has its own glow footprint entirely
+ * different from a single character's. Sizing the glyph itself and centring
+ * it in a fixed box, rather than letting each glyph's own metrics decide the
+ * slot's width, is what keeps the price and the ⋯ menu landing in the same
+ * place next to a ✓ row and a 🛒 row alike.
+ */
+const SLOT = { sm: "w-5", lg: "w-6" } as const;
+
+function glyphSizeClass(tone: Tone, size: "sm" | "lg"): string {
+  if (tone === "have") return size === "lg" ? "text-lg" : "text-sm";
+  return size === "lg" ? "text-xl" : "text-base";
+}
+
 function StateMark({
   tone,
   label,
@@ -93,7 +112,8 @@ function StateMark({
     <span
       className={cx(
         "inline-flex shrink-0 items-center justify-center font-bold leading-none",
-        size === "lg" ? "text-lg" : "text-sm",
+        SLOT[size],
+        glyphSizeClass(tone, size),
         GLOW[tone],
       )}
       title={label}
@@ -142,13 +162,23 @@ function MissingMark({
   onList: boolean;
 }) {
   const [state, add, adding] = useActionState(addWant, EMPTY_SOCIAL_STATE);
-  const sizeClass = size === "lg" ? "text-lg" : "text-sm";
+  // The 🛒 keeps the plain glyph size everywhere it appears — only the ✕ (the
+  // thing it replaces on hover, and on click) grows, matching `StateMark`'s
+  // own absent/reachable bump. Both share the same fixed-width `SLOT` either
+  // way, so neither shifts the price or the ⋯ menu next to it.
+  const cartSizeClass = size === "lg" ? "text-lg" : "text-sm";
+  const crossSizeClass = glyphSizeClass("absent", size);
 
   if (onList) {
     return (
       <Link
         href="/wants"
-        className={cx("inline-flex shrink-0 items-center justify-center leading-none", sizeClass, WISHLISTED_GLOW)}
+        className={cx(
+          "inline-flex shrink-0 items-center justify-center leading-none",
+          SLOT[size],
+          cartSizeClass,
+          WISHLISTED_GLOW,
+        )}
         title="In Wishlist"
         aria-label="In Wishlist"
       >
@@ -170,7 +200,10 @@ function MissingMark({
         type="submit"
         disabled={adding}
         aria-label={accessibleLabel}
-        className="group/mark relative inline-flex shrink-0 items-center justify-center disabled:opacity-60"
+        className={cx(
+          "group/mark relative inline-flex shrink-0 items-center justify-center disabled:opacity-60",
+          SLOT[size],
+        )}
       >
         {/* Custom tooltip, not the native `title` — this needs to appear
             instantly and in step with the icon swap, which a browser tooltip's
@@ -189,7 +222,7 @@ function MissingMark({
         <span
           className={cx(
             "font-bold leading-none transition-all duration-200",
-            sizeClass,
+            crossSizeClass,
             GLOW.absent,
             "group-hover/mark:scale-0 group-hover/mark:opacity-0 group-focus-visible/mark:scale-0 group-focus-visible/mark:opacity-0",
           )}
@@ -200,7 +233,7 @@ function MissingMark({
           aria-hidden="true"
           className={cx(
             "absolute inset-0 flex scale-0 items-center justify-center opacity-0 transition-all duration-200",
-            sizeClass,
+            cartSizeClass,
             cartGlow("239,68,68"),
             "group-hover/mark:scale-110 group-hover/mark:opacity-100 group-hover/mark:animate-bounce group-focus-visible/mark:scale-110 group-focus-visible/mark:opacity-100",
           )}
@@ -245,7 +278,7 @@ function ReachableMark({
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
 }) {
-  const sizeClass = size === "lg" ? "text-lg" : "text-sm";
+  const sizeClass = glyphSizeClass("reachable", size);
   const location = spareIn.length > 0 ? ` (${spareIn.join(", ")})` : "";
 
   return (
@@ -257,7 +290,10 @@ function ReachableMark({
         type="submit"
         disabled={sleeving}
         aria-label={`${label} — click to sleeve`}
-        className="group/mark relative inline-flex shrink-0 items-center justify-center disabled:opacity-60"
+        className={cx(
+          "group/mark relative inline-flex shrink-0 items-center justify-center disabled:opacity-60",
+          SLOT[size],
+        )}
       >
         {/* Two lines: what would happen, and that a click does it — the
             same reason the ✕ → 🛒 mark spells its action out rather than
