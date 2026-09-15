@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { MIN_TERM, type LocatedCard } from "@/lib/collection/locate";
@@ -72,6 +72,7 @@ type Result = CardHit & { owned: LocatedCard | null; friends: FriendHit | null }
 
 export function HeaderSearch() {
   const router = useRouter();
+  const pathname = usePathname();
   const { open } = useCardPanel();
   const input = useRef<HTMLInputElement>(null);
   const container = useRef<HTMLDivElement>(null);
@@ -83,6 +84,29 @@ export function HeaderSearch() {
   // -1 is the input itself: arrowing back up past the first result returns
   // focus to what was typed rather than trapping the selection in the list.
   const [active, setActive] = useState(-1);
+
+  // This field lives in the signed-in layout, so it survives every in-app
+  // navigation rather than remounting per page — without this, whatever was
+  // typed to reach one page (Advanced Search, a card popup, /find) would
+  // still be sitting there on the next one, reading as a search that followed
+  // you around rather than one that was already answered. The "adjust state
+  // during render when a prop changes" pattern (react.dev's own name for
+  // this), not an effect: a `useEffect` clearing this would run one render
+  // late, showing the stale term for a frame on every navigation before
+  // wiping it.
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (pathname !== lastPathname) {
+    setLastPathname(pathname);
+    setValue("");
+    setDropdownOpen(false);
+    // `loading` goes on synchronously in `onChange`, before the debounce
+    // below ever fires — type a few characters then navigate away (Enter,
+    // or any link) inside that window and `term` becomes "" here before the
+    // debounced effect's timer runs. Its cleanup aborts and its body bails
+    // out early on the now-empty term without ever reaching the `fetch`'s
+    // `finally`, so nothing would otherwise turn the spinner back off.
+    setLoading(false);
+  }
 
   // Read lazily rather than on mount: this list is never part of the first
   // paint (the dropdown starts closed), so there is nothing for a server

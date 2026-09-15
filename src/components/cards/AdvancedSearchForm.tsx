@@ -52,12 +52,10 @@ export function AdvancedSearchForm({
 
   const [raw, setRaw] = useState(initialRaw);
   const [filter, setFilter] = useState<AdvancedCardFilter>(initial);
-  // Collapsed by default unless a structured filter is already active from
-  // the URL (a shared link, or the back button) — otherwise the very filters
-  // producing the results on screen would be hidden.
-  const [filtersOpen, setFiltersOpen] = useState(
-    () => initialRaw === "" && isAdvancedFilterActive(initial),
-  );
+  // Always collapsed on arrival, even when a structured filter is already
+  // active from the URL (a shared link, or the back button) — expanding it
+  // is a deliberate action, not something the page decides for you.
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const set = <K extends keyof AdvancedCardFilter>(key: K, value: AdvancedCardFilter[K]) =>
     setFilter((prev) => ({ ...prev, [key]: value }));

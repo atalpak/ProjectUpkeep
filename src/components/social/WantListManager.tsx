@@ -98,16 +98,59 @@ export function WantListManager({
               ))}
             </ul>
           ) : (
-            <ul className="space-y-2">
-              {wants.map((want) => (
-                <WantRowView
-                  key={want.id}
-                  want={want}
-                  suppliers={matches[want.id] ?? []}
-                  decks={decks}
-                />
-              ))}
-            </ul>
+            <>
+              {/* Below sm: the same stacked card every list row on this page
+                  already used — a six-column table is not something a phone
+                  reads by scrolling down, it's one you drag sideways for. */}
+              <ul className="space-y-2 sm:hidden">
+                {wants.map((want) => (
+                  <WantRowView
+                    key={want.id}
+                    want={want}
+                    suppliers={matches[want.id] ?? []}
+                    decks={decks}
+                  />
+                ))}
+              </ul>
+
+              {/* sm and up: the same table shell CollectionTable uses
+                  (bordered, rounded, `bg-surface-muted` header, `divide-y`
+                  body) so "Text" here reads as the same kind of view as the
+                  Collection page's, not a different design language. */}
+              <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
+                <table className="w-full min-w-[36rem] text-sm">
+                  <thead className="border-b border-border bg-surface-muted text-left">
+                    <tr>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Card
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        For
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-medium">
+                        Price
+                      </th>
+                      <th scope="col" className="px-3 py-2 font-medium">
+                        Available
+                      </th>
+                      <th scope="col" className="w-10 px-3 py-2">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {wants.map((want) => (
+                      <WantTableRow
+                        key={want.id}
+                        want={want}
+                        suppliers={matches[want.id] ?? []}
+                        decks={decks}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -563,6 +606,64 @@ function WantRowView({
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * The saved wish list's "Card" table row, sm and up — same cell shape and
+ * spacing as `Cell`/`Row` in `CollectionTable.tsx`, so the two tables read as
+ * one visual language rather than two.
+ */
+function WantTableRow({
+  want,
+  suppliers,
+  decks,
+}: {
+  want: WantRow;
+  suppliers: SupplierView[];
+  decks: DeckOption[];
+}) {
+  return (
+    <tr className="hover:bg-surface-muted">
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2.5">
+          <CardPreviewLink
+            card={want.cardId ?? undefined}
+            href={`/collection?q=${encodeURIComponent(want.name)}`}
+            className="relative block aspect-[488/680] w-9 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
+          >
+            {want.image ? (
+              <Image src={want.image} alt="" fill sizes="2.25rem" className="object-contain" unoptimized />
+            ) : null}
+          </CardPreviewLink>
+          <span className="min-w-0 truncate font-medium" title={want.displayName}>
+            {want.displayName}
+          </span>
+        </div>
+      </td>
+
+      <td className={cx("px-3 py-2", !want.deckName && "text-ink-muted")}>{want.deckName ?? "—"}</td>
+
+      <td className="px-3 py-2 text-right">
+        <WantPrice want={want} />
+      </td>
+
+      <td className="max-w-[16rem] truncate px-3 py-2 text-ink-muted">
+        {suppliers.length === 0 ? (
+          "No one in your circle has this yet."
+        ) : (
+          <>
+            <span className="text-ink">{suppliers[0].username}</span> has{" "}
+            {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+            {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
+          </>
+        )}
+      </td>
+
+      <td className="px-3 py-2 text-right">
+        <WantCardMenu want={want} decks={decks} />
+      </td>
+    </tr>
   );
 }
 

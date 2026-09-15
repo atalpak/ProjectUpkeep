@@ -39,6 +39,7 @@ export default async function SearchPage({
 }) {
   const params = await searchParams;
   const raw = one(params.raw).trim();
+  const q = one(params.q).trim();
 
   let filter: AdvancedCardFilter = advancedFilterFromParams(params);
   let unsupported: string[] = [];
@@ -50,6 +51,13 @@ export default async function SearchPage({
     filter = parsed.filter;
     unsupported = parsed.unsupported;
   }
+
+  // What the primary box displays: a `raw` param already belongs there; a
+  // bare `q` (a plain name, arriving from the header search's dropdown or its
+  // Enter fallback) is shown there too, rather than only landing invisibly in
+  // the collapsed Filters panel's own Card name field — the whole point of
+  // "run this in Advanced Search" is seeing what was actually searched.
+  const displayRaw = raw || q;
 
   const active = isAdvancedFilterActive(filter);
 
@@ -77,7 +85,7 @@ export default async function SearchPage({
           showing the previous search. Changing `key` forces React to treat
           it as a fresh mount instead of a re-render, which is what actually
           resets it. */}
-      <AdvancedSearchForm key={JSON.stringify(params)} initial={filter} initialRaw={raw} />
+      <AdvancedSearchForm key={JSON.stringify(params)} initial={filter} initialRaw={displayRaw} />
 
       {unsupported.length > 0 ? (
         <p className="text-xs text-ink-muted">
