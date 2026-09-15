@@ -43,7 +43,8 @@ import { cx } from "@/components/ui";
  *     over as that page's initial query.
  *
  * Below lg there is no room for the field, so the same thing is an icon that
- * goes to the full card finder.
+ * goes straight to Advanced Search — the magnifying glass inside the field
+ * itself is the same link, once the field exists to hold it.
  */
 
 /** Long enough that a fast typist does not fire a request per character. */
@@ -257,7 +258,17 @@ export function HeaderSearch() {
           {loading ? (
             <Spinner className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
           ) : (
-            <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
+            // Not just a decorative glyph any more: it is the field's own
+            // shortcut to Advanced Search, carrying over whatever is
+            // half-typed the same way the dropdown's own link does.
+            <Link
+              href={advancedHref}
+              aria-label="Advanced Search"
+              title="Advanced Search"
+              className="absolute left-2.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded text-ink-muted transition-colors hover:text-ink"
+            >
+              <SearchIcon className="size-4" />
+            </Link>
           )}
           <input
             ref={input}
@@ -398,11 +409,15 @@ export function HeaderSearch() {
         ) : null}
       </div>
 
-      {/* Below lg the field would not fit, so the destination is offered directly. */}
+      {/* Below lg the field would not fit, so the destination is offered
+          directly — Advanced Search, the same place the icon inside the
+          desktop field now goes, not /find (a different "where is my card,
+          among the people I know?" feature that this icon must not be
+          conflated with). */}
       <Link
-        href="/find"
-        aria-label="Find a card"
-        title="Find a card"
+        href={advancedHref}
+        aria-label="Advanced Search"
+        title="Advanced Search"
         className="inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink coarse:size-11 lg:hidden"
       >
         <SearchIcon className="size-4" />

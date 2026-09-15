@@ -32,6 +32,12 @@ const BUTTON_VARIANTS = {
   ghost: "hover:bg-surface-muted",
   danger:
     "border border-border text-danger hover:bg-surface-muted",
+  // A solid dark chip, for controls that sit over a variable background (art
+  // scrims, hero banners) where `secondary`'s surface tone would wash out or
+  // fight the underlying image. Deliberately literal black/white rather than
+  // the `ink`/`surface` tokens, which invert in dark mode — this one wants to
+  // read the same regardless of theme.
+  dark: "bg-black/70 text-white hover:bg-black/60",
 } as const;
 
 export function Button({

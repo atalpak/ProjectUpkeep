@@ -4,16 +4,8 @@ import Image from "next/image";
 import { useRef, useState, useSyncExternalStore } from "react";
 
 import { useCardPanel } from "@/components/CardPanel";
-import { cx } from "@/components/ui";
+import { isTileSize, SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
 import type { CardSearchResult } from "@/lib/cards/search";
-
-type TileSize = "s" | "m" | "l";
-
-const TILE_SIZES: Record<TileSize, { minmax: string; imageWidth: string; label: string }> = {
-  s: { minmax: "9rem", imageWidth: "12rem", label: "Small" },
-  m: { minmax: "12rem", imageWidth: "16rem", label: "Medium" },
-  l: { minmax: "16rem", imageWidth: "20rem", label: "Large" },
-};
 
 /**
  * Where the size choice lives — an external store, the same reasoning
@@ -25,10 +17,6 @@ const TILE_SIZES: Record<TileSize, { minmax: string; imageWidth: string; label: 
 const STORAGE_KEY = "upkeep.search.tileSize";
 const listeners = new Set<() => void>();
 let unsaved: TileSize | null = null;
-
-function isTileSize(value: string | null): value is TileSize {
-  return value === "s" || value === "m" || value === "l";
-}
 
 function subscribe(onChange: () => void): () => void {
   listeners.add(onChange);
@@ -42,6 +30,9 @@ function subscribe(onChange: () => void): () => void {
 function readSize(): TileSize {
   try {
     const stored = unsaved ?? localStorage.getItem(STORAGE_KEY);
+    // "s" was Small, removed along with the option itself — read as Medium
+    // rather than falling all the way back to the Large default.
+    if (stored === "s") return "m";
     return isTileSize(stored) ? stored : "l";
   } catch {
     return unsaved ?? "l";
@@ -106,63 +97,6 @@ export function SearchResultsGrid({ results }: { results: CardSearchResult[] }) 
         ))}
       </ul>
     </div>
-  );
-}
-
-function SizePicker({ size, onChange }: { size: TileSize; onChange: (size: TileSize) => void }) {
-  return (
-    <div className="inline-flex overflow-hidden rounded-md border border-border">
-      {(Object.keys(TILE_SIZES) as TileSize[]).map((option) => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          aria-pressed={size === option}
-          title={`${TILE_SIZES[option].label} cards`}
-          className={cx(
-            "flex items-center justify-center px-2.5 py-1.5 transition-colors",
-            size === option ? "bg-accent text-accent-ink" : "text-ink-muted hover:bg-surface-muted",
-          )}
-        >
-          <SizeIcon size={option} />
-          <span className="sr-only">{TILE_SIZES[option].label}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** A grid of squares, fewer and bigger for each step up — the icon shows
- *  what the button does instead of naming it, the same idea as the
- *  list/gallery toggles elsewhere just drawn as a density picker. */
-function SizeIcon({ size }: { size: TileSize }) {
-  const specs: Record<TileSize, Array<{ x: number; y: number; s: number }>> = {
-    s: [
-      { x: 1, y: 1, s: 4 },
-      { x: 6, y: 1, s: 4 },
-      { x: 11, y: 1, s: 4 },
-      { x: 1, y: 6, s: 4 },
-      { x: 6, y: 6, s: 4 },
-      { x: 11, y: 6, s: 4 },
-      { x: 1, y: 11, s: 4 },
-      { x: 6, y: 11, s: 4 },
-      { x: 11, y: 11, s: 4 },
-    ],
-    m: [
-      { x: 1, y: 1, s: 6.5 },
-      { x: 8.5, y: 1, s: 6.5 },
-      { x: 1, y: 8.5, s: 6.5 },
-      { x: 8.5, y: 8.5, s: 6.5 },
-    ],
-    l: [{ x: 1, y: 1, s: 14 }],
-  };
-
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4">
-      {specs[size].map((r, i) => (
-        <rect key={i} x={r.x} y={r.y} width={r.s} height={r.s} rx={1} fill="currentColor" />
-      ))}
-    </svg>
   );
 }
 

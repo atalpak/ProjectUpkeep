@@ -13,7 +13,7 @@ import {
 } from "@/lib/collection/queries";
 import { availabilityFor, cardKey } from "@/lib/collection/availability";
 import { countsFor, deckProgress } from "@/lib/collection/deck-state";
-import { computeDeckStats } from "@/lib/collection/deck-stats";
+import { computeDeckStats, gameChangerCount } from "@/lib/collection/deck-stats";
 import { groupDeck } from "@/lib/collection/deck-view";
 import { deckToDecklistText, toCsv, type ExportRow } from "@/lib/collection/export";
 import { matchSuppliersFor } from "@/lib/social/queries";
@@ -223,6 +223,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         commanderName={commanderName}
         progress={progress}
         price={stats.price}
+        gameChangers={gameChangerCount(entries)}
         actions={
           <>
             {/* /decks/[id]/test still exists as a real route — the deep

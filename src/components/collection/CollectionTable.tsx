@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -9,7 +10,8 @@ import {
 } from "@/app/(app)/collection/actions";
 import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { useActionState } from "react";
-import { useCardPreview } from "@/components/CardPanel";
+import { useCardPanel, useCardPreview } from "@/components/CardPanel";
+import { SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
 import { FoilMark } from "@/components/FoilMark";
 import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
@@ -21,12 +23,21 @@ import {
   parseStoredColumns,
   readStoredColumns,
   readStoredColumnsOnServer,
+  readStoredTileSize,
+  readStoredTileSizeOnServer,
+  readStoredView,
+  readStoredViewOnServer,
   subscribeToColumns,
+  subscribeToTileSize,
+  subscribeToView,
   writeStoredColumns,
+  writeStoredTileSize,
+  writeStoredView,
   writeSortCookie,
   serialiseSort,
   type SortState,
   type ColumnId,
+  type ViewMode,
 } from "@/components/collection/columns";
 import {
   Badge,
@@ -51,15 +62,19 @@ import {
 } from "@/lib/types";
 
 /**
- * The collection as a table.
+ * The collection as a table, or as a grid of card art.
  *
- * Replaces the old card-per-row list. A collection is tabular data — the same
- * printing repeated with different conditions and locations — and a table is
- * what lets someone sort by set, scan for the foils, and select forty rows to
- * file at once.
+ * The table replaced the old card-per-row list. A collection is tabular data —
+ * the same printing repeated with different conditions and locations — and a
+ * table is what lets someone sort by set, scan for the foils, and select forty
+ * rows to file at once. The image view (`CollectionGallery`, below) is the
+ * complement: browsing by art rather than by column, the same choice
+ * `WantListManager`'s list/gallery toggle already offers the wish list.
  *
- * Hovering a card's name feeds the side panel, so the image and rules text are
- * available without giving every row a thumbnail.
+ * Hovering a card's name feeds the side panel; clicking it — in either view —
+ * opens the same full card popup the nav search dropdown and Advanced Search
+ * use, so the image, rules text and add-to-collection/-deck actions are
+ * available without giving every row a thumbnail of its own.
  */
 
 /** Rows rendered at once. The rest wait behind the pager. */
@@ -95,6 +110,16 @@ export function CollectionTable({
     readStoredColumnsOnServer,
   );
   const visible = useMemo(() => parseStoredColumns(storedColumns), [storedColumns]);
+
+  // Table or an image grid, and the grid's own tile size — the same
+  // localStorage-backed external store the column choice above uses, for the
+  // same reason: a viewing preference the server has no way to read.
+  const view = useSyncExternalStore(subscribeToView, readStoredView, readStoredViewOnServer);
+  const tileSize = useSyncExternalStore(
+    subscribeToTileSize,
+    readStoredTileSize,
+    readStoredTileSizeOnServer,
+  );
 
   // Sorting and paging are server round trips now, not local state: the
   // database does both, and this component only ever holds the rows it draws.
@@ -187,8 +212,9 @@ export function CollectionTable({
         <div className="flex flex-1 items-center justify-end gap-2">
           {/* Sorting lives in the column headers, which the stacked mobile list
               does not have — so below sm it gets a control of its own rather
-              than losing the ability entirely. */}
-          <div className="min-w-0 max-w-44 flex-1 sm:hidden">
+              than losing the ability entirely. Only meaningful in table view:
+              the image grid has no headers to sort under to begin with. */}
+          <div className={cx("min-w-0 max-w-44 flex-1 sm:hidden", view !== "table" && "hidden")}>
             <Select
               aria-label="Sort by"
               className="text-xs"
@@ -217,91 +243,41 @@ export function CollectionTable({
             </Select>
           </div>
 
-          {/* Which columns show is a table question; the stacked list has a
-              fixed shape, so the picker would be a control over nothing. */}
-          <div className="hidden sm:block">
-            <ColumnPicker
-              open={pickerOpen}
-              onOpenChange={setPickerOpen}
-              visible={visible}
-              onToggle={toggleColumn}
-            />
-          </div>
+          {/* One control, two jobs depending on the view: which columns show
+              in the table, or how big the tiles are in the image grid — the
+              same slot the way `WantListManager`'s ⋯ menu is one control that
+              means different things depending on context, rather than two
+              controls competing for the same corner. Available at every width
+              in image view (the grid itself is responsive, unlike the table),
+              so only the table's own picker stays sm-and-up. */}
+          <ViewToggle view={view} onChange={writeStoredView} />
+          {view === "table" ? (
+            <div className="hidden sm:block">
+              <ColumnPicker
+                open={pickerOpen}
+                onOpenChange={setPickerOpen}
+                visible={visible}
+                onToggle={toggleColumn}
+              />
+            </div>
+          ) : (
+            <SizePicker size={tileSize} onChange={writeStoredTileSize} />
+          )}
         </div>
       </div>
 
-      {/* Below sm, one card per entry. A six-column table is 40rem wide at its
-          narrowest, which on a phone is a page you read by dragging sideways —
-          so that width is spent going down the screen instead. */}
-      <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border sm:hidden">
-        {pageRows.map((row) => (
-          <MobileRow
-            key={row.id}
-            row={row}
-            locations={locations}
-            availability={availabilityFor(availability, row.cards)}
-            selected={selected.has(row.id)}
-            onToggle={() => toggleRow(row.id)}
-            editing={editing === row.id}
-            onEditToggle={() => setEditing((cur) => (cur === row.id ? null : row.id))}
-          />
-        ))}
-      </ul>
-
-      <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
-        <table className="w-full min-w-[40rem] text-sm">
-          <thead className="border-b border-border bg-surface-muted text-left">
-            <tr>
-              <th scope="col" className="w-10 px-3 py-2">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => {
-                    // Indeterminate is not an attribute, only a property.
-                    if (el) el.indeterminate = someSelected;
-                  }}
-                  onChange={toggleAll}
-                  aria-label={allSelected ? "Clear selection" : "Select all rows"}
-                />
-              </th>
-
-              {columns.map((column) => {
-                const active = sort?.column === column.id;
-                return (
-                  <th
-                    key={column.id}
-                    scope="col"
-                    aria-sort={
-                      active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"
-                    }
-                    className={cx("px-3 py-2 font-medium", column.numeric && "text-right")}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => headerClick(column.id)}
-                      className="inline-flex items-center gap-1 hover:text-ink"
-                    >
-                      {column.label}
-                      <span aria-hidden="true" className="text-ink-muted">
-                        {active ? (sort.direction === "asc" ? "▲" : "▼") : ""}
-                      </span>
-                    </button>
-                  </th>
-                );
-              })}
-
-              <th scope="col" className="w-12 px-3 py-2">
-                <span className="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-
-          <tbody className="divide-y divide-border">
+      {view === "image" ? (
+        <CollectionGallery rows={pageRows} availability={availability} size={tileSize} />
+      ) : (
+        <>
+          {/* Below sm, one card per entry. A six-column table is 40rem wide at
+              its narrowest, which on a phone is a page you read by dragging
+              sideways — so that width is spent going down the screen instead. */}
+          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border sm:hidden">
             {pageRows.map((row) => (
-              <Row
+              <MobileRow
                 key={row.id}
                 row={row}
-                columns={columns}
                 locations={locations}
                 availability={availabilityFor(availability, row.cards)}
                 selected={selected.has(row.id)}
@@ -310,9 +286,75 @@ export function CollectionTable({
                 onEditToggle={() => setEditing((cur) => (cur === row.id ? null : row.id))}
               />
             ))}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+
+          <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
+            <table className="w-full min-w-[40rem] text-sm">
+              <thead className="border-b border-border bg-surface-muted text-left">
+                <tr>
+                  <th scope="col" className="w-10 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => {
+                        // Indeterminate is not an attribute, only a property.
+                        if (el) el.indeterminate = someSelected;
+                      }}
+                      onChange={toggleAll}
+                      aria-label={allSelected ? "Clear selection" : "Select all rows"}
+                    />
+                  </th>
+
+                  {columns.map((column) => {
+                    const active = sort?.column === column.id;
+                    return (
+                      <th
+                        key={column.id}
+                        scope="col"
+                        aria-sort={
+                          active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"
+                        }
+                        className={cx("px-3 py-2 font-medium", column.numeric && "text-right")}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => headerClick(column.id)}
+                          className="inline-flex items-center gap-1 hover:text-ink"
+                        >
+                          {column.label}
+                          <span aria-hidden="true" className="text-ink-muted">
+                            {active ? (sort.direction === "asc" ? "▲" : "▼") : ""}
+                          </span>
+                        </button>
+                      </th>
+                    );
+                  })}
+
+                  <th scope="col" className="w-12 px-3 py-2">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-border">
+                {pageRows.map((row) => (
+                  <Row
+                    key={row.id}
+                    row={row}
+                    columns={columns}
+                    locations={locations}
+                    availability={availabilityFor(availability, row.cards)}
+                    selected={selected.has(row.id)}
+                    onToggle={() => toggleRow(row.id)}
+                    editing={editing === row.id}
+                    onEditToggle={() => setEditing((cur) => (cur === row.id ? null : row.id))}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {pageCount > 1 ? (
         <Pager
@@ -430,6 +472,7 @@ function MobileRow({
 }) {
   const card = row.cards;
   const preview = useCardPreview(card);
+  const { open } = useCardPanel();
 
   return (
     <li className={cx("p-3", selected && "bg-accent-soft")}>
@@ -451,9 +494,15 @@ function MobileRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <span {...preview} tabIndex={0} className="font-medium">
+              <button
+                type="button"
+                {...preview}
+                onClick={() => card && open(card)}
+                disabled={!card}
+                className="font-medium disabled:cursor-default"
+              >
                 {card ? cardDisplayName(card) : "Unknown printing"}
-              </span>
+              </button>
               <FoilMark finish={row.finish} />
               <p className="flex items-center gap-1.5 truncate text-xs text-ink-muted">
                 <SetSymbol code={card?.set_code} size={12} />
@@ -568,23 +617,30 @@ function Cell({
   availability: Availability;
 }) {
   const card = row.cards;
+  const { open } = useCardPanel();
 
   switch (column) {
     case "quantity":
       return <span className="font-medium">{row.quantity}</span>;
 
     case "name":
-      // The hover target for the side panel. A span rather than a link: the row
-      // has its own actions, and navigating away on a click would fight them.
+      // The hover target for the side panel *and* the click target for the
+      // full card popup — a button rather than a link, since the row already
+      // has its own actions (edit, delete) and a real navigation would fight
+      // them. `open(card)` hands over the row's own card object, the same
+      // "already have it, no request needed" path `SearchResultsGrid` and
+      // `HeaderSearch` use, so opening it is instant.
       return (
         <>
-          <span
+          <button
+            type="button"
             {...preview}
-            tabIndex={0}
-            className="cursor-default font-medium hover:underline"
+            onClick={() => card && open(card)}
+            disabled={!card}
+            className="cursor-pointer font-medium hover:underline disabled:cursor-default"
           >
             {card ? cardDisplayName(card) : "Unknown printing"}
-          </span>
+          </button>
           <FoilMark finish={row.finish} />
         </>
       );
@@ -1009,5 +1065,142 @@ function ColumnPicker({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Table / image toggle
+// ---------------------------------------------------------------------------
+
+/** Same shape as `WantListManager`'s list/gallery toggle — a table is text,
+ *  an image grid is art, and the same two words say which is which there. */
+function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (view: ViewMode) => void }) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-border">
+      {(["table", "image"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          aria-pressed={view === option}
+          title={option === "table" ? "Table view" : "Image view"}
+          className={cx(
+            "px-2.5 py-1.5 text-xs font-medium transition-colors coarse:min-h-11",
+            view === option ? "bg-accent text-accent-ink" : "text-ink-muted hover:bg-surface-muted",
+          )}
+        >
+          {option === "table" ? "Table" : "Images"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The image view
+// ---------------------------------------------------------------------------
+
+/**
+ * The collection as a grid of card art, instead of a table.
+ *
+ * Sized the same way `SearchResultsGrid`'s grid is — `auto-fill`/`minmax`
+ * rather than a fixed column count per breakpoint, so "big enough to read"
+ * holds at any window width and the same tile-size choice works from a phone
+ * up to a wide desktop without a second, mobile-specific layout.
+ *
+ * Unlike the table, a tile carries no editor and no selection checkbox: this
+ * is a way to look at the collection, not to bulk-edit it. Tapping a tile
+ * opens the same full card popup a name click in the table does
+ * (`useCardPanel`, always the sheet presentation), which is where "add to a
+ * deck" and the rest of the per-card actions live.
+ */
+function CollectionGallery({
+  rows,
+  availability,
+  size,
+}: {
+  rows: CardInstanceWithCard[];
+  availability: Map<string, Availability>;
+  size: TileSize;
+}) {
+  return (
+    <ul
+      className="grid gap-4"
+      style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[size].minmax}, 1fr))` }}
+    >
+      {rows.map((row) => (
+        <GalleryTile
+          key={row.id}
+          row={row}
+          availability={availabilityFor(availability, row.cards)}
+          imageWidth={TILE_SIZES[size].imageWidth}
+        />
+      ))}
+    </ul>
+  );
+}
+
+function GalleryTile({
+  row,
+  availability,
+  imageWidth,
+}: {
+  row: CardInstanceWithCard;
+  availability: Availability;
+  imageWidth: string;
+}) {
+  const { open } = useCardPanel();
+  const card = row.cards;
+  const image = card?.image_uri ?? card?.image_uri_small ?? null;
+  const name = card ? cardDisplayName(card) : "Unknown printing";
+
+  return (
+    <li className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => card && open(card)}
+        disabled={!card}
+        aria-label={name}
+        className="relative block aspect-[488/680] w-full overflow-hidden rounded-lg border border-border bg-surface-muted"
+      >
+        {image ? (
+          <Image
+            src={image}
+            alt=""
+            fill
+            sizes={`(min-width: 1024px) ${imageWidth}, (min-width: 640px) 40vw, 50vw`}
+            className="object-cover"
+            unoptimized
+          />
+        ) : null}
+      </button>
+
+      <div className="space-y-1 text-xs">
+        <div className="flex items-start justify-between gap-1.5">
+          <p className="min-w-0 flex-1 truncate font-medium" title={name}>
+            {name}
+            <FoilMark finish={row.finish} />
+          </p>
+          <span className="shrink-0 font-medium tabular-nums">×{row.quantity}</span>
+        </div>
+
+        <p className="flex items-center gap-1.5 truncate text-ink-muted">
+          <SetSymbol code={card?.set_code} size={12} />
+          {card?.set_name ?? card?.set_code?.toUpperCase() ?? "—"}
+        </p>
+
+        <div className="flex flex-wrap items-center justify-between gap-1.5">
+          <span className={cx("truncate", row.locations ? "" : "text-ink-muted")}>
+            {row.locations?.name ?? "Unsorted"}
+          </span>
+          <PriceCell row={row} />
+        </div>
+
+        <div className="flex items-center justify-between gap-1.5">
+          <Badge>{CONDITION_LABELS[row.condition] ?? row.condition}</Badge>
+          <AvailableCell row={row} availability={availability} />
+        </div>
+      </div>
+    </li>
   );
 }

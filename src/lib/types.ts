@@ -187,6 +187,11 @@ export type Card = {
    *  that case. */
   produced_mana: string[] | null;
 
+  /** Commander Game Changers list membership (migration 00000000000034). Null
+   *  on any row that has not been through a sync since that migration was
+   *  applied — the deck banner hides the stat rather than showing zero. */
+  game_changer: boolean | null;
+
   // Price columns (migration 00000000000011). Null on any row that has not
   // been through a sync since that migration was applied, and null for any
   // finish with no recent sale — which is not the same as free.

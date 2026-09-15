@@ -250,8 +250,14 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
 // Choosing a presentation
 // ---------------------------------------------------------------------------
 
-/** Subscribe to a media query without setting state in an effect. */
-function useMediaQuery(query: string): boolean {
+/**
+ * Subscribe to a media query without setting state in an effect.
+ *
+ * Exported: `WantListManager`'s mobile-default view toggle reuses this rather
+ * than growing its own copy of the same `matchMedia`/`useSyncExternalStore`
+ * dance this file already needed for `usePresentation`.
+ */
+export function useMediaQuery(query: string): boolean {
   const subscribe = useCallback(
     (onChange: () => void) => {
       const list = window.matchMedia(query);

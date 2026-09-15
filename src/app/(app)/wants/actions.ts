@@ -69,6 +69,14 @@ function pickRepresentative(rows: PrintingPick[]): string | null {
  * reimplementing the name -> representative-printing lookup: it submits the
  * same form this function already handles, plus one extra hidden field.
  *
+ * `card_id`, when given, names the exact printing to want and skips
+ * `pickRepresentative` entirely — `DeckStateMark`'s cart icon passes the
+ * printing actually sleeved into the deck, because re-ranking every printing
+ * of that name from scratch could (and did) pick a different one than what
+ * was on screen. `AddToWishList` and the /wants page have no particular
+ * printing in mind — they only ever have a name someone typed — so they leave
+ * `card_id` off and get the representative-printing lookup as before.
+ *
  * A card already on the list is not an error when a deck is given — tagging
  * an existing want to a deck ("oh, I already wanted this, it's for the Atarka
  * deck") is a more useful outcome than making the user remove and re-add it,
@@ -81,7 +89,8 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
   if (!user) return fail("You need to be signed in.");
 
   const name = String(formData.get("card_name") ?? "").trim();
-  if (!name) return fail("Pick a card to add.");
+  const explicitCardId = String(formData.get("card_id") ?? "").trim();
+  if (!name && !explicitCardId) return fail("Pick a card to add.");
 
   const rawQty = Number.parseInt(String(formData.get("quantity") ?? "1"), 10);
   const quantity = Number.isFinite(rawQty) && rawQty > 0 ? Math.min(rawQty, 10000) : 1;
@@ -91,15 +100,18 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
 
   const supabase = await createClient();
 
-  const { data: printings, error: lookupError } = await supabase
-    .from("cards")
-    .select("scryfall_id, released_at, set_type, digital")
-    .ilike("name", name)
-    .limit(50);
+  let cardId: string | null = explicitCardId || null;
+  if (!cardId) {
+    const { data: printings, error: lookupError } = await supabase
+      .from("cards")
+      .select("scryfall_id, released_at, set_type, digital")
+      .ilike("name", name)
+      .limit(50);
 
-  if (lookupError) return fail(lookupError.message);
+    if (lookupError) return fail(lookupError.message);
 
-  const cardId = pickRepresentative((printings ?? []) as PrintingPick[]);
+    cardId = pickRepresentative((printings ?? []) as PrintingPick[]);
+  }
   if (!cardId) {
     return fail(`No card called “${name}” is in the database yet.`);
   }

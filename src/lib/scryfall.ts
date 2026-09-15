@@ -89,6 +89,10 @@ export type ScryfallCard = ScryfallFace & {
   keywords?: string[];
   image_uris?: ScryfallImageUris;
   produced_mana?: string[];
+  /** Whether this card is on the Commander Game Changers list. A top-level
+   *  card field, not a per-face one — a DFC's back face doesn't get its own
+   *  entry on the list. */
+  game_changer?: boolean;
   /** Present on double-faced/split cards, which carry their detail per face. */
   card_faces?: ScryfallFace[];
   prices?: ScryfallPrices;
@@ -135,6 +139,11 @@ export type CardRow = {
   // Colour-aware playtesting needs to know which colours a land can produce;
   // added in migration 00000000000032.
   produced_mana: string[] | null;
+
+  // Whether this printing is on the Commander Game Changers list; added in
+  // migration 00000000000034. Null until synced, not false — see that
+  // migration's header for why the distinction matters.
+  game_changer: boolean | null;
 
   // Price columns, added in migration 00000000000011.
   price_usd: number | null;
@@ -233,6 +242,7 @@ export function toCardRow(card: ScryfallCard, syncedAt: string): CardRow | null 
     card_faces: card.card_faces && card.card_faces.length > 1 ? card.card_faces : null,
     set_type: card.set_type ?? null,
     produced_mana: card.produced_mana ?? front?.produced_mana ?? null,
+    game_changer: card.game_changer ?? null,
 
     price_usd: price(card.prices?.usd),
     price_usd_foil: price(card.prices?.usd_foil),

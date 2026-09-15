@@ -275,3 +275,33 @@ export function computeDeckStats(
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+/**
+ * How many distinct cards on the list are Commander Game Changers.
+ *
+ * Counts cards, not copies — a playset of a game changer is still one
+ * decision at the table, not four. Returns null rather than 0 when the
+ * deck's cards have not been through a sync since migration 00000000000034:
+ * `game_changer` is null until then, and reporting zero would read as "this
+ * deck has none" rather than "we don't know yet". Only once at least one card
+ * on the list carries a real true/false value do the rest get taken at face
+ * value and counted normally.
+ */
+export function gameChangerCount(entries: DeckListEntry[]): number | null {
+  const synced = entries.some(
+    (entry) => entry.cards !== null && entry.cards.game_changer !== null,
+  );
+  if (!synced) return null;
+
+  const seen = new Set<string>();
+  let count = 0;
+  for (const entry of entries) {
+    const card = entry.cards;
+    if (!card || card.game_changer !== true) continue;
+    const key = card.oracle_id ?? card.scryfall_id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    count += 1;
+  }
+  return count;
+}

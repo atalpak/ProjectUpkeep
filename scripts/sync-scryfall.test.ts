@@ -175,6 +175,31 @@ test("maps produced_mana off a land", () => {
   assert.deepEqual(row.produced_mana, ["U", "R"]);
 });
 
+// ---------------------------------------------------------------------------
+// game_changer (migration 00000000000034)
+// ---------------------------------------------------------------------------
+
+test("maps game_changer true off the Commander Game Changers list", () => {
+  const row = toCardRow({ ...baseCard, game_changer: true }, SYNCED_AT);
+  assert.ok(row);
+  assert.equal(row.game_changer, true);
+});
+
+test("maps game_changer false for a card Scryfall explicitly marks as not one", () => {
+  const row = toCardRow({ ...baseCard, game_changer: false }, SYNCED_AT);
+  assert.ok(row);
+  assert.equal(row.game_changer, false);
+});
+
+test("maps game_changer null when Scryfall omits the field entirely", () => {
+  // Bulk-export rows synced before migration 00000000000034 existed, or any
+  // card Scryfall simply hasn't tagged either way — null, not false, so the
+  // deck banner can tell "not a game changer" apart from "never synced".
+  const row = toCardRow(baseCard, SYNCED_AT);
+  assert.ok(row);
+  assert.equal(row.game_changer, null);
+});
+
 test("takes cost and rules text from the front face of a transform card", () => {
   // Transform cards carry no top-level mana_cost, oracle_text, colors or stats
   // at all — verified against Scryfall's own data for this card.

@@ -11,7 +11,7 @@ import {
   setWantQuantity,
 } from "@/app/(app)/wants/actions";
 import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
-import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
+import { CardPreviewLink, CardPreviewTarget, useMediaQuery } from "@/components/CardPanel";
 import { cardKey } from "@/lib/collection/availability";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select, cx } from "@/components/ui";
@@ -58,7 +58,18 @@ export function WantListManager({
   // Plain component state, not persisted — DeckWorkspace's equivalent toggle
   // (src/components/decks/DeckWorkspace.tsx) does the same: it is a
   // per-visit preference, not a setting worth a localStorage key.
-  const [view, setView] = useState<ViewMode>("list");
+  //
+  // Its starting value is the one exception: standing at a table on a phone,
+  // a column of names is a worse first look at a wish list than the art grid
+  // is, so a narrow viewport starts on gallery instead of list. `null` means
+  // "no explicit choice yet" — `useMediaQuery` (shared with CardPanel's own
+  // presentation logic, same `useSyncExternalStore` reasoning) reports `false`
+  // on the server and during hydration, so the first paint always matches
+  // desktop's default and only flips to gallery once the client confirms a
+  // narrow viewport, rather than flickering from one to the other.
+  const isNarrow = useMediaQuery("(max-width: 639px)");
+  const [view, setView] = useState<ViewMode | null>(null);
+  const effectiveView: ViewMode = view ?? (isNarrow ? "gallery" : "list");
 
   return (
     <div className="space-y-5">
@@ -72,10 +83,10 @@ export function WantListManager({
       ) : (
         <div className="space-y-3">
           <div className="flex items-center justify-end">
-            <ViewToggle view={view} onChange={setView} />
+            <ViewToggle view={effectiveView} onChange={setView} />
           </div>
 
-          {view === "gallery" ? (
+          {effectiveView === "gallery" ? (
             <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {wants.map((want) => (
                 <WantGalleryCard

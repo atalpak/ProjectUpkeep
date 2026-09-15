@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 
 import { addWant } from "@/app/(app)/wants/actions";
@@ -52,10 +53,12 @@ function glow(rgb: string): string {
 
 /** A hotter version of `glow` for the 🛒 marks specifically — the emoji's own
  *  built-in colouring dilutes a normal-strength glow more than the flat text
- *  glyphs do, and read as washed out in dark mode next to them. Bigger, more
- *  opaque blurs compensate. */
+ *  glyphs do, and read as washed out in dark mode next to them. Fully opaque
+ *  blurs compensate for that, rather than wider ones: a wide glow was bleeding
+ *  into whatever sat beside it in the row (the price, most often), throwing
+ *  off the alignment of everything around the cart rather than just glowing. */
 function cartGlow(rgb: string): string {
-  return `[text-shadow:0_0_8px_rgba(${rgb},1),0_0_16px_rgba(${rgb},0.85),0_0_1px_rgba(0,0,0,0.75),0_1px_1px_rgba(0,0,0,0.6)]`;
+  return `[text-shadow:0_0_4px_rgba(${rgb},1),0_0_8px_rgba(${rgb},0.95),0_0_1px_rgba(0,0,0,0.8),0_1px_1px_rgba(0,0,0,0.7)]`;
 }
 
 const GLOW: Record<Tone, string> = {
@@ -124,12 +127,17 @@ function MissingMark({
   label,
   size,
   cardName,
+  cardId,
   deckId,
   onList,
 }: {
   label: string;
   size: "sm" | "lg";
   cardName: string;
+  /** This row's actual printing — threaded through to `addWant` so a card
+   *  already sleeved into the deck under one printing is not re-added under
+   *  whichever one `pickRepresentative` would have guessed instead. */
+  cardId: string;
   deckId: string;
   onList: boolean;
 }) {
@@ -138,14 +146,14 @@ function MissingMark({
 
   if (onList) {
     return (
-      <span
+      <Link
+        href="/wants"
         className={cx("inline-flex shrink-0 items-center justify-center leading-none", sizeClass, WISHLISTED_GLOW)}
-        title={`${label} — on your wish list`}
-        aria-label={`${label} — on your wish list`}
-        role="img"
+        title="In Wishlist"
+        aria-label="In Wishlist"
       >
         {CART_GLYPH}
-      </span>
+      </Link>
     );
   }
 
@@ -156,6 +164,7 @@ function MissingMark({
     <form action={add} className="inline-block">
       <input type="hidden" name="deck_id" value={deckId} />
       <input type="hidden" name="card_name" value={cardName} />
+      <input type="hidden" name="card_id" value={cardId} />
       <input type="hidden" name="quantity" value="1" />
       <button
         type="submit"
@@ -334,10 +343,13 @@ export function DeckStateMark({
   size?: "sm" | "lg";
   /** The card and deck to add on click — only meaningful on a "missing" row.
    *  `cardName` must be `cards.name` verbatim (not the display name), since
-   *  `addWant` looks it up with an exact, case-insensitive match. `onList`
+   *  `addWant` falls back to it (an exact, case-insensitive match) when
+   *  `cardId` is absent. `cardId` is this row's actual printing — the one
+   *  really sleeved into the deck, not a guess `pickRepresentative` would make
+   *  from the name alone — and `addWant` uses it directly when given. `onList`
    *  says whether it is already on this deck's wish list (see `cardKey` in
    *  DeckWorkspace — matched by oracle id, not by this printing). */
-  wishlist?: { cardName: string; deckId: string; onList: boolean };
+  wishlist?: { cardName: string; cardId: string; deckId: string; onList: boolean };
   /** The deck, card and server action to sleeve with on click — only
    *  meaningful on an "available" row. `cardId` is any printing's
    *  `scryfall_id` (`sleeveCard` matches by oracle id, not by this exact
@@ -351,6 +363,7 @@ export function DeckStateMark({
         label={describe(entry, spareIn, friendSupply)}
         size={size}
         cardName={wishlist.cardName}
+        cardId={wishlist.cardId}
         deckId={wishlist.deckId}
         onList={wishlist.onList}
       />

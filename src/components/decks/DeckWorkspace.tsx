@@ -581,7 +581,7 @@ function ListRow({
           entry={state}
           spareIn={entry.spareIn}
           friendSupply={entry.friendSupply}
-          wishlist={card ? { cardName: card.name, deckId, onList: entry.onWishlist } : undefined}
+          wishlist={card ? { cardName: card.name, cardId: entry.card_id, deckId, onList: entry.onWishlist } : undefined}
           sleeveAction={{ deckId, cardId: entry.card_id, action: sleeve, pending: sleeving }}
         />
 
@@ -1009,7 +1009,7 @@ function GalleryCard({
           entry={state}
           spareIn={entry.spareIn}
           friendSupply={entry.friendSupply}
-          wishlist={card ? { cardName: card.name, deckId, onList: entry.onWishlist } : undefined}
+          wishlist={card ? { cardName: card.name, cardId: entry.card_id, deckId, onList: entry.onWishlist } : undefined}
           sleeveAction={{ deckId, cardId: entry.card_id, action: sleeve, pending: sleeving }}
         />
 

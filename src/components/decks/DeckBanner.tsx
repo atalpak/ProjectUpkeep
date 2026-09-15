@@ -6,7 +6,7 @@ import { useState, type ReactNode } from "react";
 import { artCropUrl } from "@/components/LocationManager";
 import { DeckDetailsEditor } from "@/components/decks/DeckDetails";
 import { Price, useShowPrices } from "@/components/PriceToggle";
-import { cx } from "@/components/ui";
+import { Button, cx } from "@/components/ui";
 import type { DeckPrice } from "@/lib/collection/deck-stats";
 import type { DeckProgress } from "@/lib/collection/deck-state";
 import type { Location } from "@/lib/types";
@@ -22,6 +22,11 @@ import type { Location } from "@/lib/types";
  * dates) lives in one place now; Playtest and Export are passed in as
  * `actions` because they are already wired up as client components on the
  * page that renders this.
+ *
+ * Every button the banner offers — the passed-in `actions` and its own "Edit
+ * details" — sits together top-right, next to the title. The created/updated
+ * dates are the one thing here nobody acts on, so they get tucked bottom-right
+ * instead, out of the way of anything tappable.
  */
 export function DeckBanner({
   deck,
@@ -29,6 +34,7 @@ export function DeckBanner({
   commanderName,
   progress,
   price,
+  gameChangers,
   actions,
 }: {
   deck: Location;
@@ -37,6 +43,9 @@ export function DeckBanner({
   commanderName: string | null;
   progress: DeckProgress;
   price: DeckPrice;
+  /** Distinct Commander Game Changers on the list, or null pre-sync — see
+   *  gameChangerCount in src/lib/collection/deck-stats.ts. */
+  gameChangers: number | null;
   actions: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -85,18 +94,15 @@ export function DeckBanner({
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className={cx(
-              "shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-              art
-                ? "border-white/30 bg-white/10 text-white/90 hover:bg-white/20"
-                : "border-border bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink",
-            )}
-          >
-            {deck.format || tags.length > 0 || deck.notes ? "Edit details" : "Add format, tags, notes"}
-          </button>
+          {/* Everything tappable lives here, together — the passed-in
+              actions (Playtest, Export) alongside Edit details, rather than
+              split between the top of the banner and its bottom corner. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {actions}
+            <Button type="button" variant="dark" onClick={() => setEditing(true)}>
+              {deck.format || tags.length > 0 || deck.notes ? "Edit details" : "Add format, tags, notes"}
+            </Button>
+          </div>
         </div>
 
         {deck.format || tags.length > 0 ? (
@@ -130,16 +136,21 @@ export function DeckBanner({
               ) : null}
             </>
           ) : null}
+          {gameChangers !== null ? (
+            <>
+              {" · "}
+              {gameChangers} game changer{gameChangers === 1 ? "" : "s"}
+            </>
+          ) : null}
         </p>
 
-        {/* Dates on the left, actions pinned to the bottom-right corner — the
-            one thing on the banner that isn't identity or stats reads as
-            secondary, tucked out of the way of the title. */}
-        <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
+        {/* The dates are the one thing on the banner nobody acts on, so they
+            get tucked into the bottom-right corner rather than competing with
+            the title or the buttons up top. */}
+        <div className="flex justify-end pt-1">
           <p className={cx("text-xs", art ? "text-white/70" : "text-ink-muted")}>
             Created {formatDate(deck.created_at)} · Updated {formatDate(deck.updated_at)}
           </p>
-          <div className="flex flex-wrap items-center gap-2">{actions}</div>
         </div>
       </div>
     </div>

@@ -1,5 +1,8 @@
 /**
- * Column definitions for the collection table.
+ * Column definitions for the collection table, and the viewing preferences
+ * that sit alongside them — which columns show, how the table is sorted, and
+ * now whether it is a table at all or an image grid, plus that grid's own
+ * tile size.
  *
  * Separate from the table component so the set of columns, their default
  * visibility and how each one sorts are described in one readable place rather
@@ -10,6 +13,7 @@ import type { CardInstanceWithCard } from "@/lib/types";
 import { statToNumber } from "@/lib/collection/filters";
 import type { Availability } from "@/lib/collection/availability";
 import { displayPrice } from "@/lib/collection/pricing";
+import { isTileSize, type TileSize } from "@/components/cards/TileSizePicker";
 
 /**
  * What a column may need beyond the row itself. Kept for columns that might
@@ -354,4 +358,104 @@ export function writeSortCookie(sort: SortState | null): void {
   } catch {
     // Blocked cookies: the sort still works, it just will not be remembered.
   }
+}
+
+// ---------------------------------------------------------------------------
+// Persisted view (table vs. image) and, for the image view, tile size
+// ---------------------------------------------------------------------------
+
+/**
+ * Table or a card-art grid — the same `list`/`gallery` choice
+ * `WantListManager` and `DeckWorkspace` offer, named for what this table's own
+ * rows are instead: a table has columns, a gallery of cards does not.
+ *
+ * Persisted the same way the column choice above is (browser-local
+ * `localStorage`, an external store rather than React state), because it is
+ * the same kind of fact: a viewing preference the server cannot read and has
+ * no business sorting or filtering by.
+ */
+export type ViewMode = "table" | "image";
+
+export const VIEW_STORAGE_KEY = "project-upkeep-collection-view";
+
+function isViewMode(value: string | null): value is ViewMode {
+  return value === "table" || value === "image";
+}
+
+const viewListeners = new Set<() => void>();
+
+export function subscribeToView(onChange: () => void): () => void {
+  viewListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    viewListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+let unsavedView: ViewMode | null = null;
+
+export function readStoredView(): ViewMode {
+  try {
+    const stored = unsavedView ?? localStorage.getItem(VIEW_STORAGE_KEY);
+    return isViewMode(stored) ? stored : "table";
+  } catch {
+    return unsavedView ?? "table";
+  }
+}
+
+/** Table on the server, so the markup React hydrates matches. */
+export const readStoredViewOnServer = (): ViewMode => "table";
+
+export function writeStoredView(view: ViewMode): void {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+    unsavedView = null;
+  } catch {
+    unsavedView = view;
+  }
+  for (const listener of viewListeners) listener();
+}
+
+/**
+ * The image view's own size choice — Medium/Large, the same two
+ * `TileSizePicker` offers `/search`. A separate key from that page's: the two
+ * grids are unrelated views of unrelated data, and someone browsing Advanced
+ * Search at Large has said nothing about what they want their own collection
+ * tiles to look like.
+ */
+export const TILE_SIZE_STORAGE_KEY = "project-upkeep-collection-tile-size";
+
+const tileSizeListeners = new Set<() => void>();
+
+export function subscribeToTileSize(onChange: () => void): () => void {
+  tileSizeListeners.add(onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    tileSizeListeners.delete(onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+let unsavedTileSize: TileSize | null = null;
+
+export function readStoredTileSize(): TileSize {
+  try {
+    const stored = unsavedTileSize ?? localStorage.getItem(TILE_SIZE_STORAGE_KEY);
+    return isTileSize(stored) ? stored : "l";
+  } catch {
+    return unsavedTileSize ?? "l";
+  }
+}
+
+export const readStoredTileSizeOnServer = (): TileSize => "l";
+
+export function writeStoredTileSize(size: TileSize): void {
+  try {
+    localStorage.setItem(TILE_SIZE_STORAGE_KEY, size);
+    unsavedTileSize = null;
+  } catch {
+    unsavedTileSize = size;
+  }
+  for (const listener of tileSizeListeners) listener();
 }

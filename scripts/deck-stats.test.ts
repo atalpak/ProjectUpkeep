@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { computeDeckStats, priceFinishFor } from "../src/lib/collection/deck-stats";
+import { computeDeckStats, gameChangerCount, priceFinishFor } from "../src/lib/collection/deck-stats";
 import type { DeckListEntry } from "../src/lib/collection/queries";
 import type { Card, Finish } from "../src/lib/types";
 
@@ -18,10 +18,13 @@ function entry(over: {
   price_usd_foil?: number | null;
   available_finishes?: string[];
   sleevedFinishes?: Finish[];
+  oracle_id?: string | null;
+  game_changer?: boolean | null;
 }): DeckListEntry {
   const id = over.id ?? `e${++seq}`;
   const card = {
     scryfall_id: `c-${id}`,
+    oracle_id: over.oracle_id === undefined ? `o-${id}` : over.oracle_id,
     name: `Card ${id}`,
     type_line: over.type_line ?? "Creature — Human",
     cmc: over.cmc === undefined ? 2 : over.cmc,
@@ -31,6 +34,7 @@ function entry(over: {
     price_usd: over.price_usd === undefined ? 1 : over.price_usd,
     price_usd_foil: over.price_usd_foil ?? null,
     price_usd_etched: null,
+    game_changer: over.game_changer === undefined ? null : over.game_changer,
   } as unknown as Card;
 
   return {
@@ -205,4 +209,45 @@ test("the nominated commander is its own price section", () => {
   assert.ok(sections.includes("commander"));
   assert.equal(stats.price.sections.find((s) => s.section === "commander")!.total, 5);
   assert.equal(stats.price.sections.find((s) => s.section === "creatures")!.total, 1);
+});
+
+// ---------------------------------------------------------------------------
+// gameChangerCount (migration 00000000000034)
+// ---------------------------------------------------------------------------
+
+test("gameChangerCount is null when nothing on the list has synced game_changer data", () => {
+  const count = gameChangerCount([
+    entry({ game_changer: null }),
+    entry({ game_changer: null }),
+  ]);
+  assert.equal(count, null);
+});
+
+test("gameChangerCount counts once at least one card has real data", () => {
+  const count = gameChangerCount([
+    entry({ game_changer: true }),
+    entry({ game_changer: false }),
+    entry({ game_changer: null }), // this one just hasn't synced yet — still counted as 0
+  ]);
+  assert.equal(count, 1);
+});
+
+test("gameChangerCount counts distinct cards, not copies", () => {
+  const count = gameChangerCount([
+    entry({ id: "a", oracle_id: "sol-ring", game_changer: true, quantity: 4 }),
+  ]);
+  assert.equal(count, 1, "a playset of one game changer is still one card");
+});
+
+test("gameChangerCount does not double-count the same card under two printings", () => {
+  const count = gameChangerCount([
+    entry({ id: "a", oracle_id: "mana-drain", game_changer: true }),
+    entry({ id: "b", oracle_id: "mana-drain", game_changer: true }),
+  ]);
+  assert.equal(count, 1);
+});
+
+test("gameChangerCount is 0, not null, once the deck is fully synced with none", () => {
+  const count = gameChangerCount([entry({ game_changer: false }), entry({ game_changer: false })]);
+  assert.equal(count, 0);
 });
