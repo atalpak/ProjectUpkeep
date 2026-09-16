@@ -8,7 +8,7 @@ import type { FriendCardMatch } from "@/lib/social/wants";
 import type { Profile } from "@/lib/social/types";
 import { LOCATION_TYPE_LABELS } from "@/lib/types";
 import { CardLocator } from "@/components/collection/CardLocator";
-import { CardPreviewLink } from "@/components/CardPanel";
+import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Find a card · Project Upkeep" };
@@ -104,12 +104,13 @@ function LocatedRow({ card }: { card: LocatedCard }) {
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <Link
+            <CardPreviewLink
+              card={card.cardId ?? undefined}
               href={`/collection?q=${encodeURIComponent(card.name)}`}
               className="font-medium hover:underline"
             >
               {card.displayName}
-            </Link>
+            </CardPreviewLink>
             <span className="text-xs text-ink-muted">
               {card.total} cop{card.total === 1 ? "y" : "ies"}
               {card.available < card.total
@@ -184,7 +185,9 @@ function FriendMatchRow({
 }) {
   return (
     <li className="rounded-lg border border-border bg-surface p-3">
-      <div className="font-medium">{match.displayName}</div>
+      <CardPreviewTarget card={match.cardId ?? undefined} className="block font-medium">
+        {match.displayName}
+      </CardPreviewTarget>
       <ul className="mt-1.5 space-y-1">
         {match.suppliers.map((s) => {
           const username = suppliers.get(s.ownerId)?.username ?? "a friend";

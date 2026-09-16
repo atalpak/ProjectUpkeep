@@ -195,6 +195,8 @@ export type FriendCardMatch = {
   name: string;
   /** What to show: the printed name when the printing has one. */
   displayName: string;
+  /** A sample printing's id, for the card popup — any one of the matched rows. */
+  cardId: string | null;
   /** Best supplier first, same ordering `matchWants` uses. */
   suppliers: WantSupplier[];
 };
@@ -216,7 +218,7 @@ export function matchTradablesByTerm(
 
   const byKey = new Map<
     string,
-    { name: string; displayName: string; owners: Map<string, WantSupplier> }
+    { name: string; displayName: string; cardId: string | null; owners: Map<string, WantSupplier> }
   >();
 
   for (const row of tradables) {
@@ -231,6 +233,7 @@ export function matchTradablesByTerm(
       entry = {
         name: row.name,
         displayName: cardDisplayName({ name: row.name, flavor_name: row.flavorName }),
+        cardId: row.cardId ?? null,
         owners: new Map(),
       };
       byKey.set(row.key, entry);
@@ -255,6 +258,7 @@ export function matchTradablesByTerm(
     key,
     name: e.name,
     displayName: e.displayName,
+    cardId: e.cardId,
     suppliers: [...e.owners.values()].sort(
       (a, b) => b.available - a.available || a.ownerId.localeCompare(b.ownerId),
     ),

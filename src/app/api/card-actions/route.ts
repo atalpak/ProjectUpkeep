@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/supabase/server";
 import { getDecks, getLocations, locateInCollection } from "@/lib/collection/queries";
 import { cardKey } from "@/lib/collection/availability";
-import { getFriendCardSuppliers } from "@/lib/social/queries";
+import { getFriendCardSuppliers, getWantList } from "@/lib/social/queries";
 
 /**
  * Everything the card popup's action panel needs, in one call.
@@ -11,8 +11,9 @@ import { getFriendCardSuppliers } from "@/lib/social/queries";
  * The popup opens over any card — owned or not — so it cannot rely on data the
  * page already loaded. This gathers what "add to collection" and "add to deck"
  * need (the user's locations and decks), whether the signed-in user already
- * owns this card and where those copies sit, and which friends have it open
- * for trade — this printing or another one of the same card.
+ * owns this card and where those copies sit, whether it's already on their own
+ * wish list, and which friends have it open for trade — this printing or
+ * another one of the same card.
  *
  * Never prerendered: it is all per-user.
  */
@@ -31,20 +32,23 @@ export async function GET(request: NextRequest) {
   // needed to tell "this printing" apart from "another printing".
   const cardId = request.nextUrl.searchParams.get("cardId")?.trim() ?? "";
   const oracleId = request.nextUrl.searchParams.get("oracleId")?.trim() || null;
+  const key = cardKey({ oracle_id: oracleId, name }) ?? (cardId ? `id:${cardId}` : null);
 
   try {
-    const [decks, locations, located, friends] = await Promise.all([
+    const [decks, locations, located, friends, wants] = await Promise.all([
       getDecks(),
       getLocations(),
       name ? locateInCollection(name) : Promise.resolve([]),
       name && cardId
-        ? getFriendCardSuppliers(cardId, cardKey({ oracle_id: oracleId, name }) ?? `id:${cardId}`)
+        ? getFriendCardSuppliers(cardId, key ?? `id:${cardId}`)
         : Promise.resolve({ suppliers: [], profiles: new Map() }),
+      getWantList(),
     ]);
 
     // The located rows are grouped by oracle id; pick the one whose name is the
     // card we are looking at (a search term can be a fragment).
     const mine = located.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    const wanted = key ? wants.find((w) => w.key === key) : undefined;
 
     return NextResponse.json({
       decks: decks.map((d) => ({ id: d.id, name: d.name })),
@@ -52,6 +56,7 @@ export async function GET(request: NextRequest) {
       owned: mine
         ? { total: mine.total, available: mine.available, places: mine.places }
         : { total: 0, available: 0, places: [] },
+      wishlisted: wanted ? { quantity: wanted.quantity } : null,
       friends: friends.suppliers.map((s) => ({
         username: friends.profiles.get(s.ownerId)?.username ?? "a friend",
         count: s.count,

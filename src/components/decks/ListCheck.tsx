@@ -374,14 +374,20 @@ function Row({ row }: { row: CheckRow }) {
       </span>
 
       {card.image_uri_small ? (
-        <Image
-          src={card.image_uri_small}
-          alt=""
-          width={30}
-          height={42}
-          className="hidden shrink-0 rounded sm:block"
-          unoptimized
-        />
+        <CardPreviewTarget
+          card={card.scryfall_id}
+          focusable={false}
+          className="hidden shrink-0 sm:block"
+        >
+          <Image
+            src={card.image_uri_small}
+            alt=""
+            width={30}
+            height={42}
+            className="rounded"
+            unoptimized
+          />
+        </CardPreviewTarget>
       ) : null}
 
       <div className="min-w-0 flex-1">

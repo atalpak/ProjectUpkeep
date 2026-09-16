@@ -436,21 +436,35 @@ export function useCardPanel(): { open: (source: Card | string) => void } {
  * Focusable by default so keyboard users get the same behaviour as pointer
  * users. Pass `focusable={false}` when the thumbnail already sits inside
  * something focusable, to avoid a second tab stop for the same card.
+ *
+ * Pass `stopClickPropagation` when this sits inside a row that is itself a
+ * link or button (a dashboard `ListRow`, say) — without it, opening the sheet
+ * on tap also fires the ancestor's own click and navigates away underneath it.
  */
 export function CardPreviewTarget({
   card,
   className,
   focusable = true,
+  stopClickPropagation = false,
   children,
 }: {
   card: Card | string | null | undefined;
   className?: string;
   focusable?: boolean;
+  stopClickPropagation?: boolean;
   children: React.ReactNode;
 }) {
-  const preview = useCardPreview(card);
+  const preview = useCardPreview(card) as { onClick?: () => void } & Record<string, unknown>;
+  const onClick =
+    stopClickPropagation && preview.onClick
+      ? (event: React.MouseEvent<HTMLSpanElement>) => {
+          event.preventDefault();
+          event.stopPropagation();
+          preview.onClick?.();
+        }
+      : preview.onClick;
   return (
-    <span {...preview} tabIndex={focusable ? 0 : undefined} className={className}>
+    <span {...preview} onClick={onClick} tabIndex={focusable ? 0 : undefined} className={className}>
       {children}
     </span>
   );
@@ -1067,6 +1081,9 @@ type ActionsData = {
   decks: Array<{ id: string; name: string }>;
   locations: Array<{ id: string; name: string; type: LocationType }>;
   owned: { total: number; available: number; places: Array<{ name: string; quantity: number }> };
+  /** Set when this card (any printing) is already on the signed-in user's own
+   *  wish list. Null when it isn't. */
+  wishlisted: { quantity: number } | null;
   /** Friends who have this open for trade — this printing, or another one of
    *  the same card. Empty when no one in the circle does. */
   friends: Array<{ username: string; count: number; samePrinting: boolean }>;
@@ -1076,6 +1093,7 @@ const EMPTY_ACTIONS: ActionsData = {
   decks: [],
   locations: [],
   owned: { total: 0, available: 0, places: [] },
+  wishlisted: null,
   friends: [],
 };
 
@@ -1175,6 +1193,7 @@ function CardActions({ card }: { card: Card }) {
   const decks = data?.decks ?? [];
   const locations = data?.locations ?? [];
   const friends = data?.friends ?? [];
+  const wishlisted = data?.wishlisted ?? null;
 
   return (
     <div className="space-y-3 border-t border-border pt-3">
@@ -1189,6 +1208,16 @@ function CardActions({ card }: { card: Card }) {
         ) : (
           <p className="text-xs text-ink-muted">Not in your collection yet.</p>
         )
+      ) : null}
+
+      {wishlisted ? (
+        <p className="text-xs text-ink-muted">
+          On your{" "}
+          <Link href="/wants" className="text-accent hover:underline">
+            wish list
+          </Link>{" "}
+          (×{wishlisted.quantity})
+        </p>
       ) : null}
 
       {friends.length > 0 ? (

@@ -94,7 +94,7 @@ export type ValueSummary = {
   /** Physical cards behind `total`. */
   pricedCards: number;
   /** The single most valuable row, for "your best card" style callouts. */
-  mostValuable: { name: string; value: number } | null;
+  mostValuable: { name: string; cardId: string | null; value: number } | null;
 };
 
 export const ZERO_VALUE: ValueSummary = {
@@ -125,7 +125,11 @@ export function summariseValue(rows: CardInstanceWithCard[]): ValueSummary {
     pricedCards += row.quantity;
 
     if (!mostValuable || value > mostValuable.value) {
-      mostValuable = { name: row.cards ? cardDisplayName(row.cards) : "Unknown card", value };
+      mostValuable = {
+        name: row.cards ? cardDisplayName(row.cards) : "Unknown card",
+        cardId: row.cards?.scryfall_id ?? null,
+        value,
+      };
     }
   }
 

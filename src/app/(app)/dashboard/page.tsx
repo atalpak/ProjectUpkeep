@@ -10,7 +10,7 @@ import {
 import type { ColourBucket } from "@/lib/collection/breakdown";
 import { getOpenTradeCounts, getWantListView } from "@/lib/social/queries";
 import { cardDisplayName } from "@/lib/types";
-import { CardPreviewLink } from "@/components/CardPanel";
+import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { formatPrice } from "@/lib/collection/pricing";
 import { EmptyState, ListRow, PageHeader } from "@/components/ui";
 
@@ -101,7 +101,15 @@ function Hero({ summary }: { summary: Summary }) {
         </span>
         {value.mostValuable ? (
           <span>
-            Most valuable: {value.mostValuable.name} ({formatPrice(value.mostValuable.value)})
+            Most valuable:{" "}
+            <CardPreviewLink
+              card={value.mostValuable.cardId ?? undefined}
+              href={`/collection?q=${encodeURIComponent(value.mostValuable.name)}`}
+              className="hover:underline"
+            >
+              {value.mostValuable.name}
+            </CardPreviewLink>{" "}
+            ({formatPrice(value.mostValuable.value)})
           </span>
         ) : null}
         {value.unpricedRows > 0 ? (
@@ -238,7 +246,13 @@ function Attention({
             const location = supplier?.locations.join(", ");
             return (
               <ListRow key={want.id} href="/wants" icon={<StarIcon />} trailing={<Arrow />}>
-                {want.displayName}
+                <CardPreviewTarget
+                  card={want.cardId ?? undefined}
+                  stopClickPropagation
+                  className="hover:underline"
+                >
+                  {want.displayName}
+                </CardPreviewTarget>
                 {profile ? ` — ${profile.username}` : ""}
                 {location ? `, ${location}` : ""}
               </ListRow>
