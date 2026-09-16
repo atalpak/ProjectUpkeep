@@ -115,7 +115,7 @@ export function WantListManager({
 
               {/* sm and up: the same table shell CollectionTable uses
                   (bordered, rounded, `bg-surface-muted` header, `divide-y`
-                  body) so "Text" here reads as the same kind of view as the
+                  body) so "Table" here reads as the same kind of view as the
                   Collection page's, not a different design language. */}
               <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
                 <table className="w-full min-w-[36rem] text-sm">
@@ -172,7 +172,7 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode
             view === option ? "bg-accent text-accent-ink" : "hover:bg-surface-muted",
           )}
         >
-          {option === "list" ? "Text" : "Images"}
+          {option === "list" ? "Table" : "Images"}
         </button>
       ))}
     </div>
@@ -828,20 +828,20 @@ function WantCardMenu({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-full z-30 mt-1 w-48 space-y-2 rounded-lg border border-border bg-surface-raised p-2.5 text-left shadow-xl"
+          className="absolute right-0 top-full z-30 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-surface-raised text-left shadow-xl"
         >
-          <div>
+          <div className="px-3 py-2">
             <span className="mb-1 block text-[11px] font-medium text-ink-muted">Quantity</span>
             <QuantityStepper want={want} />
           </div>
 
           {decks.length > 0 ? (
-            <div className="border-t border-border pt-2">
+            <div className="border-t border-border px-3 py-2">
               <DeckTag want={want} decks={decks} />
             </div>
           ) : null}
 
-          <div className="border-t border-border pt-2">
+          <div className="border-t border-border">
             <RemoveWantButton want={want} />
           </div>
         </div>
@@ -862,7 +862,7 @@ function DeckTag({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
   const [state, action] = useActionState(setWantDeck, EMPTY_SOCIAL_STATE);
 
   return (
-    <div className="mt-1.5 space-y-1">
+    <div className="space-y-1">
       <form action={action} className="flex items-center gap-1.5 text-xs">
         <input type="hidden" name="want_id" value={want.id} />
         <span className="text-ink-muted">For</span>
@@ -925,14 +925,15 @@ function RemoveWantButton({ want }: { want: WantRow }) {
   const [state, action] = useActionState(removeWant, EMPTY_SOCIAL_STATE);
 
   return (
-    <div className="ml-auto flex items-center gap-2">
-      {state.error ? <span className="text-xs text-danger">{state.error}</span> : null}
-      <form action={action}>
-        <input type="hidden" name="want_id" value={want.id} />
-        <button type="submit" className="text-xs text-ink-muted hover:text-danger">
-          Remove
-        </button>
-      </form>
-    </div>
+    <form action={action}>
+      <input type="hidden" name="want_id" value={want.id} />
+      <button
+        type="submit"
+        className="block w-full px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-surface-muted"
+      >
+        Remove from wish list
+      </button>
+      {state.error ? <p className="px-3 pb-2 text-xs text-danger">{state.error}</p> : null}
+    </form>
   );
 }

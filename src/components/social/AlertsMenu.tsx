@@ -99,12 +99,13 @@ export function AlertsMenu({ unread }: { unread: number }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={unread > 0 ? `Alerts, ${unread} unread` : "Alerts"}
-        // Icon-only, sized and bordered like its sibling icon buttons in the
-        // header cluster. `relative` gives the unread badge below something to
+        // Icon-only, borderless like AccountMenu's trigger next to it — the
+        // border read as a permanent box around the icon rather than a
+        // button. `relative` gives the unread badge below something to
         // anchor to; there is no text left for the count to sit beside, so it
         // becomes a badge on the icon instead.
         className={cx(
-          "relative inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-border transition-colors coarse:size-11",
+          "relative inline-flex size-9 shrink-0 items-center justify-center rounded-md transition-colors coarse:size-11",
           open
             ? "bg-surface-muted text-ink"
             : "text-ink-muted hover:bg-surface-muted hover:text-ink",
