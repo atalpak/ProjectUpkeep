@@ -22,8 +22,8 @@ export { Dialog } from "@/components/Dialog";
 // a narrow laptop window still has a mouse, a wide tablet does not.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-2 text-sm " +
-  "font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
-  "coarse:min-h-11";
+  "font-medium transition disabled:cursor-not-allowed disabled:opacity-50 " +
+  "coarse:min-h-11 motion-safe:active:scale-[0.97]";
 
 const BUTTON_VARIANTS = {
   primary: "bg-accent text-accent-ink hover:opacity-90",
@@ -103,6 +103,17 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
       )}
     />
   );
+}
+
+/**
+ * A pulsing placeholder block, for `loading.tsx` skeletons.
+ *
+ * Plain `bg-surface-muted` under `animate-pulse` — the same treatment the card
+ * popup already uses while a card is in flight (see `CardPanel.tsx`). A CSS
+ * animation, not JS, so it costs nothing to run.
+ */
+export function Skeleton({ className }: { className?: string }) {
+  return <div aria-hidden="true" className={cx("animate-pulse rounded-md bg-surface-muted", className)} />;
 }
 
 /** Inline error/success banner. `role` makes it announced by screen readers. */

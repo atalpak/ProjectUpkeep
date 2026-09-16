@@ -221,13 +221,19 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
 
           <Panel>
             <div className="flex items-start gap-4">
-              {printing.image_uri ? (
+              {printing.image_uri_small ?? printing.image_uri ? (
                 // The picker holds a trimmed printing, not a full card row, so
                 // this one still resolves by id rather than handing over an
                 // object that would render a half-empty panel.
+                //
+                // `image_uri_small` (146×204) matches the display size below
+                // exactly — Scryfall's CDN, not Next's optimizer, is doing the
+                // resizing here (see the note on `unoptimized` in CardPanel.tsx),
+                // so picking the right pre-sized variant is what actually saves
+                // the bytes.
                 <CardPreviewTarget card={printing.scryfall_id} className="shrink-0">
                   <Image
-                    src={printing.image_uri}
+                    src={printing.image_uri_small ?? printing.image_uri!}
                     alt={cardDisplayName(printing)}
                     width={146}
                     height={204}

@@ -215,3 +215,31 @@ body {
     animation: none;
   }
 }
+
+/**
+ * The signed-in shell's page-to-page transition (see PageTransition.tsx).
+ * A short fade and rise, not a slide — this fires on every navigation
+ * including back/forward, and a directional slide gets it backwards half the
+ * time. Kept to 160ms so it reads as "the new page is here", not a delay
+ * standing between a tap and the content.
+ */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-enter {
+  animation: page-enter 160ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-enter {
+    animation: none;
+  }
+}

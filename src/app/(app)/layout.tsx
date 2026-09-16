@@ -8,6 +8,7 @@ import { AppNavDrawer, AppNavLinks } from "@/components/AppNav";
 import { CardPanelProvider, CardPanelOutlet } from "@/components/CardPanel";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { HeaderSearch } from "@/components/HeaderSearch";
+import { PageTransition } from "@/components/PageTransition";
 import { AlertsMenu } from "@/components/social/AlertsMenu";
 import { Wordmark } from "@/components/Wordmark";
 
@@ -81,7 +82,9 @@ export default async function AppLayout({
             centred column — wide pages (the collection table especially) use
             the whole window; individual narrow pages cap their own width. */}
         <div className="flex w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          <main className="min-w-0 flex-1">{children}</main>
+          <main className="min-w-0 flex-1">
+            <PageTransition>{children}</PageTransition>
+          </main>
           <CardPanelOutlet />
         </div>
 
