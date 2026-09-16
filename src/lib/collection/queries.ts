@@ -557,6 +557,37 @@ export const getLocationTree = async (): Promise<{
     counts.set(location_id, (counts.get(location_id) ?? 0) + quantity);
   }
 
+  // A deck's tile art is its commander, not "whatever happens to be sleeved
+  // in the box" — the peek above is built from `collection_entries` ordered
+  // by price, which has no idea a commander was ever chosen, and is often
+  // empty for a deck box entirely (nothing physically sleeved yet). Where a
+  // commander is set, its own art replaces the peek array for that location,
+  // the same `commander_card_id` -> `cards.image_uri_small` lookup `getDecks`
+  // already does for the deck list and detail pages.
+  const deckCommanderIds = [
+    ...new Set(
+      ((locations ?? []) as Location[])
+        .filter((l) => l.type === "deck" && l.commander_card_id)
+        .map((l) => l.commander_card_id as string),
+    ),
+  ];
+  if (deckCommanderIds.length > 0) {
+    const { data: cmdCards } = await supabase
+      .from("cards")
+      .select("scryfall_id, image_uri_small")
+      .in("scryfall_id", deckCommanderIds);
+    const commanderImage = new Map(
+      ((cmdCards ?? []) as Array<{ scryfall_id: string; image_uri_small: string | null }>).map(
+        (c) => [c.scryfall_id, c.image_uri_small],
+      ),
+    );
+    for (const location of (locations ?? []) as Location[]) {
+      if (location.type !== "deck" || !location.commander_card_id) continue;
+      const image = commanderImage.get(location.commander_card_id);
+      if (image) peek.set(location.id, [image]);
+    }
+  }
+
   return { tree, unsortedCount, peek, counts, stats };
 };
 
@@ -1045,7 +1076,13 @@ export async function getDecks(): Promise<DeckSummary[]> {
       .order("name"),
     supabase
       .from("deck_cards")
-      .select("deck_id, quantity, cards ( name, oracle_id )")
+      // locations!inner so the owner filter below actually excludes rows
+      // rather than merely nulling the embedded object (same reasoning as the
+      // cards!inner join in locateCards above) — since migration 35, a
+      // friend's public deck_cards rows are also readable, so this can no
+      // longer rely on RLS alone to mean "my decks".
+      .select("deck_id, quantity, cards ( name, oracle_id ), locations!inner ( user_id )")
+      .eq("locations.user_id", owner)
       .limit(MAX_ROWS),
     // What is physically in the decks. Scoped to deck locations by the view's
     // own location_type rather than read from the whole collection — the list
@@ -1146,12 +1183,12 @@ export async function getDecks(): Promise<DeckSummary[]> {
  * not one per deck — scale here is a handful of decks for one user, so there
  * is no reason to be cleverer than that.
  *
- * `deck_cards` carries no `owner_user_id` of its own; like `getDecks()`, this
- * relies on its RLS policy (migration 10, reached through `locations.user_id`)
- * rather than an explicit filter. That is safe here the way it is not for
- * `card_instances` / `locations`: unlike those two, nothing makes a friend's
- * deck_cards row visible to you, so there is no cross-user row for an
- * unscoped select to return.
+ * `deck_cards` carries no `owner_user_id` of its own, so like `getDecks()` and
+ * `getDeckList()` this joins through `locations` and filters on its
+ * `user_id` explicitly. Until migration 35 that was unnecessary — nothing made
+ * a friend's deck_cards row visible to you, so RLS alone (migration 10) meant
+ * "my decks". A friend's public deck now reads through the same table, so the
+ * filter is required here too.
  */
 export async function getCrossDeckAvailableCount(): Promise<number> {
   const supabase = await createClient();
@@ -1159,7 +1196,11 @@ export async function getCrossDeckAvailableCount(): Promise<number> {
 
   const [{ data: deckCards, error: dcError }, { data: sleeved, error: sleevedError }, availability] =
     await Promise.all([
-      supabase.from("deck_cards").select("deck_id, quantity, cards ( name, oracle_id )").limit(MAX_ROWS),
+      supabase
+        .from("deck_cards")
+        .select("deck_id, quantity, cards ( name, oracle_id ), locations!inner ( user_id )")
+        .eq("locations.user_id", owner)
+        .limit(MAX_ROWS),
       supabase
         .from("collection_entries")
         .select("location_id, quantity, card_oracle_id, card_name")
@@ -1277,12 +1318,17 @@ export type DeckListEntry = {
  */
 export async function getDeckList(deckId: string): Promise<DeckListEntry[]> {
   const supabase = await createClient();
+  const owner = await ownerId();
 
   const [{ data: entries, error: entryError }, contents] = await Promise.all([
     supabase
       .from("deck_cards")
-      .select(`id, deck_id, card_id, quantity, ${CARD_FIELDS}`)
+      // locations!inner + the owner filter below, not just `deck_id`: since
+      // migration 35 a friend's public deck also has readable deck_cards, and
+      // this function answers "my deck's list", not "the deck with this id".
+      .select(`id, deck_id, card_id, quantity, ${CARD_FIELDS}, locations!inner ( user_id )`)
       .eq("deck_id", deckId)
+      .eq("locations.user_id", owner)
       .limit(MAX_ROWS),
     getDeckContents(deckId),
   ]);

@@ -6,7 +6,7 @@ import { useActionState, useState } from "react";
 
 import { createDeck, deleteDeck } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
-import { artCropUrl } from "@/components/LocationManager";
+import { artCropUrl } from "@/lib/collection/art";
 import { ManaSymbol } from "@/components/ManaCost";
 import { Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
 import type { DeckSummary } from "@/lib/collection/queries";
@@ -56,7 +56,7 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
 /**
  * One deck, as a compact commander-art tile — the same treatment its own
  * page's banner (`DeckBanner.tsx`) and its Locations-page tile
- * (`LocationManager.tsx`'s `artCropUrl`) already give a deck: the
+ * (`artCropUrl` in `@/lib/collection/art`) already give a deck: the
  * commander's art crop washes the whole tile behind a flat dark scrim, so a
  * grid of decks reads as a shelf of distinct covers rather than a stack of
  * identical grey cards. Four fit a row on desktop (`xl:grid-cols-4` on the
@@ -120,15 +120,27 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         )}
       >
         <div className="flex items-start justify-between gap-2">
-          {deck.commanderColors.length > 0 ? (
-            <div className="flex gap-0.5">
-              {deck.commanderColors.map((code) => (
-                <ManaSymbol key={code} code={code} size="xs" />
-              ))}
-            </div>
-          ) : (
-            <span />
-          )}
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            {deck.commanderColors.length > 0 ? (
+              <div className="flex gap-0.5">
+                {deck.commanderColors.map((code) => (
+                  <ManaSymbol key={code} code={code} size="xs" />
+                ))}
+              </div>
+            ) : null}
+            {/* Read-only — the switch itself lives on the deck's own page. */}
+            {deck.is_public ? (
+              <span
+                title="Accepted friends can see this deck's card list."
+                className={cx(
+                  "rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
+                  art ? "border-white/40 text-white/90" : "border-accent text-ink",
+                )}
+              >
+                Shared
+              </span>
+            ) : null}
+          </div>
 
           {/* Above the stretched link so it stays clickable. */}
           <div className="pointer-events-auto -m-1.5 shrink-0">

@@ -11,6 +11,7 @@ import {
 } from "@/app/(app)/locations/actions";
 import { EMPTY_LOCATION_STATE } from "@/app/(app)/locations/action-state";
 import { setLocationTradable } from "@/app/(app)/friends/actions";
+import { artCropUrl } from "@/lib/collection/art";
 import { formatPrice } from "@/lib/collection/pricing";
 import type { LocationStats } from "@/lib/collection/queries";
 import { Badge, Banner, Button, Card as Panel, Input, Select, cx } from "@/components/ui";
@@ -90,22 +91,6 @@ function Peek({ images, name }: { images: string[]; name: string }) {
   );
 }
 
-/**
- * The illustration alone, no frame or text — for a deck tile's background,
- * where a whole card (a rectangle of white border and rules text) reads as
- * clutter rather than atmosphere.
- *
- * Derived from the whole-card URL already on hand rather than fetched or
- * stored separately: every Scryfall card image lives at
- * `cards.scryfall.io/<version>/front/<a>/<b>/<id>.jpg`, where `<version>` is
- * one of `small` / `normal` / `large` / `art_crop` / ... — swapping that one
- * path segment is Scryfall's own documented way to get a different crop of
- * the same image, not a guess about their CDN's internals.
- */
-export function artCropUrl(imageUri: string | null): string | null {
-  if (!imageUri) return null;
-  return imageUri.replace(/\/(?:small|normal|large)\/front\//, "/art_crop/front/");
-}
 
 /**
  * The switch that makes a location's cards visible to friends.
@@ -156,6 +141,23 @@ function TradableToggle({ location }: { location: Location }) {
         {on ? "Open for trade" : "Private"}
       </button>
     </form>
+  );
+}
+
+/**
+ * Read-only badge for a deck shared with friends (migration 35). The switch
+ * itself lives on the deck's own page (`DeckVisibilityToggle` in
+ * DeckBanner.tsx), not here — this is just visible state, the same way a
+ * deck's row/tile shows facts about itself without offering to edit them.
+ */
+function SharedDeckBadge() {
+  return (
+    <span
+      title="Accepted friends can see this deck's card list."
+      className="inline-flex items-center gap-1.5 rounded-full border border-accent bg-accent-soft px-2.5 py-1 text-xs font-medium text-ink"
+    >
+      Shared with friends
+    </span>
   );
 }
 
@@ -366,7 +368,11 @@ function LocationRow({
                 its switch, and the list stops reading as columns. On a phone
                 the row wraps anyway, so the reservation would just be a hole. */}
             <div className="sm:w-[8.5rem] sm:shrink-0">
-              {location.type !== "deck" ? <TradableToggle location={location} /> : null}
+              {location.type !== "deck" ? (
+                <TradableToggle location={location} />
+              ) : location.is_public ? (
+                <SharedDeckBadge />
+              ) : null}
             </div>
           </div>
         </div>
@@ -509,7 +515,11 @@ function LocationTile({
           ) : null}
         </div>
 
-        {location.type !== "deck" ? <TradableToggle location={location} /> : null}
+        {location.type !== "deck" ? (
+          <TradableToggle location={location} />
+        ) : location.is_public ? (
+          <SharedDeckBadge />
+        ) : null}
 
         {editing ? (
           <form action={action} className="flex flex-wrap items-end gap-2 border-t border-border pt-2.5">

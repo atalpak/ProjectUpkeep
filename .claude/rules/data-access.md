@@ -47,6 +47,16 @@ to — and the explicit owner filter is what makes a query mean "mine". A query
 that intentionally reads across people (the public binder, want matching) carries
 a comment saying so.
 
+Migration 35 added a second policy in this shape: a friend's deck marked
+`is_public` makes its `deck_cards` rows readable too (decklist only — the same
+migration leaves `card_instances` untouched, deliberately, since sharing a
+decklist is not sharing the physical cards). `getDecks`,
+`getCrossDeckAvailableCount` and `getDeckList` in
+`src/lib/collection/queries.ts` used to read `deck_cards` unscoped, trusting
+that no cross-user row could ever appear; that stopped being true, so they now
+join through `locations` and filter on its `user_id` the same way the
+`card_instances` queries filter on `owner_user_id`.
+
 If a query returns rows from someone it should not reach at all, that *is* a
 policy bug — fix the policy in a new migration. If it returns a friend's rows
 where it should have returned only yours, the owner filter is missing.

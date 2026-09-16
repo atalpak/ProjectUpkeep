@@ -3,7 +3,8 @@
 import Image from "next/image";
 import { useState, type ReactNode } from "react";
 
-import { artCropUrl } from "@/components/LocationManager";
+import { setDeckPublic } from "@/app/(app)/decks/actions";
+import { artCropUrl } from "@/lib/collection/art";
 import { DeckDetailsEditor } from "@/components/decks/DeckDetails";
 import { Price, useShowPrices } from "@/components/PriceToggle";
 import { Button, cx } from "@/components/ui";
@@ -12,10 +13,68 @@ import type { DeckProgress } from "@/lib/collection/deck-state";
 import type { Location } from "@/lib/types";
 
 /**
+ * The switch that shares this deck's list — not its sleeved copies — with
+ * accepted friends (migration 35). Modelled on `TradableToggle` in
+ * LocationManager.tsx (same `role="switch"` / hidden-input-form shape), but
+ * kept out of that file: that toggle is specifically about opening cards for
+ * trade, and decks are deliberately excluded from it there for that reason.
+ * This is a different switch about a different thing, so it lives with the
+ * rest of a deck's own details instead.
+ */
+function DeckVisibilityToggle({ deck, dark }: { deck: Location; dark: boolean }) {
+  const on = deck.is_public;
+
+  return (
+    <form action={setDeckPublic}>
+      <input type="hidden" name="deck_id" value={deck.id} />
+      <input type="hidden" name="is_public" value={on ? "false" : "true"} />
+      <button
+        type="submit"
+        role="switch"
+        aria-checked={on}
+        aria-label={on ? `Stop sharing ${deck.name} with friends` : `Share ${deck.name} with friends`}
+        title={
+          on
+            ? "Accepted friends can see this deck's list. Click to make it private again."
+            : "Private. Click to let accepted friends see this deck's card list."
+        }
+        className={cx(
+          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors coarse:min-h-11",
+          on
+            ? dark
+              ? "border-white/60 bg-white/20 text-white"
+              : "border-accent bg-accent-soft text-ink"
+            : dark
+              ? "border-white/30 text-white/80 hover:bg-white/10"
+              : "border-border text-ink-muted hover:bg-surface-muted",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className={cx(
+            "flex h-3.5 w-6 shrink-0 items-center rounded-full px-0.5 transition-colors",
+            on ? (dark ? "bg-white" : "bg-accent") : dark ? "bg-white/30" : "bg-surface-muted",
+          )}
+        >
+          <span
+            className={cx(
+              "size-2.5 rounded-full transition-transform",
+              dark && on ? "bg-black/70" : "bg-surface",
+              on && "translate-x-2.5",
+            )}
+          />
+        </span>
+        {on ? "Shared with friends" : "Private"}
+      </button>
+    </form>
+  );
+}
+
+/**
  * The deck's own page, as a banner rather than a plain header.
  *
  * The commander's art washes the whole thing — the same treatment a deck's
- * tile gets on the Locations page (see `artCropUrl` in LocationManager.tsx) —
+ * tile gets on the Locations page (see `artCropUrl` in `@/lib/collection/art`) —
  * because on this page the deck is the only thing being looked at, so its
  * identity gets the full width rather than a thumbnail. Everything that used
  * to be a paragraph under a small header (name, commander, tags, progress,
@@ -98,6 +157,7 @@ export function DeckBanner({
               actions (Playtest, Export) alongside Edit details, rather than
               split between the top of the banner and its bottom corner. */}
           <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <DeckVisibilityToggle deck={deck} dark={!!art} />
             {actions}
             <Button type="button" variant="dark" onClick={() => setEditing(true)}>
               {deck.format || tags.length > 0 || deck.notes ? "Edit details" : "Add format, tags, notes"}

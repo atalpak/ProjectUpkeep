@@ -121,8 +121,9 @@ export function FriendsManager({
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">What your friends can see</h2>
         <p className="text-xs text-ink-muted">
-          Only containers switched on here. Decks, boxes and unsorted cards stay private
-          whatever else you do.
+          Only containers switched on here — boxes and unsorted cards stay private whatever
+          else you do. A deck&rsquo;s card list is shared separately, from the deck&rsquo;s own
+          page.
         </p>
 
         {locations.length === 0 ? (

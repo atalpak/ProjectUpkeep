@@ -12,6 +12,7 @@ import {
 } from "@/app/(app)/wants/actions";
 import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { CardPreviewLink, CardPreviewTarget, useMediaQuery } from "@/components/CardPanel";
+import { FloatingMenu } from "@/components/FloatingMenu";
 import { cardKey } from "@/lib/collection/availability";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select, cx } from "@/components/ui";
@@ -771,12 +772,12 @@ const WANT_MENU_OPEN = "want-card-menu-open";
 function WantCardMenu({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
   const menuId = useId();
   const [open, setOpen] = useState(false);
-  const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
 
-  function openMenu() {
-    window.dispatchEvent(new CustomEvent(WANT_MENU_OPEN, { detail: menuId }));
-    setOpen(true);
+  function onOpenChange(next: boolean) {
+    if (next) window.dispatchEvent(new CustomEvent(WANT_MENU_OPEN, { detail: menuId }));
+    else trigger.current?.focus();
+    setOpen(next);
   }
 
   useEffect(() => {
@@ -787,49 +788,33 @@ function WantCardMenu({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
     return () => window.removeEventListener(WANT_MENU_OPEN, onOtherOpen);
   }, [menuId]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    function onPointerDown(event: MouseEvent) {
-      if (!container.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-        trigger.current?.focus();
-      }
-    }
-
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
   return (
-    <div ref={container} className="relative shrink-0">
-      <button
-        ref={trigger}
-        type="button"
-        onClick={() => (open ? setOpen(false) : openMenu())}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Actions for ${want.displayName}`}
-        className={cx(
-          "rounded px-1 text-sm leading-none text-ink-muted transition-colors hover:text-ink",
-          open && "text-ink",
-        )}
-      >
-        ⋯
-      </button>
-
-      {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-30 mt-1 w-48 overflow-hidden rounded-lg border border-border bg-surface-raised text-left shadow-xl"
+    <FloatingMenu
+      open={open}
+      onOpenChange={onOpenChange}
+      panelClassName="w-48 overflow-hidden rounded-lg border border-border bg-surface-raised text-left shadow-xl"
+      trigger={({ open, toggle, setTriggerRef }) => (
+        <button
+          ref={(el) => {
+            trigger.current = el;
+            setTriggerRef(el);
+          }}
+          type="button"
+          onClick={toggle}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={`Actions for ${want.displayName}`}
+          className={cx(
+            "rounded px-1 text-sm leading-none text-ink-muted transition-colors hover:text-ink",
+            open && "text-ink",
+          )}
         >
+          ⋯
+        </button>
+      )}
+    >
+      {() => (
+        <div role="menu">
           <div className="px-3 py-2">
             <span className="mb-1 block text-[11px] font-medium text-ink-muted">Quantity</span>
             <QuantityStepper want={want} />
@@ -845,8 +830,8 @@ function WantCardMenu({ want, decks }: { want: WantRow; decks: DeckOption[] }) {
             <RemoveWantButton want={want} />
           </div>
         </div>
-      ) : null}
-    </div>
+      )}
+    </FloatingMenu>
   );
 }
 

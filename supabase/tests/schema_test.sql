@@ -1353,6 +1353,125 @@ begin
   assert decline_actor is null, 'frank''s decline notice must survive with actor_id null';
 end $$;
 
+-- --------------------------------------------------------------------------
+-- 16. Deck visibility: a public deck shares its list, never its cards
+--     (migration 35).
+--
+-- Alice gets two decks: one public, one private, each with a list entry and
+-- one physical copy sleeved into it. Bob is already alice's accepted friend
+-- (section 8); carol (55555555...) exists and is a stranger to alice, so she
+-- covers the "not a friend at all" case without new fixtures.
+--
+-- The critical assertion is the card_instances negative: bob must see the
+-- public deck's `locations` row and its `deck_cards`, but not the
+-- card_instances row sleeved inside it. That boundary is the entire point of
+-- the migration, and per this project's standing rule it was proved capable of
+-- failing before being trusted, twice, against a real Postgres:
+--
+--   * commenting out the `is_public` guard on the "locations: read friends'
+--     public decks" policy made bob see alice's *private* deck's `locations`
+--     row too, and assertion (a) below caught it with "saw 1"; restoring the
+--     guard turned the suite green again. (Dropping the same guard from the
+--     deck_cards policy alone changes nothing, because that policy's EXISTS
+--     subquery over `locations` is itself filtered by `locations`' own RLS —
+--     the same defense-in-depth migration 10 already documents.)
+--   * temporarily adding the exact policy this migration deliberately does
+--     NOT add — a card_instances SELECT policy keyed on
+--     `is_public and type = 'deck' and are_friends(...)`, the tradable-binder
+--     shape from migration 9 applied to decks instead — made bob see the
+--     sleeved card, and assertion (c) below caught it with "saw 1"; removing
+--     that policy again turned the suite green.
+-- --------------------------------------------------------------------------
+insert into public.locations (id, user_id, name, type, is_public) values
+  ('bbbbbbbb-0000-0000-0000-000000000010', '11111111-1111-1111-1111-111111111111',
+   'Alice''s Public Deck', 'deck', true),
+  ('bbbbbbbb-0000-0000-0000-000000000011', '11111111-1111-1111-1111-111111111111',
+   'Alice''s Private Deck', 'deck', false);
+
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('bbbbbbbb-0000-0000-0000-000000000010', 'aaaaaaaa-0000-0000-0000-000000000001', 4),
+  ('bbbbbbbb-0000-0000-0000-000000000011', 'aaaaaaaa-0000-0000-0000-000000000001', 4);
+
+-- One physical copy sleeved into the public deck. If a friend could ever read
+-- this through the deck being public, that would be the leak migration 35
+-- exists to prevent.
+insert into public.card_instances (id, owner_user_id, card_id, location_id) values
+  ('cccccccc-0000-0000-0000-000000000030', '11111111-1111-1111-1111-111111111111',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000010');
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '22222222-2222-2222-2222-222222222222'; -- bob, alice's friend
+
+do $$
+declare visible int;
+begin
+  -- (a) bob sees the public deck's locations row, not the private one's.
+  select count(*) into visible from public.locations
+   where id = 'bbbbbbbb-0000-0000-0000-000000000010';
+  assert visible = 1, 'a friend should see a public deck''s locations row, saw ' || visible;
+  select count(*) into visible from public.locations
+   where id = 'bbbbbbbb-0000-0000-0000-000000000011';
+  assert visible = 0, 'a friend must not see a private deck''s locations row, saw ' || visible;
+
+  -- (b) same split for deck_cards.
+  select count(*) into visible from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000010';
+  assert visible = 1, 'a friend should see a public deck''s deck_cards, saw ' || visible;
+  select count(*) into visible from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000011';
+  assert visible = 0, 'a friend must not see a private deck''s deck_cards, saw ' || visible;
+
+  -- (c) THE critical negative: card_instances stays invisible even though the
+  --     deck holding it is public. Sharing a decklist is not sharing the
+  --     physical cards.
+  select count(*) into visible from public.card_instances
+   where id = 'cccccccc-0000-0000-0000-000000000030';
+  assert visible = 0,
+    'a friend must not see card_instances sleeved in a public deck, saw ' || visible;
+
+  -- (d) a friend cannot write to a public deck's list either -- read-only
+  --     sharing, not co-editing. No INSERT/UPDATE/DELETE policy grants this to
+  --     anyone but the owner (migration 10), and migration 35 adds no write
+  --     policy at all.
+  begin
+    insert into public.deck_cards (deck_id, card_id, quantity)
+    values ('bbbbbbbb-0000-0000-0000-000000000010', 'aaaaaaaa-0000-0000-0000-000000000002', 1);
+    assert false, 'a friend must not be able to insert into a public deck''s list';
+  exception when insufficient_privilege then null;
+  end;
+
+  update public.deck_cards set quantity = 99
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000010';
+  select quantity into visible from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000010';
+  assert visible = 4, 'deck_cards has no friend UPDATE policy; the row must be unchanged, saw ' || visible;
+
+  delete from public.deck_cards where deck_id = 'bbbbbbbb-0000-0000-0000-000000000010';
+  select count(*) into visible from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000010';
+  assert visible = 1, 'deck_cards has no friend DELETE policy; the row must survive, saw ' || visible;
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '55555555-5555-5555-5555-555555555555'; -- carol, a stranger to alice
+
+do $$
+declare visible int;
+begin
+  -- (e) a stranger sees neither deck, nor either one's list.
+  select count(*) into visible from public.locations
+   where id in ('bbbbbbbb-0000-0000-0000-000000000010', 'bbbbbbbb-0000-0000-0000-000000000011');
+  assert visible = 0, 'a stranger must not see either of alice''s decks, saw ' || visible;
+
+  select count(*) into visible from public.deck_cards
+   where deck_id in ('bbbbbbbb-0000-0000-0000-000000000010', 'bbbbbbbb-0000-0000-0000-000000000011');
+  assert visible = 0, 'a stranger must not see either deck''s list, saw ' || visible;
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

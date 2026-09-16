@@ -161,6 +161,39 @@ export async function deleteDeck(formData: FormData): Promise<void> {
   revalidate();
 }
 
+/**
+ * Toggles whether this deck's list is visible to accepted friends
+ * (`locations.is_public`, migration 35).
+ *
+ * Only the decklist becomes visible — commander, format, tags, card list —
+ * never what is physically sleeved into it. `.eq("type", "deck")` matches the
+ * RLS predicate the read side relies on, so this can never flip the flag on a
+ * box or binder by accident even if a stray call passed a non-deck id.
+ *
+ * Revalidates the profile route pattern too: a friend viewing `/u/[username]`
+ * needs to see the change without a hard refresh, and it is cached the same
+ * as the deck pages it is edited from.
+ */
+export async function setDeckPublic(formData: FormData): Promise<void> {
+  if (!(await getCurrentUser())) return;
+
+  const deckId = String(formData.get("deck_id") ?? "").trim();
+  const isPublic = String(formData.get("is_public") ?? "") === "true";
+  if (!deckId) return;
+
+  const supabase = await createClient();
+  await supabase
+    .from("locations")
+    .update({ is_public: isPublic })
+    .eq("id", deckId)
+    .eq("type", "deck");
+
+  revalidatePath("/decks");
+  revalidatePath(`/decks/${deckId}`);
+  revalidatePath("/locations");
+  revalidatePath("/u/[username]", "page");
+}
+
 // ---------------------------------------------------------------------------
 // Adding from the collection
 // ---------------------------------------------------------------------------

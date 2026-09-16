@@ -12,6 +12,7 @@ import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { useActionState } from "react";
 import { useCardPanel, useCardPreview } from "@/components/CardPanel";
 import { SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
+import { FloatingMenu } from "@/components/FloatingMenu";
 import { FoilMark } from "@/components/FoilMark";
 import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
@@ -820,56 +821,35 @@ function RowMenu({
   onEdit: () => void;
   editing: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const container = useRef<HTMLDivElement>(null);
-
-  // Close on an outside click or Escape, the two things every menu owes you.
-  useEffect(() => {
-    if (!open) return;
-
-    function onPointerDown(event: MouseEvent) {
-      if (!container.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
   return (
-    <div ref={container} className="relative inline-block text-left">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Actions for ${row.cards ? cardDisplayName(row.cards) : "this entry"}`}
-        className="inline-flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface hover:text-ink coarse:size-11"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">
-          <circle cx="12" cy="5" r="1.6" />
-          <circle cx="12" cy="12" r="1.6" />
-          <circle cx="12" cy="19" r="1.6" />
-        </svg>
-      </button>
-
-      {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-md border border-border bg-surface-raised shadow-lg"
+    <FloatingMenu
+      panelClassName="w-44 overflow-hidden rounded-md border border-border bg-surface-raised shadow-lg"
+      trigger={({ open, toggle, setTriggerRef }) => (
+        <button
+          ref={setTriggerRef}
+          type="button"
+          onClick={toggle}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={`Actions for ${row.cards ? cardDisplayName(row.cards) : "this entry"}`}
+          className="inline-flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface hover:text-ink coarse:size-11"
         >
+          <svg viewBox="0 0 24 24" fill="currentColor" className="size-4" aria-hidden="true">
+            <circle cx="12" cy="5" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="12" cy="19" r="1.6" />
+          </svg>
+        </button>
+      )}
+    >
+      {({ close }) => (
+        <div role="menu">
           <button
             type="button"
             role="menuitem"
             onClick={() => {
               onEdit();
-              setOpen(false);
+              close();
             }}
             className="block w-full px-3 py-2 text-left text-sm hover:bg-surface-muted"
           >
@@ -882,7 +862,7 @@ function RowMenu({
               href={row.cards.purchase_uri}
               target="_blank"
               rel="noreferrer noopener"
-              onClick={() => setOpen(false)}
+              onClick={close}
               className="block w-full border-t border-border px-3 py-2 text-left text-sm hover:bg-surface-muted"
             >
               Buy on TCGplayer
@@ -896,7 +876,7 @@ function RowMenu({
               )}`}
               target="_blank"
               rel="noreferrer noopener"
-              onClick={() => setOpen(false)}
+              onClick={close}
               className="block w-full px-3 py-2 text-left text-sm hover:bg-surface-muted"
             >
               Buy on Card Kingdom
@@ -914,8 +894,8 @@ function RowMenu({
             </button>
           </form>
         </div>
-      ) : null}
-    </div>
+      )}
+    </FloatingMenu>
   );
 }
 

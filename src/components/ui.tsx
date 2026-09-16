@@ -15,6 +15,7 @@ import { cx } from "@/lib/cx";
 // imported directly by Server Components (the dashboard, for one) for the
 // primitives that do not. See Dialog.tsx for the full reasoning.
 export { Dialog } from "@/components/Dialog";
+export { FloatingMenu } from "@/components/FloatingMenu";
 
 // 44px is the smallest target Apple and Google both call reliably tappable,
 // and this app gets used standing at a table with a phone in one hand. It grows
@@ -211,6 +212,31 @@ export function Stat({
 }
 
 /**
+ * A link back to wherever a page hangs off of — a pill with a hairline hover
+ * background, and an arrow that nudges left on hover rather than the whole
+ * label moving under the pointer. Originally the deck detail page's own
+ * one-off (it needed a back link but no title/actions row, so it never went
+ * through `PageHeader`); every other back link in the app was a plain
+ * underlined text link instead, which read as a different, lesser control
+ * once the two sat side by side. `PageHeader`'s `backHref` renders this now,
+ * so anything that wants a back link — with a title row or without — gets
+ * the same one.
+ */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="group inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-accent transition-colors hover:bg-surface-muted"
+    >
+      <span aria-hidden="true" className="transition-transform group-hover:-translate-x-0.5">
+        ←
+      </span>
+      {children}
+    </Link>
+  );
+}
+
+/**
  * The top of a page: an optional way back, the title, an optional line of
  * explanation, and an optional cluster of actions.
  *
@@ -235,11 +261,7 @@ export function PageHeader({
 }) {
   return (
     <div className="space-y-2">
-      {backHref ? (
-        <Link href={backHref} className="text-sm text-accent underline">
-          ← {backLabel ?? "Back"}
-        </Link>
-      ) : null}
+      {backHref ? <BackLink href={backHref}>{backLabel ?? "Back"}</BackLink> : null}
 
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <div className="min-w-0">

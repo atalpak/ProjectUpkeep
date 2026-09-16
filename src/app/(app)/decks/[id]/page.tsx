@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -24,6 +23,7 @@ import { DeckCharts } from "@/components/decks/DeckCharts";
 import { DeckWorkspace, type WishSupplierView } from "@/components/decks/DeckWorkspace";
 import { PlaytestLauncher } from "@/components/decks/PlaytestLauncher";
 import { ExportButtons } from "@/components/ExportButtons";
+import { BackLink } from "@/components/ui";
 
 /**
  * A decklist entry names a card, not a specific printing someone owns yet
@@ -203,19 +203,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="space-y-5">
-      {/* `group` + a transform transition on just the arrow glyph, not the
-          whole label — a pure CSS transform costs nothing to animate and
-          reads as "back" without a bigger hit target moving under the
-          pointer, which a scale/translate on the whole link would do. */}
-      <Link
-        href="/decks"
-        className="group inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-accent transition-colors hover:bg-surface-muted"
-      >
-        <span aria-hidden="true" className="transition-transform group-hover:-translate-x-0.5">
-          ←
-        </span>
-        All decks
-      </Link>
+      <BackLink href="/decks">All decks</BackLink>
 
       <DeckBanner
         deck={deck}

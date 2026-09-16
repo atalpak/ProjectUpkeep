@@ -244,6 +244,13 @@ export type Location = {
   format: string | null;
   tags: string[];
 
+  /**
+   * Whether this deck's card list (not its sleeved copies) is visible to
+   * accepted friends (migration 35, `not null default false`). Meaningful
+   * only for `type === 'deck'`; unconstrained and ignored on a box or binder.
+   */
+  is_public: boolean;
+
   /** User-chosen label colour (migration 31). Null is the common case. */
   color: LocationColor | null;
 };

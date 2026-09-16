@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import { cardDisplayName, type Card, type CardInstanceWithCard } from "@/lib/types";
+import { cardDisplayName, type Card, type CardInstanceWithCard, type Location } from "@/lib/types";
 import type {
   FeedEntry,
   FriendEdge,
@@ -235,6 +235,147 @@ export async function getMyTradableCards(): Promise<CardInstanceWithCard[]> {
     CardInstanceWithCard & { locations: { is_tradable?: boolean } | null }
   >;
   return rows.filter((r) => r.locations?.is_tradable === true);
+}
+
+// ---------------------------------------------------------------------------
+// Someone else's public decks
+//
+// A deck an owner has flagged `is_public` (migration 35) shares its decklist
+// with accepted friends — commander, format, tags, the card list — and
+// nothing about what is physically sleeved into it. That second half lives in
+// `card_instances`, which this file never reads for anyone but the signed-in
+// user's own rows elsewhere; these two functions do not touch it at all, on
+// purpose, so there is no build-progress or availability number to
+// accidentally leak alongside the list.
+// ---------------------------------------------------------------------------
+
+export type PublicDeckSummary = {
+  id: string;
+  name: string;
+  format: string | null;
+  tags: string[];
+  color: Location["color"];
+  commander_card_id: string | null;
+  cardCount: number;
+  commanderName: string | null;
+  commanderImage: string | null;
+  commanderColors: string[];
+};
+
+export type PublicDeckListEntry = {
+  id: string;
+  deck_id: string;
+  card_id: string;
+  quantity: number;
+  cards: Card | null;
+};
+
+/**
+ * The decks `ownerId` has made visible to friends.
+ *
+ * RLS (migration 35) is what actually enforces "friends only" — this filters
+ * by `is_public` explicitly anyway, the same defensive habit the rest of this
+ * file follows, rather than trusting that a row could only have come back if
+ * it were meant to be seen. Explicit column list, and deliberately no
+ * `notes`: a public deck shares its list, never its owner's free-text notes.
+ */
+export async function getPublicDecks(ownerId: string): Promise<PublicDeckSummary[]> {
+  const supabase = await createClient();
+  const { data: decks, error: deckError } = await supabase
+    .from("locations")
+    .select("id, name, format, tags, color, commander_card_id")
+    .eq("user_id", ownerId)
+    .eq("type", "deck")
+    .eq("is_public", true)
+    .order("name");
+
+  if (deckError) throw new Error(`Could not load their decks: ${deckError.message}`);
+
+  const deckRows = (decks ?? []) as Array<
+    Pick<Location, "id" | "name" | "format" | "tags" | "color" | "commander_card_id">
+  >;
+  if (deckRows.length === 0) return [];
+
+  const deckIds = deckRows.map((d) => d.id);
+  const { data: deckCards, error: dcError } = await supabase
+    .from("deck_cards")
+    .select("deck_id, quantity")
+    .in("deck_id", deckIds)
+    .limit(5000);
+
+  if (dcError) throw new Error(`Could not load their decklists: ${dcError.message}`);
+
+  const cardCountByDeck = new Map<string, number>();
+  for (const row of (deckCards ?? []) as Array<{ deck_id: string; quantity: number }>) {
+    cardCountByDeck.set(row.deck_id, (cardCountByDeck.get(row.deck_id) ?? 0) + row.quantity);
+  }
+
+  // Commander art, one lookup rather than one per deck — same shape as
+  // getDecks() in src/lib/collection/queries.ts.
+  const commanderIds = [
+    ...new Set(deckRows.map((d) => d.commander_card_id).filter((v): v is string => !!v)),
+  ];
+  const commanderNames = new Map<string, string>();
+  const commanderArt = new Map<string, { image: string | null; colors: string[] }>();
+  if (commanderIds.length > 0) {
+    const { data: cmdCards } = await supabase
+      .from("cards")
+      .select("scryfall_id, name, flavor_name, image_uri_small, color_identity")
+      .in("scryfall_id", commanderIds);
+    for (const c of (cmdCards ?? []) as Array<{
+      scryfall_id: string;
+      name: string;
+      flavor_name: string | null;
+      image_uri_small: string | null;
+      color_identity: string[] | null;
+    }>) {
+      commanderNames.set(c.scryfall_id, cardDisplayName(c));
+      commanderArt.set(c.scryfall_id, {
+        image: c.image_uri_small,
+        colors: c.color_identity ?? [],
+      });
+    }
+  }
+
+  return deckRows.map((deck) => {
+    const art = deck.commander_card_id ? commanderArt.get(deck.commander_card_id) : undefined;
+    return {
+      id: deck.id,
+      name: deck.name,
+      format: deck.format,
+      tags: deck.tags,
+      color: deck.color,
+      commander_card_id: deck.commander_card_id,
+      cardCount: cardCountByDeck.get(deck.id) ?? 0,
+      commanderName: deck.commander_card_id
+        ? (commanderNames.get(deck.commander_card_id) ?? null)
+        : null,
+      commanderImage: art?.image ?? null,
+      commanderColors: art?.colors ?? [],
+    };
+  });
+}
+
+/**
+ * One public deck's card list — decklist only, no sleeved counts.
+ *
+ * Scoped by `deckId` alone, the same as `getDeck()` reached this deck's
+ * `locations` row before calling here: if the id names a deck that either
+ * does not exist or is not public to the caller, RLS (migration 35) returns
+ * zero rows rather than an error, so an empty list and "not visible" look the
+ * same here, which is the point — this function never needs to decide who is
+ * allowed to see what, the database already has.
+ */
+export async function getPublicDeckList(deckId: string): Promise<PublicDeckListEntry[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("deck_cards")
+    .select(`id, deck_id, card_id, quantity, ${CARD_FIELDS}`)
+    .eq("deck_id", deckId)
+    .limit(5000);
+
+  if (error) throw new Error(`Could not load that decklist: ${error.message}`);
+  return (data ?? []) as unknown as PublicDeckListEntry[];
 }
 
 // ---------------------------------------------------------------------------

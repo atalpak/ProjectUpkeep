@@ -9,6 +9,7 @@ import {
   getMyTradableCards,
   getMyTradablesForMatching,
   getProfileByUsername,
+  getPublicDecks,
   getTradableCards,
   getTrade,
   getWantList,
@@ -16,6 +17,7 @@ import {
 import { tradingAllowed } from "@/lib/social/tos";
 import { mirrorTradeForCounter } from "@/lib/social/counter";
 import { describeSupplier, matchWants } from "@/lib/social/wants";
+import { ProfilePublicDecks } from "@/components/social/ProfilePublicDecks";
 import { ProfileTradables } from "@/components/social/ProfileTradables";
 import { TradableBinderPreview } from "@/components/social/TradableBinderPreview";
 import { EmptyState, PageHeader } from "@/components/ui";
@@ -54,9 +56,10 @@ export default async function ProfilePage({
   // only — you cannot trade with yourself, and matching your binder against
   // your own wants is noise — so this branch runs none of it.
   if (user && profile.id === user.id) {
-    const [myTradableCards, myWants] = await Promise.all([
+    const [myTradableCards, myWants, myPublicDecks] = await Promise.all([
       getMyTradableCards(),
       getWantList(),
+      getPublicDecks(user.id),
     ]);
 
     const stacks = myTradableCards.length;
@@ -110,21 +113,34 @@ export default async function ProfilePage({
         ) : (
           <TradableBinderPreview cards={myTradableCards} />
         )}
+
+        {myPublicDecks.length > 0 ? (
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold">
+              Your decks · {myPublicDecks.length} shared
+            </h2>
+            <ProfilePublicDecks username={profile.username} decks={myPublicDecks} />
+          </section>
+        ) : null}
       </div>
     );
   }
 
-  const [edges, theirCards, myCards, tos, theirWants, myTradables] = await Promise.all([
-    getFriendEdges(),
-    // Returns nothing unless the policies allow it — being friends is enforced
-    // by the database, not by the check below, which only decides what to say.
-    getTradableCards(profile.id),
-    getMyTradableCards(),
-    getMyTosStatus(),
-    // Readable only if you are friends (migration 15 policy); [] otherwise.
-    getFriendWants(profile.id),
-    getMyTradablesForMatching(),
-  ]);
+  const [edges, theirCards, myCards, tos, theirWants, myTradables, theirPublicDecks] =
+    await Promise.all([
+      getFriendEdges(),
+      // Returns nothing unless the policies allow it — being friends is enforced
+      // by the database, not by the check below, which only decides what to say.
+      getTradableCards(profile.id),
+      getMyTradableCards(),
+      getMyTosStatus(),
+      // Readable only if you are friends (migration 15 policy); [] otherwise.
+      getFriendWants(profile.id),
+      getMyTradablesForMatching(),
+      // Same shape: empty unless is_public + are_friends both hold
+      // (migration 35 policy on locations).
+      getPublicDecks(profile.id),
+    ]);
 
   // Their want list, flagged with how many of each you have open for trade.
   const iCanFill = matchWants(theirWants, myTradables);
@@ -243,6 +259,15 @@ export default async function ProfilePage({
           startTrading={Boolean(counterOf)}
         />
       )}
+
+      {isFriend && theirPublicDecks.length > 0 ? (
+        <section className="space-y-2">
+          <h2 className="text-sm font-semibold">
+            {profile.username}&apos;s decks · {theirPublicDecks.length} shared
+          </h2>
+          <ProfilePublicDecks username={profile.username} decks={theirPublicDecks} />
+        </section>
+      ) : null}
     </div>
   );
 }

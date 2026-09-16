@@ -122,6 +122,11 @@ alerts. Each migration header carries the reasoning for its decision.
    *I* own" carries `.eq('owner_user_id', …)`, roughly 25 of them, and **removing
    one is a cross-user data leak, not a cleanup.** A query that deliberately
    reads across people — the public binder, want matching — says so in a comment.
+   Migration 35 opened a second such path: a friend's *public* deck makes its
+   `deck_cards` rows readable too, so `getDecks`, `getCrossDeckAvailableCount`
+   and `getDeckList` now join through `locations` and filter on its `user_id`
+   explicitly, the same way the `card_instances` queries filter on
+   `owner_user_id`.
 
 4. **Nothing under `src/` may construct a service-role client.** The service key
    is read in exactly one place, `scripts/sync-scryfall.ts`, which is not part of
