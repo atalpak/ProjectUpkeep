@@ -2,27 +2,35 @@ import Image from "next/image";
 import Link from "next/link";
 
 import {
-  getCrossDeckAvailableCount,
   getDashboardSummary,
+  getDecks,
   getUnsortedFromTradeCount,
   UNSORTED,
+  type DeckSummary,
 } from "@/lib/collection/queries";
 import type { ColourBucket } from "@/lib/collection/breakdown";
 import { getOpenTradeCounts, getWantListView } from "@/lib/social/queries";
 import { cardDisplayName } from "@/lib/types";
 import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { formatPrice } from "@/lib/collection/pricing";
-import { EmptyState, ListRow, PageHeader } from "@/components/ui";
+import { Badge, EmptyState, ListRow, PageHeader, Stat } from "@/components/ui";
 
 export const metadata = { title: "Dashboard · Project Upkeep" };
 
 /**
- * The dashboard, rebuilt around three things nothing else in the app surfaces:
- * cards that arrived by trade and are still unsorted, decks that could be
- * finished from spares sitting elsewhere, and wish-list matches with the
- * supplier named. Everything else here either duplicates /locations or
- * /collection more expensively than either of them, or belongs in the header
- * (alerts) already.
+ * The dashboard, rebuilt (again) around a simple split: things that need a
+ * decision at the top, then where things stand. Three sections:
+ *
+ *   - Needs attention — trades waiting on you, cards still unsorted from a
+ *     trade, wish-list matches with the supplier named. Nothing here is a new
+ *     query; it is all things the schema already tracked and no page
+ *     surfaced together.
+ *   - Deck status — every deck with a decklist, ready or missing N, sorted
+ *     worst-off first. Reuses getDecks()'s own cardCount/sleevedCount rather
+ *     than a new per-deck query — the /decks page already computes exactly
+ *     this.
+ *   - Collection status — value, count, unsorted, deck total. Demoted to the
+ *     bottom and to plain stat tiles on purpose: real, but not a decision.
  *
  * No explicit `dynamic = "force-dynamic"` — same as most pages under (app).
  * That export exists only where Next would otherwise try to statically
@@ -32,12 +40,12 @@ export const metadata = { title: "Dashboard · Project Upkeep" };
  * route out of static rendering on its own.
  */
 export default async function DashboardPage() {
-  const [summary, wantView, tradeCounts, unsortedFromTrade, decksAvailable] = await Promise.all([
+  const [summary, wantView, tradeCounts, unsortedFromTrade, decks] = await Promise.all([
     getDashboardSummary(),
     getWantListView(),
     getOpenTradeCounts(),
     getUnsortedFromTradeCount(),
-    getCrossDeckAvailableCount(),
+    getDecks(),
   ]);
 
   const isEmpty = summary.totalEntries === 0;
@@ -58,13 +66,9 @@ export default async function DashboardPage() {
         </EmptyState>
       ) : (
         <>
-          <Hero summary={summary} />
-          <Attention
-            tradeCounts={tradeCounts}
-            unsortedFromTrade={unsortedFromTrade}
-            decksAvailable={decksAvailable}
-            wantView={wantView}
-          />
+          <Attention tradeCounts={tradeCounts} unsortedFromTrade={unsortedFromTrade} wantView={wantView} />
+          <DeckStatus decks={decks} />
+          <CollectionStatus summary={summary} deckCount={decks.length} />
           <RecentlyAdded summary={summary} />
         </>
       )}
@@ -74,66 +78,7 @@ export default async function DashboardPage() {
 
 type Summary = Awaited<ReturnType<typeof getDashboardSummary>>;
 
-/**
- * What the collection is worth, first and dominant — the number people open a
- * collection app to see — with the count and the standout card as a quieter
- * line beneath it, not four boxes of equal weight. The by-colour dots are the
- * one place the removed set/colour bar chart gets a (much smaller) successor.
- */
-function Hero({ summary }: { summary: Summary }) {
-  const { value } = summary;
-
-  return (
-    <section className="space-y-3">
-      <div>
-        <p className="text-sm font-medium text-ink-muted">Collection value</p>
-        <p className="font-display text-5xl font-semibold tracking-tight tabular-nums">
-          {formatPrice(value.total)}
-        </p>
-        {summary.pricesAsOf ? (
-          <p className="text-xs text-ink-muted">Prices as of {formatShortDate(summary.pricesAsOf)}</p>
-        ) : null}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
-        <span>
-          {summary.totalCards.toLocaleString()} card{summary.totalCards === 1 ? "" : "s"}
-        </span>
-        {value.mostValuable ? (
-          <span>
-            Most valuable:{" "}
-            <CardPreviewLink
-              card={value.mostValuable.cardId ?? undefined}
-              href={`/collection?q=${encodeURIComponent(value.mostValuable.name)}`}
-              className="hover:underline"
-            >
-              {value.mostValuable.name}
-            </CardPreviewLink>{" "}
-            ({formatPrice(value.mostValuable.value)})
-          </span>
-        ) : null}
-        {value.unpricedRows > 0 ? (
-          <span>
-            {value.unpricedRows} {value.unpricedRows === 1 ? "entry" : "entries"} unpriced
-          </span>
-        ) : null}
-      </div>
-
-      {summary.breakdown.colours.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-ink-muted">
-          {summary.breakdown.colours.map(({ bucket, label, count }) => (
-            <span key={bucket} className="flex items-center gap-1.5" title={label}>
-              <ColourDot bucket={bucket} />
-              <span className="tabular-nums">{count.toLocaleString()}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-/** "Sep 8" — short enough to caption a hero number without competing with it. */
+/** "Sep 8" — short enough to caption a stat tile without competing with it. */
 function formatShortDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -177,22 +122,23 @@ type WantView = Awaited<ReturnType<typeof getWantListView>>;
 const WANT_MATCH_ROWS = 3;
 
 /**
- * The things that actually need a decision, as a hairline-divided list rather
- * than the pill row this replaces. Every row here is grounded in something the
- * schema already tracked and nothing surfaced: ownership_history for a trade
- * arrival, the deck-availability state every deck page already computes, and
- * the supplier location matchWants() has always returned and every caller
- * used to drop.
+ * The things that actually need a decision, as a hairline-divided list.
+ * Every row here is grounded in something the schema already tracked and
+ * nothing surfaced: ownership_history for a trade arrival, and the supplier
+ * location matchWants() has always returned and every caller used to drop.
+ *
+ * Deck completeness used to have a line here too ("N deck entries could be
+ * sleeved from cards you already own") — dropped in favour of the Deck status
+ * section below, which says the same thing per deck instead of as one vague
+ * total.
  */
 function Attention({
   tradeCounts,
   unsortedFromTrade,
-  decksAvailable,
   wantView,
 }: {
   tradeCounts: TradeCounts;
   unsortedFromTrade: number;
-  decksAvailable: number;
   wantView: WantView;
 }) {
   const matchedWants = wantView.wants.filter((want) => wantView.matches.has(want.id));
@@ -203,7 +149,6 @@ function Attention({
     tradeCounts.awaitingYou > 0 ||
     tradeCounts.expiringSoon > 0 ||
     unsortedFromTrade > 0 ||
-    decksAvailable > 0 ||
     shownMatches.length > 0;
 
   return (
@@ -230,13 +175,6 @@ function Attention({
             <ListRow href={`/collection?location=${UNSORTED}`} icon={<InboxIcon />} trailing={<Arrow />}>
               {unsortedFromTrade} card{unsortedFromTrade === 1 ? "" : "s"} from a trade{" "}
               {unsortedFromTrade === 1 ? "is" : "are"} still unsorted
-            </ListRow>
-          ) : null}
-
-          {decksAvailable > 0 ? (
-            <ListRow href="/decks" icon={<DeckIcon />} trailing={<Arrow />}>
-              {decksAvailable} deck {decksAvailable === 1 ? "entry" : "entries"} could be sleeved from
-              cards you already own
             </ListRow>
           ) : null}
 
@@ -317,20 +255,150 @@ function InboxIcon() {
   );
 }
 
-function DeckIcon() {
-  return (
-    <svg {...ICON_PROPS}>
-      <rect x="4" y="3" width="9" height="12" rx="1.2" />
-      <path d="M8.5 17h6a1 1 0 0 0 1-1V6" />
-    </svg>
-  );
-}
-
 function StarIcon() {
   return (
     <svg {...ICON_PROPS}>
       <path d="M10 3.5 12 8l5 .6-3.7 3.4.9 4.9-4.2-2.4-4.2 2.4.9-4.9L3 8.6 8 8z" />
     </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Deck status
+// ---------------------------------------------------------------------------
+
+/** How many decks to name before folding the rest into "view all". */
+const DECK_STATUS_ROWS = 4;
+
+/**
+ * Every deck with a decklist, ready or with N left to sleeve — worst-off
+ * first, since that is the one you would act on. `cardCount` and
+ * `sleevedCount` are `getDecks()`'s own numbers, already computed for the
+ * /decks page; this is the same data, not a new query.
+ *
+ * Deliberately "N to sleeve", not "N missing": `cardCount - sleevedCount` is
+ * only "not yet physically in this deck" — some of that gap might be spares
+ * sitting in a binder, ready to pull in for free, not cards you don't own.
+ * Telling those two apart per deck needs the same cross-deck spare-allocation
+ * logic `countAvailableAcrossDecks` (deck-state.ts) does *in aggregate* for
+ * the whole collection — doing it per deck means solving the same "which deck
+ * gets the one spare two decks are both short" problem per row, which is a
+ * real follow-up, not this pass.
+ *
+ * Decks with no decklist at all (`cardCount === 0`, a deck that exists as a
+ * location but has never had a list built for it) are left out entirely
+ * rather than shown as "0 of 0, ready" — that is not a meaningful ready, and
+ * a brand-new deck should not read as an achievement.
+ */
+function DeckStatus({ decks }: { decks: DeckSummary[] }) {
+  const withList = decks.filter((deck) => deck.cardCount > 0);
+  if (withList.length === 0) return null;
+
+  const ranked = [...withList].sort((a, b) => {
+    const aOutstanding = a.cardCount - a.sleevedCount;
+    const bOutstanding = b.cardCount - b.sleevedCount;
+    return bOutstanding - aOutstanding || a.name.localeCompare(b.name);
+  });
+
+  const shown = ranked.slice(0, DECK_STATUS_ROWS);
+  const more = ranked.length - shown.length;
+
+  return (
+    <section aria-label="Deck status" className="space-y-1">
+      <h2 className="text-sm font-semibold">Deck status</h2>
+      <div className="overflow-hidden rounded-lg border border-border">
+        {shown.map((deck) => {
+          const outstanding = Math.max(0, deck.cardCount - deck.sleevedCount);
+          return (
+            <Link
+              key={deck.id}
+              href={`/decks/${deck.id}`}
+              className="flex items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-sm transition-colors last:border-b-0 hover:bg-surface-muted"
+            >
+              <span className="truncate font-medium">{deck.name}</span>
+              {outstanding === 0 ? (
+                <Badge>Ready</Badge>
+              ) : (
+                <span className="shrink-0 text-xs text-ink-muted">
+                  {outstanding} to sleeve
+                </span>
+              )}
+            </Link>
+          );
+        })}
+
+        {more > 0 ? (
+          <Link
+            href="/decks"
+            className="block px-3 py-2 text-xs text-ink-muted transition-colors hover:bg-surface-muted"
+          >
+            {more} more {more === 1 ? "deck" : "decks"}
+          </Link>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Collection status
+// ---------------------------------------------------------------------------
+
+/**
+ * Value, count, unsorted, deck total — plain stat tiles, not the loud
+ * five-line hero this section used to be. Real numbers, but none of them is a
+ * decision, so none of them leads the page any more.
+ */
+function CollectionStatus({ summary, deckCount }: { summary: Summary; deckCount: number }) {
+  const { value } = summary;
+
+  return (
+    <section aria-label="Collection status" className="space-y-3">
+      <h2 className="text-sm font-semibold">Collection status</h2>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat
+          label="Collection value"
+          value={formatPrice(value.total)}
+          hint={summary.pricesAsOf ? `As of ${formatShortDate(summary.pricesAsOf)}` : undefined}
+        />
+        <Stat label="Total cards" value={summary.totalCards.toLocaleString()} />
+        <Stat label="Unsorted" value={summary.unsortedCount.toLocaleString()} />
+        <Stat label="Decks" value={deckCount.toLocaleString()} />
+      </div>
+
+      {value.mostValuable || value.unpricedRows > 0 ? (
+        <p className="text-xs text-ink-muted">
+          {value.mostValuable ? (
+            <>
+              Most valuable:{" "}
+              <CardPreviewLink
+                card={value.mostValuable.cardId ?? undefined}
+                href={`/collection?q=${encodeURIComponent(value.mostValuable.name)}`}
+                className="text-ink hover:underline"
+              >
+                {value.mostValuable.name}
+              </CardPreviewLink>{" "}
+              ({formatPrice(value.mostValuable.value)})
+            </>
+          ) : null}
+          {value.unpricedRows > 0
+            ? `${value.mostValuable ? " · " : ""}${value.unpricedRows} ${value.unpricedRows === 1 ? "entry" : "entries"} unpriced`
+            : ""}
+        </p>
+      ) : null}
+
+      {summary.breakdown.colours.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
+          {summary.breakdown.colours.map(({ bucket, label, count }) => (
+            <span key={bucket} className="flex items-center gap-1.5" title={label}>
+              <ColourDot bucket={bucket} />
+              <span className="tabular-nums">{count.toLocaleString()}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
