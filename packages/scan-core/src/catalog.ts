@@ -54,7 +54,21 @@ export class CardIndex {
     }
   }
   get(id: string) { return this.byId.get(id); }
-  search(text: string, hints: { setCode?: string; collectorNumber?: string } = {}, limit = 50): Candidate[] {
+
+  /**
+   * Ranks every printing whose name plausibly matches `text`, then narrows
+   * (never re-orders past that) by `filter`.
+   *
+   * `hints` and `filter` are deliberately two different parameters, not one:
+   * `hints` (typically OCR-derived — see `printingHints`) only re-ranks a
+   * candidate to `evidence: 'printing'`, because OCR regularly misreads a set
+   * code or collector number and a hard exclusion on that would silently drop
+   * the correct card. `filter` (typed by a person, in the manual-search UI)
+   * actually excludes non-matching printings — against a catalog where some
+   * names have 100+ printings, ranking alone left `search` returning up to
+   * `limit` results in an order with no way for the caller to reach the rest.
+   */
+  private rank(text: string, hints: { setCode?: string; collectorNumber?: string } = {}, filter: { setCode?: string; collectorNumber?: string } = {}): Candidate[] {
     const q = normalizeName(text.slice(0, 200));
     if (q.length < 2) return [];
     const exact = this.names.get(q);
@@ -73,6 +87,8 @@ export class CardIndex {
     const results = new Map<string, Candidate>();
     for (const [key, score] of ranked) for (const id of this.names.get(key)!) {
       const printing = this.byId.get(id)!;
+      if (filter.setCode && filter.setCode.toLowerCase() !== printing.setCode.toLowerCase()) continue;
+      if (filter.collectorNumber && canonicalNumber(filter.collectorNumber) !== canonicalNumber(printing.collectorNumber)) continue;
       const exactPrinting = !!hints.setCode && !!hints.collectorNumber &&
         hints.setCode.toLowerCase() === printing.setCode.toLowerCase() &&
         canonicalNumber(hints.collectorNumber) === canonicalNumber(printing.collectorNumber);
@@ -80,7 +96,21 @@ export class CardIndex {
       if (!results.has(id) || results.get(id)!.score < score) results.set(id, candidate);
     }
     return [...results.values()].sort((a,b) => Number(b.evidence === 'printing') - Number(a.evidence === 'printing') ||
-      b.score - a.score || a.printing.name.localeCompare(b.printing.name) || a.printing.id.localeCompare(b.printing.id)).slice(0, Math.max(1, Math.min(200, limit)));
+      b.score - a.score || a.printing.name.localeCompare(b.printing.name) || a.printing.id.localeCompare(b.printing.id));
+  }
+
+  search(text: string, hints: { setCode?: string; collectorNumber?: string } = {}, filter: { setCode?: string; collectorNumber?: string } = {}, limit = 50): Candidate[] {
+    return this.rank(text, hints, filter).slice(0, Math.max(1, Math.min(200, limit)));
+  }
+
+  /**
+   * Same ranking as `search`, plus the true match count before truncation —
+   * what the manual-search UI needs to say "50 of 118 matched" honestly
+   * instead of showing a capped list with no indication more exist.
+   */
+  searchWithTotal(text: string, hints: { setCode?: string; collectorNumber?: string } = {}, filter: { setCode?: string; collectorNumber?: string } = {}, limit = 50): { results: Candidate[]; total: number } {
+    const all = this.rank(text, hints, filter);
+    return { results: all.slice(0, Math.max(1, Math.min(200, limit))), total: all.length };
   }
 }
 function canonicalNumber(value: string) { return value.split('/')[0]!.trim().toLowerCase().replace(/^0+(?=\d)/, ''); }

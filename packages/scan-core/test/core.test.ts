@@ -23,6 +23,29 @@ test('exact name retains multiple printings and set/number ranks the printing wi
   assert.equal(index.search('Lightning Bolt',{setCode:'STA',collectorNumber:'0042/100'})[0]?.printing.id,b);
   assert.equal(index.search('Lightning Bolt')[0]?.evidence,'name');
 });
+test('a typed filter excludes non-matching printings rather than only re-ranking them', () => {
+  const index = new CardIndex(bundle);
+  // Both printings still show up under a hint -- a hint only promotes evidence.
+  assert.equal(index.search('Lightning Bolt', { setCode: 'sta', collectorNumber: '42' }).length, 2);
+  // A filter actually narrows the result set.
+  const filtered = index.search('Lightning Bolt', {}, { setCode: 'sta' });
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0]!.printing.id, b);
+  // A filtered-out set code returns nothing, not a fallback to the unfiltered set.
+  assert.deepEqual(index.search('Lightning Bolt', {}, { setCode: 'xyz' }), []);
+  // Collector number filters independently of set code, using the same
+  // canonicalNumber normalisation search already applies to hints (leading
+  // zeros, a "/100" print-run suffix).
+  assert.equal(index.search('Lightning Bolt', {}, { collectorNumber: '0146/999' })[0]?.printing.id, a);
+});
+test('searchWithTotal reports the true match count ahead of truncation', () => {
+  const index = new CardIndex(bundle);
+  const { results, total } = index.searchWithTotal('Lightning Bolt', {}, {}, 1);
+  assert.equal(total, 2, 'both printings match by name');
+  assert.equal(results.length, 1, 'the returned page still honours the limit');
+  const filtered = index.searchWithTotal('Lightning Bolt', {}, { setCode: 'sta' });
+  assert.equal(filtered.total, 1);
+});
 test('fuzzy OCR match is ranked and unrelated text is rejected', () => {
   const index = new CardIndex(bundle);
   assert.ok(index.search('Lightninq Bolt')[0]!.score > 0.5);

@@ -79,7 +79,17 @@ function Scanner({fonts}: {fonts: boolean}) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [query, setQuery] = useState('');
+  // Typed narrowing fields for the manual-search picker (mobile-app phase 5):
+  // unlike the OCR-derived hints the camera path uses, a value typed here is
+  // a genuine filter -- it excludes non-matching printings rather than only
+  // re-ranking them. See CardIndex.search's own header comment in scan-core.
+  const [filterSetCode, setFilterSetCode] = useState('');
+  const [filterCollectorNumber, setFilterCollectorNumber] = useState('');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  // The true match count before CardIndex truncates to its result page, so
+  // the picker can say "50 of 118 matched" honestly instead of silently
+  // showing a capped list with no sign more printings exist.
+  const [matchTotal, setMatchTotal] = useState(0);
   const [review, setReview] = useState<Review | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
@@ -244,9 +254,21 @@ function Scanner({fonts}: {fonts: boolean}) {
       setReady(false); setCameraOpen(true);
     } catch (e) { setMessage(errorMessage(e)); }
   }
+  /**
+   * Re-runs the manual-search picker against the current name query and the
+   * typed set-code / collector-number filter fields, keeping `matchTotal` in
+   * step with whatever `candidates` shows (see CardIndex.searchWithTotal).
+   */
+  function runSearch(name: string, setCode: string, collectorNumber: string) {
+    const { results, total } = index.searchWithTotal(name, {}, {
+      ...(setCode.trim() ? { setCode: setCode.trim() } : {}),
+      ...(collectorNumber.trim() ? { collectorNumber: collectorNumber.trim() } : {}),
+    });
+    setCandidates(results); setMatchTotal(total);
+  }
   async function syncCatalog() {
     setCatalogBusy(true); setMessage('');
-    try { setIndex(await refreshCatalog()); setCandidates([]); setQuery(''); setMessage('Offline catalog updated.'); }
+    try { setIndex(await refreshCatalog()); setCandidates([]); setMatchTotal(0); setQuery(''); setFilterSetCode(''); setFilterCollectorNumber(''); setMessage('Offline catalog updated.'); }
     catch (e) { setMessage(errorMessage(e)); } finally { setCatalogBusy(false); }
   }
   /**
@@ -322,7 +344,7 @@ function Scanner({fonts}: {fonts: boolean}) {
       {review ? <ReviewCard key={review.operationId} review={review} demo={demo} userId={userId} locations={locations}
         onSubmitted={scan => setReview({...review,submitted:scan})}
         onMessage={setMessage} onCancel={() => setReview(null)}
-        onSaved={() => {setRecent([`${review.printing.name} · ${review.printing.setCode.toUpperCase()} #${review.printing.collectorNumber}`, ...recent].slice(0,20)); setReview(null); setCandidates([]); setQuery(''); setMessage(demo ? 'Added to this demo session.' : 'Saved to your Upkeep collection.');}} /> : <>
+        onSaved={() => {setRecent([`${review.printing.name} · ${review.printing.setCode.toUpperCase()} #${review.printing.collectorNumber}`, ...recent].slice(0,20)); setReview(null); setCandidates([]); setMatchTotal(0); setQuery(''); setFilterSetCode(''); setFilterCollectorNumber(''); setMessage(demo ? 'Added to this demo session.' : 'Saved to your Upkeep collection.');}} /> : <>
         <View style={styles.cameraPanel}>
           {cameraOpen && active ? <>
             <CameraView ref={camera} style={styles.camera} facing="back" onCameraReady={() => setReady(true)} onMountError={() => {setReady(false);setCameraOpen(false);setMessage('Camera could not start. Use manual search or retry.');}} />
@@ -333,10 +355,20 @@ function Scanner({fonts}: {fonts: boolean}) {
         {cameraOpen && <Button label="Close camera" secondary onPress={() => {controller.current?.abort();setCameraOpen(false);setReady(false);}} />}
         {permission && !permission.granted && !permission.canAskAgain && <Button secondary label="Open camera settings" onPress={() => void Linking.openSettings()} />}
         <Text style={styles.section}>Or find a card by name</Text>
-        <TextInput accessibilityLabel="Card name" style={styles.input} placeholder={demo ? 'Try Lightning Bolt or Sol Ring' : 'Enter the full card name'} value={query} editable={!disabled} onChangeText={text => {setQuery(text); setCandidates(index.search(text));}} />
+        <TextInput accessibilityLabel="Card name" style={styles.input} placeholder={demo ? 'Try Lightning Bolt or Sol Ring' : 'Enter the full card name'} value={query} editable={!disabled} onChangeText={text => {setQuery(text); runSearch(text, filterSetCode, filterCollectorNumber);}} />
+        {/* Narrowing fields, not another name search -- a card with 100+
+            printings (Lightning Bolt, say) needs a way to reach past the
+            default 50-result page, and typing the set/number here actually
+            excludes non-matching printings (CardIndex's filter mode) rather
+            than just re-ranking them the way an OCR hint would. */}
+        <View style={styles.row}>
+          <TextInput accessibilityLabel="Set code" style={[styles.input, styles.grow]} placeholder="Set (optional)" autoCapitalize="characters" value={filterSetCode} editable={!disabled} onChangeText={text => {setFilterSetCode(text); runSearch(query, text, filterCollectorNumber);}} />
+          <TextInput accessibilityLabel="Collector number" style={[styles.input, styles.grow]} placeholder="# (optional)" value={filterCollectorNumber} editable={!disabled} onChangeText={text => {setFilterCollectorNumber(text); runSearch(query, filterSetCode, text);}} />
+        </View>
+        {matchTotal > candidates.length && <Text style={styles.body}>Showing {candidates.length} of {matchTotal} matched — narrow with a set code or collector number above.</Text>}
         {candidates.map(c => <Pressable accessibilityRole="button" disabled={disabled} key={c.printing.id} style={styles.result} onPress={() => {setCameraOpen(false);setReady(false);setReview({printing:c.printing,operationId:Crypto.randomUUID()});}}>
           {c.printing.imageUri && <Image source={{uri:c.printing.imageUri}} style={styles.thumbnail} />}
-          <View style={styles.grow}><Text style={styles.resultTitle}>{c.printing.name}</Text><Text style={styles.body}>{c.printing.setCode.toUpperCase()} · #{c.printing.collectorNumber} · {c.printing.language.toUpperCase()}</Text><Text style={styles.hint}>{c.evidence === 'printing' ? 'Name + set / number match' : 'Verify set and collector number'}</Text></View><Text style={styles.arrow}>›</Text>
+          <View style={styles.grow}><Text style={styles.resultTitle}>{c.printing.name}</Text><Text style={styles.body}>{c.printing.setName ?? c.printing.setCode.toUpperCase()} · #{c.printing.collectorNumber} · {c.printing.language.toUpperCase()}</Text><Text style={styles.hint}>{c.evidence === 'printing' ? 'Name + set / number match' : 'Verify set and collector number'}</Text></View><Text style={styles.arrow}>›</Text>
         </Pressable>)}
         {query.length > 1 && !candidates.length && <Text style={styles.body}>No match in this catalog. Check the name or refresh the catalog.</Text>}
       </>}
@@ -689,6 +721,7 @@ const styles = StyleSheet.create({
   cameraPanel:{height:310,borderRadius:20,overflow:'hidden',backgroundColor:'#263d35'},camera:{flex:1},cameraPlaceholder:{flex:1,alignItems:'center',justifyContent:'center',padding:28,gap:12},cardGlyph:{fontSize:68,color:'#d4ae65'},cameraTitle:{color:'#f4ecda',fontSize:21,textAlign:'center',fontWeight:'600'},cameraCaption:{color:'#c2ccb8',fontSize:13,textAlign:'center'},guide:{position:'absolute',top:'8%',bottom:'8%',left:'19%',right:'19%',borderColor:'#e2ba70',borderWidth:2,borderRadius:12,justifyContent:'flex-end'},guideText:{color:'#fff',backgroundColor:'#263d35',fontSize:10,textAlign:'center',padding:6},
   button:{padding:16,backgroundColor:'#b58538',borderRadius:12,alignItems:'center'},buttonSecondary:{backgroundColor:'transparent',borderWidth:1,borderColor:'#cbbd9e'},buttonText:{fontFamily:'PlusJakartaSans_600SemiBold',fontSize:15,fontWeight:'700',color:'#fffdf6'},secondaryText:{fontSize:14,fontWeight:'600',color:'#655332'},disabled:{opacity:0.4},notice:{backgroundColor:'#ebe1c9',padding:14,borderRadius:10,color:'#5e4928',fontSize:13,lineHeight:21},result:{flexDirection:'row',gap:14,alignItems:'center',backgroundColor:'#fffdf8',borderWidth:1,borderColor:'#ddd3bd',padding:14,borderRadius:12},resultTitle:{fontSize:16,fontWeight:'600',color:'#293428'},hint:{fontSize:11,color:'#8c692c',marginTop:5},thumbnail:{width:45,height:63,borderRadius:3},grow:{flex:1},arrow:{fontSize:28,color:'#a17d40'},review:{gap:12,backgroundColor:'#fffaf0',padding:18,borderRadius:16},cardImage:{height:260,width:'100%'},label:{fontSize:13,fontWeight:'700',color:'#374131',marginTop:8},choices:{flexDirection:'row',flexWrap:'wrap',gap:7},chip:{paddingVertical:8,paddingHorizontal:11,borderRadius:8,borderWidth:1,borderColor:'#d4ccb9'},chipSelected:{backgroundColor:'#334c3f',borderColor:'#334c3f'},chipTextSelected:{color:'#fffdf6',fontSize:13,lineHeight:21},divider:{height:1,backgroundColor:'#d7cbb4',marginVertical:10},footer:{textAlign:'center',fontSize:9,color:'#8a8979',letterSpacing:2,marginTop:24},
   tabs:{flexDirection:'row',backgroundColor:'#eee7d8',borderRadius:12,padding:4,gap:4},tab:{flex:1,paddingVertical:10,borderRadius:9,alignItems:'center'},tabSelected:{backgroundColor:'#334c3f'},tabText:{fontSize:13,fontWeight:'600',color:'#655332'},tabTextSelected:{fontSize:13,fontWeight:'600',color:'#fffdf6'},
+  row:{flexDirection:'row',gap:10},
   // A card with nothing sleeved needs to visibly recede — the "what do I
   // still need to sleeve" glance this feature exists for depends on the
   // unsleeved rows reading as muted at a glance, not just via smaller text.
