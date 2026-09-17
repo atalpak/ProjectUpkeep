@@ -25,6 +25,21 @@ type Location = {id: string; name: string; type: string};
  * second recovery pattern. `label` is display-only, for the retry banner.
  */
 type PendingMove = { operationId: string; draft: StackMoveDraft; label: string };
+/**
+ * Finish/condition/language/destination remembered from the last card
+ * ReviewCard finished with, so the next scan's review screen opens
+ * pre-filled instead of blank — scanning a box of commons means dozens of
+ * cards in a row that are all non-foil / near-mint / English, and retapping
+ * three chips per card for that is exactly the kind of friction this app
+ * should not add on top of "did I already sleeve this". Quantity is
+ * deliberately NOT part of this: it is the one field that genuinely varies
+ * per physical card, and defaulting it risks a silently wrong save (one
+ * Sol Ring recorded as four because the last card scanned was a foil
+ * playset). Session-only by design — lives in Scanner's state, not
+ * SecureStore, so a fresh app launch starts blank rather than carrying a
+ * stale guess across days.
+ */
+type LastUsedDraft = { finish: Finish; condition: Condition; language: string; location_id: string | null };
 // Third real screen (decks). Still a plain state switch, not a navigation
 // library: the comment above this used to say "reach for React Navigation
 // when a third screen makes the switch awkward to extend" — decks turned out
@@ -107,6 +122,9 @@ function Scanner({fonts}: {fonts: boolean}) {
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [moveBusy, setMoveBusy] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
+  // See LastUsedDraft's own comment: the defaults for the NEXT ReviewCard,
+  // not a lock — that card can still change any of them before saving.
+  const [lastUsedDraft, setLastUsedDraft] = useState<LastUsedDraft | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const currentUser = useRef<string | null>(null);
@@ -341,10 +359,10 @@ function Scanner({fonts}: {fonts: boolean}) {
           ? <DeckDetailScreen userId={userId} deckId={openDeckId} onBack={() => setOpenDeckId(null)} onMove={beginMove} moveDisabled={!!pendingMove || moveBusy} />
           : <DecksScreen userId={userId} onOpenDeck={setOpenDeckId} />
       ) : <>
-      {review ? <ReviewCard key={review.operationId} review={review} demo={demo} userId={userId} locations={locations}
+      {review ? <ReviewCard key={review.operationId} review={review} demo={demo} userId={userId} locations={locations} defaults={lastUsedDraft}
         onSubmitted={scan => setReview({...review,submitted:scan})}
         onMessage={setMessage} onCancel={() => setReview(null)}
-        onSaved={() => {setRecent([`${review.printing.name} · ${review.printing.setCode.toUpperCase()} #${review.printing.collectorNumber}`, ...recent].slice(0,20)); setReview(null); setCandidates([]); setMatchTotal(0); setQuery(''); setFilterSetCode(''); setFilterCollectorNumber(''); setMessage(demo ? 'Added to this demo session.' : 'Saved to your Upkeep collection.');}} /> : <>
+        onSaved={draft => {setLastUsedDraft(draft); setRecent([`${review.printing.name} · ${review.printing.setCode.toUpperCase()} #${review.printing.collectorNumber}`, ...recent].slice(0,20)); setReview(null); setCandidates([]); setMatchTotal(0); setQuery(''); setFilterSetCode(''); setFilterCollectorNumber(''); setMessage(demo ? 'Added to this demo session.' : 'Saved to your Upkeep collection.');}} /> : <>
         <View style={styles.cameraPanel}>
           {cameraOpen && active ? <>
             <CameraView ref={camera} style={styles.camera} facing="back" onCameraReady={() => setReady(true)} onMountError={() => {setReady(false);setCameraOpen(false);setMessage('Camera could not start. Use manual search or retry.');}} />
@@ -664,16 +682,22 @@ function SleevePicker({userId, deckId, entry, mode, onMove, onClose, onMoved}: {
   </View>;
 }
 
-function ReviewCard({review,demo,userId,locations,onSubmitted,onSaved,onCancel,onMessage}: {
-  review: Review; demo: boolean; userId: string | null; locations: Location[];
-  onSubmitted(scan: ConfirmedScan): void; onSaved(): void; onCancel(): void; onMessage(text: string): void;
+function ReviewCard({review,demo,userId,locations,defaults,onSubmitted,onSaved,onCancel,onMessage}: {
+  review: Review; demo: boolean; userId: string | null; locations: Location[]; defaults: LastUsedDraft | null;
+  onSubmitted(scan: ConfirmedScan): void; onSaved(draft: LastUsedDraft): void; onCancel(): void; onMessage(text: string): void;
 }) {
   const {printing,submitted} = review;
-  const [finish,setFinish] = useState<Finish | undefined>(submitted?.draft.finish);
-  const [condition,setCondition] = useState(submitted?.draft.condition);
-  const [language,setLanguage] = useState(submitted?.draft.language ?? '');
+  // A recovered pending scan (`submitted`) always wins — those values were
+  // already written to SecureStore and possibly already sent, so a retry
+  // must resubmit exactly what was decided before, never a fresher default.
+  // Absent that, `defaults` (the last card's choices) pre-fills a fresh
+  // review; absent both, the chips start unselected as before.
+  const [finish,setFinish] = useState<Finish | undefined>(submitted?.draft.finish ?? defaults?.finish);
+  const [condition,setCondition] = useState(submitted?.draft.condition ?? defaults?.condition);
+  const [language,setLanguage] = useState(submitted?.draft.language ?? defaults?.language ?? '');
+  // Deliberately NOT defaulted from `defaults` — see LastUsedDraft's comment.
   const [quantity,setQuantity] = useState(String(submitted?.draft.quantity ?? 1));
-  const [location,setLocation] = useState<string | null>(submitted?.draft.location_id ?? null);
+  const [location,setLocation] = useState<string | null>(submitted?.draft.location_id ?? defaults?.location_id ?? null);
   const [saving,setSaving] = useState(false);
   const savingRef = useRef(false);
   const confirm = useMemo(() => writer ? new ConfirmScan(writer) : null, []);
@@ -684,7 +708,8 @@ function ReviewCard({review,demo,userId,locations,onSubmitted,onSaved,onCancel,o
     try {
       const draft = validateDraft({card_id:printing.id, finish:finish!, condition:condition!, language,
         quantity: /^\d+$/.test(quantity) ? Number(quantity) : NaN, location_id:location, notes:null}, printing);
-      if (demo) { onSaved(); return; }
+      const lastUsed: LastUsedDraft = {finish:draft.finish, condition:draft.condition, language:draft.language, location_id:draft.location_id};
+      if (demo) { onSaved(lastUsed); return; }
       if (!confirm || !userId) throw new Error('Sign in to Upkeep before saving.');
       const scan = submitted ?? {operationId:review.operationId,draft};
       // Persist BEFORE writing. A crash or lost response can be retried with the same primary key.
@@ -692,7 +717,7 @@ function ReviewCard({review,demo,userId,locations,onSubmitted,onSaved,onCancel,o
       onSubmitted(scan);
       await confirm.save(scan, printing);
       await SecureStore.deleteItemAsync(pendingKey(userId));
-      onSaved();
+      onSaved(lastUsed);
     } catch (e) { onMessage(errorMessage(e)); } finally {savingRef.current = false; setSaving(false);}
   }
   return <View style={styles.review}>
