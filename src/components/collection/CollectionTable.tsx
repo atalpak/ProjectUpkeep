@@ -14,6 +14,7 @@ import { useCardPanel, useCardPreview } from "@/components/CardPanel";
 import { SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { FoilMark } from "@/components/FoilMark";
+import { FoilShine } from "@/components/FoilShine";
 import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
 import { BulkBar } from "@/components/collection/BulkBar";
@@ -570,7 +571,7 @@ function Row({
   // imageOnly: the table row is dense and already names the card in text, so
   // a hover only needs to answer "what does this look like" instantly — the
   // full write-up is one click away via the same button's onClick.
-  const preview = useCardPreview(card, { imageOnly: true });
+  const preview = useCardPreview(card, { imageOnly: true, finish: row.finish });
 
   return (
     <>
@@ -1147,6 +1148,7 @@ function GalleryTile({
             unoptimized
           />
         ) : null}
+        <FoilShine finish={row.finish} />
       </button>
 
       <div className="space-y-1 text-xs">

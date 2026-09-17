@@ -216,6 +216,40 @@ body {
   }
 }
 
+/*
+ * Foil shine — the same idea as .foil-mark, laid over a card image instead of
+ * a glyph. An overlay element (see FoilShine.tsx) rather than a filter on the
+ * <img> itself, so the artwork underneath is never recoloured, only lit.
+ * `overlay` blend keeps the art's own contrast instead of washing it out the
+ * way `screen` or `color-dodge` did in practice.
+ */
+.foil-shine {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    100deg,
+    #ff6b6b,
+    #ffd93d,
+    #6bf178,
+    #4ecdc4,
+    #7c8cf0,
+    #e07bf0,
+    #ff6b6b
+  );
+  background-size: 300% 100%;
+  mix-blend-mode: overlay;
+  opacity: 0.55;
+  animation: foil-shimmer 6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .foil-shine {
+    animation: none;
+    opacity: 0.35;
+  }
+}
+
 /**
  * The signed-in shell's page-to-page transition (see PageTransition.tsx).
  * A short fade and rise, not a slide — this fires on every navigation

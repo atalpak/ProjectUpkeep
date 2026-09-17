@@ -32,6 +32,7 @@ import {
 } from "@/lib/types";
 import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
+import { FoilShine } from "@/components/FoilShine";
 import { ManaCost } from "@/components/ManaCost";
 import { SetSymbol } from "@/components/SetSymbol";
 import { Badge, Button, cx, Dialog, Field, Input, Select } from "@/components/ui";
@@ -87,6 +88,7 @@ type PanelContext = {
     presentation: Presentation,
     anchor?: HTMLElement | null,
     imageOnly?: boolean,
+    finish?: string | null,
   ) => void;
   /** Dismiss a transient presentation. The sidebar deliberately keeps its card. */
   hide: () => void;
@@ -100,6 +102,10 @@ type PanelContext = {
   /** The tooltip should show just the image, no name/text/actions — the
    *  collection table's quick glance. Meaningless outside "tooltip". */
   imageOnly: boolean;
+  /** The specific copy's finish, when the caller knows it (a collection row
+   *  does; a bare printing lookup does not) — lets the imageOnly glance carry
+   *  the same foil shimmer FoilMark shows in the row itself. */
+  finish: string | null;
 };
 
 const Ctx = createContext<PanelContext | null>(null);
@@ -130,6 +136,7 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [imageOnly, setImageOnly] = useState(false);
+  const [finish, setFinish] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -155,11 +162,13 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
       next: Presentation,
       anchorEl?: HTMLElement | null,
       wantImageOnly?: boolean,
+      wantFinish?: string | null,
     ) => {
       if (timer.current) clearTimeout(timer.current);
       setPresentation(next);
       setAnchor(anchorEl ?? null);
       setImageOnly(wantImageOnly ?? false);
+      setFinish(wantFinish ?? null);
 
       if (typeof source !== "string") {
         setCards((prev) =>
@@ -251,8 +260,9 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
       presentation,
       anchor,
       imageOnly,
+      finish,
     }),
-    [show, hide, activeId, entry, presentation, anchor, imageOnly],
+    [show, hide, activeId, entry, presentation, anchor, imageOnly, finish],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -380,6 +390,7 @@ export function useCardPreview(
   {
     sheetOnClick = true,
     imageOnly = false,
+    finish = null,
   }: {
     sheetOnClick?: boolean;
     /** Tooltip only: skip the deliberate pause and show just the image, not
@@ -387,6 +398,9 @@ export function useCardPreview(
      *  Sidebar and sheet are unaffected; those never open on a bare hover
      *  pause in the first place. */
     imageOnly?: boolean;
+    /** This specific copy's finish, so an imageOnly glance can carry the same
+     *  foil shimmer the row itself shows. Ignored unless imageOnly is set. */
+    finish?: string | null;
   } = {},
 ) {
   const ctx = useContext(Ctx);
@@ -421,7 +435,7 @@ export function useCardPreview(
       const element = event.currentTarget;
       if (timer.current) clearTimeout(timer.current);
       if (imageOnly) {
-        ctx.show(source, "tooltip", element, true);
+        ctx.show(source, "tooltip", element, true, finish);
         return;
       }
       timer.current = setTimeout(() => ctx.show(source, "tooltip", element), TOOLTIP_DELAY_MS);
@@ -439,7 +453,7 @@ export function useCardPreview(
       onFocus: open,
       onBlur: cancel,
     };
-  }, [ctx, source, presentation, sheetOnClick, imageOnly]);
+  }, [ctx, source, presentation, sheetOnClick, imageOnly, finish]);
 }
 
 /**
@@ -727,7 +741,7 @@ function CardTooltip() {
         visibility: position ? "visible" : "hidden",
       }}
     >
-      {ctx.imageOnly ? <CardImageOnly card={ctx.card} state={ctx.state} /> : (
+      {ctx.imageOnly ? <CardImageOnly card={ctx.card} state={ctx.state} finish={ctx.finish} /> : (
         <CardDetails card={ctx.card} state={ctx.state} />
       )}
     </div>,
@@ -742,9 +756,11 @@ function CardTooltip() {
 function CardImageOnly({
   card,
   state,
+  finish,
 }: {
   card: Card | null;
   state: "idle" | "loading" | "ready" | "missing";
+  finish: string | null;
 }) {
   if (state !== "ready" || !card) {
     return <div className="aspect-[488/680] animate-pulse bg-surface-muted" />;
@@ -770,6 +786,7 @@ function CardImageOnly({
         loading="eager"
         unoptimized
       />
+      {finish ? <FoilShine finish={finish} /> : null}
     </div>
   );
 }

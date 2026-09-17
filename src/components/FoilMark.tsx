@@ -25,6 +25,12 @@ const LETTERS: Partial<Record<Finish, string>> = {
   glossy: "G",
 };
 
+/** Any finish worth the shimmer — same set `FoilMark` marks, exported so a
+ *  card image (FoilShine) can decide the same way without duplicating it. */
+export function isShinyFinish(finish: string): boolean {
+  return finish in LETTERS;
+}
+
 export function FoilMark({ finish }: { finish: string }) {
   const letter = LETTERS[finish as Finish];
   // nonfoil, or a finish we have no mark for: the absence is the information.
