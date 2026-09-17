@@ -13,9 +13,16 @@ import { CardIndex, ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, validateDr
 import { readText, visionAvailable } from '@upkeep/vision';
 import { backend, writer } from './src/backend';
 import { demoBundle, loadCatalog, refreshCatalog } from './src/catalog';
+import { CollectionAuthError, fetchCollectionPage, PAGE_SIZE, type CollectionEntry } from './src/collection';
 
 type Review = { printing: Printing; operationId: string; submitted?: ConfirmedScan };
 type Location = {id: string; name: string};
+// Second real screen. A plain state switch rather than a navigation library:
+// with only two destinations, both reachable exclusively from one signed-in
+// shell, a nav library would add a dependency and a route config for what a
+// single piece of state already does. Reach for React Navigation when a third
+// screen (decks, social) makes that state switch awkward to extend, not before.
+type Tab = 'scan' | 'collection';
 const errorMessage = (e: unknown) => e instanceof Error ? e.message : (e && typeof e === 'object' && 'message' in e ? String(e.message) : 'Something went wrong. Please retry.');
 const pendingKey = (userId: string) => `upkeep.pending.${userId}`;
 
@@ -38,6 +45,7 @@ function Scanner({fonts}: {fonts: boolean}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [locations, setLocations] = useState<Location[]>([]);
+  const [tab, setTab] = useState<Tab>('scan');
   const [recent, setRecent] = useState<string[]>([]);
   const [authBusy, setAuthBusy] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -70,7 +78,7 @@ function Scanner({fonts}: {fonts: boolean}) {
       currentUser.current = nextUser;
       controller.current?.abort(); setCameraOpen(false);
       setUserId(nextUser); setRecovering(!!nextUser);
-      setReview(null); setRecent([]); setLocations([]);
+      setReview(null); setRecent([]); setLocations([]); setTab('scan');
       // Sign-out clears the persisted session (Supabase's own job) but not
       // anything else this app wrote — so a pending scan must be cleared here,
       // or it would be stranded under an account nobody is signed into anymore
@@ -168,7 +176,12 @@ function Scanner({fonts}: {fonts: boolean}) {
         </>}
         {userId && <Button label="Sign out" secondary disabled={disabled} onPress={() => { void backend!.auth.signOut().then(({error}) => {if (error) setMessage(error.message);}); }} />}
       </View>
+      {userId && <View style={styles.tabs}>
+        <Pressable accessibilityRole="tab" accessibilityState={{selected:tab==='scan'}} style={[styles.tab,tab==='scan' && styles.tabSelected]} onPress={() => setTab('scan')}><Text style={tab==='scan' ? styles.tabTextSelected : styles.tabText}>Scan</Text></Pressable>
+        <Pressable accessibilityRole="tab" accessibilityState={{selected:tab==='collection'}} style={[styles.tab,tab==='collection' && styles.tabSelected]} onPress={() => setTab('collection')}><Text style={tab==='collection' ? styles.tabTextSelected : styles.tabText}>Collection</Text></Pressable>
+      </View>}
       {message ? <Text accessibilityRole="alert" style={styles.notice}>{message}</Text> : null}
+      {tab === 'collection' && userId ? <CollectionScreen userId={userId} /> : <>
       {review ? <ReviewCard key={review.operationId} review={review} demo={demo} userId={userId} locations={locations}
         onSubmitted={scan => setReview({...review,submitted:scan})}
         onMessage={setMessage} onCancel={() => setReview(null)}
@@ -195,9 +208,80 @@ function Scanner({fonts}: {fonts: boolean}) {
       <Text style={styles.body}>{index.bundle.printings.length.toLocaleString()} printings · {index.bundle.version}. Matching works offline; collection saves need a connection.</Text>
       <Button secondary label={catalogBusy ? 'Updating catalog…' : 'Refresh offline catalog'} disabled={catalogBusy || lock.current || !!review} onPress={() => void syncCatalog()} />
       {!!recent.length && <><Text style={styles.section}>{demo ? 'Demo session' : 'Added this session'}</Text>{recent.map((text,i) => <Text key={i} style={styles.body}>✓ {text}</Text>)}</>}
+      </>}
       <Text style={styles.footer}>UPKEEP · SCAN / PHASE ONE</Text>
     </ScrollView>
   </SafeAreaView>;
+}
+
+// Read-only browse of the signed-in user's own collection. See
+// src/collection.ts for the query itself and why it targets the
+// collection_entries view rather than card_instances directly.
+function CollectionScreen({userId}: {userId: string}) {
+  const [entries, setEntries] = useState<CollectionEntry[]>([]);
+  const [page, setPage] = useState(0);
+  const [totalEntries, setTotalEntries] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [authError, setAuthError] = useState(false);
+  const [error, setError] = useState('');
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  // The page a failed attempt was actually for, so Retry resumes there
+  // instead of discarding already-loaded pages back to the start.
+  const lastAttempted = useRef(0);
+
+  async function loadPage(nextPage: number) {
+    lastAttempted.current = nextPage;
+    nextPage === 0 ? setLoading(true) : setLoadingMore(true);
+    setError(''); setAuthError(false);
+    try {
+      const result = await fetchCollectionPage(userId, nextPage);
+      if (!alive.current) return;
+      setEntries(prev => nextPage === 0 ? result.entries : [...prev, ...result.entries]);
+      if (result.totalEntries !== null) setTotalEntries(result.totalEntries);
+      setPage(nextPage);
+    } catch (e) {
+      if (!alive.current) return;
+      // An expired/invalid session and an empty collection both reach this
+      // catch as "no rows rendered" unless told apart explicitly — see
+      // CollectionAuthError's own comment for why they must look different.
+      if (e instanceof CollectionAuthError) setAuthError(true);
+      else setError(errorMessage(e));
+    } finally {
+      if (alive.current) { setLoading(false); setLoadingMore(false); }
+    }
+  }
+  useEffect(() => { void loadPage(0); }, [userId]);
+
+  const cardsLoaded = entries.reduce((sum, e) => sum + e.quantity, 0);
+  const hasMore = totalEntries !== null && entries.length < totalEntries;
+
+  if (loading) return <Text style={styles.body}>Loading your collection…</Text>;
+  if (authError) return <Text accessibilityRole="alert" style={styles.notice}>Your session is no longer valid. Sign out and sign in again to view your collection.</Text>;
+  if (error) return <>
+    <Text accessibilityRole="alert" style={styles.notice}>{error}</Text>
+    <Button secondary label="Retry" onPress={() => void loadPage(lastAttempted.current)} />
+  </>;
+  if (!entries.length) return <Text style={styles.body}>You don't own any cards yet. Scan one to get started.</Text>;
+
+  return <>
+    {/* Entries is an exact count from the first page's request; cards is a
+        running sum of quantity over what has loaded so far, so it carries a
+        "+" until every page has been fetched rather than implying a false
+        precision. The two are deliberately not merged into one number — see
+        CollectionEntry / fetchCollectionPage's comments. */}
+    <Text style={styles.section}>{cardsLoaded}{hasMore ? '+' : ''} cards across {totalEntries} entries</Text>
+    {entries.map(e => <View key={e.id} style={styles.result}>
+      {e.card_image_uri_small && <Image source={{uri:e.card_image_uri_small}} style={styles.thumbnail} />}
+      <View style={styles.grow}>
+        <Text style={styles.resultTitle}>{e.card_name}</Text>
+        <Text style={styles.body}>{e.card_set_code.toUpperCase()} · #{e.card_collector_number}</Text>
+        <Text style={styles.body}>{e.condition.toUpperCase()} · {e.finish.toUpperCase()} · {e.language.toUpperCase()} · Qty {e.quantity} · {e.location_name ?? 'Unsorted'}</Text>
+      </View>
+    </View>)}
+    {hasMore && <Button secondary label={loadingMore ? 'Loading…' : 'Load more'} disabled={loadingMore} onPress={() => void loadPage(page + 1)} />}
+  </>;
 }
 
 function ReviewCard({review,demo,userId,locations,onSubmitted,onSaved,onCancel,onMessage}: {
@@ -256,4 +340,5 @@ const styles = StyleSheet.create({
   title:{fontFamily:'Cinzel_600SemiBold',fontSize:34,lineHeight:43,color:'#2a3028'},titleFallback:{fontSize:34,fontWeight:'600',color:'#2a3028'},subtitle:{fontFamily:'PlusJakartaSans_400Regular',fontSize:15,lineHeight:24,color:'#66685b'},body:{fontFamily:'PlusJakartaSans_400Regular',fontSize:13,lineHeight:21,color:'#626456'},section:{fontSize:18,fontWeight:'600',color:'#293428',marginTop:8},account:{padding:16,backgroundColor:'#eee7d8',borderRadius:16,gap:10},input:{backgroundColor:'#fffdf8',borderColor:'#d4ccb9',borderWidth:1,borderRadius:10,padding:14,color:'#293428',fontSize:16},
   cameraPanel:{height:310,borderRadius:20,overflow:'hidden',backgroundColor:'#263d35'},camera:{flex:1},cameraPlaceholder:{flex:1,alignItems:'center',justifyContent:'center',padding:28,gap:12},cardGlyph:{fontSize:68,color:'#d4ae65'},cameraTitle:{color:'#f4ecda',fontSize:21,textAlign:'center',fontWeight:'600'},cameraCaption:{color:'#c2ccb8',fontSize:13,textAlign:'center'},guide:{position:'absolute',top:'8%',bottom:'8%',left:'19%',right:'19%',borderColor:'#e2ba70',borderWidth:2,borderRadius:12,justifyContent:'flex-end'},guideText:{color:'#fff',backgroundColor:'#263d35',fontSize:10,textAlign:'center',padding:6},
   button:{padding:16,backgroundColor:'#b58538',borderRadius:12,alignItems:'center'},buttonSecondary:{backgroundColor:'transparent',borderWidth:1,borderColor:'#cbbd9e'},buttonText:{fontFamily:'PlusJakartaSans_600SemiBold',fontSize:15,fontWeight:'700',color:'#fffdf6'},secondaryText:{fontSize:14,fontWeight:'600',color:'#655332'},disabled:{opacity:0.4},notice:{backgroundColor:'#ebe1c9',padding:14,borderRadius:10,color:'#5e4928',fontSize:13,lineHeight:21},result:{flexDirection:'row',gap:14,alignItems:'center',backgroundColor:'#fffdf8',borderWidth:1,borderColor:'#ddd3bd',padding:14,borderRadius:12},resultTitle:{fontSize:16,fontWeight:'600',color:'#293428'},hint:{fontSize:11,color:'#8c692c',marginTop:5},thumbnail:{width:45,height:63,borderRadius:3},grow:{flex:1},arrow:{fontSize:28,color:'#a17d40'},review:{gap:12,backgroundColor:'#fffaf0',padding:18,borderRadius:16},cardImage:{height:260,width:'100%'},label:{fontSize:13,fontWeight:'700',color:'#374131',marginTop:8},choices:{flexDirection:'row',flexWrap:'wrap',gap:7},chip:{paddingVertical:8,paddingHorizontal:11,borderRadius:8,borderWidth:1,borderColor:'#d4ccb9'},chipSelected:{backgroundColor:'#334c3f',borderColor:'#334c3f'},chipTextSelected:{color:'#fffdf6',fontSize:13,lineHeight:21},divider:{height:1,backgroundColor:'#d7cbb4',marginVertical:10},footer:{textAlign:'center',fontSize:9,color:'#8a8979',letterSpacing:2,marginTop:24},
+  tabs:{flexDirection:'row',backgroundColor:'#eee7d8',borderRadius:12,padding:4,gap:4},tab:{flex:1,paddingVertical:10,borderRadius:9,alignItems:'center'},tabSelected:{backgroundColor:'#334c3f'},tabText:{fontSize:13,fontWeight:'600',color:'#655332'},tabTextSelected:{fontSize:13,fontWeight:'600',color:'#fffdf6'},
 });
