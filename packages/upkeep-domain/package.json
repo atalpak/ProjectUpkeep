@@ -1,17 +1,13 @@
 {
-  "name": "@upkeep/scan-core",
+  "name": "@upkeep/domain",
   "version": "0.1.0",
   "private": true,
+  "description": "Framework-free product rules shared by the web app and mobile — currently the stacking-decision policy and the card-instance vocabulary it decides over.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit",
-    "bench": "node --import tsx scripts/benchmark.ts",
-    "catalog:build": "node --import tsx scripts/build-catalog.ts"
-  },
-  "dependencies": {
-    "@upkeep/domain": "0.1.0"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "~5.9.2",

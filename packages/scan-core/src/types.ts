@@ -1,8 +1,8 @@
-export const CONDITIONS = ['NM', 'LP', 'MP', 'HP', 'DMG'] as const;
-export const FINISHES = ['nonfoil', 'foil', 'etched', 'glossy'] as const;
-export const LANGUAGES = ['en','es','fr','de','it','pt','ja','ko','ru','zhs','zht','he','la','grc','ar','sa','ph'] as const;
-export type Condition = typeof CONDITIONS[number];
-export type Finish = typeof FINISHES[number];
+// Condition, finish and the language code list are shared with the web app
+// via @upkeep/domain (Phase 3a of the mobile initiative) — this file used to
+// carry its own copy of all three; that copy is now the shared package's job.
+export { CONDITIONS, FINISHES, LANGUAGE_CODES as LANGUAGES, type Condition, type Finish } from '@upkeep/domain';
+import type { Condition, Finish } from '@upkeep/domain';
 export interface Printing {
   /** Exact Upkeep public.cards.id (Scryfall printing UUID), never oracle_id. */
   id: string;
@@ -24,5 +24,12 @@ export interface CollectionDraft {
   quantity: number; location_id: string | null; notes: string | null;
 }
 export interface ConfirmedScan { operationId: string; draft: CollectionDraft }
-export interface CollectionWriter { save(scan: ConfirmedScan): Promise<{ id: string }> }
+/**
+ * `replayed` and `quantity` were added in Phase 3a of the mobile initiative,
+ * alongside migration 36's apply_stack_addition: a save can now genuinely
+ * merge into an existing stack, so the caller needs to know the resulting
+ * quantity (not assume 1) and whether this call actually did anything or
+ * just returned a previously-recorded result.
+ */
+export interface CollectionWriter { save(scan: ConfirmedScan): Promise<{ id: string; replayed: boolean; quantity: number }> }
 export interface ScanEvent { method: ScanResult['method']; durationMs: number; candidateCount: number; outcome: 'review' | 'no_match' | 'error' }

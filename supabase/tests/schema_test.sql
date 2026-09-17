@@ -1472,6 +1472,193 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 14. apply_stack_addition() (migration 36): atomic, idempotent stack merges.
+--
+-- Fresh users and fixtures, deliberately isolated from every section above —
+-- alice/bob's rows have been mutated by tests along the way, and this section
+-- should not depend on their state at this point in the file.
+-- --------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('e0000000-0000-0000-0000-000000000001', 'uma@example.com',    '{"username":"uma"}'),
+  ('e0000000-0000-0000-0000-000000000002', 'victor@example.com', '{"username":"victor"}');
+
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('e0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002', 'accepted');
+
+insert into public.locations (id, user_id, name, type, is_tradable) values
+  ('e1000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'Uma Box', 'box', false),
+  ('e1000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', 'Uma Trade Binder', 'binder', true),
+  ('e1000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000001', 'Uma Other Box', 'box', false);
+
+-- instance 1: an ordinary, non-tradable stack uma will merge into repeatedly.
+-- instance 2: sits in uma's tradable binder, so migration 9 makes it
+-- genuinely readable by an accepted friend — the case section 5 below needs.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('e2000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'e1000000-0000-0000-0000-000000000001',
+   'NM', 'nonfoil', 'en', 3),
+  ('e2000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'e1000000-0000-0000-0000-000000000002',
+   'NM', 'nonfoil', 'en', 5);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'e0000000-0000-0000-0000-000000000001'; -- uma
+
+do $$
+declare
+  r_result   record;
+  v_qty      integer;
+  v_owner    uuid;
+  v_location uuid;
+begin
+  -- (1) Two calls with the same operation id and the same fingerprint add the
+  -- quantity once, not twice: the first actually merges (3 + 2 = 5)...
+  select * into r_result from public.apply_stack_addition(
+    'e4000000-0000-0000-0000-000000000001'::uuid, 'e2000000-0000-0000-0000-000000000001'::uuid,
+    'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'NM', 'nonfoil', 'en',
+    'e1000000-0000-0000-0000-000000000001'::uuid, 2, null);
+  assert r_result.result_quantity = 5 and r_result.replayed = false,
+    'first apply should merge 3+2=5 and not be a replay, got quantity ' ||
+    r_result.result_quantity || ', replayed ' || r_result.replayed::text;
+
+  -- ...and the retry with the identical id and payload returns the recorded
+  -- result instead of merging again.
+  select * into r_result from public.apply_stack_addition(
+    'e4000000-0000-0000-0000-000000000001'::uuid, 'e2000000-0000-0000-0000-000000000001'::uuid,
+    'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'NM', 'nonfoil', 'en',
+    'e1000000-0000-0000-0000-000000000001'::uuid, 2, null);
+  assert r_result.result_quantity = 5 and r_result.replayed = true,
+    'a replay of the same operation id and payload must return the recorded ' ||
+    'result, not re-apply — got quantity ' || r_result.result_quantity ||
+    ', replayed ' || r_result.replayed::text;
+
+  -- (2) A replay with a different fingerprint/payload is rejected outright.
+  begin
+    perform public.apply_stack_addition(
+      'e4000000-0000-0000-0000-000000000001'::uuid, 'e2000000-0000-0000-0000-000000000001'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'NM', 'nonfoil', 'en',
+      'e1000000-0000-0000-0000-000000000001'::uuid, 99, null);
+    assert false, 'a replay with a different payload must be rejected';
+  exception when invalid_parameter_value then null;
+  end;
+
+  select quantity into v_qty from public.card_instances
+   where id = 'e2000000-0000-0000-0000-000000000001';
+  assert v_qty = 5, 'a rejected mismatched replay must not change the row, saw ' || v_qty;
+
+  -- (3) The merge is additive under a stale read, not absolute: two further
+  -- decided additions, each with its own operation id, applied one after the
+  -- other, land at 5 -> 7 -> 9 — never an overwrite of a precomputed total.
+  -- This is a stand-in for genuine concurrent sessions, which psql cannot
+  -- easily express within a single script; the real guarantee is the atomic
+  -- `quantity = quantity + p_quantity ... for update` in migration 36, which
+  -- this only exercises sequentially.
+  select * into r_result from public.apply_stack_addition(
+    'e4000000-0000-0000-0000-000000000002'::uuid, 'e2000000-0000-0000-0000-000000000001'::uuid,
+    'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'NM', 'nonfoil', 'en',
+    'e1000000-0000-0000-0000-000000000001'::uuid, 2, null);
+  assert r_result.result_quantity = 7,
+    'second decided addition should be additive (5+2=7), got ' || r_result.result_quantity;
+
+  select * into r_result from public.apply_stack_addition(
+    'e4000000-0000-0000-0000-000000000003'::uuid, 'e2000000-0000-0000-0000-000000000001'::uuid,
+    'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'NM', 'nonfoil', 'en',
+    'e1000000-0000-0000-0000-000000000001'::uuid, 2, null);
+  assert r_result.result_quantity = 9,
+    'third decided addition should be additive (7+2=9), got ' || r_result.result_quantity;
+
+  -- (7) Only quantity moved. Owner and location are exactly what they were
+  -- before any of this ran — hard constraint 6, restated for this write path.
+  select owner_user_id, location_id, quantity into v_owner, v_location, v_qty
+    from public.card_instances where id = 'e2000000-0000-0000-0000-000000000001';
+  assert v_owner = 'e0000000-0000-0000-0000-000000000001'
+     and v_location = 'e1000000-0000-0000-0000-000000000001'
+     and v_qty = 9,
+    'a merge must only move quantity; owner_user_id/location_id must be unchanged';
+
+  -- (4) A stale target — the row moved location since the decision was made,
+  -- the same as an edit or a different move happening in between — is
+  -- refused, not silently merged into whatever moved there or merged as if
+  -- nothing changed.
+  update public.card_instances set location_id = 'e1000000-0000-0000-0000-000000000003'
+   where id = 'e2000000-0000-0000-0000-000000000001';
+
+  begin
+    perform public.apply_stack_addition(
+      'e4000000-0000-0000-0000-000000000004'::uuid, 'e2000000-0000-0000-0000-000000000001'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000001'::uuid, 'NM', 'nonfoil', 'en',
+      'e1000000-0000-0000-0000-000000000001'::uuid, -- stale: the row is no longer here
+      2, null);
+    assert false, 'a stale target (moved since the decision) must be refused';
+  exception when no_data_found then null;
+  end;
+
+  select quantity into v_qty from public.card_instances
+   where id = 'e2000000-0000-0000-0000-000000000001';
+  assert v_qty = 9, 'a refused stale-target call must not change the row, saw ' || v_qty;
+end $$;
+
+reset role;
+
+-- (5) Cross-user refusal, including the case migration 9 makes genuinely
+-- readable: victor is uma's accepted friend, and the target instance sits in
+-- a location uma marked tradable, so victor can SELECT it via the "card_
+-- instances: read friends' tradable" policy (migration 9) — but
+-- apply_stack_addition's owner_user_id = auth.uid() predicate must still
+-- refuse to merge into it. Removing that predicate is exactly the kind of
+-- "cleanup" hard constraint 3 exists to catch.
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'e0000000-0000-0000-0000-000000000002'; -- victor
+
+do $$
+declare visible int;
+begin
+  select count(*) into visible from public.card_instances
+   where id = 'e2000000-0000-0000-0000-000000000002';
+  assert visible = 1,
+    'victor should be able to read uma''s tradable-binder instance via migration 9''s policy, saw ' || visible;
+
+  begin
+    perform public.apply_stack_addition(
+      'e4000000-0000-0000-0000-000000000005'::uuid, 'e2000000-0000-0000-0000-000000000002'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000002'::uuid, 'NM', 'nonfoil', 'en',
+      'e1000000-0000-0000-0000-000000000002'::uuid, 2, null);
+    assert false, 'a caller must not be able to merge into another owner''s instance, even one they can read';
+  exception when no_data_found then null;
+  end;
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'e0000000-0000-0000-0000-000000000001'; -- uma
+
+do $$
+declare
+  v_qty   integer;
+  v_owner uuid;
+begin
+  select quantity, owner_user_id into v_qty, v_owner from public.card_instances
+   where id = 'e2000000-0000-0000-0000-000000000002';
+  assert v_qty = 5 and v_owner = 'e0000000-0000-0000-0000-000000000001',
+    'a cross-user attempt must leave the target row untouched, saw quantity ' || v_qty;
+
+  -- (6) The ledger row cannot be rewritten once its result is recorded, even
+  -- by the account that owns it — ownership_history-style append-only
+  -- discipline (migration 6), narrowed here to the one legitimate write
+  -- (recording the result) that this table's own function needs to make.
+  begin
+    update public.collection_write_ops set result_quantity = 999999
+     where id = 'e4000000-0000-0000-0000-000000000001';
+    assert false, 'a recorded ledger result must not be rewritable';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

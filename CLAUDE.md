@@ -39,6 +39,9 @@ agents hunting in the wrong place, which is how the previous one failed.
 apps/mobile/                Expo app — the scanner shell. See .claude/rules/mobile.md
   App.tsx  src/  docs/       one-screen UI for now · client + auth storage · handoff docs
 packages/
+  upkeep-domain/             pure TS, no RN/Expo and no Next.js imports — the stacking
+                            policy and card_instance vocabulary shared by src/lib/**
+                            and scan-core
   scan-core/                 pure TS: catalog search, scan pipeline, draft validation,
                             the collection writer, and its own scripts/ + test/
   upkeep-vision/             native module boundary — Swift (iOS) / Kotlin (Android) OCR
@@ -81,7 +84,9 @@ src/
                             notifications · tos · types
     supabase/               client · server · session · errors
 supabase/
-  migrations/               35 files, numbered, applied in order
+  migrations/               numbered, applied in order — check the directory
+                            for the current count rather than trusting a
+                            number written here; it has already drifted once
   tests/schema_test.sql     assertions the schema must keep satisfying
 scripts/
   sync-scryfall.ts          the scheduled sync job

@@ -7,9 +7,15 @@
  * schema grows past a dozen tables, switch to codegen.
  */
 
-/** Card condition, matching the CHECK on card_instances.condition. */
-export const CONDITIONS = ["NM", "LP", "MP", "HP", "DMG"] as const;
-export type Condition = (typeof CONDITIONS)[number];
+/**
+ * Condition and finish are re-exported from `@upkeep/domain`, which is now
+ * their one real home (Phase 3a of the mobile initiative) — the exact same
+ * vocabulary was duplicated here and in `packages/scan-core/src/types.ts`
+ * before that package existed. Labels stay here: they are web-only display
+ * data the shared, framework-free package has no business owning.
+ */
+export { CONDITIONS, FINISHES, type Condition, type Finish } from "@upkeep/domain";
+import type { Condition, Finish } from "@upkeep/domain";
 
 export const CONDITION_LABELS: Record<Condition, string> = {
   NM: "Near Mint",
@@ -18,10 +24,6 @@ export const CONDITION_LABELS: Record<Condition, string> = {
   HP: "Heavily Played",
   DMG: "Damaged",
 };
-
-/** Finish vocabulary, matching the CHECK on card_instances.finish. */
-export const FINISHES = ["nonfoil", "foil", "etched", "glossy"] as const;
-export type Finish = (typeof FINISHES)[number];
 
 export const FINISH_LABELS: Record<Finish, string> = {
   nonfoil: "Non-foil",

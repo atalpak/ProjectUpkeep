@@ -31,6 +31,15 @@ packages/scan-core/      Pure TS: catalog parsing/search, scan pipeline, draft
                         two would make scripts/ mean two unrelated things, see
                         `.claude/rules/testing.md`.
   test/core.test.ts      scan-core's own tests, run via `npm test -w @upkeep/scan-core`
+packages/upkeep-domain/  Pure TS, no RN/Expo imports AND no web-framework
+                        imports either — this is the one package both
+                        `src/lib/**` (the Next.js app) and `packages/scan-core`
+                        import from. Currently the stacking-decision policy
+                        (`decideStacking`, `STACKING_ENABLED`) and the
+                        condition/finish/language-code vocabulary. See its own
+                        header comments and CLAUDE.md's "two reversible bets"
+                        section for why the policy lives here rather than in
+                        the database.
 packages/upkeep-vision/  Native module boundary: Swift (iOS) / Kotlin (Android)
                         OCR/vision primitives, exposed through a thin `index.ts`.
                         Anything that needs a camera frame, on-device text
@@ -51,17 +60,33 @@ packages/upkeep-vision/  Native module boundary: Swift (iOS) / Kotlin (Android)
   scoped to that workspace's own `package.json` for exactly this reason: it
   must never be able to fail a web-only `npm ci` at the repo root.
 
-## What is NOT shared with the web app, and why
+## What IS shared with the web app now, and what changed
 
-- **`src/lib/collection/stacking.ts` is not imported here, on purpose.**
-  Mobile currently inserts one `card_instances` row per confirmed scan
+- **The stacking policy is shared, as of Phase 3a of the mobile initiative
+  (2026-09).** It used to live only in `src/lib/collection/stacking.ts`, and
+  this file used to say reaching for it from mobile was a stop-and-escalate
+  signal — mobile inserted one `card_instances` row per confirmed scan
   (`packages/scan-core/src/writer.ts`) rather than merging into an existing
-  stack. That is a deliberate, temporary phase-one limitation — scanning into
-  an existing stack (matching the web app's stacking policy) is a later phase
-  with its own migration and its own architect pass, not something to
-  "helpfully" wire up by importing the web app's stacking module. If you find
-  yourself reaching for `stacking.ts` from mobile code, that is the signal to
-  stop and escalate rather than build it.
+  stack, deliberately, because doing that safely under two independent
+  writers (a phone racing a laptop, or two phones) needed its own migration
+  and its own architect pass first. That pass happened: `decideStacking` now
+  lives in `packages/upkeep-domain`, `src/lib/collection/stacking.ts` is a
+  thin re-export of it, and both `src/app/(app)/collection/actions.ts`'s
+  simple add and mobile's scanner apply a decision through the same atomic
+  database function, `public.apply_stack_addition`
+  (`supabase/migrations/00000000000036_atomic_stack_merge.sql`) — see that
+  migration's header for why the write needed to become atomic, and
+  `packages/scan-core/src/writer.ts`'s header for what makes retrying it safe.
+  **The bulk CSV import (`src/lib/import/commit.ts`) and both deck-move
+  actions (`src/app/(app)/decks/actions.ts`) still use the older inline
+  read-decide-write** — wiring those to `apply_stack_addition` too is future
+  work, not done by this phase.
+- If you find yourself reaching for something in `packages/upkeep-domain` and
+  it is not there yet, that is a normal "add it" — the escalation signal that
+  used to apply to `stacking.ts` specifically no longer does, now that this
+  package exists precisely to be shared. A *new* database write path that
+  bypasses `apply_stack_addition` for a stacked write, or that touches
+  `owner_user_id`/`accept_trade`'s territory, is still a stop-and-escalate.
 - Own-collection queries still need explicit owner scoping here, the same
   discipline as `.claude/rules/data-access.md` describes for
   `src/lib/collection/queries.ts` — `locations` is filtered on `user_id` (not

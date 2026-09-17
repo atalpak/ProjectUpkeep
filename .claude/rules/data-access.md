@@ -61,6 +61,23 @@ If a query returns rows from someone it should not reach at all, that *is* a
 policy bug — fix the policy in a new migration. If it returns a friend's rows
 where it should have returned only yours, the owner filter is missing.
 
+`public.apply_stack_addition` (migration 36) is the one write path so far that
+is `security invoker` rather than a plain client query, and it is worth
+naming here because the usual "RLS is the floor, the app filter is what makes
+it mean *mine*" story gets an extra wrinkle for it: the function's own
+`owner_user_id = auth.uid()` predicate on its merge lookup turned out, in
+testing, to be redundant with RLS's `card_instances: update own` policy for
+that exact query shape (`select ... for update` inside a function that then
+performs the matching `update` — Postgres requires a locking `SELECT` to also
+satisfy the table's UPDATE policy, not just its SELECT policy, and that policy
+has no friends'-tradable carve-out the way the SELECT policy does). The
+predicate stays anyway, written explicitly, for the same reason every other
+query in this document is scoped explicitly rather than trusting RLS alone —
+and it is independently load-bearing the moment RLS's UPDATE policy is ever
+widened for an unrelated reason, which is exactly the kind of change hard
+constraint 3 exists to catch. Do not read the redundancy today as permission
+to drop the predicate.
+
 ## Error classification
 
 `supabase/errors.ts` exists because "this column does not exist yet" arrives

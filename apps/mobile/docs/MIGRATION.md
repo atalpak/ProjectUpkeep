@@ -35,15 +35,44 @@ Rebuild/restart the development app, sign in with an existing email/password acc
 
 No live account was used during this build. Confirm URL settings, email/password provider availability, RLS, and location constraints in a development Supabase project before testing production data. OAuth/deep links, password reset, and registration are future mobile-shell work (persistent auth shipped in phase 1b).
 
-## 3. Collection write semantics — explicit phase-one difference
+## 3. Collection write semantics — as of Phase 3a (superseded)
 
-`apps/mobile/src/backend.ts` adapts the framework-free `createCollectionWriter` to the ordinary Supabase client. It obtains the current user, inserts a row with that owner, and lets existing RLS/triggers enforce access. No new table or privileged function is needed for this phase.
+This section originally described a phase-one, insert-only design: one new
+`card_instances` row per confirmed scan, with the operation UUID doubling as
+`card_instances.id` for a limited, row-lifetime-only replay check. Phase 3a of
+the mobile initiative (2026-09) replaced that with the same merge-vs-insert
+stacking policy the web app has always used, applied atomically. It is kept
+here, struck through in spirit, as the record of what changed and why —
+`.claude/rules/mobile.md` is the current source of truth going forward.
 
-Each confirmed scan is **one new collection row**, with the selected quantity. This is legal in the inspected schema, which deliberately has no unique constraint on stack identity. It differs from the web UI, which merges matching stacks. The scanner does not copy the web's concurrent read/modify/write quantity pattern: that could lose additions from two devices.
+What changed:
 
-The operation UUID becomes `card_instances.id`. If an INSERT response is lost, retry uses the same UUID. A duplicate/error is accepted as success only after fetching that exact row under RLS and checking every submitted field and owner. An error never causes a new UUID to be minted. This gives replay protection while that row exists and is unchanged. It is not a permanent operation ledger: deleting or editing the row before reconciling an uncertain save needs manual recovery.
+- The stacking *decision* (`decideStacking`, previously web-only in
+  `src/lib/collection/stacking.ts`) moved to a new framework-free workspace
+  package, `packages/upkeep-domain`, that both the web app and
+  `packages/scan-core` now import. `stacking.ts` is a thin re-export for its
+  existing web callers.
+- A new migration (`00000000000036_atomic_stack_merge.sql`) added
+  `public.apply_stack_addition`, a `security invoker` function that performs
+  whichever instruction the decision above produced — merge into a specific,
+  re-verified row via an atomic `quantity = quantity + p_quantity ... for
+  update`, or insert — plus `public.collection_write_ops`, a durable
+  operation ledger keyed by the client-minted operation id. Both clients now
+  route every confirmed add through this one function instead of writing
+  `card_instances` directly.
+- `apps/mobile/src/backend.ts`'s writer looks up merge candidates (filtered
+  explicitly by owner), decides through the shared policy, and calls
+  `apply_stack_addition` via RPC. A "stale target" response (the decided row
+  changed shape between the read and the call) triggers one automatic
+  re-decide-and-retry with the same operation id before surfacing anything —
+  safe, because a failed call rolled back before ever writing a ledger row.
 
-Before enabling web-identical stacking, extract a shared authenticated mutation service used by **both** web manual/CSV and mobile paths. Implement transactional quantity increment and a durable operation ledger together. Reuse `stacking.ts` policy; do not hardcode a second competing policy in the scanner. Test concurrent web/mobile writes, replay after a lost response, cross-account access, and location ownership. No such database change has been applied here.
+The previous paragraph's "extract a shared authenticated mutation service...
+implement transactional quantity increment and a durable operation ledger
+together... test concurrent web/mobile writes, replay after a lost response,
+cross-account access, and location ownership" is exactly what
+`00000000000036_atomic_stack_merge.sql` and its seven schema-test assertions
+now cover — see `supabase/tests/schema_test.sql` section 14.
 
 ## 4. Move into a future Upkeep monorepo
 
@@ -51,7 +80,7 @@ Before enabling web-identical stacking, extract a shared authenticated mutation 
 2. Retain workspace dependencies and SDK-compatible native versions from this lockfile. Configure Metro through Expo's monorepo defaults.
 3. Regenerate only the **mobile** native projects with `npx expo prebuild`, then build. Do not run prebuild at the legacy Flutter root.
 4. Replace the mobile adapter with your shared collection write service when it is available; `CollectionWriter` is the boundary.
-5. Move duplicated condition/finish/language types into one neutral shared domain package, consumed by web and scan-core. Do not import Next.js server actions into React Native.
+5. ~~Move duplicated condition/finish/language types into one neutral shared domain package, consumed by web and scan-core.~~ Done in Phase 3a: `packages/upkeep-domain`. Do not import Next.js server actions into React Native.
 6. Keep `scan-core` usable from web without native imports. Validate the catalog and authenticated write behavior after relocation.
 
 ## Acceptance gate

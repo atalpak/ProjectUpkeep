@@ -26,7 +26,12 @@ export class ConfirmScan {
     this.payloads.set(scan.operationId, payload);
     const operation = Promise.resolve().then(() => this.writer.save({ operationId: scan.operationId, draft }));
     this.pending.set(scan.operationId, operation);
-    // Keep only in-flight requests. Durable idempotency belongs to the writer/database.
+    // Keep only in-flight requests. Durable idempotency lives in the database
+    // now (collection_write_ops, migration 36) — this in-memory map only
+    // collapses double-taps that happen to overlap in time; a retry after
+    // this map has forgotten the operation (a later tap, or a fresh app
+    // launch recovering a pending write) is still safe, because the ledger
+    // resolves it to the same recorded result rather than re-applying it.
     void operation.then(() => this.pending.delete(scan.operationId), () => this.pending.delete(scan.operationId));
     return operation;
   }

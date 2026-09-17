@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, type CatalogBundle, type CollectionDraft, type SavedRow } from '../src';
+import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, type CatalogBundle, type CollectionDraft, type CollectionStore } from '../src';
 const a = '11111111-1111-4111-8111-111111111111';
 const b = '22222222-2222-4222-8222-222222222222';
 const op = '33333333-3333-4333-8333-333333333333';
@@ -73,25 +73,96 @@ test('image fallback cannot inject unknown printing IDs', async () => {
 });
 test('double taps share one write and uncertain retry keeps operation ID', async () => {
   let calls = 0;
-  const work = deferred<{id:string}>();
+  const work = deferred<{id:string; replayed:boolean; quantity:number}>();
   const confirm = new ConfirmScan({save:async()=>{calls++;return work.promise;}});
   const first = confirm.save({operationId:op,draft},printing);
   const second = confirm.save({operationId:op,draft},printing);
   assert.equal(first,second);
   assert.throws(()=>confirm.save({operationId:op,draft:{...draft,quantity:2}},printing),/different details/);
-  work.resolve({id:op}); await first; assert.equal(calls,1);
+  work.resolve({id:op,replayed:false,quantity:1}); await first; assert.equal(calls,1);
 });
-test('database writer recovers lost response without quantity increment', async () => {
-  let row: SavedRow | null = null;
-  const writer = createCollectionWriter({currentUserId:async()=>oracle,insert:async r=>{if (!row) row=r;throw new Error('lost response or duplicate');},find:async()=>row});
-  assert.deepEqual(await writer.save({operationId:op,draft}),{id:op});
-  assert.deepEqual(await writer.save({operationId:op,draft}),{id:op});
-  assert.equal(row!.quantity,1);
-  await assert.rejects(writer.save({operationId:op,draft:{...draft,quantity:2}}));
+const staleTargetMessage = 'That stack no longer matches the decided target -- it may have moved, been edited, or no longer be yours';
+
+test('database writer decides a target from the store and applies through apply_stack_addition', async () => {
+  let applyCalls = 0;
+  const store: CollectionStore = {
+    currentUserId: async () => oracle,
+    findCandidates: async () => [{ id: 'row-1', quantity: 3, notes: null }],
+    applyStackAddition: async input => {
+      applyCalls++;
+      assert.equal(input.targetInstanceId, 'row-1');
+      assert.equal(input.operationId, op);
+      return { instanceId: 'row-1', quantity: 4, replayed: false };
+    },
+  };
+  const writer = createCollectionWriter(store);
+  assert.deepEqual(await writer.save({ operationId: op, draft }), { id: 'row-1', quantity: 4, replayed: false });
+  assert.equal(applyCalls, 1);
 });
-test('unauthenticated save and cross-account replay fail closed', async () => {
-  const writer = createCollectionWriter({currentUserId:async()=>null,insert:async()=>assert.fail('must not insert'),find:async()=>null});
-  await assert.rejects(writer.save({operationId:op,draft}),/Sign in/);
-  const other = createCollectionWriter({currentUserId:async()=>b,insert:async()=>{throw new Error('denied');},find:async()=>({...draft,id:op,owner_user_id:a})});
-  await assert.rejects(other.save({operationId:op,draft}),/denied/);
+
+test("a replay returns the ledger's recorded result and reports itself as a replay, not a re-application", async () => {
+  let applyCalls = 0;
+  const store: CollectionStore = {
+    currentUserId: async () => oracle,
+    findCandidates: async () => [],
+    applyStackAddition: async () => { applyCalls++; return { instanceId: op, quantity: 1, replayed: true }; },
+  };
+  const writer = createCollectionWriter(store);
+  assert.deepEqual(await writer.save({ operationId: op, draft }), { id: op, quantity: 1, replayed: true });
+  assert.equal(applyCalls, 1, 'the writer itself makes exactly one call; the ledger, not this store, is what stops a retry from re-applying');
+});
+
+test('a replay with a different payload is rejected, not silently reapplied', async () => {
+  const store: CollectionStore = {
+    currentUserId: async () => oracle,
+    findCandidates: async () => [],
+    applyStackAddition: async () => { throw new Error('This operation was already submitted with different details'); },
+  };
+  const writer = createCollectionWriter(store);
+  await assert.rejects(writer.save({ operationId: op, draft }), /different details/);
+});
+
+test('a stale-target response triggers exactly one automatic re-decide-and-retry with the same operation id', async () => {
+  let findCalls = 0;
+  let applyCalls = 0;
+  const store: CollectionStore = {
+    currentUserId: async () => oracle,
+    findCandidates: async () => {
+      findCalls++;
+      return findCalls === 1 ? [{ id: 'stale-row', quantity: 3, notes: null }] : [{ id: 'fresh-row', quantity: 5, notes: null }];
+    },
+    applyStackAddition: async input => {
+      applyCalls++;
+      assert.equal(input.operationId, op, 'a retry after a stale target must reuse the same operation id');
+      if (applyCalls === 1) {
+        assert.equal(input.targetInstanceId, 'stale-row');
+        throw new Error(staleTargetMessage);
+      }
+      assert.equal(input.targetInstanceId, 'fresh-row');
+      return { instanceId: 'fresh-row', quantity: 7, replayed: false };
+    },
+  };
+  const writer = createCollectionWriter(store);
+  assert.deepEqual(await writer.save({ operationId: op, draft }), { id: 'fresh-row', quantity: 7, replayed: false });
+  assert.equal(findCalls, 2);
+  assert.equal(applyCalls, 2);
+});
+
+test('a second stale-target response is surfaced to the caller, not retried again', async () => {
+  const store: CollectionStore = {
+    currentUserId: async () => oracle,
+    findCandidates: async () => [{ id: 'row', quantity: 1, notes: null }],
+    applyStackAddition: async () => { throw new Error(staleTargetMessage); },
+  };
+  const writer = createCollectionWriter(store);
+  await assert.rejects(writer.save({ operationId: op, draft }), /no longer matches/);
+});
+
+test('unauthenticated save fails closed before querying the store at all', async () => {
+  const writer = createCollectionWriter({
+    currentUserId: async () => null,
+    findCandidates: async () => { assert.fail('must not query candidates while signed out'); },
+    applyStackAddition: async () => { assert.fail('must not apply while signed out'); },
+  });
+  await assert.rejects(writer.save({ operationId: op, draft }), /Sign in/);
 });

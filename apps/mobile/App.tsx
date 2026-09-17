@@ -16,14 +16,27 @@ import { demoBundle, loadCatalog, refreshCatalog } from './src/catalog';
 import { CollectionAuthError, fetchCollectionPage, PAGE_SIZE, type CollectionEntry } from './src/collection';
 
 type Review = { printing: Printing; operationId: string; submitted?: ConfirmedScan };
-type Location = {id: string; name: string};
+type Location = {id: string; name: string; type: string};
 // Second real screen. A plain state switch rather than a navigation library:
 // with only two destinations, both reachable exclusively from one signed-in
 // shell, a nav library would add a dependency and a route config for what a
 // single piece of state already does. Reach for React Navigation when a third
 // screen (decks, social) makes that state switch awkward to extend, not before.
 type Tab = 'scan' | 'collection';
-const errorMessage = (e: unknown) => e instanceof Error ? e.message : (e && typeof e === 'object' && 'message' in e ? String(e.message) : 'Something went wrong. Please retry.');
+// Mirrors src/app/(app)/collection/actions.ts's friendlyDbError: the trigger
+// messages from the migrations are precise but written for whoever is reading
+// the schema, not for someone scanning a card. card_instances_enforce_
+// location_owner (migration 5) is the one this screen can actually reach —
+// its destination picker only ever offers this account's own locations, but
+// a stale picker (an unsynced screen, a location deleted in another tab)
+// could still submit one that no longer belongs to this account.
+function friendlyDbMessage(message: string): string {
+  if (message.includes('must belong to owner_user_id')) {
+    return 'That destination is no longer yours. Refresh and choose another.';
+  }
+  return message;
+}
+const errorMessage = (e: unknown) => friendlyDbMessage(e instanceof Error ? e.message : (e && typeof e === 'object' && 'message' in e ? String(e.message) : 'Something went wrong. Please retry.'));
 const pendingKey = (userId: string) => `upkeep.pending.${userId}`;
 
 export default function App() {
@@ -97,10 +110,19 @@ function Scanner({fonts}: {fonts: boolean}) {
       // relying on RLS alone, matters here for the same reason it does in src/lib/collection/queries.ts:
       // migration 9 makes a friend's tradable locations legitimately readable, so an unscoped select
       // would mix a friend's binder into this list.
-      const {data, error} = await backend.from('locations').select('id,name').eq('user_id', userId).order('name').limit(1000);
+      const {data, error} = await backend.from('locations').select('id,name,type').eq('user_id', userId).order('name').limit(1000);
       if (cancelled) return;
       if (error) setMessage('Locations could not load. Unsorted remains available.');
-      else setLocations(data ?? []);
+      // A deck's list follows what is physically filed in it via a trigger that
+      // only fires on insert or on a location_id change (migration 16), not on
+      // a quantity change — so scanning a 4th copy into a deck the scanner
+      // just merged into would grow the stack's quantity without the deck's
+      // list ever hearing about the new copy. That gap is pre-existing and
+      // shared with the web app's addCardInstance; the fix belongs to a later
+      // phase. Hiding deck destinations here is a narrower fix: the flat,
+      // unfiltered picker on this screen made it easy to hit by accident,
+      // where the web app's add form is not the primary way decks are filled.
+      else setLocations((data ?? []).filter(l => l.type !== 'deck'));
       try {
         const pending = await SecureStore.getItemAsync(pendingKey(userId));
         if (cancelled || !pending) return;
@@ -324,7 +346,7 @@ function ReviewCard({review,demo,userId,locations,onSubmitted,onSaved,onCancel,o
     <Text style={styles.label}>Language on your card</Text><Choices values={[...LANGUAGES]} selected={language} disabled={locked} onSelect={setLanguage} />
     <Text style={styles.label}>Quantity</Text><TextInput accessibilityLabel="Quantity" style={styles.input} value={quantity} onChangeText={setQuantity} editable={!locked} keyboardType="number-pad" />
     <Text style={styles.label}>Destination</Text><Choices values={['',...locations.map(l => l.id)]} selected={location ?? ''} disabled={locked} onSelect={v => setLocation(v || null)} labels={Object.fromEntries([['','Unsorted'],...locations.map(l => [l.id,l.name])])} />
-    {submitted && <Text style={styles.notice}>These details are locked for a safe retry. Retrying verifies the same saved row and will not add another copy.</Text>}
+    {submitted && <Text style={styles.notice}>These details are locked for a safe retry. Retrying can never add this card twice, whether it lands in a new row or merges into a stack you already have.</Text>}
     <Button label={saving ? 'Saving…' : demo ? 'Add to demo session' : submitted ? 'Retry / verify save' : 'Add to collection'} disabled={saving || !finish || !condition || !language || (!demo && !userId)} onPress={() => void save()} />
     {!submitted && <Button secondary label="Choose another printing" disabled={saving} onPress={onCancel} />}
   </View>;

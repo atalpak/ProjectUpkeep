@@ -262,3 +262,49 @@ Phase 1 of the mobile-app initiative, architect-approved and owner-signed-off:
   against the installed package's source and its own changelog entry removing
   the iOS byte-limit warning. Session storage didn't need a chunking/fallback
   design as a result; see the comment in `apps/mobile/src/backend.ts`.
+
+## 2026-09-17 — Phase 3a: stacking policy shared with mobile, atomic merges
+
+Architect impact map, owner-approved: lift the stacking-decision policy into a
+shared package, and make the scanner (and the web app's simple add) merge into
+an existing stack the same way the web app's add form always has — safely,
+under two independent writers.
+
+- **Overturns `.claude/rules/mobile.md`'s previous stop-and-escalate bullet**
+  ("`stacking.ts` is deliberately not shared with mobile yet, and reaching for
+  it is a stop-and-escalate signal"). That escalation is this phase; the rule
+  file now says so and describes the new shared package instead of continuing
+  to warn against it.
+- **Added** `packages/upkeep-domain` — pure TS, no RN/Expo and no Next.js
+  imports, consumed by both `src/lib/collection/stacking.ts` (now a thin
+  re-export) and `packages/scan-core`. Condition/finish vocabulary and the
+  language-code list moved here too, out of `src/lib/types.ts` and
+  `packages/scan-core/src/types.ts`, which used to carry their own copies.
+- **Added** `supabase/migrations/00000000000036_atomic_stack_merge.sql`:
+  `public.apply_stack_addition` (`security invoker`, never `definer` — that
+  stays reserved for `accept_trade`) plus `public.collection_write_ops`, a
+  durable idempotency ledger. Seven new schema-test assertions in section 14
+  of `supabase/tests/schema_test.sql`, each verified to actually fail before
+  the corresponding migration piece was restored (see the PR for the specific
+  falsifications).
+- **Found during implementation, not assumed going in**: for the cross-user
+  refusal test, `apply_stack_addition`'s own `owner_user_id = auth.uid()`
+  predicate turned out to be redundant with RLS's own `card_instances: update
+  own` policy for that specific query shape (a locking `SELECT ... FOR UPDATE`
+  is filtered by the table's UPDATE policy, not just its SELECT policy) — the
+  predicate stays anyway, as defense-in-depth against a future RLS change, and
+  `.claude/rules/data-access.md` now records why. The schema test's
+  falsification for that case had to temporarily widen the RLS policy itself
+  (not just edit the function) to actually reproduce a leak; both are
+  reverted, this is a record of the finding, not a change either file keeps.
+- **Rewired** `packages/scan-core/src/writer.ts`: `CollectionStore` changed
+  from insert-then-verify-by-id to find-candidates/decide/apply-via-RPC, with
+  one automatic re-decide-and-retry on a "stale target" response. Web's
+  `addCardInstance` (`src/app/(app)/collection/actions.ts`) now calls the same
+  `apply_stack_addition` function; the bulk CSV import and both deck-move
+  actions were left on their existing inline read-decide-write, deliberately,
+  per the approved plan.
+- CI: the `app` job now installs `packages/upkeep-domain` specifically
+  (`npm ci --workspace=packages/upkeep-domain --include-workspace-root=true`)
+  since the web app imports it directly, while still skipping the Expo/RN
+  workspaces; the `mobile` job typechecks and tests it like `scan-core`.

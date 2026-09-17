@@ -17,12 +17,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      # apps/mobile and packages/* are separate Expo/RN workspaces (see
-      # .claude/rules/mobile.md) with their own CI job below. This job only
-      # covers the Next.js app, so skip installing their dependencies —
+      # apps/mobile and packages/scan-core, packages/upkeep-vision are Expo/RN
+      # workspaces (see .claude/rules/mobile.md) with their own CI job below.
+      # This job only covers the Next.js app, so skip installing those —
       # otherwise every push pulls in the whole Expo/RN toolchain for a job
-      # that never touches it.
-      - run: npm ci --workspaces=false --include-workspace-root=true
+      # that never touches it. packages/upkeep-domain is the one exception:
+      # it is framework-free (no RN/Expo deps of its own) and the web app now
+      # imports it directly (src/lib/collection/stacking.ts), so it needs to
+      # be installed here too.
+      - run: npm ci --workspace=packages/upkeep-domain --include-workspace-root=true
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -60,6 +63,8 @@ jobs:
       # build is attempted in CI; that's out of scope for this phase (see
       # .claude/rules/mobile.md).
       - run: npm ci
+      - run: npm run typecheck -w @upkeep/domain
+      - run: npm test -w @upkeep/domain
       - run: npm run typecheck -w @upkeep/scan-core
       - run: npm test -w @upkeep/scan-core
       - run: npm run typecheck -w @upkeep/scanner-app

@@ -43,6 +43,12 @@ function friendlyDbError(message: string): string {
   if (message.includes("duplicate key")) {
     return "You already have something with that name there.";
   }
+  // From migration 36's apply_stack_addition, when the stack it decided to
+  // merge into changed shape (moved, was edited, or stopped being this
+  // account's) between the page loading and this submit.
+  if (message.includes("no longer matches the decided target")) {
+    return "That stack changed since this page loaded. Refresh and try again.";
+  }
   return message;
 }
 
@@ -75,10 +81,17 @@ export async function addCardInstance(
   const supabase = await createClient();
 
   // Stacking policy — see src/lib/collection/stacking.ts. Look for rows that
-  // share this card's stack key, then let the policy module decide.
+  // share this card's stack key, then let the policy module decide. The
+  // explicit owner filter matters even though RLS already scopes reads:
+  // migration 9 makes a friend's tradable-binder rows genuinely readable, so
+  // an unscoped lookup could otherwise offer one of those as a merge
+  // candidate. (It would not actually merge into it — apply_stack_addition
+  // below re-verifies ownership itself and refuses — but there is no reason
+  // to let a friend's card shape this account's decision at all.)
   const stackQuery = supabase
     .from("card_instances")
     .select("id, quantity, notes")
+    .eq("owner_user_id", user.id)
     .eq("card_id", cardId)
     .eq("condition", condition)
     .eq("finish", finish)
@@ -98,25 +111,30 @@ export async function addCardInstance(
     candidates ?? [],
   );
 
-  if (decision.action === "merge") {
-    const { error } = await supabase
-      .from("card_instances")
-      .update({ quantity: decision.newQuantity })
-      .eq("id", decision.instanceId);
-    if (error) return fail(friendlyDbError(error.message));
-  } else {
-    const { error } = await supabase.from("card_instances").insert({
-      owner_user_id: user.id,
-      card_id: cardId,
-      location_id: locationId,
-      condition,
-      finish,
-      language,
-      quantity,
-      notes,
-    });
-    if (error) return fail(friendlyDbError(error.message));
-  }
+  // The decision above only picks a branch and, for a merge, a target row and
+  // a display estimate (decision.newQuantity — see its comment in
+  // src/lib/collection/stacking.ts for why it is a hint now, not the source of
+  // truth). The actual write goes through apply_stack_addition (migration 36),
+  // which re-verifies the target and performs an atomic increment or insert —
+  // this is what makes concurrent adds (this tab, another tab, mobile) safe
+  // rather than a last-write-wins race. A fresh operation id per submit is
+  // this call's idempotency key, the same role it plays on mobile
+  // (packages/scan-core/src/writer.ts).
+  const { data, error } = await supabase.rpc("apply_stack_addition", {
+    p_operation_id: crypto.randomUUID(),
+    p_target_instance_id: decision.action === "merge" ? decision.instanceId : null,
+    p_card_id: cardId,
+    p_condition: condition,
+    p_finish: finish,
+    p_language: language,
+    p_location_id: locationId,
+    p_quantity: quantity,
+    p_notes: notes,
+  });
+  if (error) return fail(friendlyDbError(error.message));
+
+  const result = Array.isArray(data) ? data[0] : data;
+  if (!result) return fail("The card could not be saved. Try again.");
 
   revalidatePath("/collection");
   revalidatePath("/locations");
@@ -124,7 +142,7 @@ export async function addCardInstance(
   const name = String(formData.get("card_name") ?? "the card");
   return ok(
     decision.action === "merge"
-      ? `Added ${quantity} more ${name} — now ${decision.newQuantity} in that stack.`
+      ? `Added ${quantity} more ${name} — now ${result.result_quantity} in that stack.`
       : `Added ${quantity} × ${name}.`,
   );
 }

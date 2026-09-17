@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
-import { createCollectionWriter, type SavedRow } from '@upkeep/scan-core';
+import { createCollectionWriter, type CollectionStore, type StackAdditionInput, type StackAdditionResult } from '@upkeep/scan-core';
 
 // Persisted auth (phase 1b) needs a storage object with getItem/setItem/removeItem.
 // expo-secure-store is already a dependency and already used for the pending-scan
@@ -42,20 +42,61 @@ export const backend = url && key ? createClient(url, key, {
     finally { clearTimeout(timer); init?.signal?.removeEventListener('abort', abort); }
   } },
 }) : null;
-export const writer = backend ? createCollectionWriter({
-  async currentUserId() {
-    const { data, error } = await backend!.auth.getUser();
+
+// Phase 3a: the scanner now merges into an existing stack the same way the web
+// app does (packages/upkeep-domain's stacking policy), applied atomically
+// through migration 36's apply_stack_addition RPC — see
+// packages/scan-core/src/writer.ts for why that function, not a plain
+// insert/update from here, is what makes this safe under a second writer.
+async function currentUserId(): Promise<string | null> {
+  const { data, error } = await backend!.auth.getUser();
+  if (error) throw error;
+  return data.user?.id ?? null;
+}
+
+const store: CollectionStore = {
+  currentUserId,
+
+  // Explicit owner filter, not just RLS: RLS alone would also return a
+  // friend's tradable-binder rows sharing this stack key (migration 9), which
+  // would merge a scan into a stack that was never this account's — the same
+  // discipline .claude/rules/data-access.md requires of
+  // src/lib/collection/queries.ts on the web side.
+  async findCandidates({ cardId, condition, finish, language, locationId }) {
+    const owner = await currentUserId();
+    if (!owner) throw new Error('Sign in to save to your collection.');
+    let query = backend!.from('card_instances')
+      .select('id,quantity,notes')
+      .eq('owner_user_id', owner)
+      .eq('card_id', cardId)
+      .eq('condition', condition)
+      .eq('finish', finish)
+      .eq('language', language);
+    query = locationId === null ? query.is('location_id', null) : query.eq('location_id', locationId);
+    const { data, error } = await query;
     if (error) throw error;
-    return data.user?.id ?? null;
+    return data ?? [];
   },
-  async insert(row) {
-    const { error } = await backend!.from('card_instances').insert(row);
+
+  async applyStackAddition(input: StackAdditionInput): Promise<StackAdditionResult> {
+    const { data, error } = await backend!.rpc('apply_stack_addition', {
+      p_operation_id: input.operationId,
+      p_target_instance_id: input.targetInstanceId,
+      p_card_id: input.cardId,
+      p_condition: input.condition,
+      p_finish: input.finish,
+      p_language: input.language,
+      p_location_id: input.locationId,
+      p_quantity: input.quantity,
+      p_notes: input.notes,
+    });
     if (error) throw error;
+    // apply_stack_addition RETURNS TABLE (...), so PostgREST hands back an
+    // array of one row rather than a single object.
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('apply_stack_addition returned no result.');
+    return { instanceId: row.result_instance_id, quantity: row.result_quantity, replayed: row.replayed };
   },
-  async find(id) {
-    const { data, error } = await backend!.from('card_instances')
-      .select('id,owner_user_id,card_id,condition,finish,language,quantity,location_id,notes').eq('id', id).maybeSingle();
-    if (error) throw error;
-    return data as SavedRow | null;
-  },
-}) : null;
+};
+
+export const writer = backend ? createCollectionWriter(store) : null;
