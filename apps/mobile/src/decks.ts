@@ -292,14 +292,34 @@ export async function fetchSpareStacks(
   cardName: string,
 ): Promise<SleeveCandidate[]> {
   if (!backend) throw new Error('Not connected.');
-  // owner_user_id is mandatory, not RLS's job alone: migration 9 makes a
-  // friend's tradable-binder rows genuinely readable, and an unscoped select
-  // would offer someone else's cards as sleeve candidates.
-  const { data, error } = await backend
+  // Filtered server-side by card identity, not just by owner: this used to
+  // fetch up to 1000 of the account's card_instances rows with NO card
+  // filter at all and narrow to `oracleId`/`cardName` in JS afterward, which
+  // silently dropped a card's spare copies past the 1000-row cap for any
+  // collection bigger than that — the picker then confidently reported "no
+  // spare copies" instead of erroring. `cards!inner(...)` below turns the
+  // embedded `cards` filter into an actual join-time filter (PostgREST
+  // requires the inner join for an embedded-resource filter to apply), so
+  // the 1000-row limit is now a guard on "copies of this one card", the same
+  // bounded-in-practice assumption fetchDeckCards already makes, not a
+  // meaningful truncation risk.
+  let query = backend
     .from('card_instances')
-    .select('id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards(oracle_id,name,set_code,collector_number)')
-    .eq('owner_user_id', userId)
-    .limit(1000);
+    .select(
+      'id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards!inner(oracle_id,name,set_code,collector_number)',
+    )
+    // owner_user_id is mandatory, not RLS's job alone: migration 9 makes a
+    // friend's tradable-binder rows genuinely readable, and an unscoped
+    // select would offer someone else's cards as sleeve candidates.
+    .eq('owner_user_id', userId);
+  // Same cardKey convention as fetchDeckCards/fetchSleevedStacks: oracle_id
+  // is the primary match (stable across printings/reprints — "any printing
+  // of this card" is what sleeving cares about), name is only the fallback
+  // for the rare card missing an oracle id. ilike with no wildcard chars in
+  // `cardName` is a case-insensitive exact match, mirroring the JS
+  // `.toLowerCase()` comparison this replaces.
+  query = oracleId ? query.eq('cards.oracle_id', oracleId) : query.ilike('cards.name', cardName);
+  const { data, error } = await query.limit(1000);
   if (error) {
     if (error.code === '42501' || error.code === 'PGRST301') throw new CollectionAuthError(error.message);
     throw new Error(error.message);
@@ -307,9 +327,6 @@ export async function fetchSpareStacks(
   const rows = (data ?? []) as unknown as RawSleeveCandidateRow[];
   return rows
     .filter((row) => {
-      const card = row.cards;
-      const sameCard = oracleId ? card?.oracle_id === oracleId : card?.name?.toLowerCase() === cardName.toLowerCase();
-      if (!sameCard) return false;
       // Already sleeved into this exact deck — that is what fetchDeckCards's
       // "sleeved" count already reports, not a spare stack to sleeve from.
       return row.locations?.id !== deckId;
