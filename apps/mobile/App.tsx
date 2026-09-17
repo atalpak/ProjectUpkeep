@@ -14,15 +14,22 @@ import { readText, visionAvailable } from '@upkeep/vision';
 import { backend, writer } from './src/backend';
 import { demoBundle, loadCatalog, refreshCatalog } from './src/catalog';
 import { CollectionAuthError, fetchCollectionPage, PAGE_SIZE, type CollectionEntry } from './src/collection';
+import { fetchDeckCards, fetchDeckHeader, fetchDecks, type DeckCardEntry, type DeckHeader, type DeckSummary } from './src/decks';
 
 type Review = { printing: Printing; operationId: string; submitted?: ConfirmedScan };
 type Location = {id: string; name: string; type: string};
-// Second real screen. A plain state switch rather than a navigation library:
-// with only two destinations, both reachable exclusively from one signed-in
-// shell, a nav library would add a dependency and a route config for what a
-// single piece of state already does. Reach for React Navigation when a third
-// screen (decks, social) makes that state switch awkward to extend, not before.
-type Tab = 'scan' | 'collection';
+// Third real screen (decks). Still a plain state switch, not a navigation
+// library: the comment above this used to say "reach for React Navigation
+// when a third screen makes the switch awkward to extend" — decks turned out
+// not to be that trigger. It only needed one more sub-state (which deck, if
+// any, is open) layered on top of the same tab switch, which is a smaller
+// footprint than a route config and a navigator dependency for what is still
+// three destinations behind one signed-in shell with no deep linking, no back
+// stack beyond "close this deck", and no history to restore. Revisit this
+// when a fourth destination (social, say) needs its own back stack or when
+// two screens need to link directly to each other rather than only through
+// this shell.
+type Tab = 'scan' | 'collection' | 'decks';
 // Mirrors src/app/(app)/collection/actions.ts's friendlyDbError: the trigger
 // messages from the migrations are precise but written for whoever is reading
 // the schema, not for someone scanning a card. card_instances_enforce_
@@ -59,6 +66,10 @@ function Scanner({fonts}: {fonts: boolean}) {
   const [password, setPassword] = useState('');
   const [locations, setLocations] = useState<Location[]>([]);
   const [tab, setTab] = useState<Tab>('scan');
+  // Which deck is open on the decks tab, if any — null means "show the list".
+  // This is the sub-state the comment on `Tab` describes instead of reaching
+  // for a navigation library.
+  const [openDeckId, setOpenDeckId] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const [authBusy, setAuthBusy] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -91,7 +102,7 @@ function Scanner({fonts}: {fonts: boolean}) {
       currentUser.current = nextUser;
       controller.current?.abort(); setCameraOpen(false);
       setUserId(nextUser); setRecovering(!!nextUser);
-      setReview(null); setRecent([]); setLocations([]); setTab('scan');
+      setReview(null); setRecent([]); setLocations([]); setTab('scan'); setOpenDeckId(null);
       // Sign-out clears the persisted session (Supabase's own job) but not
       // anything else this app wrote — so a pending scan must be cleared here,
       // or it would be stranded under an account nobody is signed into anymore
@@ -201,9 +212,14 @@ function Scanner({fonts}: {fonts: boolean}) {
       {userId && <View style={styles.tabs}>
         <Pressable accessibilityRole="tab" accessibilityState={{selected:tab==='scan'}} style={[styles.tab,tab==='scan' && styles.tabSelected]} onPress={() => setTab('scan')}><Text style={tab==='scan' ? styles.tabTextSelected : styles.tabText}>Scan</Text></Pressable>
         <Pressable accessibilityRole="tab" accessibilityState={{selected:tab==='collection'}} style={[styles.tab,tab==='collection' && styles.tabSelected]} onPress={() => setTab('collection')}><Text style={tab==='collection' ? styles.tabTextSelected : styles.tabText}>Collection</Text></Pressable>
+        <Pressable accessibilityRole="tab" accessibilityState={{selected:tab==='decks'}} style={[styles.tab,tab==='decks' && styles.tabSelected]} onPress={() => setTab('decks')}><Text style={tab==='decks' ? styles.tabTextSelected : styles.tabText}>Decks</Text></Pressable>
       </View>}
       {message ? <Text accessibilityRole="alert" style={styles.notice}>{message}</Text> : null}
-      {tab === 'collection' && userId ? <CollectionScreen userId={userId} /> : <>
+      {tab === 'collection' && userId ? <CollectionScreen userId={userId} /> : tab === 'decks' && userId ? (
+        openDeckId
+          ? <DeckDetailScreen userId={userId} deckId={openDeckId} onBack={() => setOpenDeckId(null)} />
+          : <DecksScreen userId={userId} onOpenDeck={setOpenDeckId} />
+      ) : <>
       {review ? <ReviewCard key={review.operationId} review={review} demo={demo} userId={userId} locations={locations}
         onSubmitted={scan => setReview({...review,submitted:scan})}
         onMessage={setMessage} onCancel={() => setReview(null)}
@@ -306,6 +322,111 @@ function CollectionScreen({userId}: {userId: string}) {
   </>;
 }
 
+// Read-only list of the signed-in user's own decks. See src/decks.ts for the
+// query and why its owner filter (`user_id`, not `owner_user_id`) is
+// mandatory rather than a nicety.
+function DecksScreen({userId, onOpenDeck}: {userId: string; onOpenDeck(deckId: string): void}) {
+  const [decks, setDecks] = useState<DeckSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(false);
+  const [error, setError] = useState('');
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  async function load() {
+    setLoading(true); setError(''); setAuthError(false);
+    try {
+      const result = await fetchDecks(userId);
+      if (alive.current) setDecks(result);
+    } catch (e) {
+      if (!alive.current) return;
+      if (e instanceof CollectionAuthError) setAuthError(true);
+      else setError(errorMessage(e));
+    } finally {
+      if (alive.current) setLoading(false);
+    }
+  }
+  useEffect(() => { void load(); }, [userId]);
+
+  if (loading) return <Text style={styles.body}>Loading your decks…</Text>;
+  if (authError) return <Text accessibilityRole="alert" style={styles.notice}>Your session is no longer valid. Sign out and sign in again to view your decks.</Text>;
+  if (error) return <>
+    <Text accessibilityRole="alert" style={styles.notice}>{error}</Text>
+    <Button secondary label="Retry" onPress={() => void load()} />
+  </>;
+  if (!decks.length) return <Text style={styles.body}>You don't have any decks yet. Build one on the web app to see it here.</Text>;
+
+  return <>
+    <Text style={styles.section}>{decks.length} deck{decks.length === 1 ? '' : 's'}</Text>
+    {decks.map(d => <Pressable accessibilityRole="button" key={d.id} style={styles.result} onPress={() => onOpenDeck(d.id)}>
+      <View style={styles.grow}>
+        <Text style={styles.resultTitle}>{d.name}</Text>
+        <Text style={styles.body}>{d.format ?? 'No format set'}</Text>
+      </View>
+      <Text style={styles.arrow}>›</Text>
+    </Pressable>)}
+  </>;
+}
+
+// One deck's decklist, read-only, with each entry's sleeved-vs-wanted count —
+// see src/decks.ts's header for why that number needs two separate queries
+// (deck_cards for "wanted", card_instances for "sleeved") rather than one.
+function DeckDetailScreen({userId, deckId, onBack}: {userId: string; deckId: string; onBack(): void}) {
+  const [header, setHeader] = useState<DeckHeader | null>(null);
+  const [cards, setCards] = useState<DeckCardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(false);
+  const [error, setError] = useState('');
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  async function load() {
+    setLoading(true); setError(''); setAuthError(false);
+    try {
+      const [h, c] = await Promise.all([fetchDeckHeader(userId, deckId), fetchDeckCards(userId, deckId)]);
+      if (!alive.current) return;
+      setHeader(h); setCards(c);
+    } catch (e) {
+      if (!alive.current) return;
+      if (e instanceof CollectionAuthError) setAuthError(true);
+      else setError(errorMessage(e));
+    } finally {
+      if (alive.current) setLoading(false);
+    }
+  }
+  useEffect(() => { void load(); }, [userId, deckId]);
+
+  return <>
+    <Button secondary label="‹ Back to decks" onPress={onBack} />
+    {loading && <Text style={styles.body}>Loading deck…</Text>}
+    {authError && <Text accessibilityRole="alert" style={styles.notice}>Your session is no longer valid. Sign out and sign in again to view this deck.</Text>}
+    {!loading && error && <>
+      <Text accessibilityRole="alert" style={styles.notice}>{error}</Text>
+      <Button secondary label="Retry" onPress={() => void load()} />
+    </>}
+    {!loading && !authError && !error && header && <>
+      {header.commanderImageUriSmall && <Image source={{uri: header.commanderImageUriSmall}} style={styles.thumbnail} />}
+      <Text style={styles.section}>{header.name}</Text>
+      <Text style={styles.body}>{header.format ?? 'No format set'}{header.commanderName ? ` · Commander: ${header.commanderName}` : ''}</Text>
+      {!cards.length && <Text style={styles.body}>This deck's list is empty.</Text>}
+      {cards.map(c => {
+        const fullySleeved = c.sleeved >= c.quantity;
+        const noneSleeved = c.sleeved === 0;
+        return <View key={c.id} style={[styles.result, noneSleeved && styles.deckRowUnsleeved]}>
+          {c.imageUriSmall && <Image source={{uri: c.imageUriSmall}} style={styles.thumbnail} />}
+          <View style={styles.grow}>
+            <Text style={[styles.resultTitle, noneSleeved && styles.deckRowUnsleevedText]}>{c.name}</Text>
+            <Text style={styles.body}>{c.setCode.toUpperCase()} · #{c.collectorNumber} · Qty {c.quantity}</Text>
+            <Text style={[styles.body, fullySleeved ? styles.deckRowSleevedText : noneSleeved ? styles.deckRowUnsleevedText : undefined]}>
+              {c.sleeved}/{c.quantity} sleeved
+            </Text>
+          </View>
+        </View>;
+      })}
+    </>}
+  </>;
+}
+
 function ReviewCard({review,demo,userId,locations,onSubmitted,onSaved,onCancel,onMessage}: {
   review: Review; demo: boolean; userId: string | null; locations: Location[];
   onSubmitted(scan: ConfirmedScan): void; onSaved(): void; onCancel(): void; onMessage(text: string): void;
@@ -363,4 +484,8 @@ const styles = StyleSheet.create({
   cameraPanel:{height:310,borderRadius:20,overflow:'hidden',backgroundColor:'#263d35'},camera:{flex:1},cameraPlaceholder:{flex:1,alignItems:'center',justifyContent:'center',padding:28,gap:12},cardGlyph:{fontSize:68,color:'#d4ae65'},cameraTitle:{color:'#f4ecda',fontSize:21,textAlign:'center',fontWeight:'600'},cameraCaption:{color:'#c2ccb8',fontSize:13,textAlign:'center'},guide:{position:'absolute',top:'8%',bottom:'8%',left:'19%',right:'19%',borderColor:'#e2ba70',borderWidth:2,borderRadius:12,justifyContent:'flex-end'},guideText:{color:'#fff',backgroundColor:'#263d35',fontSize:10,textAlign:'center',padding:6},
   button:{padding:16,backgroundColor:'#b58538',borderRadius:12,alignItems:'center'},buttonSecondary:{backgroundColor:'transparent',borderWidth:1,borderColor:'#cbbd9e'},buttonText:{fontFamily:'PlusJakartaSans_600SemiBold',fontSize:15,fontWeight:'700',color:'#fffdf6'},secondaryText:{fontSize:14,fontWeight:'600',color:'#655332'},disabled:{opacity:0.4},notice:{backgroundColor:'#ebe1c9',padding:14,borderRadius:10,color:'#5e4928',fontSize:13,lineHeight:21},result:{flexDirection:'row',gap:14,alignItems:'center',backgroundColor:'#fffdf8',borderWidth:1,borderColor:'#ddd3bd',padding:14,borderRadius:12},resultTitle:{fontSize:16,fontWeight:'600',color:'#293428'},hint:{fontSize:11,color:'#8c692c',marginTop:5},thumbnail:{width:45,height:63,borderRadius:3},grow:{flex:1},arrow:{fontSize:28,color:'#a17d40'},review:{gap:12,backgroundColor:'#fffaf0',padding:18,borderRadius:16},cardImage:{height:260,width:'100%'},label:{fontSize:13,fontWeight:'700',color:'#374131',marginTop:8},choices:{flexDirection:'row',flexWrap:'wrap',gap:7},chip:{paddingVertical:8,paddingHorizontal:11,borderRadius:8,borderWidth:1,borderColor:'#d4ccb9'},chipSelected:{backgroundColor:'#334c3f',borderColor:'#334c3f'},chipTextSelected:{color:'#fffdf6',fontSize:13,lineHeight:21},divider:{height:1,backgroundColor:'#d7cbb4',marginVertical:10},footer:{textAlign:'center',fontSize:9,color:'#8a8979',letterSpacing:2,marginTop:24},
   tabs:{flexDirection:'row',backgroundColor:'#eee7d8',borderRadius:12,padding:4,gap:4},tab:{flex:1,paddingVertical:10,borderRadius:9,alignItems:'center'},tabSelected:{backgroundColor:'#334c3f'},tabText:{fontSize:13,fontWeight:'600',color:'#655332'},tabTextSelected:{fontSize:13,fontWeight:'600',color:'#fffdf6'},
+  // A card with nothing sleeved needs to visibly recede — the "what do I
+  // still need to sleeve" glance this feature exists for depends on the
+  // unsleeved rows reading as muted at a glance, not just via smaller text.
+  deckRowUnsleeved:{opacity:0.55,borderStyle:'dashed'},deckRowUnsleevedText:{color:'#8c692c'},deckRowSleevedText:{color:'#2f6b45',fontWeight:'700'},
 });
