@@ -114,4 +114,7 @@ reintroduce one: `requiredValue(value, label)` takes an already-resolved value, 
 the lookup stays at the call site where the bundler can see it.
 
 `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS and must never reach the browser. It is
-read only in `scripts/sync-scryfall.ts`, via that script's own local `requireEnv`.
+read in exactly two places, `scripts/sync-scryfall.ts` and
+`scripts/publish-catalog.ts`/`scripts/create-catalog-bucket.ts` (added for the
+mobile catalog pipeline, 2026-09), both via the same local `requireEnv`
+pattern — see the client table above for why both are safe.

@@ -68,16 +68,19 @@ jobs:
         run: npm run sync:scryfall ${{ inputs.force && '-- --force' || '' }}
 
       # Mobile catalog: export -> build -> publish, gated on the sync above
-      # having actually upserted something (see the module comment). A
-      # `secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY` repository variable is the
-      # same value already compiled into the web app's client bundle and
-      # `apps/mobile`'s own build — see NEXT_PUBLIC_SUPABASE_ANON_KEY in
-      # .env.example.
+      # having actually upserted something (see the module comment). Reads
+      # from the `vars.*` context, not `secrets.*` — NEXT_PUBLIC_SUPABASE_ANON_KEY
+      # is a public value, already compiled into the web app's client bundle
+      # and `apps/mobile`'s own build (see .env.example), so it belongs in
+      # Settings -> Secrets and variables -> Actions -> Variables, not Secrets.
+      # `secrets.*` and `vars.*` are separate namespaces in Actions: a value
+      # configured as a variable is simply absent under `secrets.*` (empty
+      # string, no error), which is exactly the failure this once had.
       - name: Export catalog
         if: steps.sync.outputs.upserted == 'true'
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: npx tsx scripts/export-catalog.ts /tmp/catalog-cards.jsonl
 
       - name: Build catalog

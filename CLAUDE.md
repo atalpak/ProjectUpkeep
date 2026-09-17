@@ -141,9 +141,12 @@ alerts. Each migration header carries the reasoning for its decision.
    `owner_user_id`.
 
 4. **Nothing under `src/` may construct a service-role client.** The service key
-   is read in exactly one place, `scripts/sync-scryfall.ts`, which is not part of
-   the Next build and so cannot reach a browser bundle. That containment *is* the
-   guard. There used to be a `src/lib/supabase/admin.ts` said to be protected by
+   is read in exactly two places, `scripts/sync-scryfall.ts` and
+   `scripts/publish-catalog.ts` (the mobile catalog's publish step, added
+   2026-09) — both live in the repo-root `scripts/`, outside the Next build,
+   so neither can reach a browser bundle. That containment *is* the guard, and
+   it is why a new legitimate reader belongs in `scripts/` alongside these
+   two, not under `apps/` or `packages/`. There used to be a `src/lib/supabase/admin.ts` said to be protected by
    a `server-only` import; it had no importers, and it could never have had any —
    `server-only` throws unconditionally outside a React Server Component, so a
    `tsx` script importing it dies on load. It was deleted on 2026-09-09 rather
