@@ -34,7 +34,7 @@ import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
 import { ManaCost } from "@/components/ManaCost";
 import { SetSymbol } from "@/components/SetSymbol";
-import { Badge, Button, Dialog, Field, Input, Select } from "@/components/ui";
+import { Badge, Button, cx, Dialog, Field, Input, Select } from "@/components/ui";
 
 /**
  * Card details, delivered three ways.
@@ -86,6 +86,7 @@ type PanelContext = {
     source: Card | string,
     presentation: Presentation,
     anchor?: HTMLElement | null,
+    imageOnly?: boolean,
   ) => void;
   /** Dismiss a transient presentation. The sidebar deliberately keeps its card. */
   hide: () => void;
@@ -96,6 +97,9 @@ type PanelContext = {
   presentation: Presentation | null;
   /** The element the tooltip is positioned against. */
   anchor: HTMLElement | null;
+  /** The tooltip should show just the image, no name/text/actions — the
+   *  collection table's quick glance. Meaningless outside "tooltip". */
+  imageOnly: boolean;
 };
 
 const Ctx = createContext<PanelContext | null>(null);
@@ -125,6 +129,7 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
   const [cards, setCards] = useState<Record<string, Card | "missing">>({});
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [imageOnly, setImageOnly] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -145,10 +150,16 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
    * additive in the case that matters.
    */
   const show = useCallback(
-    (source: Card | string, next: Presentation, anchorEl?: HTMLElement | null) => {
+    (
+      source: Card | string,
+      next: Presentation,
+      anchorEl?: HTMLElement | null,
+      wantImageOnly?: boolean,
+    ) => {
       if (timer.current) clearTimeout(timer.current);
       setPresentation(next);
       setAnchor(anchorEl ?? null);
+      setImageOnly(wantImageOnly ?? false);
 
       if (typeof source !== "string") {
         setCards((prev) =>
@@ -239,8 +250,9 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
       state: !activeId ? "idle" : entry === "missing" ? "missing" : entry ? "ready" : "loading",
       presentation,
       anchor,
+      imageOnly,
     }),
-    [show, hide, activeId, entry, presentation, anchor],
+    [show, hide, activeId, entry, presentation, anchor, imageOnly],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -365,7 +377,17 @@ export function CardPanelOutlet() {
  */
 export function useCardPreview(
   source: Card | string | null | undefined,
-  { sheetOnClick = true }: { sheetOnClick?: boolean } = {},
+  {
+    sheetOnClick = true,
+    imageOnly = false,
+  }: {
+    sheetOnClick?: boolean;
+    /** Tooltip only: skip the deliberate pause and show just the image, not
+     *  the full details — the collection table's "click for details" hover.
+     *  Sidebar and sheet are unaffected; those never open on a bare hover
+     *  pause in the first place. */
+    imageOnly?: boolean;
+  } = {},
 ) {
   const ctx = useContext(Ctx);
   const presentation = usePresentation();
@@ -392,10 +414,16 @@ export function useCardPreview(
       return { ...base, onMouseEnter: trigger, onFocus: trigger };
     }
 
-    // Tooltip: a deliberate pause opens it, and leaving closes it at once.
+    // Tooltip: a deliberate pause opens it, and leaving closes it at once —
+    // except imageOnly, which is a quick glance, not a summoned detail panel,
+    // so it opens on the same frame as the hover instead of waiting it out.
     const open = (event: { currentTarget: HTMLElement }) => {
       const element = event.currentTarget;
       if (timer.current) clearTimeout(timer.current);
+      if (imageOnly) {
+        ctx.show(source, "tooltip", element, true);
+        return;
+      }
       timer.current = setTimeout(() => ctx.show(source, "tooltip", element), TOOLTIP_DELAY_MS);
     };
 
@@ -411,7 +439,7 @@ export function useCardPreview(
       onFocus: open,
       onBlur: cancel,
     };
-  }, [ctx, source, presentation, sheetOnClick]);
+  }, [ctx, source, presentation, sheetOnClick, imageOnly]);
 }
 
 /**
@@ -677,13 +705,20 @@ function CardTooltip() {
 
   if (!ctx || !anchor || typeof document === "undefined") return null;
 
+  // imageOnly skips the padded detail card entirely — just the art, edge to
+  // edge, so the glance is as instant to read as it is to summon.
   return createPortal(
     <div
       ref={box}
       role="tooltip"
       // A preview, not a menu: it must never swallow the pointer, or moving
       // toward it would count as leaving the anchor and fight itself.
-      className="pointer-events-none fixed z-50 rounded-xl border border-border bg-surface-raised p-3 shadow-xl"
+      className={cx(
+        "pointer-events-none fixed z-50 rounded-xl shadow-xl",
+        ctx.imageOnly
+          ? "overflow-hidden bg-surface-muted"
+          : "border border-border bg-surface-raised p-3",
+      )}
       style={{
         width: TOOLTIP_WIDTH,
         top: position?.top ?? -9999,
@@ -692,9 +727,50 @@ function CardTooltip() {
         visibility: position ? "visible" : "hidden",
       }}
     >
-      <CardDetails card={ctx.card} state={ctx.state} />
+      {ctx.imageOnly ? <CardImageOnly card={ctx.card} state={ctx.state} /> : (
+        <CardDetails card={ctx.card} state={ctx.state} />
+      )}
     </div>,
     document.body,
+  );
+}
+
+/** The quick-glance tooltip: art only, no name, text or actions — click the
+ *  card for those. Deliberately not `CardDetails`, which always renders the
+ *  full write-up; this is the "no need for the details" hover the collection
+ *  table asks for. */
+function CardImageOnly({
+  card,
+  state,
+}: {
+  card: Card | null;
+  state: "idle" | "loading" | "ready" | "missing";
+}) {
+  if (state !== "ready" || !card) {
+    return <div className="aspect-[488/680] animate-pulse bg-surface-muted" />;
+  }
+
+  const image = card.image_uri ?? card.image_uri_small;
+  if (!image) {
+    return (
+      <div className="flex aspect-[488/680] items-center justify-center text-xs text-ink-muted">
+        No image
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative aspect-[488/680]">
+      <Image
+        src={image}
+        alt={cardDisplayName(card)}
+        fill
+        sizes="18rem"
+        className="object-cover"
+        loading="eager"
+        unoptimized
+      />
+    </div>
   );
 }
 

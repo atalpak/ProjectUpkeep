@@ -567,7 +567,10 @@ function Row({
   onEditToggle: () => void;
 }) {
   const card = row.cards;
-  const preview = useCardPreview(card);
+  // imageOnly: the table row is dense and already names the card in text, so
+  // a hover only needs to answer "what does this look like" instantly — the
+  // full write-up is one click away via the same button's onClick.
+  const preview = useCardPreview(card, { imageOnly: true });
 
   return (
     <>
