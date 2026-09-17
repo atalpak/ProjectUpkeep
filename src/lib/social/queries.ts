@@ -617,6 +617,70 @@ export async function getMyTradablesForMatching(): Promise<TradableRow[]> {
   }));
 }
 
+/** One friend's wants you could fill, for the wish-list page's "you could offer" section. */
+export type FriendWantMatch = {
+  profile: Profile;
+  items: Array<{ want: WantRow; available: number; locations: string[] }>;
+};
+
+/**
+ * Across every accepted friend at once: which of *their* wants can *you*
+ * fill from your own tradable binder — the reverse direction of this page's
+ * main list, which matches your wants against theirs.
+ *
+ * One `.in(user_id, friendIds)` query rather than one `getFriendWants` call
+ * per friend — readable under the same migration-15 policy that makes a
+ * single friend's want list readable, just not scoped to one friend here.
+ * `matchWants` doesn't care whose wants or whose tradables it's given, so the
+ * only new work is grouping its result back by which friend each want row
+ * belongs to, and dropping anyone you cannot help.
+ */
+export async function getFriendWantMatches(): Promise<FriendWantMatch[]> {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
+  const { friends } = await getFriendEdges();
+  if (friends.length === 0) return [];
+
+  const profileById = new Map(friends.map((f) => [f.profile.id, f.profile]));
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("want_list")
+    .select(`id, user_id, card_id, quantity, note, ${WANT_CARD_FIELDS}`)
+    .in("user_id", [...profileById.keys()])
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    if (error.code === "PGRST205") return [];
+    throw new Error(`Could not load friends' wish lists: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as unknown as Array<RawWant & { user_id: string }>;
+  const wants = rows.map(toWantRow);
+  const wantOwner = new Map(rows.map((r) => [r.id, r.user_id]));
+
+  const myTradables = await getMyTradablesForMatching();
+  const matches = matchWants(wants, myTradables);
+
+  const byFriend = new Map<string, FriendWantMatch["items"]>();
+  for (const want of wants) {
+    const suppliers = matches.get(want.id);
+    const mine = suppliers?.find((s) => s.ownerId === user.id);
+    if (!mine) continue;
+
+    const friendId = wantOwner.get(want.id);
+    if (!friendId) continue;
+    const items = byFriend.get(friendId) ?? [];
+    items.push({ want, available: mine.available, locations: mine.locations });
+    byFriend.set(friendId, items);
+  }
+
+  return [...byFriend.entries()]
+    .map(([friendId, items]) => ({ profile: profileById.get(friendId)!, items }))
+    .filter((m) => m.profile)
+    .sort((a, b) => b.items.length - a.items.length || a.profile.username.localeCompare(b.profile.username));
+}
+
 export type WantListView = {
   wants: WantRow[];
   /** want-row id -> who can supply it. */

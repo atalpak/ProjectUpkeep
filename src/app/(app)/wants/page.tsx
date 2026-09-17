@@ -1,6 +1,7 @@
 import Link from "next/link";
 
-import { getWantListView } from "@/lib/social/queries";
+import { getFriendWantMatches, getWantListView } from "@/lib/social/queries";
+import { describeSupplier } from "@/lib/social/wants";
 import { getDecks } from "@/lib/collection/queries";
 import {
   WantListManager,
@@ -21,9 +22,10 @@ export const metadata = { title: "Wish List · Project Upkeep" };
 export default async function WantsPage() {
   // Decks, for the "which deck is this for" tag on each row — the same list
   // the deck picker on a deck's own wish list draws from.
-  const [{ wants, matches, suppliers }, decks] = await Promise.all([
+  const [{ wants, matches, suppliers }, decks, friendMatches] = await Promise.all([
     getWantListView(),
     getDecks(),
+    getFriendWantMatches(),
   ]);
 
   // Resolve each supplier id to a username here, so the client gets plain data.
@@ -75,6 +77,40 @@ export default async function WantsPage() {
         matches={matchesView}
         decks={decks.map((d) => ({ id: d.id, name: d.name }))}
       />
+
+      {friendMatches.length > 0 ? (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold">
+            You could offer these trades
+          </h2>
+          <div className="space-y-2">
+            {friendMatches.map((m) => (
+              <Link
+                key={m.profile.id}
+                href={`/u/${encodeURIComponent(m.profile.username)}`}
+                className="block rounded-lg border border-border bg-surface p-4 transition-colors hover:bg-surface-muted"
+              >
+                <p className="text-sm font-semibold">
+                  {m.profile.username} wants {m.items.length} card{m.items.length === 1 ? "" : "s"} you have
+                </p>
+                <ul className="mt-1 flex flex-wrap gap-1.5 text-sm">
+                  {m.items.map(({ want, available, locations }) => (
+                    <li
+                      key={want.id}
+                      className="rounded border border-accent bg-accent-soft px-1.5 py-0.5"
+                    >
+                      {want.displayName}
+                      <span className="ml-1 text-xs text-ink-muted">
+                        · you have {describeSupplier(available, locations)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
