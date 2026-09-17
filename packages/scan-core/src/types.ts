@@ -14,6 +14,16 @@ export interface Printing {
   finishes: Finish[];
   language: string;
   imageUri?: string;
+  /**
+   * Added for the printing picker (mobile-app initiative phase 5): a raw set
+   * code like "sta" is not something most people recognise, and a search
+   * with 100+ printings needs to be legible when grouped or labelled by set.
+   * Optional and additive — `schemaVersion` stays 1, so an older bundle that
+   * omits these is still valid and the app degrades to showing the set code.
+   */
+  setName?: string;
+  releasedAt?: string;
+  rarity?: string;
 }
 export interface CatalogBundle { schemaVersion: 1; version: string; generatedAt: string; printings: Printing[] }
 export interface TextEvidence { lines: string[]; printingLines?: string[] }

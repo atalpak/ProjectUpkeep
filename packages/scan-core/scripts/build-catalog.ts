@@ -1,30 +1,54 @@
 import { createReadStream } from 'node:fs';
 import { writeFile, rename } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { parseCatalog, FINISHES, type Printing } from '../src';
+import { parseCatalog, buildCatalogRow, type Printing } from '../src';
 
-// Input is JSONL from the EXISTING Upkeep cards sync/export, not the raw multi-GB image corpus.
+// Input is JSONL from `scripts/export-catalog.ts` at the repo root (the
+// "existing Upkeep cards sync/export" this comment used to gesture at before
+// that script existed).
 const [source, output, version] = process.argv.slice(2);
 if (!source || !output || !version) throw new Error('Usage: npm run catalog:build -- cards.jsonl catalog.json VERSION');
-const printings: Printing[] = [];
-let line = 0;
-for await (const text of createInterface({ input: createReadStream(source), crlfDelay: Infinity })) {
-  line++;
-  if (!text.trim()) continue;
-  const row = JSON.parse(text);
-  if (row.digital === true || row.oracle_id == null) continue;
-  if (!Array.isArray(row.available_finishes)) throw new Error(`Missing available_finishes at line ${line}`);
-  printings.push({
-    id: row.id, oracleId: row.oracle_id, name: row.name,
-    aliases: [row.flavor_name, row.printed_name, ...(row.card_faces ?? []).flatMap((f: {name?: string; printed_name?: string}) => [f.name, f.printed_name])].filter((a): a is string => typeof a === 'string' && !!a.trim()),
-    setCode: row.set_code, collectorNumber: row.collector_number,
-    finishes: row.available_finishes.filter((f: unknown) => FINISHES.includes(f as typeof FINISHES[number])),
-    language: row.lang, ...(row.image_uri ? { imageUri: row.image_uri } : {}),
-  });
+
+/**
+ * One bad row used to throw and take the whole build down with it, with no
+ * row number to go find. Real Scryfall data has edge cases a synthetic
+ * 3-card demo never exercised — Un-set cards, empty `available_finishes`,
+ * unusual set codes — so a row that fails validation (`buildCatalogRow`, in
+ * `../src/build-row.ts` so it is unit-testable) is skipped and counted
+ * instead, and the reason goes in the build summary below.
+ */
+async function main(source: string, output: string, version: string) {
+  const printings: Printing[] = [];
+  const skipped: string[] = [];
+  const seenIds = new Set<string>();
+  let line = 0;
+  for await (const text of createInterface({ input: createReadStream(source), crlfDelay: Infinity })) {
+    line++;
+    if (!text.trim()) continue;
+    let row: Record<string, unknown>;
+    try { row = JSON.parse(text); } catch { skipped.push(`line ${line}: invalid JSON`); continue; }
+    const result = buildCatalogRow(row, line, seenIds);
+    if ('skipped' in result) { skipped.push(result.skipped); continue; }
+    printings.push(result);
+  }
+
+  const bundle = parseCatalog({ schemaVersion: 1, version, generatedAt: new Date().toISOString(), printings });
+  const json = JSON.stringify(bundle);
+  if (Buffer.byteLength(json) > 40_000_000) throw new Error('Catalog exceeds 40 MB. Shard by language/set before publishing.');
+  await writeFile(output + '.next', json);
+  await rename(output + '.next', output);
+
+  console.log(`Wrote ${printings.length} printings, ${Buffer.byteLength(json)} bytes to ${output}`);
+  if (skipped.length) {
+    console.log(`Skipped ${skipped.length} row(s):`);
+    // A full per-line dump is not useful past a few dozen; the count above is
+    // the number that matters for "did the build mostly succeed".
+    for (const reason of skipped.slice(0, 50)) console.log(`  - ${reason}`);
+    if (skipped.length > 50) console.log(`  ... and ${skipped.length - 50} more`);
+  }
 }
-const bundle = parseCatalog({schemaVersion:1, version, generatedAt:new Date().toISOString(), printings});
-const json = JSON.stringify(bundle);
-if (Buffer.byteLength(json) > 40_000_000) throw new Error('Catalog exceeds 40 MB. Shard by language/set before publishing.');
-await writeFile(output + '.next', json);
-await rename(output + '.next', output);
-console.log(`Wrote ${printings.length} printings, ${Buffer.byteLength(json)} bytes to ${output}`);
+
+main(source, output, version).catch((error: unknown) => {
+  console.error(`[catalog:build] FAILED: ${error instanceof Error ? error.message : String(error)}`);
+  process.exitCode = 1;
+});

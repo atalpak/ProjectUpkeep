@@ -4,3 +4,4 @@ export * from './pipeline';
 export * from './collection';
 export * from './writer';
 export * from './move';
+export * from './build-row';

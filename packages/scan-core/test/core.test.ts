@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft } from '../src';
+import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft } from '../src';
 const a = '11111111-1111-4111-8111-111111111111';
 const b = '22222222-2222-4222-8222-222222222222';
 const op = '33333333-3333-4333-8333-333333333333';
@@ -290,6 +290,54 @@ test('a stale SOURCE is retried once with the identical call, then surfaced if s
     { instanceId: 'dest-row', quantity: 5, replayed: false },
   );
   assert.equal(applyCalls, 2, 'exactly one retry for a stale source, not unbounded retrying');
+});
+
+// ---------------------------------------------------------------------------
+// buildCatalogRow (packages/scan-core/src/build-row.ts, used by
+// scripts/build-catalog.ts) -- per-row validation, not all-or-nothing
+// ---------------------------------------------------------------------------
+const exportRow = {
+  id: a, oracle_id: oracle, name: 'Lightning Bolt', flavor_name: null,
+  set_code: 'm11', set_name: 'Magic 2011', collector_number: '146',
+  available_finishes: ['nonfoil', 'foil'], lang: 'en', image_uri: null,
+  digital: false, card_faces: null,
+};
+
+test('a valid export row builds a Printing, including the new optional bundle fields', () => {
+  const printing = buildCatalogRow(exportRow, 1, new Set());
+  assert.ok(printing && !('skipped' in printing));
+  assert.equal((printing as { setCode: string }).setCode, 'm11');
+  assert.equal((printing as { setName?: string }).setName, 'Magic 2011');
+});
+
+test('an unusable row is skipped and counted rather than throwing', () => {
+  assert.ok('skipped' in buildCatalogRow({ ...exportRow, available_finishes: undefined }, 2, new Set()));
+  assert.ok('skipped' in buildCatalogRow({ ...exportRow, id: 'not-a-uuid' }, 3, new Set()));
+  assert.ok('skipped' in buildCatalogRow({ ...exportRow, set_code: '' }, 4, new Set()));
+  assert.ok('skipped' in buildCatalogRow({ ...exportRow, available_finishes: ['surge_foil_from_the_future'] }, 5, new Set()));
+  assert.ok('skipped' in buildCatalogRow({ ...exportRow, digital: true }, 6, new Set()));
+  // Found against the real Scryfall export while measuring this phase's build
+  // (99,703 real rows): Un-set joke cards ("_____", Unhinged/Unknown Event)
+  // have a name that is entirely punctuation, which normalizes to empty and
+  // would otherwise fail parseCatalog's bundle-wide check with no row number.
+  assert.ok('skipped' in buildCatalogRow({ ...exportRow, name: '_____' }, 7, new Set()));
+});
+
+test('a duplicate id within one build is skipped on its second occurrence, not silently overwritten', () => {
+  const seen = new Set<string>();
+  const first = buildCatalogRow(exportRow, 1, seen);
+  const second = buildCatalogRow(exportRow, 2, seen);
+  assert.ok(first && !('skipped' in first));
+  assert.ok(second && 'skipped' in second);
+});
+
+test('card_faces names become aliases, and there is no printed_name branch to feed them from', () => {
+  const printing = buildCatalogRow({
+    ...exportRow,
+    card_faces: [{ name: 'Front Face' }, { name: 'Back Face' }],
+  }, 1, new Set());
+  assert.ok(printing && !('skipped' in printing));
+  assert.deepEqual((printing as { aliases: string[] }).aliases, ['Front Face', 'Back Face']);
 });
 
 test('a second stale-source response is surfaced to the caller, not retried again', async () => {

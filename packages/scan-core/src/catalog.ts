@@ -20,7 +20,10 @@ export function parseCatalog(value: unknown): CatalogBundle {
       !Array.isArray(p.aliases) || p.aliases.some(a => typeof a !== 'string') ||
       !Array.isArray(p.finishes) || p.finishes.length === 0 || p.finishes.some(f => !FINISHES.includes(f)) ||
       typeof p.language !== 'string' || !p.language ||
-      (p.imageUri !== undefined && (typeof p.imageUri !== 'string' || !p.imageUri.startsWith('https://')))) throw new Error('Invalid printing in catalog');
+      (p.imageUri !== undefined && (typeof p.imageUri !== 'string' || !p.imageUri.startsWith('https://'))) ||
+      (p.setName !== undefined && typeof p.setName !== 'string') ||
+      (p.releasedAt !== undefined && typeof p.releasedAt !== 'string') ||
+      (p.rarity !== undefined && typeof p.rarity !== 'string')) throw new Error('Invalid printing in catalog');
     ids.add(p.id);
   }
   return b;
