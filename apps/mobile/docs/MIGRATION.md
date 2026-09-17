@@ -12,20 +12,48 @@ The separate `/Users/anthonytalpak/ProjectUpkeep` checkout is Next.js 16 + React
 
 The scanner returns `cards.id`, the Scryfall **printing** UUID. It never writes an `oracle_id` as a physical card's identity. Collection rows use `card_instances`, not `collection`. The “Unsorted” destination is `location_id: null`, not a specially named location row. Finish vocabulary includes `glossy` in addition to `nonfoil`, `foil`, and `etched`; conditions are `NM`, `LP`, `MP`, `HP`, `DMG`.
 
-## 1. Build a catalog from the existing sync
+## 1. Build and publish a catalog (mobile-app initiative phase 5, real pipeline)
 
-Export public card metadata from the existing trusted Upkeep sync job as JSON Lines, one printing per line. `scripts/export-catalog.sql` lists the fields. For a development database with an already configured connection:
+This section used to describe an aspirational `scripts/export-catalog.sql`
+that had never actually run against the real schema (`public.cards`'s primary
+key is `scryfall_id`, not `id`) and no publish step at all. Both now exist, at
+the repo root, next to `scripts/sync-scryfall.ts`:
 
 ```sh
-psql "$UPKEEP_DATABASE_URL" -At -f scripts/export-catalog.sql > /tmp/upkeep-cards.jsonl
-npm run catalog:build -- /tmp/upkeep-cards.jsonl /tmp/catalog-v1.json 2026-09-16
+# 1. Export public.cards over PostgREST with the anon key (cards already
+#    grants select to anon -- no elevated privilege needed to read it).
+npx tsx scripts/export-catalog.ts /tmp/upkeep-cards.jsonl
+
+# 2. Build the compact bundle. Bad rows are skipped and counted, not fatal.
+npm run catalog:build -w @upkeep/scan-core -- /tmp/upkeep-cards.jsonl /tmp/catalog-v1.json 2026-09-16
+
+# 3. Publish to a public Supabase Storage bucket (service-role key --
+#    the second legitimate reader of it in this codebase, alongside
+#    sync-scryfall.ts). Prints the published HTTPS URL.
+npx tsx scripts/publish-catalog.ts /tmp/catalog-v1.json
 ```
 
-Do not embed database URLs or server keys in mobile code. The command above is an instruction for the developer's existing export environment, not a requirement to give the scanner database credentials.
+The bucket step 3 uploads into must exist first. That is a **one-off, by-hand
+step** (`npx tsx scripts/create-catalog-bucket.ts`), not a migration —
+`npm run test:db` applies every migration to a throwaway Postgres with no
+`storage` schema at all, so a migration touching `storage.buckets` would
+break CI for a schema CI's Postgres container never has. Idempotent: safe to
+re-run against a project that already has the bucket.
+
+`.github/workflows/scryfall-sync.yml` now runs this three-step pipeline
+automatically after every Scryfall sync that actually upserted rows (an
+unchanged day skips the ~30MB re-publish).
+
+Do not embed database URLs or server keys in mobile code — none of the three
+scripts above are part of the Expo app; they run in CI or by hand against the
+developer's own `.env.local`.
 
 The builder validates exact printing IDs, vocabulary, duplicate IDs, version metadata, and a 40 MB size budget. It consumes a stream instead of parsing a giant Scryfall bulk array. It still builds the final compact bundle in memory. Filter to paper records and an initial supported language/catalog slice if the full export exceeds the budget. Cards with no oracle ID are excluded in this first phase; decide token support separately.
 
-Publish the resulting **public card metadata** JSON at an HTTPS URL through your existing hosting/storage pipeline. Include alternate printed names and face names in `card_faces` where available from the daily sync: the current database export only guarantees `flavor_name`. There is no automatic new server job installed by this workspace.
+`export-catalog.ts` selects `card_faces` (so double-faced card face names are
+usable as search aliases) and `set_name`/`released_at`/`rarity` (optional
+`Printing` fields the printing picker uses to show something more legible
+than a raw set code) alongside the fields the builder already consumed.
 
 ## 2. Configure a development backend
 

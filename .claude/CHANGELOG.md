@@ -366,3 +366,69 @@ deliberately does not build plain deck-list editing (per the approved plan).
   their existing non-atomic read-decide-write — this phase's asymmetry, per
   the approved plan; already documented in `.claude/rules/mobile.md` since
   phase 3a.
+
+## 2026-09-17 — Phase 5: a real catalog export/publish pipeline, printing-picker filter fix
+
+Architect impact map, owner-approved. The catalog pipeline described in
+`apps/mobile/docs/MIGRATION.md` had never actually run: the prototype
+`packages/scan-core/scripts/export-catalog.sql` selected a `public.cards.id`
+column that doesn't exist (the primary key is `scryfall_id`), and nothing
+published a bundle anywhere.
+
+- **Added** `scripts/export-catalog.ts` (repo root, alongside
+  `sync-scryfall.ts`) — pages `public.cards` over PostgREST with the anon
+  key, mapping `scryfall_id` to `id`, filtering tokens/emblems/art-series and
+  `memorabilia` sets, and adding `card_faces`/`set_name`/`released_at`/
+  `rarity` to the export. Deleted the unused `.sql` prototype.
+- **Added** `scripts/publish-catalog.ts` and the one-off
+  `scripts/create-catalog-bucket.ts` — uploads a built bundle to a public
+  Supabase Storage bucket with the service-role key. **This is the second
+  legitimate reader of `SUPABASE_SERVICE_ROLE_KEY` in the codebase**,
+  alongside `sync-scryfall.ts` — `.claude/rules/data-access.md`'s client
+  table now names both explicitly rather than saying "the only thing".
+  `create-catalog-bucket.ts` is a script, not a migration, because
+  `npm run test:db` applies migrations to a Postgres with no `storage`
+  schema.
+- **Rewrote** `packages/scan-core/scripts/build-catalog.ts`'s validation from
+  bundle-wide (one bad row threw and killed the whole build, with no line
+  number) to per-row: `buildCatalogRow`, extracted to a new
+  `packages/scan-core/src/build-row.ts` so it is unit-testable the same way
+  `src/lib/scryfall.ts`'s `toCardRow` is on the web side. Also removed a dead
+  `printed_name` branch — that column has never existed; `src/lib/scryfall.ts`
+  only ever writes `flavor_name`.
+- **Added** a genuine filter mode to `CardIndex.search`
+  (`packages/scan-core/src/catalog.ts`), distinct from the existing hints
+  parameter: a typed set-code/collector-number now excludes non-matching
+  printings, where an OCR-derived hint only re-ranks. Against the real
+  catalog, ranking-only search left a 100+-printing name (Lightning Bolt)
+  showing 50 results in a meaningless order with no way to reach the rest.
+  Added `CardIndex.searchWithTotal` (true match count before truncation) and
+  wired both into `apps/mobile/App.tsx`'s manual-search picker (new set-code
+  / collector-number fields, "N of M matched" wording).
+- **Added** `Printing.setName`/`releasedAt`/`rarity` as optional bundle
+  fields, still under `schemaVersion: 1` — additive, so an older cached
+  bundle stays valid.
+- `.github/workflows/scryfall-sync.yml` now runs export → build → publish
+  after a sync that actually upserted rows (`sync-scryfall.ts` now writes a
+  `$GITHUB_OUTPUT` signal for this), so an unchanged Scryfall day does not
+  trigger a ~30MB re-publish.
+- **Real measurement, not the architect's estimate**: exported and built
+  against the live database — 99,703 rows in, 99,701 printings out, 2 rows
+  skipped (Un-set joke cards named `_____`/`______`, whose name normalizes to
+  empty — found by running the real pipeline, then added as both a
+  per-row-skip reason and a regression test, not fixed silently). Bundle:
+  39,982,396 bytes raw, 8,912,320 bytes gzipped. **The raw bundle is 17.6 KB
+  under `build-catalog.ts`'s own 40MB hard cap** — worth flagging for the
+  owner, not fixed here (out of this phase's scope): the budget has very
+  little headroom left for the catalog's natural growth. Published for real
+  to the project's Storage bucket; the resulting URL is recorded in
+  `apps/mobile/.env` (gitignored, not this file) and `.env.example`'s
+  guidance was corrected to describe the real three-script pipeline instead
+  of a hand-picked filename.
+- `.claude/rules/mobile.md` gained a new "The catalog pipeline" section
+  describing all of the above and the hints-vs-filter distinction.
+
+Not verified: an actual on-device catalog load or scan, for lack of a
+simulator/device with a signed-in session in this environment — typecheck,
+unit tests (scan-core, root), and the real export/build/publish run against
+production data are what this phase's evidence rests on.

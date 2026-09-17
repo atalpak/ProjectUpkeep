@@ -11,6 +11,16 @@
 #
 # Setup: add NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as repository
 # secrets (Settings -> Secrets and variables -> Actions).
+# NEXT_PUBLIC_SUPABASE_ANON_KEY is a public value (safe in client bundles
+# already), added as a plain repository variable rather than a secret, and
+# used by the mobile-catalog steps below to read `public.cards` with no
+# elevated privilege.
+#
+# Mobile catalog (added mobile-app initiative phase 5): export -> build ->
+# publish only runs when this run's own sync actually upserted rows — see
+# sync-scryfall.ts's $GITHUB_OUTPUT write. Scryfall's export usually does not
+# change day to day, and the mobile catalog is a ~30MB Storage upload; there
+# is no reason to redo it on an unchanged day.
 
 name: Scryfall sync
 
@@ -50,8 +60,33 @@ jobs:
       - run: npm ci
 
       - name: Run sync
+        id: sync
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SCRYFALL_CONTACT: "project-upkeep (+https://github.com/${{ github.repository }})"
         run: npm run sync:scryfall ${{ inputs.force && '-- --force' || '' }}
+
+      # Mobile catalog: export -> build -> publish, gated on the sync above
+      # having actually upserted something (see the module comment). A
+      # `secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY` repository variable is the
+      # same value already compiled into the web app's client bundle and
+      # `apps/mobile`'s own build — see NEXT_PUBLIC_SUPABASE_ANON_KEY in
+      # .env.example.
+      - name: Export catalog
+        if: steps.sync.outputs.upserted == 'true'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: npx tsx scripts/export-catalog.ts /tmp/catalog-cards.jsonl
+
+      - name: Build catalog
+        if: steps.sync.outputs.upserted == 'true'
+        run: npm run catalog:build -w @upkeep/scan-core -- /tmp/catalog-cards.jsonl /tmp/catalog-v1.json "$(date -u +%Y-%m-%dT%H%M%SZ)"
+
+      - name: Publish catalog
+        if: steps.sync.outputs.upserted == 'true'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/publish-catalog.ts /tmp/catalog-v1.json

@@ -23,7 +23,7 @@ packages/scan-core/      Pure TS: catalog parsing/search, scan pipeline, draft
                         validation, the collection writer. No RN/Expo imports —
                         this is what makes it unit-testable with node's test
                         runner, the same shape `src/lib/**` uses on the web side.
-  scripts/               build-catalog.ts, benchmark.ts, export-catalog.sql,
+  scripts/               build-catalog.ts, benchmark.ts,
                         patch-native-toolchain.cjs — catalog tooling and the
                         RN/Gradle compatibility patch. Deliberately separate
                         from the repo's root scripts/, which is `src/lib/**`'s
@@ -59,6 +59,76 @@ packages/upkeep-vision/  Native module boundary: Swift (iOS) / Kotlin (Android)
 - `apps/mobile`'s `postinstall` patches an RN/Gradle compatibility issue and is
   scoped to that workspace's own `package.json` for exactly this reason: it
   must never be able to fail a web-only `npm ci` at the repo root.
+
+## The catalog pipeline (mobile-app initiative phase 5)
+
+The offline catalog the scanner searches against is built and published in
+three steps, none of which lived at the repo root before this phase — the
+previous `packages/scan-core/scripts/export-catalog.sql` had never actually
+run against the real schema (`public.cards`'s primary key is `scryfall_id`,
+not `id`) and nothing published a bundle anywhere.
+
+1. **`scripts/export-catalog.ts`** (repo root, alongside `sync-scryfall.ts` —
+   see that file's header and `.claude/rules/data-access.md` for why it lives
+   there). Pages through `public.cards` over PostgREST with the **anon key**
+   — `cards` already grants `select` to `anon` — and writes JSONL. Filters out
+   `digital` rows, rows with no `oracle_id`, token/emblem/art-series layouts,
+   and `memorabilia`-typed sets: none of those are something a user
+   scans/sleeves. `card_faces`, `set_name`, `released_at` and `rarity` are
+   selected too, for face-name aliases and the printing picker's display.
+2. **`npm run catalog:build -w @upkeep/scan-core`**
+   (`packages/scan-core/scripts/build-catalog.ts`). Maps that JSONL into a
+   `CatalogBundle`. A bad row (an edge case real Scryfall data has and the
+   old synthetic 3-card demo never did — Un-set cards, an empty
+   `available_finishes`, an odd set code) is skipped and counted, not thrown
+   on — the mapping itself (`buildCatalogRow`) lives in
+   `packages/scan-core/src/build-row.ts`, tested the same way
+   `src/lib/scryfall.ts`'s `toCardRow` is tested on the web side: pure
+   function, no file or network needed to exercise it.
+3. **`scripts/publish-catalog.ts`** (repo root). Uploads the built bundle to a
+   public Supabase Storage bucket with the **service-role key** — this is the
+   second legitimate reader of `SUPABASE_SERVICE_ROLE_KEY` in the codebase,
+   alongside `sync-scryfall.ts`; see `.claude/rules/data-access.md`. Publishes
+   to a content-addressed, versioned path (`v1/catalog-<sha256 prefix>.json`),
+   never overwriting a fixed filename, so `EXPO_PUBLIC_CATALOG_URL` always
+   names a specific build. The bucket itself is created once, by hand, via
+   `scripts/create-catalog-bucket.ts` — a script, not a migration, because
+   `npm run test:db` applies migrations to a Postgres with no `storage`
+   schema at all.
+
+`.github/workflows/scryfall-sync.yml` runs export → build → publish after
+`sync:scryfall`, gated on that run having actually upserted something (an
+unchanged day skips a ~30MB re-publish for nothing) — see the sync script's
+`$GITHUB_OUTPUT` write and the workflow's own header comment.
+
+### Printing-picker search: hints vs. a filter
+
+`CardIndex.search` (`packages/scan-core/src/catalog.ts`) takes two different
+kinds of set-code/collector-number input, and they behave differently on
+purpose:
+
+- **`hints`** (second parameter) only re-rank a candidate to
+  `evidence: 'printing'`; they never exclude. This is what OCR output feeds
+  in (`printingHints`, via `ScanPipeline`) — OCR misreads a set code often
+  enough that hard-excluding on it would silently drop the correct card.
+- **`filter`** (third parameter) actually excludes non-matching printings.
+  This is what a person typing into the manual-search picker feeds in
+  (`apps/mobile/App.tsx`'s set-code/collector-number fields) — against a
+  catalog where a name like "Lightning Bolt" has 100+ printings, ranking
+  alone left `search` silently showing 50 of them with no way to reach the
+  rest.
+
+`CardIndex.searchWithTotal` returns `{ results, total }` — `total` is the
+match count *before* truncation to `limit`, which is what lets the picker say
+"50 of 118 matched" instead of a capped list with no indication more exist.
+Both entry points share one private ranking pass (`CardIndex`'s `rank`
+method); `search` is a thin slice of it kept for callers (`ScanPipeline`) that
+only need the page, not the count.
+
+`Printing.setName`/`releasedAt`/`rarity` are optional additions to the bundle
+schema, still under `schemaVersion: 1` — an older cached bundle without them
+stays valid, and the app falls back to a raw set code when `setName` is
+absent.
 
 ## What IS shared with the web app now, and what changed
 

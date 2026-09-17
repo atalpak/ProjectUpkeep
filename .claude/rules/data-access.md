@@ -18,11 +18,22 @@ description: Which Supabase client to use, and why own-collection queries must f
 | `supabase/session.ts` | signed-in user | `src/proxy.ts` only — refreshes the cookie |
 
 Every client available under `src/` runs as the signed-in user. **There is no
-RLS-bypassing client in the web app, and adding one is not on the table.** The
-only thing in this codebase that bypasses RLS is the Scryfall sync job, which
-builds its own service-role client inline in `scripts/sync-scryfall.ts` — outside
-the Next build, so it cannot reach a browser bundle — and writes only to `cards`
-and `scryfall_sync_runs`.
+RLS-bypassing client in the web app, and adding one is not on the table.** Two
+things in this codebase bypass RLS, both under the repo-root `scripts/`
+directory (outside the Next build, so neither can reach a browser bundle),
+each building its own service-role client inline rather than importing a
+shared admin client:
+
+- `scripts/sync-scryfall.ts`, the Scryfall sync job, writes only to `cards`
+  and `scryfall_sync_runs`.
+- `scripts/publish-catalog.ts` (mobile-app initiative phase 5) uploads a
+  built mobile catalog bundle to a public Supabase Storage bucket.
+  `scripts/create-catalog-bucket.ts`, the one-off script that creates that
+  bucket, is the same pattern for the same reason — see its own header for
+  why it is a script and not a migration. `scripts/export-catalog.ts`, which
+  reads the input for the catalog build, is deliberately **not** on this
+  list: `cards` already grants `select` to `anon` (migration 3), so it reads
+  with `NEXT_PUBLIC_SUPABASE_ANON_KEY`, not the service-role key.
 
 A `supabase/admin.ts` used to sit in this table, described as protected by a
 `server-only` import. It had no importers and could not have had any: the

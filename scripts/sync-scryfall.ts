@@ -15,6 +15,11 @@
  *     batches.
  *   - Observable. Every run writes a row to public.scryfall_sync_runs with its
  *     status, row count, and any error.
+ *   - Reports whether it actually upserted anything via $GITHUB_OUTPUT
+ *     (upserted=true|false), when running under Actions. Added so the
+ *     publish-a-mobile-catalog step in scryfall-sync.yml can skip a ~30MB
+ *     re-publish on a day the upstream export did not change — see that
+ *     workflow for the consumer.
  *
  * Usage:
  *   npm run sync:scryfall
@@ -22,6 +27,7 @@
  *   npm run sync:scryfall -- --limit 5000   # for a quick smoke test
  */
 
+import { appendFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { createGunzip } from "node:zlib";
 
@@ -73,6 +79,17 @@ function log(message: string) {
   console.log(`[scryfall-sync] ${new Date().toISOString()} ${message}`);
 }
 
+/**
+ * Writes a GitHub Actions step output. A silent no-op outside Actions (local
+ * runs never set $GITHUB_OUTPUT), so this needs no environment gate at every
+ * call site.
+ */
+async function setActionsOutput(name: string, value: string) {
+  const file = process.env.GITHUB_OUTPUT;
+  if (!file) return;
+  await appendFile(file, `${name}=${value}\n`);
+}
+
 async function main() {
   const { force, limit } = parseArgs(process.argv.slice(2));
 
@@ -88,8 +105,10 @@ async function main() {
     throw new Error("SCRYFALL_BATCH_SIZE must be a positive integer");
   }
 
-  // Service role: `cards` is deliberately unwritable by any end user, so the
-  // sync is the one thing in the system that bypasses RLS.
+  // Service role: `cards` is deliberately unwritable by any end user. This is
+  // one of two scripts in the system that bypass RLS this way — see
+  // scripts/publish-catalog.ts and .claude/rules/data-access.md for the
+  // other, added in the mobile-app initiative's phase 5.
   const db = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -148,6 +167,7 @@ async function main() {
       status: "skipped",
       finished_at: new Date().toISOString(),
     });
+    await setActionsOutput("upserted", "false");
     return;
   }
 
@@ -241,6 +261,7 @@ async function main() {
           : "") +
         (writer.retries() > 0 ? `, ${writer.retries()} write(s) retried` : ""),
     );
+    await setActionsOutput("upserted", "true");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // Record the failure before rethrowing, so a scheduled run that dies leaves
