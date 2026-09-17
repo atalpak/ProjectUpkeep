@@ -308,3 +308,61 @@ under two independent writers.
   (`npm ci --workspace=packages/upkeep-domain --include-workspace-root=true`)
   since the web app imports it directly, while still skipping the Expo/RN
   workspaces; the `mobile` job typechecks and tests it like `scan-core`.
+
+## 2026-09-17 — Phase 4b/4c: atomic stack moves, sleeve/unsleeve on mobile
+
+Architect impact map, owner-approved. Sleeving a card into a deck or back out
+is a MOVE, not an addition (phase 3a's shape): an existing `card_instances`
+row changes location, and the total owned must never change. Builds the
+atomic move function this needs and the mobile screens that use it, and
+deliberately does not build plain deck-list editing (per the approved plan).
+
+- **Added** `supabase/migrations/00000000000037_deck_list_follows_quantity_changes.sql`:
+  a missing `AFTER UPDATE OF quantity` trigger on `card_instances`, wired to
+  migration 20's existing `list_card_when_filed_in_deck()` unmodified (read
+  and confirmed monotone-up/total-comparing first). Migration 16's trigger
+  only ever fired on insert or a location change, so a quantity-only sleeve
+  into an already-sleeved stack — exactly what the merge branch below
+  produces — silently under-counted `deck_cards`.
+- **Added** `supabase/migrations/00000000000038_atomic_stack_move.sql`:
+  `public.apply_stack_move` (`security invoker`), migration 36's sibling for
+  a move rather than an addition — locks and re-verifies the source row,
+  decrements or deletes it, then applies migration 36's insert-or-merge shape
+  at the destination, all off the source row's own stack attributes (never a
+  client-supplied copy of them). Widened `collection_write_ops.kind`'s check
+  constraint to add `'stack_move'`.
+- Six new schema-test sections (17: the migration-37 trigger gap, two-printing
+  case; 18: apply_stack_move's conservation, decoupling, idempotency,
+  stale-source and cross-user refusal). Each new assertion was watched to fail
+  before being restored — conservation by stubbing the source decrement,
+  idempotency by disabling the ledger check, stale-source refusal by removing
+  its quantity guard, the trigger gap by dropping the new trigger. The
+  cross-user owner predicates on the move's source lock and destination merge
+  lookup turned out to be redundant with RLS today, the same finding phase 3a
+  recorded for `apply_stack_addition` and for the same reason (a locking
+  `SELECT ... FOR UPDATE` is filtered by the table's UPDATE policy, not just
+  its SELECT policy) — both predicates stay anyway, per that same precedent.
+- **Added** `packages/scan-core/src/move.ts` (`createMoveWriter`,
+  `MoveStore`, `isStaleSourceError`, `isStaleDestinationTargetError`) —
+  reuses `decideStacking` unchanged for the destination decision, and adds a
+  deliberately asymmetric retry: a stale destination target is re-decided and
+  retried once (mirroring `writer.ts`), a stale source has nothing to
+  re-decide and is retried once identically, then surfaced.
+- **Added** sleeve/unsleeve UI to `apps/mobile/App.tsx`'s `DeckDetailScreen`
+  (a new `SleevePicker` sub-component) and two new queries to
+  `apps/mobile/src/decks.ts` (`fetchSpareStacks`, `fetchSleevedStacks`) —
+  each move is one explicit tap on one candidate stack, not an automatic
+  multi-source fill, since one `apply_stack_move` call only ever moves one
+  source row. Reuses phase 1's persist-before-write shape (a pending move is
+  written to SecureStore before the call, cleared on success, recovered via
+  an explicit retry banner on the next load) rather than inventing a second
+  recovery pattern.
+- `.claude/rules/mobile.md` updated to describe both of the above, and to
+  say explicitly that plain deck-list editing (add/remove without a physical
+  sleeve/unsleeve) is still deferred — the web app's `addDeckCard` /
+  `removeDeckCard` / `setDeckCardQuantity` remain the only way to do that.
+- Web's `sleeveCopies`/`unsleeveCopies`
+  (`src/app/(app)/decks/actions.ts`) were deliberately left untouched, on
+  their existing non-atomic read-decide-write — this phase's asymmetry, per
+  the approved plan; already documented in `.claude/rules/mobile.md` since
+  phase 3a.

@@ -1659,6 +1659,459 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 17. The deck-list trigger also fires on a plain quantity change (migration
+--     37), not just insert or a location move.
+--
+-- Fresh fixtures, isolated from every section above. Mirrors section 12's
+-- two-printings setup (14 of one Forest art, 6 of another) because that is
+-- the shape that told migration 19's broken rule apart from migration 20's
+-- fix -- a single-entry case gives the same answer either way and proves
+-- nothing here either.
+--
+-- Falsified by temporarily dropping card_instances_list_in_deck_on_quantity_
+-- change and confirming the total wrongly stays at 20 -- see this migration's
+-- own do-block comment below for how that was checked.
+-- --------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('d0000000-0000-0000-0000-000000000001', 'walt@example.com', '{"username":"walt"}');
+
+insert into public.locations (id, user_id, name, type) values
+  ('d1000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001',
+   'Walt Two-Art Bolts', 'deck');
+
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('d1000000-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 14),
+  ('d1000000-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 6);
+
+insert into public.card_instances (id, owner_user_id, card_id, location_id, condition, finish, language, quantity)
+values
+  ('d2000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'd1000000-0000-0000-0000-000000000001',
+   'NM', 'nonfoil', 'en', 14),
+  ('d2000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'd1000000-0000-0000-0000-000000000001',
+   'NM', 'nonfoil', 'en', 6);
+
+do $$
+declare total int; lea_qty int; m10_qty int;
+begin
+  -- Sanity: the fixture above sleeved exactly what the list already asked
+  -- for, so nothing should have inflated yet (this is section 12's own
+  -- assertion, repeated here only as a precondition for what follows).
+  select coalesce(sum(quantity), 0) into total from public.deck_cards
+   where deck_id = 'd1000000-0000-0000-0000-000000000001';
+  assert total = 20, 'fixture precondition: list should start at 20, got ' || total;
+
+  -- The case migration 16/19's triggers could never see: a pure quantity
+  -- increment on a row that is already sitting in the deck -- no insert, no
+  -- location_id change. This is exactly what apply_stack_move's merge branch
+  -- does when sleeving into an already-sleeved stack.
+  update public.card_instances
+     set quantity = quantity + 1
+   where id = 'd2000000-0000-0000-0000-000000000001';
+
+  select coalesce(sum(quantity), 0) into total from public.deck_cards
+   where deck_id = 'd1000000-0000-0000-0000-000000000001';
+  assert total = 21,
+    'a quantity-only sleeve must still grow the list -- this is the gap migration 37 closes '
+    || '(got ' || total || ')';
+
+  select quantity into lea_qty from public.deck_cards
+   where deck_id = 'd1000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into m10_qty from public.deck_cards
+   where deck_id = 'd1000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+
+  assert lea_qty = 15, 'the shortfall belongs to the entry naming the exact printing sleeved (got ' || lea_qty || ')';
+  assert m10_qty = 6,  'the other printing''s entry must not move (got ' || m10_qty || ')';
+end $$;
+
+-- This was run once by hand with the new trigger dropped, to confirm the
+-- assertion above actually discriminates (per this project's standard: a
+-- green run without having watched the covering case fail first is not
+-- evidence). With
+--   drop trigger card_instances_list_in_deck_on_quantity_change on public.card_instances;
+-- run just before the do-block above, the list total assertion fails with
+-- "got 20" instead of raising cleanly for an unrelated reason -- confirming
+-- this section only passes because the new trigger exists, not by accident.
+
+-- --------------------------------------------------------------------------
+-- 18. apply_stack_move() (migration 38): atomic, idempotent, conservative
+--     stack moves.
+--
+-- Fresh fixtures, isolated from every section above for the same reason
+-- section 14 gives.
+-- --------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('f0000000-0000-0000-0000-000000000001', 'xena@example.com', '{"username":"xena"}'),
+  ('f0000000-0000-0000-0000-000000000002', 'yara@example.com', '{"username":"yara"}');
+
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('f0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000002', 'accepted');
+
+insert into public.locations (id, user_id, name, type, is_tradable) values
+  ('f1000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'Xena Box', 'box', false),
+  ('f1000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000001', 'Xena Deck', 'deck', false),
+  ('f1000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000001', 'Xena Tradable Binder', 'binder', true),
+  ('f1000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000002', 'Yara Box', 'box', false);
+
+-- instance 1: the move source, a spare stack in a plain box.
+-- instance 2: an identical stack already sleeved in the deck -- the merge
+--             target a decided move will land on.
+-- instance 3: sits in xena's tradable binder, so migration 9 makes it
+--             genuinely readable by yara (an accepted friend) -- the cross-
+--             user case below needs a row that is readable but must still be
+--             unmovable by anyone but its owner.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('f2000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000001',
+   'NM', 'nonfoil', 'en', 5),
+  ('f2000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000002',
+   'NM', 'nonfoil', 'en', 3),
+  ('f2000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'f1000000-0000-0000-0000-000000000003',
+   'NM', 'nonfoil', 'en', 4);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'f0000000-0000-0000-0000-000000000001'; -- xena
+
+do $$
+declare
+  r_result    record;
+  v_total     int;
+  v_owner1    uuid; v_location1 uuid; v_qty1 int;
+  v_owner2    uuid; v_location2 uuid; v_qty2 int;
+  v_history   int;
+begin
+  -- Conservation, checked before any move: 5 + 3 = 8 copies of this printing,
+  -- owned by xena, across every location.
+  select coalesce(sum(quantity), 0) into v_total from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  assert v_total = 8, 'fixture precondition: 8 total copies expected, got ' || v_total;
+
+  -- (1) A decided merge: move 2 from the box (instance 1) into the deck's
+  -- already-sleeved stack (instance 2). Additive, not an overwrite: 3 + 2 = 5.
+  select * into r_result from public.apply_stack_move(
+    'f4000000-0000-0000-0000-000000000001'::uuid,
+    'f2000000-0000-0000-0000-000000000001'::uuid, -- source
+    2,
+    'f1000000-0000-0000-0000-000000000002'::uuid, -- destination: the deck
+    'f2000000-0000-0000-0000-000000000002'::uuid  -- decided merge target
+  );
+  assert r_result.result_quantity = 5 and r_result.replayed = false,
+    'merge branch should land the destination at 3+2=5, got quantity ' ||
+    r_result.result_quantity || ', replayed ' || r_result.replayed::text;
+
+  -- Conservation across the move: the total across all of xena's locations
+  -- for this printing must be exactly what it was before -- 8, not 10 (the
+  -- shortfall this whole function exists to prevent) and not 6 (a lost
+  -- decrement would be just as bad the other way).
+  select coalesce(sum(quantity), 0) into v_total from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  assert v_total = 8, 'a move must conserve the total copies owned, got ' || v_total;
+
+  -- Ownership and location stay decoupled (hard constraint 6, restated for
+  -- this write path): both touched rows kept their own owner_user_id, and
+  -- each row's location_id is exactly the box/deck it was already in or
+  -- moved to -- nothing about ownership changed on either side of a move.
+  select owner_user_id, location_id, quantity into v_owner1, v_location1, v_qty1
+    from public.card_instances where id = 'f2000000-0000-0000-0000-000000000001';
+  select owner_user_id, location_id, quantity into v_owner2, v_location2, v_qty2
+    from public.card_instances where id = 'f2000000-0000-0000-0000-000000000002';
+  assert v_owner1 = 'f0000000-0000-0000-0000-000000000001' and v_location1 = 'f1000000-0000-0000-0000-000000000001' and v_qty1 = 3,
+    'the source must keep its own owner and location, only lose quantity, got owner ' || v_owner1 || ' location ' || v_location1 || ' qty ' || v_qty1;
+  assert v_owner2 = 'f0000000-0000-0000-0000-000000000001' and v_location2 = 'f1000000-0000-0000-0000-000000000002' and v_qty2 = 5,
+    'the destination must keep its own owner and location, only gain quantity, got owner ' || v_owner2 || ' location ' || v_location2 || ' qty ' || v_qty2;
+
+  -- A move is not a trade: no ownership_history row exists for either row --
+  -- hard constraint 7's audit log only ever records an owner_user_id change,
+  -- and neither row's owner changed.
+  select count(*) into v_history from public.ownership_history
+   where card_instance_id in ('f2000000-0000-0000-0000-000000000001', 'f2000000-0000-0000-0000-000000000002');
+  assert v_history = 0, 'a move must never write to ownership_history, saw ' || v_history || ' rows';
+
+  -- (2) Idempotent replay: the identical call again returns the recorded
+  -- result rather than moving anything a second time. Conservation still
+  -- holds -- if this silently re-applied, the total would rise to 10.
+  select * into r_result from public.apply_stack_move(
+    'f4000000-0000-0000-0000-000000000001'::uuid,
+    'f2000000-0000-0000-0000-000000000001'::uuid,
+    2,
+    'f1000000-0000-0000-0000-000000000002'::uuid,
+    'f2000000-0000-0000-0000-000000000002'::uuid
+  );
+  assert r_result.result_quantity = 5 and r_result.replayed = true,
+    'a replay of the same operation id and payload must return the recorded result, got quantity ' ||
+    r_result.result_quantity || ', replayed ' || r_result.replayed::text;
+
+  select coalesce(sum(quantity), 0) into v_total from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  assert v_total = 8, 'a replay must not move anything a second time, got total ' || v_total;
+
+  -- (3) A replay with a different payload (here, a different quantity) under
+  -- the same operation id is rejected outright, not silently re-applied with
+  -- the new details.
+  begin
+    perform public.apply_stack_move(
+      'f4000000-0000-0000-0000-000000000001'::uuid,
+      'f2000000-0000-0000-0000-000000000001'::uuid,
+      1,
+      'f1000000-0000-0000-0000-000000000002'::uuid,
+      'f2000000-0000-0000-0000-000000000002'::uuid
+    );
+    assert false, 'a replay with a different payload must be rejected';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- (4) Stale source refused: the source row changes (here, its quantity
+  -- drops below what is about to be requested) between the decision and the
+  -- call. The function must raise and move nothing -- not move a partial
+  -- amount, not treat it as a fresh smaller stack.
+  update public.card_instances set quantity = 1
+   where id = 'f2000000-0000-0000-0000-000000000001';
+
+  begin
+    perform public.apply_stack_move(
+      'f4000000-0000-0000-0000-000000000002'::uuid,
+      'f2000000-0000-0000-0000-000000000001'::uuid, -- stale: only 1 left, 2 requested
+      2,
+      'f1000000-0000-0000-0000-000000000002'::uuid,
+      'f2000000-0000-0000-0000-000000000002'::uuid
+    );
+    assert false, 'a stale source (insufficient quantity since the decision) must be refused';
+  exception when no_data_found then null;
+  end;
+
+  select quantity into v_qty1 from public.card_instances where id = 'f2000000-0000-0000-0000-000000000001';
+  select quantity into v_qty2 from public.card_instances where id = 'f2000000-0000-0000-0000-000000000002';
+  assert v_qty1 = 1 and v_qty2 = 5,
+    'a refused stale-source call must leave both rows untouched, saw source ' || v_qty1 || ' destination ' || v_qty2;
+end $$;
+
+reset role;
+
+-- (5) Cross-user refusal, including the case migration 9 makes genuinely
+-- readable: yara is xena's accepted friend, and instance 3 sits in a location
+-- xena marked tradable, so yara can SELECT it via migration 9's policy -- but
+-- apply_stack_move's owner_user_id = auth.uid() predicates, on both the
+-- source lock and the destination merge lookup, must still refuse to move it
+-- or merge into it. This is the same "readable through RLS is not the same as
+-- yours to write" case hard constraint 3 exists to catch, restated for a move.
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'f0000000-0000-0000-0000-000000000002'; -- yara
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('f2000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000002',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'f1000000-0000-0000-0000-000000000004',
+   'NM', 'nonfoil', 'en', 2);
+
+do $$
+declare visible int;
+begin
+  select count(*) into visible from public.card_instances
+   where id = 'f2000000-0000-0000-0000-000000000003';
+  assert visible = 1,
+    'yara should be able to read xena''s tradable-binder instance via migration 9''s policy, saw ' || visible;
+
+  -- 5a: yara tries to use xena's (readable) instance as the SOURCE of a move.
+  begin
+    perform public.apply_stack_move(
+      'f4000000-0000-0000-0000-000000000003'::uuid,
+      'f2000000-0000-0000-0000-000000000003'::uuid, -- xena's row, merely readable to yara
+      1,
+      'f1000000-0000-0000-0000-000000000004'::uuid, -- yara's own box
+      null
+    );
+    assert false, 'a caller must not be able to move another owner''s instance, even one they can read';
+  exception when no_data_found then null;
+  end;
+
+  -- 5b: yara tries to merge her own card into xena's (readable) instance as
+  -- the decided DESTINATION target.
+  begin
+    perform public.apply_stack_move(
+      'f4000000-0000-0000-0000-000000000004'::uuid,
+      'f2000000-0000-0000-0000-000000000004'::uuid, -- yara's own row
+      1,
+      'f1000000-0000-0000-0000-000000000003'::uuid, -- xena's tradable binder
+      'f2000000-0000-0000-0000-000000000003'::uuid  -- xena's row as the merge target
+    );
+    assert false, 'a caller must not be able to merge into another owner''s instance, even one they can read';
+  exception when no_data_found then null;
+  end;
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'f0000000-0000-0000-0000-000000000001'; -- xena
+
+do $$
+declare v_qty int; v_owner uuid;
+begin
+  select quantity, owner_user_id into v_qty, v_owner from public.card_instances
+   where id = 'f2000000-0000-0000-0000-000000000003';
+  assert v_qty = 4 and v_owner = 'f0000000-0000-0000-0000-000000000001',
+    'a cross-user attempt must leave the target row completely untouched, saw quantity ' || v_qty;
+end $$;
+
+-- (6) The insert branch (no decided merge target) was, until now, never
+-- exercised against a real database -- every case above passes a non-null
+-- p_destination_target_instance_id. Confirmed to matter, not just theoretical:
+-- temporarily changing the insert's VALUES clause to `p_quantity + 1` (a
+-- conservation bug that manufactures one extra copy on every fresh-destination
+-- move) left the suite fully green before this case existed. This is a fresh
+-- location holding no matching stack, so the destination side must insert
+-- rather than merge -- and the assertion that would have caught the injected
+-- bug is the before/after total, not either row's quantity in isolation.
+insert into public.locations (id, user_id, name, type, is_tradable) values
+  ('f1000000-0000-0000-0000-000000000005', 'f0000000-0000-0000-0000-000000000001', 'Xena Empty Binder', 'binder', false);
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity, notes) values
+  ('f2000000-0000-0000-0000-000000000005', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000001',
+   'LP', 'nonfoil', 'en', 3, 'signed by artist');
+
+do $$
+declare
+  r_result     record;
+  v_total_before int;
+  v_total_after  int;
+  v_source_qty   int;
+  v_new_owner    uuid;
+  v_new_location uuid;
+  v_new_cond     text;
+  v_new_finish   text;
+  v_new_lang     text;
+  v_new_notes    text;
+begin
+  select coalesce(sum(quantity), 0) into v_total_before from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003';
+  assert v_total_before = 3, 'fixture precondition: 3 copies expected before the insert-branch move, got ' || v_total_before;
+
+  -- Partial move to a location with nothing already there: the destination
+  -- target is null, so this exercises both halves at once -- the source
+  -- decrements (it keeps 1) and the destination is a fresh insert (it gets 2).
+  select * into r_result from public.apply_stack_move(
+    'f4000000-0000-0000-0000-000000000005'::uuid,
+    'f2000000-0000-0000-0000-000000000005'::uuid, -- source
+    2,
+    'f1000000-0000-0000-0000-000000000005'::uuid, -- destination: the empty binder
+    null                                            -- no existing matching stack there
+  );
+  assert r_result.result_quantity = 2 and r_result.replayed = false,
+    'insert branch should create a fresh row holding the moved quantity, got quantity ' ||
+    r_result.result_quantity || ', replayed ' || r_result.replayed::text;
+
+  -- This is the assertion reviewer's injected +1 bug could not survive: total
+  -- copies of this printing, owned by xena, must be exactly what they were
+  -- before the move -- 3, not 4.
+  select coalesce(sum(quantity), 0) into v_total_after from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003';
+  assert v_total_after = v_total_before,
+    'a fresh-destination move must conserve the total copies owned, had ' || v_total_before || ', now ' || v_total_after;
+
+  select quantity into v_source_qty from public.card_instances
+   where id = 'f2000000-0000-0000-0000-000000000005';
+  assert v_source_qty = 1, 'the source must keep the un-moved remainder, saw ' || v_source_qty;
+
+  -- The insert branch must carry over the source row's stack attributes and
+  -- notes verbatim, not just its quantity.
+  select owner_user_id, location_id, condition, finish, language, notes
+    into v_new_owner, v_new_location, v_new_cond, v_new_finish, v_new_lang, v_new_notes
+    from public.card_instances where id = r_result.result_instance_id;
+  assert v_new_owner = 'f0000000-0000-0000-0000-000000000001'
+     and v_new_location = 'f1000000-0000-0000-0000-000000000005'
+     and v_new_cond = 'LP' and v_new_finish = 'nonfoil' and v_new_lang = 'en'
+     and v_new_notes = 'signed by artist',
+    'the inserted row must carry over the source''s owner, destination, condition, finish, language and notes, saw owner ' ||
+    v_new_owner || ' location ' || v_new_location || ' condition ' || v_new_cond || ' finish ' || v_new_finish ||
+    ' language ' || v_new_lang || ' notes ' || coalesce(v_new_notes, '<null>');
+end $$;
+
+-- (7) A stale DESTINATION target: the decided merge target's stack key
+-- changes (here, its condition) between the decision and the call, the same
+-- way test (4) above stales the source. Confirmed to matter, not just
+-- theoretical: temporarily removing the destination re-verification `perform
+-- ... for update` block left the suite fully green, because the later
+-- `update ... where id = p_destination_target_instance_id and owner_user_id =
+-- v_uid` only ever catches a different *owner*, not a changed stack key --
+-- it would have silently merged into a row that no longer matches what was
+-- decided.
+insert into public.locations (id, user_id, name, type, is_tradable) values
+  ('f1000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000001', 'Xena Merge Box', 'box', false);
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('f2000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000001',
+   'NM', 'nonfoil', 'en', 5),
+  ('f2000000-0000-0000-0000-000000000007', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'f1000000-0000-0000-0000-000000000006',
+   'NM', 'nonfoil', 'en', 2);
+
+do $$
+declare
+  v_total_before int;
+  v_total_after  int;
+  v_source_qty   int;
+  v_dest_qty     int;
+  v_dest_cond    text;
+begin
+  select coalesce(sum(quantity), 0) into v_total_before from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+  -- The decision was made when this row's condition was still 'NM', matching
+  -- the source. Simulate an edit landing between the decision and the call --
+  -- the same row id, now a different stack key.
+  update public.card_instances set condition = 'LP'
+   where id = 'f2000000-0000-0000-0000-000000000007';
+
+  begin
+    perform public.apply_stack_move(
+      'f4000000-0000-0000-0000-000000000006'::uuid,
+      'f2000000-0000-0000-0000-000000000006'::uuid, -- source
+      3,
+      'f1000000-0000-0000-0000-000000000006'::uuid, -- destination location
+      'f2000000-0000-0000-0000-000000000007'::uuid  -- decided target, now stale
+    );
+    assert false, 'a stale destination target (stack key changed since the decision) must be refused';
+  exception when no_data_found then null;
+  end;
+
+  -- The refusal must be transactional: the source must not have been
+  -- decremented before the (failed) merge was attempted, and the destination
+  -- must not have been merged into.
+  select quantity into v_source_qty from public.card_instances
+   where id = 'f2000000-0000-0000-0000-000000000006';
+  select quantity, condition into v_dest_qty, v_dest_cond from public.card_instances
+   where id = 'f2000000-0000-0000-0000-000000000007';
+  assert v_source_qty = 5, 'a refused stale-destination call must leave the source untouched, saw ' || v_source_qty;
+  assert v_dest_qty = 2 and v_dest_cond = 'LP',
+    'a refused stale-destination call must leave the destination exactly as the concurrent edit left it, saw quantity ' ||
+    v_dest_qty || ' condition ' || v_dest_cond;
+
+  select coalesce(sum(quantity), 0) into v_total_after from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  assert v_total_after = v_total_before,
+    'a refused stale-destination call must conserve the total copies owned, had ' || v_total_before || ', now ' || v_total_after;
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

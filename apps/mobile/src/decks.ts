@@ -117,6 +117,13 @@ export type DeckCardEntry = {
   rarity: string;
   /** How many of `quantity` are physically sleeved into this deck, capped at quantity. */
   sleeved: number;
+  /**
+   * Carried through so the sleeve/unsleeve pickers (fetchSpareStacks /
+   * fetchSleevedStacks) can group by the same "any printing of this card"
+   * key cardKey() uses above, rather than the one printing this line happens
+   * to name.
+   */
+  oracleId: string | null;
 };
 
 type RawDeckCardRow = {
@@ -221,6 +228,7 @@ export async function fetchDeckCards(userId: string, deckId: string): Promise<De
       imageUriSmall: card?.image_uri_small ?? null,
       rarity: card?.rarity ?? '',
       sleeved,
+      oracleId: card?.oracle_id ?? null,
     };
   });
 
@@ -229,4 +237,137 @@ export async function fetchDeckCards(userId: string, deckId: string): Promise<De
   // deck-view.ts's grouping logic into the shared package).
   entries.sort((a, b) => a.name.localeCompare(b.name));
   return entries;
+}
+
+// ---------------------------------------------------------------------------
+// Sleeve / unsleeve pickers — phase 4b/4c of the mobile initiative.
+//
+// Both pickers list exact card_instances rows (a physical stack), because
+// apply_stack_move (migration 38) moves a specific stack, not "some copies of
+// a card" — the same reason the web app's sleeveCopies/unsleeveCopies pick a
+// smallest-suitable-stack-first source row before ever calling the database.
+// This phase deliberately keeps the UX to "pick one stack, move some or all
+// of it" rather than reimplementing that multi-source auto-fill: one
+// apply_stack_move call always moves from exactly one source row, so filling
+// a shortfall from several stacks at once would need several calls, and the
+// picker already lets a user do that themselves one tap at a time.
+// ---------------------------------------------------------------------------
+
+export type SleeveCandidate = {
+  id: string;
+  cardId: string;
+  condition: string;
+  finish: string;
+  language: string;
+  quantity: number;
+  locationName: string;
+  setCode: string;
+  collectorNumber: string;
+};
+
+type RawSleeveCandidateRow = {
+  id: string;
+  card_id: string;
+  condition: string;
+  finish: string;
+  language: string;
+  quantity: number;
+  locations: { id: string; name: string; type: string } | null;
+  cards: { oracle_id: string | null; name: string; set_code: string; collector_number: string } | null;
+};
+
+/**
+ * Every owned stack of `oracleId` (any printing) NOT already sleeved into
+ * *this* deck — spare copies in Unsorted, another box, a binder, or a
+ * different deck. Sleeving out of a different deck is allowed here (the web
+ * app's sleeveCopies deliberately excludes it, "a different decision, made on
+ * that deck's page" — but this phase's picker shows the location name on
+ * every row, so moving a card out of another deck is visible and explicit,
+ * not accidental).
+ */
+export async function fetchSpareStacks(
+  userId: string,
+  deckId: string,
+  oracleId: string | null,
+  cardName: string,
+): Promise<SleeveCandidate[]> {
+  if (!backend) throw new Error('Not connected.');
+  // owner_user_id is mandatory, not RLS's job alone: migration 9 makes a
+  // friend's tradable-binder rows genuinely readable, and an unscoped select
+  // would offer someone else's cards as sleeve candidates.
+  const { data, error } = await backend
+    .from('card_instances')
+    .select('id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards(oracle_id,name,set_code,collector_number)')
+    .eq('owner_user_id', userId)
+    .limit(1000);
+  if (error) {
+    if (error.code === '42501' || error.code === 'PGRST301') throw new CollectionAuthError(error.message);
+    throw new Error(error.message);
+  }
+  const rows = (data ?? []) as unknown as RawSleeveCandidateRow[];
+  return rows
+    .filter((row) => {
+      const card = row.cards;
+      const sameCard = oracleId ? card?.oracle_id === oracleId : card?.name?.toLowerCase() === cardName.toLowerCase();
+      if (!sameCard) return false;
+      // Already sleeved into this exact deck — that is what fetchDeckCards's
+      // "sleeved" count already reports, not a spare stack to sleeve from.
+      return row.locations?.id !== deckId;
+    })
+    .map((row) => ({
+      id: row.id,
+      cardId: row.card_id,
+      condition: row.condition,
+      finish: row.finish,
+      language: row.language,
+      quantity: row.quantity,
+      locationName: row.locations?.name ?? 'Unsorted',
+      setCode: row.cards?.set_code ?? '',
+      collectorNumber: row.cards?.collector_number ?? '',
+    }))
+    .sort((a, b) => a.quantity - b.quantity);
+}
+
+/**
+ * Every stack of `oracleId` (any printing) physically sleeved into this deck
+ * right now — the candidates an unsleeve picker moves back to Unsorted.
+ */
+export async function fetchSleevedStacks(
+  userId: string,
+  deckId: string,
+  oracleId: string | null,
+  cardName: string,
+): Promise<SleeveCandidate[]> {
+  if (!backend) throw new Error('Not connected.');
+  const { data, error } = await backend
+    .from('card_instances')
+    .select('id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards(oracle_id,name,set_code,collector_number)')
+    // Mandatory owner filter for the same reason as fetchSpareStacks — this
+    // deck's own card_instances rows still need to be this account's, not
+    // merely readable through RLS.
+    .eq('owner_user_id', userId)
+    .eq('location_id', deckId)
+    .limit(1000);
+  if (error) {
+    if (error.code === '42501' || error.code === 'PGRST301') throw new CollectionAuthError(error.message);
+    throw new Error(error.message);
+  }
+  const rows = (data ?? []) as unknown as RawSleeveCandidateRow[];
+  return rows
+    .filter((row) => {
+      const card = row.cards;
+      return oracleId ? card?.oracle_id === oracleId : card?.name?.toLowerCase() === cardName.toLowerCase();
+    })
+    .map((row) => ({
+      id: row.id,
+      cardId: row.card_id,
+      condition: row.condition,
+      finish: row.finish,
+      language: row.language,
+      quantity: row.quantity,
+      locationName: row.locations?.name ?? 'Unsorted',
+      setCode: row.cards?.set_code ?? '',
+      collectorNumber: row.cards?.collector_number ?? '',
+    }))
+    .sort((a, b) => a.quantity - b.quantity);
 }

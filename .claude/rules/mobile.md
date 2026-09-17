@@ -93,6 +93,41 @@ packages/upkeep-vision/  Native module boundary: Swift (iOS) / Kotlin (Android)
   `owner_user_id`; that column belongs to `card_instances`, not `locations` —
   see `supabase/migrations/00000000000004_locations.sql`) precisely because a
   friend's tradable/public rows are legitimately reachable through RLS.
+- **Sleeve/unsleeve, as of Phase 4b/4c of the mobile initiative (2026-09).**
+  Moving a card into or out of a deck is a MOVE, not an addition: an existing
+  `card_instances` row changes `location_id`, and the total owned must not
+  change — a lost half of that write can destroy a copy that was already
+  owned, which is a strictly worse failure than `apply_stack_addition`'s
+  "a scanned copy never lands" case. `public.apply_stack_move`
+  (`supabase/migrations/00000000000038_atomic_stack_move.sql`) is the atomic
+  function both `apps/mobile/src/decks.ts`'s sleeve/unsleeve pickers (in
+  `App.tsx`'s `DeckDetailScreen`/`SleevePicker`) and, eventually, a rewritten
+  web deck action would go through — see that migration's header for the full
+  shape (ledger-first idempotency, a locked and re-verified source row, the
+  same insert-or-merge destination logic as migration 36) and
+  `packages/scan-core/src/move.ts` for the client-side retry wrapper
+  (`createMoveWriter`), which is deliberately asymmetric: a stale destination
+  target is re-decided and retried once (mirroring `writer.ts`), while a stale
+  source has nothing to re-decide and is retried once identically, then
+  surfaced.
+  Migration 38 also depends on migration 37, added in the same phase: the
+  deck-list-follows-contents trigger (migration 16, refined by 19 and 20) used
+  to fire only on `INSERT` or `UPDATE OF location_id` on `card_instances`,
+  never on a plain quantity change — so sleeving into an already-sleeved stack
+  (exactly what `apply_stack_move`'s merge branch does) was invisible to it,
+  and `deck_cards` silently under-counted. Migration 37 adds the missing
+  `AFTER UPDATE OF quantity` trigger, wired to the same, unmodified
+  reconcile function from migration 20 (confirmed monotone-up and
+  total-comparing before wiring it up — see that migration's own header for
+  why that made it safe to reuse without changing the function itself).
+- **Plain deck-list editing is still deferred.** Adding a card to a deck's
+  list that is not yet owned (an unowned-card catalog lookup, closer to the
+  scan flow's printing search than to a database write) or removing a list
+  entry without unsleeving its physical copies first has no mobile UI yet —
+  only the physical sleeve/unsleeve action, which is what phase 4b/4c
+  approved. The web app's `addDeckCard` / `removeDeckCard` /
+  `setDeckCardQuantity` (`src/app/(app)/decks/actions.ts`) remain the only way
+  to edit a decklist directly.
 - `EXPO_PUBLIC_*` variables follow the same rule as `NEXT_PUBLIC_*` in
   `CLAUDE.md`'s hard constraint 2: read as literal `process.env.EXPO_PUBLIC_*`
   member expressions, never dynamic `process.env[name]` access.

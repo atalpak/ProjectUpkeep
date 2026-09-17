@@ -34,6 +34,9 @@ supabase/.branches
 supabase/.temp
 supabase/.env
 
+# throwaway local Postgres data dir used for `npm run test:db` runs
+.pgtmp/
+
 # scryfall sync working files
 /.cache/
 /tmp/

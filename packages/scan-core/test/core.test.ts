@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, type CatalogBundle, type CollectionDraft, type CollectionStore } from '../src';
+import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft } from '../src';
 const a = '11111111-1111-4111-8111-111111111111';
 const b = '22222222-2222-4222-8222-222222222222';
 const op = '33333333-3333-4333-8333-333333333333';
@@ -165,4 +165,140 @@ test('unauthenticated save fails closed before querying the store at all', async
     applyStackAddition: async () => { assert.fail('must not apply while signed out'); },
   });
   await assert.rejects(writer.save({ operationId: op, draft }), /Sign in/);
+});
+
+// ---------------------------------------------------------------------------
+// createMoveWriter (Phase 4b/4c: sleeve/unsleeve, apply_stack_move)
+// ---------------------------------------------------------------------------
+const moveOp = '55555555-5555-4555-8555-555555555555';
+const moveDraft: StackMoveDraft = {
+  sourceInstanceId: 'source-row', cardId: a, condition: 'NM', finish: 'nonfoil', language: 'en',
+  quantity: 2, destinationLocationId: 'deck-1',
+};
+const staleSourceMessage = 'That source copy no longer matches what was decided -- it may have moved, been edited, changed quantity, or no longer be yours';
+const staleDestinationMessage = 'That destination stack no longer matches the decided target -- it may have moved, been edited, or no longer be yours';
+
+test('move writer decides a destination target from the store and applies through apply_stack_move', async () => {
+  let applyCalls = 0;
+  const store: MoveStore = {
+    findDestinationCandidates: async () => [{ id: 'dest-row', quantity: 3, notes: null }],
+    applyStackMove: async input => {
+      applyCalls++;
+      assert.equal(input.destinationTargetInstanceId, 'dest-row');
+      assert.equal(input.sourceInstanceId, 'source-row');
+      assert.equal(input.operationId, moveOp);
+      return { instanceId: 'dest-row', quantity: 5, replayed: false };
+    },
+  };
+  const writer = createMoveWriter(store);
+  assert.deepEqual(
+    await writer.move({ operationId: moveOp, draft: moveDraft }),
+    { instanceId: 'dest-row', quantity: 5, replayed: false },
+  );
+  assert.equal(applyCalls, 1);
+});
+
+test('move writer inserts a fresh row when no destination candidate matches', async () => {
+  const store: MoveStore = {
+    findDestinationCandidates: async () => [],
+    applyStackMove: async input => {
+      assert.equal(input.destinationTargetInstanceId, null);
+      return { instanceId: 'new-row', quantity: 2, replayed: false };
+    },
+  };
+  const writer = createMoveWriter(store);
+  assert.deepEqual(
+    await writer.move({ operationId: moveOp, draft: moveDraft }),
+    { instanceId: 'new-row', quantity: 2, replayed: false },
+  );
+});
+
+test('move writer replay returns the recorded result and applies exactly once', async () => {
+  let applyCalls = 0;
+  const store: MoveStore = {
+    findDestinationCandidates: async () => [],
+    applyStackMove: async () => { applyCalls++; return { instanceId: 'new-row', quantity: 2, replayed: true }; },
+  };
+  const writer = createMoveWriter(store);
+  assert.deepEqual(
+    await writer.move({ operationId: moveOp, draft: moveDraft }),
+    { instanceId: 'new-row', quantity: 2, replayed: true },
+  );
+  assert.equal(applyCalls, 1, 'the writer makes exactly one call; the ledger is what stops a retry from re-applying');
+});
+
+test('move writer rejects a replay submitted with different details', async () => {
+  const store: MoveStore = {
+    findDestinationCandidates: async () => [],
+    applyStackMove: async () => { throw new Error('This operation was already submitted with different details'); },
+  };
+  const writer = createMoveWriter(store);
+  await assert.rejects(writer.move({ operationId: moveOp, draft: moveDraft }), /different details/);
+});
+
+test('a stale DESTINATION target triggers exactly one automatic re-decide-and-retry with the same operation id', async () => {
+  let findCalls = 0;
+  let applyCalls = 0;
+  const store: MoveStore = {
+    findDestinationCandidates: async () => {
+      findCalls++;
+      return findCalls === 1 ? [{ id: 'stale-dest', quantity: 3, notes: null }] : [{ id: 'fresh-dest', quantity: 5, notes: null }];
+    },
+    applyStackMove: async input => {
+      applyCalls++;
+      assert.equal(input.operationId, moveOp, 'a retry after a stale destination must reuse the same operation id');
+      if (applyCalls === 1) {
+        assert.equal(input.destinationTargetInstanceId, 'stale-dest');
+        throw new Error(staleDestinationMessage);
+      }
+      assert.equal(input.destinationTargetInstanceId, 'fresh-dest');
+      return { instanceId: 'fresh-dest', quantity: 7, replayed: false };
+    },
+  };
+  const writer = createMoveWriter(store);
+  assert.deepEqual(
+    await writer.move({ operationId: moveOp, draft: moveDraft }),
+    { instanceId: 'fresh-dest', quantity: 7, replayed: false },
+  );
+  assert.equal(findCalls, 2);
+  assert.equal(applyCalls, 2);
+});
+
+test('a second stale-destination response is surfaced to the caller, not retried again', async () => {
+  const store: MoveStore = {
+    findDestinationCandidates: async () => [{ id: 'row', quantity: 1, notes: null }],
+    applyStackMove: async () => { throw new Error(staleDestinationMessage); },
+  };
+  const writer = createMoveWriter(store);
+  await assert.rejects(writer.move({ operationId: moveOp, draft: moveDraft }), /no longer matches the decided target/);
+});
+
+test('a stale SOURCE is retried once with the identical call, then surfaced if still stale', async () => {
+  let applyCalls = 0;
+  const store: MoveStore = {
+    findDestinationCandidates: async () => [{ id: 'dest-row', quantity: 3, notes: null }],
+    applyStackMove: async input => {
+      applyCalls++;
+      assert.equal(input.sourceInstanceId, 'source-row', 'a stale-source retry has nothing to re-decide about the source');
+      if (applyCalls === 1) throw new Error(staleSourceMessage);
+      return { instanceId: 'dest-row', quantity: 5, replayed: false };
+    },
+  };
+  const writer = createMoveWriter(store);
+  assert.deepEqual(
+    await writer.move({ operationId: moveOp, draft: moveDraft }),
+    { instanceId: 'dest-row', quantity: 5, replayed: false },
+  );
+  assert.equal(applyCalls, 2, 'exactly one retry for a stale source, not unbounded retrying');
+});
+
+test('a second stale-source response is surfaced to the caller, not retried again', async () => {
+  let applyCalls = 0;
+  const store: MoveStore = {
+    findDestinationCandidates: async () => [],
+    applyStackMove: async () => { applyCalls++; throw new Error(staleSourceMessage); },
+  };
+  const writer = createMoveWriter(store);
+  await assert.rejects(writer.move({ operationId: moveOp, draft: moveDraft }), /no longer matches what was decided/);
+  assert.equal(applyCalls, 2, 'one retry, then surfaced -- not retried a third time');
 });

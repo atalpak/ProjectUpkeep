@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
-import { createCollectionWriter, type CollectionStore, type StackAdditionInput, type StackAdditionResult } from '@upkeep/scan-core';
+import { createCollectionWriter, createMoveWriter, type CollectionStore, type StackAdditionInput, type StackAdditionResult, type MoveStore, type StackMoveInput, type StackMoveResult } from '@upkeep/scan-core';
 
 // Persisted auth (phase 1b) needs a storage object with getItem/setItem/removeItem.
 // expo-secure-store is already a dependency and already used for the pending-scan
@@ -100,3 +100,49 @@ const store: CollectionStore = {
 };
 
 export const writer = backend ? createCollectionWriter(store) : null;
+
+/**
+ * Phase 4b/4c: sleeve-into-deck / unsleeve-from-deck, applied atomically
+ * through migration 38's apply_stack_move — see packages/scan-core/src/move.ts
+ * for why a move needs a different atomic function (and a different retry
+ * shape) than a plain addition.
+ */
+const moveStore: MoveStore = {
+  // Explicit owner filter, not just RLS — same reasoning as `store.
+  // findCandidates` above: RLS alone would also return a friend's tradable-
+  // binder rows sharing this stack key (migration 9), which would merge a
+  // move into a stack that was never this account's.
+  async findDestinationCandidates({ cardId, condition, finish, language, locationId }) {
+    const owner = await currentUserId();
+    if (!owner) throw new Error('Sign in to move cards in your collection.');
+    let query = backend!.from('card_instances')
+      .select('id,quantity,notes')
+      .eq('owner_user_id', owner)
+      .eq('card_id', cardId)
+      .eq('condition', condition)
+      .eq('finish', finish)
+      .eq('language', language);
+    query = locationId === null ? query.is('location_id', null) : query.eq('location_id', locationId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
+  },
+
+  async applyStackMove(input: StackMoveInput): Promise<StackMoveResult> {
+    const { data, error } = await backend!.rpc('apply_stack_move', {
+      p_operation_id: input.operationId,
+      p_source_instance_id: input.sourceInstanceId,
+      p_quantity: input.quantity,
+      p_destination_location_id: input.destinationLocationId,
+      p_destination_target_instance_id: input.destinationTargetInstanceId,
+    });
+    if (error) throw error;
+    // apply_stack_move RETURNS TABLE (...), same PostgREST array-of-one shape
+    // as apply_stack_addition.
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('apply_stack_move returned no result.');
+    return { instanceId: row.result_instance_id, quantity: row.result_quantity, replayed: row.replayed };
+  },
+};
+
+export const moveWriter = backend ? createMoveWriter(moveStore) : null;

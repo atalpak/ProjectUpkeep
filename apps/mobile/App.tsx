@@ -9,15 +9,22 @@ import { useFonts } from 'expo-font';
 import { Cinzel_600SemiBold } from '@expo-google-fonts/cinzel/600SemiBold';
 import { PlusJakartaSans_400Regular } from '@expo-google-fonts/plus-jakarta-sans/400Regular';
 import { PlusJakartaSans_600SemiBold } from '@expo-google-fonts/plus-jakarta-sans/600SemiBold';
-import { CardIndex, ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, validateDraft, type Candidate, type ConfirmedScan, type Finish, type Printing } from '@upkeep/scan-core';
+import { CardIndex, ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, validateDraft, type Candidate, type Condition, type ConfirmedScan, type Finish, type Printing, type StackMoveDraft } from '@upkeep/scan-core';
 import { readText, visionAvailable } from '@upkeep/vision';
-import { backend, writer } from './src/backend';
+import { backend, writer, moveWriter } from './src/backend';
 import { demoBundle, loadCatalog, refreshCatalog } from './src/catalog';
 import { CollectionAuthError, fetchCollectionPage, PAGE_SIZE, type CollectionEntry } from './src/collection';
-import { fetchDeckCards, fetchDeckHeader, fetchDecks, type DeckCardEntry, type DeckHeader, type DeckSummary } from './src/decks';
+import { fetchDeckCards, fetchDeckHeader, fetchDecks, fetchSleevedStacks, fetchSpareStacks, type DeckCardEntry, type DeckHeader, type DeckSummary, type SleeveCandidate } from './src/decks';
 
 type Review = { printing: Printing; operationId: string; submitted?: ConfirmedScan };
 type Location = {id: string; name: string; type: string};
+/**
+ * A move (sleeve/unsleeve) recovered across an app restart the same way a
+ * pending scan is — see pendingMoveKey below and .claude/rules/mobile.md's
+ * "Auth persistence" section, which this reuses rather than inventing a
+ * second recovery pattern. `label` is display-only, for the retry banner.
+ */
+type PendingMove = { operationId: string; draft: StackMoveDraft; label: string };
 // Third real screen (decks). Still a plain state switch, not a navigation
 // library: the comment above this used to say "reach for React Navigation
 // when a third screen makes the switch awkward to extend" — decks turned out
@@ -41,10 +48,23 @@ function friendlyDbMessage(message: string): string {
   if (message.includes('must belong to owner_user_id')) {
     return 'That destination is no longer yours. Refresh and choose another.';
   }
+  // apply_stack_move (migration 38) retries a stale destination target, and a
+  // stale source, once each automatically (packages/scan-core/src/move.ts) —
+  // reaching here means both attempts failed, so the honest message is "this
+  // needs a fresh look", not "try the exact same thing again".
+  if (message.includes('no longer matches what was decided')) {
+    return 'That copy changed since you picked it — close this and pick again.';
+  }
+  if (message.includes('no longer matches the decided target')) {
+    return 'That stack changed while this was in flight. Close this and try again.';
+  }
   return message;
 }
 const errorMessage = (e: unknown) => friendlyDbMessage(e instanceof Error ? e.message : (e && typeof e === 'object' && 'message' in e ? String(e.message) : 'Something went wrong. Please retry.'));
 const pendingKey = (userId: string) => `upkeep.pending.${userId}`;
+// Same persist-before-write shape as pendingKey above, its own key so a
+// pending scan and a pending move can never collide or overwrite each other.
+const pendingMoveKey = (userId: string) => `upkeep.pending-move.${userId}`;
 
 export default function App() {
   const [fonts] = useFonts({ Cinzel_600SemiBold, PlusJakartaSans_400Regular, PlusJakartaSans_600SemiBold });
@@ -70,6 +90,12 @@ function Scanner({fonts}: {fonts: boolean}) {
   // This is the sub-state the comment on `Tab` describes instead of reaching
   // for a navigation library.
   const [openDeckId, setOpenDeckId] = useState<string | null>(null);
+  // A sleeve/unsleeve recovered after an app restart — same shape as `review`
+  // for a pending scan, surfaced as a banner rather than inline because a
+  // move can be recovered while the user is on any tab, not just the decks
+  // one it was started from.
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
+  const [moveBusy, setMoveBusy] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
   const [authBusy, setAuthBusy] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -102,15 +128,43 @@ function Scanner({fonts}: {fonts: boolean}) {
       currentUser.current = nextUser;
       controller.current?.abort(); setCameraOpen(false);
       setUserId(nextUser); setRecovering(!!nextUser);
-      setReview(null); setRecent([]); setLocations([]); setTab('scan'); setOpenDeckId(null);
+      setReview(null); setRecent([]); setLocations([]); setTab('scan'); setOpenDeckId(null); setPendingMove(null);
       // Sign-out clears the persisted session (Supabase's own job) but not
-      // anything else this app wrote — so a pending scan must be cleared here,
-      // or it would be stranded under an account nobody is signed into anymore
-      // and could be picked up by whoever signs in next on this device.
-      if (!nextUser && previousUser) void SecureStore.deleteItemAsync(pendingKey(previousUser));
+      // anything else this app wrote — so a pending scan (and, as of phase
+      // 4b/4c, a pending sleeve/unsleeve) must be cleared here, or it would be
+      // stranded under an account nobody is signed into anymore and could be
+      // picked up by whoever signs in next on this device.
+      if (!nextUser && previousUser) {
+        void SecureStore.deleteItemAsync(pendingKey(previousUser));
+        void SecureStore.deleteItemAsync(pendingMoveKey(previousUser));
+      }
     });
     return () => data.subscription.unsubscribe();
   }, []);
+  // Recovers a sleeve/unsleeve interrupted mid-request (app killed, lost
+  // response) the same way the effect below recovers a pending scan: surface
+  // it and require an explicit retry tap, never an automatic background
+  // replay. Kept as its own effect, deliberately independent of the scan
+  // recovery effect's busy/recovering flags below — a stuck pending move must
+  // not block scanning, and vice versa.
+  useEffect(() => {
+    if (!backend || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const raw = await SecureStore.getItemAsync(pendingMoveKey(userId));
+        if (cancelled || !raw) return;
+        const pending = JSON.parse(raw) as PendingMove;
+        setPendingMove(pending);
+        setMessage(m => m || 'An unfinished sleeve/unsleeve was recovered. Retry to verify whether it went through.');
+      } catch {
+        // A malformed pending-move record cannot be retried meaningfully;
+        // drop it rather than surfacing a retry button that can never work.
+        if (!cancelled) void SecureStore.deleteItemAsync(pendingMoveKey(userId));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
   useEffect(() => {
     if (!backend || !userId) return;
     let cancelled = false;
@@ -124,15 +178,17 @@ function Scanner({fonts}: {fonts: boolean}) {
       const {data, error} = await backend.from('locations').select('id,name,type').eq('user_id', userId).order('name').limit(1000);
       if (cancelled) return;
       if (error) setMessage('Locations could not load. Unsorted remains available.');
-      // A deck's list follows what is physically filed in it via a trigger that
-      // only fires on insert or on a location_id change (migration 16), not on
-      // a quantity change — so scanning a 4th copy into a deck the scanner
-      // just merged into would grow the stack's quantity without the deck's
-      // list ever hearing about the new copy. That gap is pre-existing and
-      // shared with the web app's addCardInstance; the fix belongs to a later
-      // phase. Hiding deck destinations here is a narrower fix: the flat,
-      // unfiltered picker on this screen made it easy to hit by accident,
-      // where the web app's add form is not the primary way decks are filled.
+      // A deck's list follows what is physically filed in it via a trigger.
+      // Migration 16 only wired it to fire on insert or on a location_id
+      // change, so a quantity-only sleeve into an already-sleeved stack was
+      // invisible to it -- migration 37 (phase 4b) closed that gap at the
+      // database level, and apply_stack_move (migration 38) is what actually
+      // produces that quantity-only shape for a decided sleeve. This picker
+      // still excludes deck destinations, though, for an unrelated reason:
+      // it is a flat, unfiltered list with no per-deck "sleeved vs wanted"
+      // context, unlike the decks tab's own sleeve action, so filing a scan
+      // straight into a deck from here would bypass the list-aware UI on
+      // purpose built for that decision.
       else setLocations((data ?? []).filter(l => l.type !== 'deck'));
       try {
         const pending = await SecureStore.getItemAsync(pendingKey(userId));
@@ -193,6 +249,41 @@ function Scanner({fonts}: {fonts: boolean}) {
     try { setIndex(await refreshCatalog()); setCandidates([]); setQuery(''); setMessage('Offline catalog updated.'); }
     catch (e) { setMessage(errorMessage(e)); } finally { setCatalogBusy(false); }
   }
+  /**
+   * Sleeves or unsleeves one decided stack, through apply_stack_move
+   * (migration 38) via createMoveWriter (packages/scan-core/src/move.ts).
+   *
+   * Same persist-before-write shape phase 1 established for a scan (see
+   * ReviewCard.save): the intent is written to SecureStore, under its own
+   * key, BEFORE the call goes out, so a crash or lost response mid-request
+   * leaves something recoverable rather than an unknown. On success the
+   * pending record is cleared; on failure it is deliberately left in place
+   * (and pendingMove stays set) so the retry banner can pick it up with the
+   * SAME operation id -- never a fresh one, which is what makes a retry safe
+   * rather than a second application.
+   */
+  async function beginMove(draft: StackMoveDraft, label: string) {
+    if (!moveWriter || !userId) throw new Error('Sign in to move cards in your collection.');
+    const operationId = Crypto.randomUUID();
+    const pending: PendingMove = { operationId, draft, label };
+    await SecureStore.setItemAsync(pendingMoveKey(userId), JSON.stringify(pending));
+    setPendingMove(pending);
+    const result = await moveWriter.move({ operationId, draft });
+    await SecureStore.deleteItemAsync(pendingMoveKey(userId));
+    setPendingMove(null);
+    return result;
+  }
+  async function retryPendingMove() {
+    if (!pendingMove || !moveWriter || !userId || moveBusy) return;
+    setMoveBusy(true); setMessage('');
+    try {
+      await moveWriter.move({ operationId: pendingMove.operationId, draft: pendingMove.draft });
+      await SecureStore.deleteItemAsync(pendingMoveKey(userId));
+      setPendingMove(null);
+      setMessage('Verified — your collection is up to date.');
+    } catch (e) { setMessage(errorMessage(e)); }
+    finally { setMoveBusy(false); }
+  }
   const disabled = busy || recovering || catalogBusy || authBusy || !!review;
   return <SafeAreaView style={styles.safe}>
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
@@ -215,9 +306,17 @@ function Scanner({fonts}: {fonts: boolean}) {
         <Pressable accessibilityRole="tab" accessibilityState={{selected:tab==='decks'}} style={[styles.tab,tab==='decks' && styles.tabSelected]} onPress={() => setTab('decks')}><Text style={tab==='decks' ? styles.tabTextSelected : styles.tabText}>Decks</Text></Pressable>
       </View>}
       {message ? <Text accessibilityRole="alert" style={styles.notice}>{message}</Text> : null}
+      {/* A move recovered after a restart, wherever the app currently is —
+          unlike a pending scan (surfaced inline as a locked ReviewCard), a
+          sleeve/unsleeve has no screen of its own to reopen into, so this is
+          a standing banner with its own explicit retry, not automatic. */}
+      {pendingMove && <>
+        <Text accessibilityRole="alert" style={styles.notice}>An unfinished move needs verifying: {pendingMove.label}.</Text>
+        <Button secondary label={moveBusy ? 'Verifying…' : 'Retry / verify move'} disabled={moveBusy} onPress={() => void retryPendingMove()} />
+      </>}
       {tab === 'collection' && userId ? <CollectionScreen userId={userId} /> : tab === 'decks' && userId ? (
         openDeckId
-          ? <DeckDetailScreen userId={userId} deckId={openDeckId} onBack={() => setOpenDeckId(null)} />
+          ? <DeckDetailScreen userId={userId} deckId={openDeckId} onBack={() => setOpenDeckId(null)} onMove={beginMove} moveDisabled={!!pendingMove || moveBusy} />
           : <DecksScreen userId={userId} onOpenDeck={setOpenDeckId} />
       ) : <>
       {review ? <ReviewCard key={review.operationId} review={review} demo={demo} userId={userId} locations={locations}
@@ -368,15 +467,26 @@ function DecksScreen({userId, onOpenDeck}: {userId: string; onOpenDeck(deckId: s
   </>;
 }
 
-// One deck's decklist, read-only, with each entry's sleeved-vs-wanted count —
-// see src/decks.ts's header for why that number needs two separate queries
-// (deck_cards for "wanted", card_instances for "sleeved") rather than one.
-function DeckDetailScreen({userId, deckId, onBack}: {userId: string; deckId: string; onBack(): void}) {
+// Which entry's sleeve/unsleeve picker is open, if any — the same
+// single-sub-state approach the `Tab`/`openDeckId` comment describes, one
+// level deeper. Only one entry's picker is ever open at a time.
+type ActivePicker = { entryId: string; mode: 'sleeve' | 'unsleeve' };
+
+// One deck's decklist, with each entry's sleeved-vs-wanted count — see
+// src/decks.ts's header for why that number needs two separate queries
+// (deck_cards for "wanted", card_instances for "sleeved") rather than one —
+// plus, as of phase 4b/4c, a sleeve/unsleeve action per entry.
+function DeckDetailScreen({userId, deckId, onBack, onMove, moveDisabled}: {
+  userId: string; deckId: string; onBack(): void;
+  onMove(draft: StackMoveDraft, label: string): Promise<{ instanceId: string; quantity: number; replayed: boolean }>;
+  moveDisabled: boolean;
+}) {
   const [header, setHeader] = useState<DeckHeader | null>(null);
   const [cards, setCards] = useState<DeckCardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
   const [error, setError] = useState('');
+  const [activePicker, setActivePicker] = useState<ActivePicker | null>(null);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
@@ -412,19 +522,114 @@ function DeckDetailScreen({userId, deckId, onBack}: {userId: string; deckId: str
       {cards.map(c => {
         const fullySleeved = c.sleeved >= c.quantity;
         const noneSleeved = c.sleeved === 0;
-        return <View key={c.id} style={[styles.result, noneSleeved && styles.deckRowUnsleeved]}>
-          {c.imageUriSmall && <Image source={{uri: c.imageUriSmall}} style={styles.thumbnail} />}
-          <View style={styles.grow}>
-            <Text style={[styles.resultTitle, noneSleeved && styles.deckRowUnsleevedText]}>{c.name}</Text>
-            <Text style={styles.body}>{c.setCode.toUpperCase()} · #{c.collectorNumber} · Qty {c.quantity}</Text>
-            <Text style={[styles.body, fullySleeved ? styles.deckRowSleevedText : noneSleeved ? styles.deckRowUnsleevedText : undefined]}>
-              {c.sleeved}/{c.quantity} sleeved
-            </Text>
+        const picking = activePicker?.entryId === c.id;
+        return <View key={c.id}>
+          <View style={[styles.result, noneSleeved && styles.deckRowUnsleeved]}>
+            {c.imageUriSmall && <Image source={{uri: c.imageUriSmall}} style={styles.thumbnail} />}
+            <View style={styles.grow}>
+              <Text style={[styles.resultTitle, noneSleeved && styles.deckRowUnsleevedText]}>{c.name}</Text>
+              <Text style={styles.body}>{c.setCode.toUpperCase()} · #{c.collectorNumber} · Qty {c.quantity}</Text>
+              <Text style={[styles.body, fullySleeved ? styles.deckRowSleevedText : noneSleeved ? styles.deckRowUnsleevedText : undefined]}>
+                {c.sleeved}/{c.quantity} sleeved
+              </Text>
+              <View style={styles.choices}>
+                {!fullySleeved && <Button secondary label={picking && activePicker?.mode === 'sleeve' ? 'Cancel' : 'Sleeve'} disabled={moveDisabled}
+                  onPress={() => setActivePicker(picking && activePicker?.mode === 'sleeve' ? null : { entryId: c.id, mode: 'sleeve' })} />}
+                {!noneSleeved && <Button secondary label={picking && activePicker?.mode === 'unsleeve' ? 'Cancel' : 'Unsleeve'} disabled={moveDisabled}
+                  onPress={() => setActivePicker(picking && activePicker?.mode === 'unsleeve' ? null : { entryId: c.id, mode: 'unsleeve' })} />}
+              </View>
+            </View>
           </View>
+          {picking && <SleevePicker userId={userId} deckId={deckId} entry={c} mode={activePicker!.mode} onMove={onMove}
+            onClose={() => setActivePicker(null)}
+            onMoved={() => { setActivePicker(null); void load(); }} />}
         </View>;
       })}
     </>}
   </>;
+}
+
+/**
+ * Lists the candidate stacks for one deck entry's sleeve (spare copies
+ * elsewhere) or unsleeve (copies already in this deck) action, and applies
+ * the tap through apply_stack_move via `onMove` (App's beginMove).
+ *
+ * Deliberately one call per tap, moving exactly one candidate stack, rather
+ * than auto-filling a shortfall from several stacks at once — see
+ * src/decks.ts's header on fetchSpareStacks/fetchSleevedStacks for why: each
+ * apply_stack_move call moves from exactly one source row, and letting the
+ * user pick which stack moves (rather than a hidden "smallest first"
+ * algorithm choosing for them) keeps this phase's picker simple to reason
+ * about and to review.
+ */
+function SleevePicker({userId, deckId, entry, mode, onMove, onClose, onMoved}: {
+  userId: string; deckId: string; entry: DeckCardEntry; mode: 'sleeve' | 'unsleeve';
+  onMove(draft: StackMoveDraft, label: string): Promise<{ instanceId: string; quantity: number; replayed: boolean }>;
+  onClose(): void; onMoved(): void;
+}) {
+  const [candidates, setCandidates] = useState<SleeveCandidate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true); setError('');
+    void (async () => {
+      try {
+        const list = mode === 'sleeve'
+          ? await fetchSpareStacks(userId, deckId, entry.oracleId, entry.name)
+          : await fetchSleevedStacks(userId, deckId, entry.oracleId, entry.name);
+        if (!cancelled) setCandidates(list);
+      } catch (e) { if (!cancelled) setError(errorMessage(e)); }
+      finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, deckId, entry.oracleId, entry.name, mode]);
+
+  async function pick(candidate: SleeveCandidate) {
+    if (busy) return;
+    setBusy(true); setError('');
+    // Sleeve: take only what is still needed, capped at what this stack has.
+    // Unsleeve: this phase moves a picked stack out whole, rather than
+    // adding a partial-quantity input the picker does not otherwise need —
+    // "which stack", not "how many of it", is the decision this UI asks for.
+    const remaining = Math.max(1, entry.quantity - entry.sleeved);
+    const quantity = mode === 'sleeve' ? Math.min(remaining, candidate.quantity) : candidate.quantity;
+    const label = `${mode === 'sleeve' ? 'Sleeve' : 'Unsleeve'} ${quantity} ${entry.name} (${candidate.setCode.toUpperCase()} #${candidate.collectorNumber})`;
+    try {
+      await onMove({
+        sourceInstanceId: candidate.id,
+        cardId: candidate.cardId,
+        condition: candidate.condition as Condition,
+        finish: candidate.finish as Finish,
+        language: candidate.language,
+        quantity,
+        destinationLocationId: mode === 'sleeve' ? deckId : null,
+      }, label);
+      if (alive.current) onMoved();
+    } catch (e) { if (alive.current) setError(errorMessage(e)); }
+    finally { if (alive.current) setBusy(false); }
+  }
+
+  return <View style={styles.review}>
+    <Text style={styles.label}>{mode === 'sleeve' ? `Sleeve ${entry.name} from…` : `Unsleeve ${entry.name} to Unsorted from…`}</Text>
+    {loading && <Text style={styles.body}>Loading…</Text>}
+    {error ? <Text accessibilityRole="alert" style={styles.notice}>{error}</Text> : null}
+    {!loading && !candidates.length && <Text style={styles.body}>
+      {mode === 'sleeve' ? 'No spare copies of this card elsewhere in your collection.' : 'Nothing of this card is currently sleeved in this deck.'}
+    </Text>}
+    {candidates.map(cand => <Pressable key={cand.id} accessibilityRole="button" disabled={busy} style={styles.result} onPress={() => void pick(cand)}>
+      <View style={styles.grow}>
+        <Text style={styles.resultTitle}>{cand.setCode.toUpperCase()} · #{cand.collectorNumber} · Qty {cand.quantity}</Text>
+        <Text style={styles.body}>{cand.condition.toUpperCase()} · {cand.finish.toUpperCase()} · {cand.language.toUpperCase()} · {cand.locationName}</Text>
+      </View>
+      <Text style={styles.arrow}>›</Text>
+    </Pressable>)}
+    <Button secondary label="Close" disabled={busy} onPress={onClose} />
+  </View>;
 }
 
 function ReviewCard({review,demo,userId,locations,onSubmitted,onSaved,onCancel,onMessage}: {
