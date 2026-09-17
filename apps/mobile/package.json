@@ -1,0 +1,32 @@
+{
+  "name": "@upkeep/scanner-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node ../../packages/scan-core/scripts/patch-native-toolchain.cjs"
+  },
+  "dependencies": {
+    "@expo-google-fonts/cinzel": "^0.4.2",
+    "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
+    "@supabase/supabase-js": "^2.116.0",
+    "@upkeep/scan-core": "0.1.0",
+    "@upkeep/vision": "0.1.0",
+    "expo": "~55.0.31",
+    "expo-camera": "~55.0.23",
+    "expo-crypto": "~55.0.19",
+    "expo-dev-client": "~55.0.40",
+    "expo-file-system": "~55.0.26",
+    "expo-font": "~55.0.8",
+    "expo-secure-store": "~55.0.18",
+    "react": "19.2.0",
+    "react-native": "0.83.10",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-url-polyfill": "^4.0.0",
+    "expo-modules-core": "~55.0.25"
+  }
+}

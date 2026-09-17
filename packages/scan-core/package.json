@@ -1,0 +1,18 @@
+{
+  "name": "@upkeep/scan-core",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "bench": "node --import tsx scripts/benchmark.ts",
+    "catalog:build": "node --import tsx scripts/build-catalog.ts"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2",
+    "tsx": "^4.23.0",
+    "@types/node": "^22.15.0"
+  }
+}

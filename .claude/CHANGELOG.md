@@ -227,3 +227,38 @@ Second time in one day that a fix was only half-done until the surrounding
 instructions were checked. The pattern is worth naming: **finishing a change
 includes finding every document that describes the old state.** For rules, grep
 the wording. For a newly closed gap, grep the phrase that called it open.
+
+## 2026-09-16 — Mobile workspace merged, `.claude/rules/mobile.md` added
+
+Phase 1 of the mobile-app initiative, architect-approved and owner-signed-off:
+`apps/mobile`, `packages/scan-core`, `packages/upkeep-vision` merged in from
+`MTGCardScanner` as npm workspaces, plus persistent mobile sign-in.
+
+- **Added** `.claude/rules/mobile.md` — the Expo/RN workspace layout, the
+  native-module boundary, and two things a future agent should not
+  "helpfully" fix: `src/lib/collection/stacking.ts` is deliberately not shared
+  into mobile yet, and mobile inserts one row per scan rather than merging
+  stacks. Both are temporary, scoped to a later phase with its own migration
+  and its own architect pass.
+- Root `tsconfig.json` and `eslint.config.mjs` now exclude `apps/**` and
+  `packages/**` — a different toolchain, not this one's job to typecheck/lint.
+  Root `npm test`/`typecheck`/`lint` still cover only the web app; mobile has
+  its own (`npm test -w @upkeep/scan-core`, `npm run typecheck -w
+  @upkeep/scan-core`, `npm run typecheck -w @upkeep/scanner-app`).
+- CI's `app` job now installs with `--workspaces=false --include-workspace-root=true`
+  so it never pulls in the Expo/RN toolchain; a new `mobile` job does a full
+  workspace install and runs scan-core's own typecheck/test. No native
+  iOS/Android build in CI — out of scope for this phase.
+- Fixed a real bug found in the process: `apps/mobile/App.tsx` was filtering
+  `locations` on `owner_user_id`, a column that table doesn't have (it's
+  `user_id` — `card_instances` is the one with `owner_user_id`). Fixed by
+  renaming the filter, not by removing it — removing it would have leaked a
+  friend's tradable-binder locations into the mobile app, the same cross-user
+  exposure constraint 3 exists to prevent on the web side.
+- Verified before implementing, not assumed: `expo-secure-store` 55.0.18 uses
+  AES-256-GCM with the key held in the platform keystore, not an RSA-wrapped
+  plaintext, so the value-size ceiling that used to apply to this package
+  (~2KB, from an older RSA-based encryptor) doesn't apply here — confirmed
+  against the installed package's source and its own changelog entry removing
+  the iOS byte-limit warning. Session storage didn't need a chunking/fallback
+  design as a result; see the comment in `apps/mobile/src/backend.ts`.

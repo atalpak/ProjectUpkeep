@@ -1,5 +1,6 @@
-# Pull-request checks: lint, typecheck, unit tests, production build, and the
-# migrations applied to a real Postgres.
+# Pull-request checks: lint, typecheck, unit tests, production build, the
+# migrations applied to a real Postgres, and (separately) the mobile
+# workspace's own typecheck/test.
 name: CI
 
 on:
@@ -16,7 +17,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # apps/mobile and packages/* are separate Expo/RN workspaces (see
+      # .claude/rules/mobile.md) with their own CI job below. This job only
+      # covers the Next.js app, so skip installing their dependencies —
+      # otherwise every push pulls in the whole Expo/RN toolchain for a job
+      # that never touches it.
+      - run: npm ci --workspaces=false --include-workspace-root=true
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -40,6 +46,23 @@ jobs:
             echo "NEXT_PUBLIC_ env not inlined into server bundle — check src/lib/env.ts uses static process.env access"
             exit 1
           }
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      # Full workspace install here, unlike the `app` job — this is the one
+      # job that actually needs the Expo/RN toolchain. No native iOS/Android
+      # build is attempted in CI; that's out of scope for this phase (see
+      # .claude/rules/mobile.md).
+      - run: npm ci
+      - run: npm run typecheck -w @upkeep/scan-core
+      - run: npm test -w @upkeep/scan-core
+      - run: npm run typecheck -w @upkeep/scanner-app
 
   migrations:
     runs-on: ubuntu-latest

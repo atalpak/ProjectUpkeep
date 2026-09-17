@@ -1,0 +1,1 @@
+{"platforms":["apple","android"],"apple":{"modules":["UpkeepVisionModule"]},"android":{"modules":["expo.modules.upkeepvision.UpkeepVisionModule"]}}

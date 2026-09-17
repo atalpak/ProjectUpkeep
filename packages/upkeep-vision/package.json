@@ -1,0 +1,10 @@
+{
+  "name": "@upkeep/vision",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "peerDependencies": {
+    "expo": "^55.0.0",
+    "expo-modules-core": "^55.0.0"
+  }
+}

@@ -8,7 +8,11 @@ import nextTypescript from "eslint-config-next/typescript";
  */
 const eslintConfig = [
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "supabase/**"],
+    // apps/** and packages/** are the Expo/React Native workspaces (see
+    // .claude/rules/mobile.md) — a different toolchain (eslint-config-next
+    // does not understand RN/Expo globals) with their own lint setup, not
+    // this one's job to cover.
+    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "supabase/**", "apps/**", "packages/**"],
   },
   ...nextCoreWebVitals,
   ...nextTypescript,

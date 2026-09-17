@@ -1,0 +1,54 @@
+import { File, Paths } from 'expo-file-system';
+import { fetch } from 'expo/fetch';
+import { CardIndex, type CatalogBundle } from '@upkeep/scan-core';
+
+// Synthetic records keep demo mode deterministic. These must NEVER reach Supabase.
+const oracle = '00000000-0000-4000-8000-000000000001';
+export const demoBundle: CatalogBundle = {
+  schemaVersion: 1, version: 'demo-only', generatedAt: '2026-09-16T00:00:00Z',
+  printings: [
+    {id:'00000000-0000-4000-8000-000000000010',oracleId:oracle,name:'Lightning Bolt',aliases:[],setCode:'m11',collectorNumber:'146',finishes:['nonfoil','foil'],language:'en'},
+    {id:'00000000-0000-4000-8000-000000000011',oracleId:oracle,name:'Lightning Bolt',aliases:[],setCode:'sta',collectorNumber:'42',finishes:['nonfoil','foil','etched'],language:'en'},
+    {id:'00000000-0000-4000-8000-000000000012',oracleId:'00000000-0000-4000-8000-000000000002',name:'Sol Ring',aliases:[],setCode:'cmm',collectorNumber:'396',finishes:['nonfoil','foil'],language:'en'},
+  ],
+};
+// Two slots preserve the last usable bundle even if the app dies halfway through a write.
+const slot = (n: number) => new File(Paths.document, `upkeep-catalog-${n}.json`);
+let activeSlot = 0;
+export function loadCatalog(): CardIndex {
+  const slots = [0,1].sort((a,b) => (slot(b).modificationTime ?? 0)-(slot(a).modificationTime ?? 0));
+  for (const n of slots) {
+    try { const index = new CardIndex(JSON.parse(slot(n).textSync())); activeSlot = n; return index; } catch { /* try the previous bundle */ }
+  }
+  return new CardIndex(demoBundle);
+}
+export async function refreshCatalog(): Promise<CardIndex> {
+  const url = process.env.EXPO_PUBLIC_CATALOG_URL;
+  if (!url || !url.startsWith('https://')) throw new Error('Configure an HTTPS Upkeep catalog URL first.');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error('Catalog download failed. Your previous catalog is still available.');
+    const limit = 40_000_000;
+    if (Number(response.headers.get('content-length')) > limit) throw new Error('Catalog exceeds the 40 MB mobile budget.');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '', received = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        received += chunk.value.byteLength;
+        if (received > limit) { controller.abort(); throw new Error('Catalog exceeds the mobile budget.'); }
+        text += decoder.decode(chunk.value, {stream:true});
+      }
+      text += decoder.decode();
+    } finally { reader.releaseLock(); }
+    const index = new CardIndex(JSON.parse(text));
+    const nextSlot = 1-activeSlot;
+    slot(nextSlot).write(text);
+    activeSlot = nextSlot;
+    return index;
+  } finally { clearTimeout(timer); }
+}

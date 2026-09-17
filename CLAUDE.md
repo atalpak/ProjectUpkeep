@@ -24,6 +24,7 @@ Prices are a display-only Scryfall estimate. These are decisions, not gaps.
 | Database / auth | Supabase — Postgres + Supabase Auth, RLS everywhere |
 | Card data | Scryfall bulk export, no API key |
 | Hosting | Vercel free tier; CI on GitHub Actions, node 22 |
+| Mobile | Expo SDK 55, React Native 0.83, npm workspaces (`apps/mobile`, `packages/*`) |
 
 `package.json` requires node >=20.9.
 
@@ -31,10 +32,16 @@ Prices are a display-only Scryfall estimate. These are decisions, not gaps.
 
 ## Directory map
 
-Verified against the tree on 2026-09-09. Keep it that way — a stale map sends
+Verified against the tree on 2026-09-16. Keep it that way — a stale map sends
 agents hunting in the wrong place, which is how the previous one failed.
 
 ```
+apps/mobile/                Expo app — the scanner shell. See .claude/rules/mobile.md
+  App.tsx  src/  docs/       one-screen UI for now · client + auth storage · handoff docs
+packages/
+  scan-core/                 pure TS: catalog search, scan pipeline, draft validation,
+                            the collection writer, and its own scripts/ + test/
+  upkeep-vision/             native module boundary — Swift (iOS) / Kotlin (Android) OCR
 src/
   proxy.ts                  session refresh + private-route gate (see below)
   app/
@@ -74,12 +81,12 @@ src/
                             notifications · tos · types
     supabase/               client · server · session · errors
 supabase/
-  migrations/               32 files, numbered, applied in order
+  migrations/               35 files, numbered, applied in order
   tests/schema_test.sql     assertions the schema must keep satisfying
 scripts/
   sync-scryfall.ts          the scheduled sync job
   verify-migrations.sh      migrations against a throwaway Postgres
-  *.test.ts                 43 unit-test files over the pure logic in src/lib
+  *.test.ts                 48 unit-test files over the pure logic in src/lib
 ```
 
 ## Data model in one paragraph
@@ -196,6 +203,7 @@ Read the matching file before working in that area:
 - `src/app/**` → [`.claude/rules/app-router.md`](.claude/rules/app-router.md)
 - `scripts/*.test.ts` → [`.claude/rules/testing.md`](.claude/rules/testing.md)
 - `src/lib/supabase/**`, any RLS work → [`.claude/rules/data-access.md`](.claude/rules/data-access.md)
+- `apps/mobile/**`, `packages/**` → [`.claude/rules/mobile.md`](.claude/rules/mobile.md)
 
 ## Session hygiene
 

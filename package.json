@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "description": "Magic: The Gathering collection manager with physical location tracking.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
