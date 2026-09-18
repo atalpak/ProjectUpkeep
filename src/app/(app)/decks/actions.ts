@@ -249,6 +249,7 @@ export async function addToDeck(_prev: DeckState, formData: FormData): Promise<D
   const { data: candidates, error: lookupError } = await supabase
     .from("card_instances")
     .select("id, quantity, notes")
+    .eq("owner_user_id", user.id) // hard constraint 3: RLS also exposes friends' tradable rows
     .eq("card_id", stack.card_id)
     .eq("condition", stack.condition)
     .eq("finish", stack.finish)
@@ -794,6 +795,7 @@ async function sleeveCopies(
     const { data: alreadyThere } = await supabase
       .from("card_instances")
       .select("id, quantity, notes")
+      .eq("owner_user_id", userId) // hard constraint 3: RLS also exposes friends' tradable rows
       .eq("card_id", source.card_id)
       .eq("condition", source.condition)
       .eq("finish", source.finish)
@@ -915,6 +917,7 @@ async function unsleeveCopies(
   const { data: inDeck } = await supabase
     .from("card_instances")
     .select("id, quantity, cards ( oracle_id, name )")
+    .eq("owner_user_id", userId) // hard constraint 3
     .eq("location_id", deckId);
 
   const matching = ((inDeck ?? []) as unknown as Array<{

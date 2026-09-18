@@ -304,19 +304,19 @@ function Verdict({ result }: { result: ListCheckResult }) {
         role="img"
         aria-label={`${free} free, ${inDecks} in other decks, ${missing} not owned, of ${wanted}`}
       >
-        {free > 0 ? <span className="bg-[#5A6B3F]" style={{ width: `${pct(free)}%` }} /> : null}
+        {free > 0 ? <span className="bg-success" style={{ width: `${pct(free)}%` }} /> : null}
         {inDecks > 0 ? (
-          <span className="bg-[#C9A34A]" style={{ width: `${pct(inDecks)}%` }} />
+          <span className="bg-warning" style={{ width: `${pct(inDecks)}%` }} />
         ) : null}
         {missing > 0 ? (
-          <span className="bg-[#B24D3C]" style={{ width: `${pct(missing)}%` }} />
+          <span className="bg-danger" style={{ width: `${pct(missing)}%` }} />
         ) : null}
       </div>
 
       <dl className="grid grid-cols-3 gap-2 text-center">
-        <Leg tone="#5A6B3F" value={free} label="free in your collection" />
-        <Leg tone="#C9A34A" value={inDecks} label="sleeved in other decks" />
-        <Leg tone="#B24D3C" value={missing} label="you do not own" />
+        <Leg tone="var(--success)" value={free} label="free in your collection" />
+        <Leg tone="var(--warning)" value={inDecks} label="sleeved in other decks" />
+        <Leg tone="var(--danger)" value={missing} label="you do not own" />
       </dl>
     </Panel>
   );

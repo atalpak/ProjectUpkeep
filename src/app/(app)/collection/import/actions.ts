@@ -135,7 +135,8 @@ export async function previewImport(
   _prev: ImportState,
   formData: FormData,
 ): Promise<ImportState> {
-  if (!(await getCurrentUser())) return fail("You need to be signed in.");
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
 
   const form = readForm(formData);
   if (!form.ok) return fail(form.error);
@@ -146,7 +147,7 @@ export async function previewImport(
     return fail("Nothing to import — no card lines were found.");
   }
 
-  const projection = await projectImport(plan.stacks);
+  const projection = await projectImport(plan.stacks, user.id);
   const preview = toPreview(plan, parsed, {
     newEntries: projection.inserts,
     mergedEntries: projection.merges,

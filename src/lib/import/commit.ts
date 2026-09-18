@@ -70,6 +70,7 @@ function chunk<T>(items: T[], size: number): T[][] {
  */
 async function readExistingByKey(
   stacks: PlannedStack[],
+  ownerUserId: string,
 ): Promise<{ byKey: Map<string, ExistingRow[]>; error: string | null }> {
   const byKey = new Map<string, ExistingRow[]>();
   if (stacks.length === 0) return { byKey, error: null };
@@ -82,6 +83,7 @@ async function readExistingByKey(
     const query = supabase
       .from("card_instances")
       .select("id, card_id, condition, finish, language, location_id, quantity, notes")
+      .eq("owner_user_id", ownerUserId) // hard constraint 3: a friend's tradable rows are readable too
       .in("card_id", group);
 
     // `is null` and `= x` are different operators, and unsorted is a real value.
@@ -117,8 +119,11 @@ export type ImportProjection = {
  * before an all-merges run (the signature of re-importing an earlier export)
  * silently doubles their quantities.
  */
-export async function projectImport(stacks: PlannedStack[]): Promise<ImportProjection> {
-  const { byKey, error } = await readExistingByKey(stacks);
+export async function projectImport(
+  stacks: PlannedStack[],
+  ownerUserId: string,
+): Promise<ImportProjection> {
+  const { byKey, error } = await readExistingByKey(stacks, ownerUserId);
   if (error) return { inserts: 0, merges: 0, error };
 
   let inserts = 0;
@@ -142,7 +147,7 @@ export async function commitImport(
   const result: CommitResult = { cards: 0, inserted: 0, merged: 0, error: null };
   if (stacks.length === 0) return result;
 
-  const { byKey: existingByKey, error: readError } = await readExistingByKey(stacks);
+  const { byKey: existingByKey, error: readError } = await readExistingByKey(stacks, ownerUserId);
   if (readError) return { ...result, error: readError };
 
   const supabase = await createClient();
