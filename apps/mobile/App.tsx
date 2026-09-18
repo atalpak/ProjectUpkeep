@@ -77,6 +77,7 @@ function DecksTab() { return <ScreenFade><DecksNavigator /></ScreenFade>; }
 function AccountTab() { return <ScreenFade><AccountScreen /></ScreenFade>; }
 
 function SignedInTabs({ onMounted }: { onMounted(): void }) {
+  const app = useApp();
   // A fresh navigator always starts on Scan, but onStateChange does not fire
   // for its initial state -- without this, signing out and back in leaves
   // scanFocused at whatever the last tab was.
@@ -84,10 +85,13 @@ function SignedInTabs({ onMounted }: { onMounted(): void }) {
   return (
     <Tab.Navigator
       id="RootTabs"
-      // The scanner is a full-bleed camera: the bar would sit on top of the
-      // live preview and its own result sheet. Its top bar carries a back
-      // arrow to Collection instead, the way the original scanner did.
-      tabBar={props => props.state.routes[props.state.index]?.name === 'Scan' ? null : <TabBar {...props} />}
+      // The live camera is full-bleed: the bar would sit on top of the preview
+      // and its own result sheet, and its top bar carries a back arrow instead.
+      // Only while the camera is actually up -- the permission, download and
+      // recovery panels on this same tab have no back arrow, so hiding the bar
+      // there would leave a user who denied camera access unable to leave the
+      // tab (or reach Account to sign out).
+      tabBar={props => (app.scannerLive && props.state.routes[props.state.index]?.name === 'Scan') ? null : <TabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Scan" component={ScanTab} />

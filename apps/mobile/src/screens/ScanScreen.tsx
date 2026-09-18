@@ -93,6 +93,7 @@ export function ScanScreen() {
   // render that would refresh their closure.
   const outlineFoundRef = useRef(false);
   const [readingStale, setReadingStale] = useState(false);
+  const [readingEpoch, setReadingEpoch] = useState(0);
   const [sessionReviewOpen, setSessionReviewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -146,10 +147,11 @@ export function ScanScreen() {
   // a steady low-confidence card would sit on "Reading" forever. After a few
   // seconds say so, and let the manual button be the way out.
   useEffect(() => {
-    if (sheet?.kind !== 'reading' || !outlineFound) { setReadingStale(false); return; }
+    setReadingStale(false);
+    if (sheet?.kind !== 'reading' || !outlineFound) return;
     const timer = setTimeout(() => setReadingStale(true), 3000);
     return () => clearTimeout(timer);
-  }, [sheet?.kind, outlineFound]);
+  }, [sheet?.kind, outlineFound, readingEpoch]);
 
   function updateStaged(change: (prev: StagedCard[]) => StagedCard[]) {
     stagedRef.current = change(stagedRef.current);
@@ -249,7 +251,13 @@ export function ScanScreen() {
     // emptying: it is already in view (so not "gone"), and the old match must
     // not stay on screen for the ~300ms until its read lands.
     cardGone.current = !outlineFoundRef.current;
-    if (outlineFoundRef.current) setSheet({ kind: 'reading' });
+    if (outlineFoundRef.current) {
+      setSheet({ kind: 'reading' });
+      // The sheet kind may already be 'reading' (previous card stuck), so the
+      // stale-hint effect wouldn't re-run on its own: bump an epoch to restart
+      // its 3s clock for the new card.
+      setReadingEpoch(e => e + 1);
+    }
   }
 
   /** The native view unmounts whenever something else takes over this screen
