@@ -257,7 +257,7 @@ export function ImportForm({ locations }: { locations: Location[] }) {
 
       {committed ? (
         <p className="text-sm">
-          <Link href="/collection" className="text-accent underline">
+          <Link href="/collection" className="text-accent-text underline">
             View your collection
           </Link>
         </p>

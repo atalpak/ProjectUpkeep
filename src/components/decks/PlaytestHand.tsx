@@ -60,7 +60,7 @@ export function PlaytestHand({ library, rule }: { library: PlaytestCard[]; rule:
 
   if (library.length === 0) {
     return (
-      <EmptyState title="Nothing to draw from">
+      <EmptyState title="Nothing to draw from" icon={false}>
         This mode&apos;s library is empty — nothing is sleeved for it yet.
       </EmptyState>
     );

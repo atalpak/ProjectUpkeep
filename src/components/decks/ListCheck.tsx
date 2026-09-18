@@ -213,7 +213,7 @@ function CheckResult({
       ) : null}
 
       {shown.length === 0 ? (
-        <EmptyState title="Nothing here needs a decision.">
+        <EmptyState title="Nothing here needs a decision." icon={false}>
           <p>Every card on this list is sitting free in your collection.</p>
         </EmptyState>
       ) : (
@@ -304,19 +304,19 @@ function Verdict({ result }: { result: ListCheckResult }) {
         role="img"
         aria-label={`${free} free, ${inDecks} in other decks, ${missing} not owned, of ${wanted}`}
       >
-        {free > 0 ? <span className="bg-[#1f7a4d]" style={{ width: `${pct(free)}%` }} /> : null}
+        {free > 0 ? <span className="bg-[#5A6B3F]" style={{ width: `${pct(free)}%` }} /> : null}
         {inDecks > 0 ? (
-          <span className="bg-[#b8862b]" style={{ width: `${pct(inDecks)}%` }} />
+          <span className="bg-[#C9A34A]" style={{ width: `${pct(inDecks)}%` }} />
         ) : null}
         {missing > 0 ? (
-          <span className="bg-[#8a2f2f]" style={{ width: `${pct(missing)}%` }} />
+          <span className="bg-[#B24D3C]" style={{ width: `${pct(missing)}%` }} />
         ) : null}
       </div>
 
       <dl className="grid grid-cols-3 gap-2 text-center">
-        <Leg tone="#1f7a4d" value={free} label="free in your collection" />
-        <Leg tone="#b8862b" value={inDecks} label="sleeved in other decks" />
-        <Leg tone="#8a2f2f" value={missing} label="you do not own" />
+        <Leg tone="#5A6B3F" value={free} label="free in your collection" />
+        <Leg tone="#C9A34A" value={inDecks} label="sleeved in other decks" />
+        <Leg tone="#B24D3C" value={missing} label="you do not own" />
       </dl>
     </Panel>
   );
@@ -480,7 +480,7 @@ function SaveAsDeck({
         <Banner kind="success">
           Saved “{state.deckName}” with {cards} card{cards === 1 ? "" : "s"} on its list.
         </Banner>
-        <Link href={`/decks/${state.deckId}`} className="text-sm text-accent underline">
+        <Link href={`/decks/${state.deckId}`} className="text-sm text-accent-text underline">
           Open the deck →
         </Link>
       </Panel>

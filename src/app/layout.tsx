@@ -1,20 +1,22 @@
 import type { Metadata, Viewport } from "next";
-import { Cinzel, Plus_Jakarta_Sans } from "next/font/google";
+import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 
 import { cx } from "@/components/ui";
 import { ThemeScript } from "@/components/ThemeScript";
 
-// Roman-inscription display face for headings and the wordmark — paired with
-// a clean, dense body face for tables and data. The pairing is the point: no
-// default stack lands on this combination, which is half of what makes an
-// app read as considered rather than generated.
-const display = Cinzel({
+// The brand pairing: Fraunces for brand voice (marketing, Mort's lines,
+// milestone moments — see `.font-brand` in globals.css) and Inter, a clean,
+// dense grotesk, for the product itself (`.font-display`, despite the name,
+// is product chrome — see that class's own comment). Both self-hosted via
+// next/font, so there is no external request and no layout shift.
+const display = Fraunces({
   subsets: ["latin"],
   variable: "--font-display",
+  axes: ["SOFT", "WONK", "opsz"],
 });
 
-const body = Plus_Jakarta_Sans({
+const body = Inter({
   subsets: ["latin"],
   variable: "--font-body",
 });

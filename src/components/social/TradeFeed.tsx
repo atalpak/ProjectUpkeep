@@ -18,7 +18,7 @@ import type { FeedEntry } from "@/lib/social/types";
 export function TradeFeed({ entries, userId }: { entries: FeedEntry[]; userId: string }) {
   if (entries.length === 0) {
     return (
-      <EmptyState title="Nothing has happened yet.">
+      <EmptyState title="Nothing has happened yet." icon={false}>
         Completed trades between you and your friends show up here.
       </EmptyState>
     );

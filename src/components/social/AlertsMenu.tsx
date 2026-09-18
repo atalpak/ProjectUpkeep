@@ -138,7 +138,7 @@ export function AlertsMenu({ unread }: { unread: number }) {
                 type="button"
                 onClick={markRead}
                 disabled={marking}
-                className="text-xs text-accent hover:underline disabled:opacity-50"
+                className="text-xs text-accent-text hover:underline disabled:opacity-50"
               >
                 {marking ? "Marking…" : "Mark all read"}
               </button>
@@ -185,7 +185,7 @@ export function AlertsMenu({ unread }: { unread: number }) {
           <Link
             href="/notifications"
             onClick={() => setOpen(false)}
-            className="block border-t border-border px-3 py-2 text-xs text-accent hover:bg-surface-muted"
+            className="block border-t border-border px-3 py-2 text-xs text-accent-text hover:bg-surface-muted"
           >
             See all alerts
           </Link>

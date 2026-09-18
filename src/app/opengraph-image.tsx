@@ -19,19 +19,19 @@ export default function OpengraphImage() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#F6EFDE",
+          background: "#F5EDE0",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
           <svg width="140" height="140" viewBox="0 0 64 64">
-            <rect x="6" y="4" width="44" height="56" rx="9" fill="#D98A2C" />
-            <rect x="14" y="14" width="28" height="18" rx="3" fill="#FCF8EE" />
-            <rect x="14" y="38" width="28" height="4" rx="2" fill="#FCF8EE" opacity={0.85} />
-            <rect x="14" y="46" width="19" height="4" rx="2" fill="#FCF8EE" opacity={0.6} />
-            <circle cx="48" cy="50" r="13" fill="#2F6B4F" />
+            <rect x="6" y="4" width="44" height="56" rx="9" fill="#C9A34A" />
+            <rect x="14" y="14" width="28" height="18" rx="3" fill="#F5EDE0" />
+            <rect x="14" y="38" width="28" height="4" rx="2" fill="#F5EDE0" opacity={0.85} />
+            <rect x="14" y="46" width="19" height="4" rx="2" fill="#F5EDE0" opacity={0.6} />
+            <circle cx="48" cy="50" r="13" fill="#5A6B3F" />
             <path
               d="M42.5 50 l4.2 4.2 l8.5 -9.4"
-              stroke="#FCF8EE"
+              stroke="#F5EDE0"
               strokeWidth="3.4"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -39,8 +39,8 @@ export default function OpengraphImage() {
             />
           </svg>
           <div style={{ display: "flex", fontSize: 84, fontWeight: 700 }}>
-            <span style={{ color: "#26291F" }}>Project</span>
-            <span style={{ color: "#D98A2C" }}>Upkeep</span>
+            <span style={{ color: "#1F1F1F" }}>Project</span>
+            <span style={{ color: "#C9A34A" }}>Upkeep</span>
           </div>
         </div>
       </div>

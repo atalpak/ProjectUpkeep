@@ -14,6 +14,7 @@ import { cardDisplayName } from "@/lib/types";
 import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { formatPrice } from "@/lib/collection/pricing";
 import { Badge, EmptyState, ListRow, PageHeader, Stat } from "@/components/ui";
+import { MortStage } from "@/components/mort/MortStage";
 
 export const metadata = { title: "Dashboard · Project Upkeep" };
 
@@ -55,10 +56,10 @@ export default async function DashboardPage() {
       <PageHeader title="Dashboard" subtitle="Where your collection stands right now." />
 
       {isEmpty ? (
-        <EmptyState title="Nothing tracked yet.">
+        <EmptyState title="Nothing tracked yet." icon={<MortStage size="m" />}>
           <p>
             Once you{" "}
-            <Link href="/collection/add" className="text-accent underline">
+            <Link href="/collection/add" className="text-accent-text underline">
               add your first card
             </Link>
             , its totals and whereabouts show up here.
@@ -420,7 +421,7 @@ function RecentlyAdded({ summary }: { summary: Summary }) {
     <section className="space-y-2">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold">Recently added</h2>
-        <Link href="/collection" className="text-xs text-accent underline">
+        <Link href="/collection" className="text-xs text-accent-text underline">
           View all
         </Link>
       </div>

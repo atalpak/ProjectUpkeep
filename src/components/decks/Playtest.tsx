@@ -76,7 +76,7 @@ export function Playtest({
 
   if (designedSize === 0) {
     return (
-      <EmptyState title="Nothing on this list yet">
+      <EmptyState title="Nothing on this list yet" icon={false}>
         Add cards to the deck before playtesting it.
       </EmptyState>
     );

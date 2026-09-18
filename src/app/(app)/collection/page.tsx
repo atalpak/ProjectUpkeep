@@ -13,6 +13,7 @@ import { CollectionTable } from "@/components/collection/CollectionTable";
 import { SORT_COOKIE, parseSortValue } from "@/components/collection/columns";
 import { ExportButtons } from "@/components/ExportButtons";
 import { Button, EmptyState, PageHeader } from "@/components/ui";
+import { MortStage } from "@/components/mort/MortStage";
 
 export const metadata = { title: "Collection · Project Upkeep" };
 
@@ -122,13 +123,13 @@ export default async function CollectionPage({
 
       {collection.rows.length === 0 ? (
         collection.total === 0 ? (
-          <EmptyState title="Your collection is empty.">
+          <EmptyState title="Your collection is empty." icon={<MortStage size="m" />}>
             <p>
-              <Link href="/collection/add" className="text-accent underline">
+              <Link href="/collection/add" className="text-accent-text underline">
                 Add your first card
               </Link>{" "}
               or{" "}
-              <Link href="/collection/import" className="text-accent underline">
+              <Link href="/collection/import" className="text-accent-text underline">
                 import a list
               </Link>{" "}
               to get started.
@@ -147,13 +148,13 @@ export default async function CollectionPage({
             }
           >
             <p>
-              <Link href={withDecksHref} className="text-accent underline">
+              <Link href={withDecksHref} className="text-accent-text underline">
                 Include cards in your decks
               </Link>
               {filtered ? (
                 <>
                   {" · "}
-                  <Link href="/collection" className="text-accent underline">
+                  <Link href="/collection" className="text-accent-text underline">
                     Clear the filters
                   </Link>
                 </>
@@ -161,19 +162,22 @@ export default async function CollectionPage({
             </p>
           </EmptyState>
         ) : filtered ? (
-          <EmptyState title="Nothing matches those filters.">
-            <Link href="/collection" className="text-accent underline">
+          // A filter miss inside a dense workflow, not a genuine empty state
+          // — no Mort here (brand doc §27: dense collection tables and search
+          // results are the "use sparingly" case).
+          <EmptyState title="Nothing matches those filters." icon={false}>
+            <Link href="/collection" className="text-accent-text underline">
               Clear the filters
             </Link>
           </EmptyState>
         ) : (
-          <EmptyState title="Your collection is empty.">
+          <EmptyState title="Your collection is empty." icon={<MortStage size="m" />}>
             <p>
-              <Link href="/collection/add" className="text-accent underline">
+              <Link href="/collection/add" className="text-accent-text underline">
                 Add your first card
               </Link>{" "}
               or{" "}
-              <Link href="/collection/import" className="text-accent underline">
+              <Link href="/collection/import" className="text-accent-text underline">
                 import a list
               </Link>{" "}
               to get started.

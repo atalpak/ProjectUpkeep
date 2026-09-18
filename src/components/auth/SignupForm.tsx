@@ -69,7 +69,7 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
 
       <p className="mt-6 text-sm text-ink-muted">
         Already have one?{" "}
-        <Link href="/login" className="text-accent underline">
+        <Link href="/login" className="text-accent-text underline">
           Sign in
         </Link>
       </p>

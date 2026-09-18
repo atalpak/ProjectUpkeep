@@ -12,16 +12,16 @@ export function LegalFooter({ current }: { current: "terms" | "privacy" }) {
   return (
     <nav className="flex gap-4 border-t border-border pt-6 text-xs text-ink-muted">
       {current !== "terms" && (
-        <Link href="/terms" className="text-accent underline">
+        <Link href="/terms" className="text-accent-text underline">
           Trading terms
         </Link>
       )}
       {current !== "privacy" && (
-        <Link href="/privacy" className="text-accent underline">
+        <Link href="/privacy" className="text-accent-text underline">
           Privacy
         </Link>
       )}
-      <Link href="/" className="text-accent underline">
+      <Link href="/" className="text-accent-text underline">
         Home
       </Link>
     </nav>

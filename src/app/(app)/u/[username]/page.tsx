@@ -21,6 +21,7 @@ import { ProfilePublicDecks } from "@/components/social/ProfilePublicDecks";
 import { ProfileTradables } from "@/components/social/ProfileTradables";
 import { TradableBinderPreview } from "@/components/social/TradableBinderPreview";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { MortStage } from "@/components/mort/MortStage";
 
 export const metadata = { title: "Profile · Project Upkeep" };
 
@@ -103,9 +104,12 @@ export default async function ProfilePage({
         ) : null}
 
         {stacks === 0 ? (
-          <EmptyState title="Nothing of yours is open for trade.">
+          <EmptyState
+            title="Nothing of yours is open for trade."
+            icon={<MortStage size="s" reaction="idle" animated={false} />}
+          >
             Mark a binder or box tradable on the{" "}
-            <Link href="/locations" className="text-accent underline">
+            <Link href="/locations" className="text-accent-text underline">
               Locations page
             </Link>{" "}
             and it will show here.
@@ -237,13 +241,19 @@ export default async function ProfilePage({
       ) : null}
 
       {!isFriend ? (
-        <EmptyState title="Only friends can see a trade binder.">
+        <EmptyState
+          title="Only friends can see a trade binder."
+          icon={<MortStage size="s" reaction="annoyed" animated={false} />}
+        >
           {friendship
             ? "There is already a request between you two — check the friends page."
             : "Send them a friend request from the friends page first."}
         </EmptyState>
       ) : theirCards.length === 0 ? (
-        <EmptyState title={`${profile.username} has nothing open for trade.`}>
+        <EmptyState
+          title={`${profile.username} has nothing open for trade.`}
+          icon={<MortStage size="s" reaction="idle" animated={false} />}
+        >
           They need to mark a binder or box as tradable before anything shows here.
         </EmptyState>
       ) : (

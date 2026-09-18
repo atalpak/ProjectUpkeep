@@ -46,7 +46,7 @@ export default function ResetRequestPage() {
 
       <p className="mt-6 text-sm text-ink-muted">
         Remembered it?{" "}
-        <Link href="/login" className="text-accent underline">
+        <Link href="/login" className="text-accent-text underline">
           Sign in
         </Link>
       </p>

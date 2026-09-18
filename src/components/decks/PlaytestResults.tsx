@@ -65,7 +65,7 @@ export function PlaytestResults({
   );
 
   if (library.length === 0) {
-    return <EmptyState title="Nothing to simulate">This mode&apos;s library is empty.</EmptyState>;
+    return <EmptyState title="Nothing to simulate" icon={false}>This mode&apos;s library is empty.</EmptyState>;
   }
 
   function run() {

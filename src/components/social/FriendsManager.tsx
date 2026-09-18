@@ -128,7 +128,7 @@ export function FriendsManager({
 
         {locations.length === 0 ? (
           <EmptyState title="No containers yet.">
-            <Link href="/locations" className="text-accent underline">
+            <Link href="/locations" className="text-accent-text underline">
               Create a binder
             </Link>{" "}
             to have something to offer.
@@ -152,7 +152,7 @@ export function FriendsManager({
                 <button
                   type="button"
                   onClick={() => setShowPrivate((s) => !s)}
-                  className="text-xs text-accent underline"
+                  className="text-xs text-accent-text underline"
                 >
                   {showPrivate
                     ? "Hide private locations"
@@ -185,7 +185,7 @@ function LocationRow({ location }: { location: Location & { is_tradable?: boolea
 
       <span
         className={
-          location.is_tradable ? "text-xs font-medium text-accent" : "text-xs text-ink-muted"
+          location.is_tradable ? "text-xs font-medium text-accent-text" : "text-xs text-ink-muted"
         }
       >
         {location.is_tradable ? "Visible to friends" : "Private"}

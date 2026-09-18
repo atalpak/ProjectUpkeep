@@ -406,7 +406,7 @@ export function HeaderSearch() {
                         </span>
                       ) : null}
                       {card.friends && card.friends.suppliers.length > 0 ? (
-                        <span className="mt-0.5 block truncate text-xs text-accent">
+                        <span className="mt-0.5 block truncate text-xs text-accent-text">
                           {card.friends.suppliers[0].username} has{" "}
                           {card.friends.suppliers[0].available}
                           {card.friends.suppliers[0].locations[0]
@@ -434,7 +434,7 @@ export function HeaderSearch() {
             <Link
               href={advancedHref}
               onClick={() => setDropdownOpen(false)}
-              className="flex w-full items-center justify-between gap-2 border-t border-border px-3 py-2.5 text-left text-sm font-medium text-accent transition-colors hover:bg-surface-muted coarse:min-h-11"
+              className="flex w-full items-center justify-between gap-2 border-t border-border px-3 py-2.5 text-left text-sm font-medium text-accent-text transition-colors hover:bg-surface-muted coarse:min-h-11"
             >
               <span>Advanced Search</span>
               <ArrowRightIcon className="size-4" />

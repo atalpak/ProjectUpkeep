@@ -276,7 +276,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                 <button
                   type="button"
                   onClick={reset}
-                  className="text-xs text-accent underline"
+                  className="text-xs text-accent-text underline"
                 >
                   Search for a different card
                 </button>

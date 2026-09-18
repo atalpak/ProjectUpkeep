@@ -530,7 +530,7 @@ function DraftRowView({
                 <Badge>Available</Badge>
                 {draft.suppliers.map((s, i) => (
                   <span key={s.username}>
-                    <Link href={`/u/${encodeURIComponent(s.username)}`} className="text-accent hover:underline">
+                    <Link href={`/u/${encodeURIComponent(s.username)}`} className="text-accent-text hover:underline">
                       {s.username}
                     </Link>{" "}
                     <span className="text-ink-muted">has {describeSupplier(s.available, s.locations)}</span>

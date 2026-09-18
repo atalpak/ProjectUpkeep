@@ -64,13 +64,13 @@ export default function LoginPage() {
 
       <p className="mt-6 text-sm text-ink-muted">
         No account?{" "}
-        <Link href="/signup" className="text-accent underline">
+        <Link href="/signup" className="text-accent-text underline">
           Create one
         </Link>
       </p>
 
       <p className="mt-2 text-sm text-ink-muted">
-        <Link href="/auth/reset" className="text-accent underline">
+        <Link href="/auth/reset" className="text-accent-text underline">
           Forgot your password?
         </Link>
       </p>

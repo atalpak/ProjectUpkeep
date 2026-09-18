@@ -7,6 +7,7 @@ import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 
 import { ManaSymbol } from "@/components/ManaCost";
+import { MortStage } from "@/components/mort/MortStage";
 
 export { cx } from "@/lib/cx";
 import { cx } from "@/lib/cx";
@@ -27,18 +28,20 @@ const BUTTON_BASE =
   "coarse:min-h-11 motion-safe:active:scale-[0.97]";
 
 const BUTTON_VARIANTS = {
-  primary: "bg-accent text-accent-ink hover:opacity-90",
+  // Colour-only hover, not opacity: fading the fill also fades the label, and
+  // a primary button's label is the one thing that must never dim.
+  primary: "bg-accent text-accent-ink hover:bg-accent/90",
   secondary:
     "border border-border bg-surface hover:bg-surface-muted",
   ghost: "hover:bg-surface-muted",
   danger:
-    "border border-border text-danger hover:bg-surface-muted",
+    "border border-border text-danger-text hover:bg-surface-muted",
   // A solid dark chip, for controls that sit over a variable background (art
   // scrims, hero banners) where `secondary`'s surface tone would wash out or
-  // fight the underlying image. Deliberately literal black/white rather than
-  // the `ink`/`surface` tokens, which invert in dark mode — this one wants to
-  // read the same regardless of theme.
-  dark: "bg-black/70 text-white hover:bg-black/60",
+  // fight the underlying image. `surface-inverse`/`text-inverse` rather than
+  // the plain `ink`/`surface` tokens, which invert in dark mode — this one
+  // wants to read the same regardless of theme.
+  dark: "bg-surface-inverse/75 text-inverse hover:bg-surface-inverse/65",
 } as const;
 
 export function Button({
@@ -58,8 +61,9 @@ export function Button({
 // iOS Safari zooms the viewport when a field takes focus; desktop keeps the
 // denser 14px.
 const FIELD_BASE =
-  "w-full rounded-md border border-border bg-surface px-3 py-2 " +
-  "text-base sm:text-sm placeholder:text-ink-muted coarse:min-h-11";
+  "w-full rounded-md border border-border-strong bg-surface px-3 py-2 " +
+  "text-base sm:text-sm placeholder:text-ink-muted coarse:min-h-11 " +
+  "focus:border-accent-text focus:bg-surface-raised";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input {...props} className={cx(FIELD_BASE, className)} />;
@@ -99,7 +103,7 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
     <div
       {...props}
       className={cx(
-        "rounded-2xl border border-border bg-surface p-4",
+        "rounded-2xl border border-border bg-surface p-4 shadow-[var(--shadow-card)]",
         className,
       )}
     />
@@ -129,8 +133,8 @@ export function Banner({ kind, children }: { kind: "error" | "success"; children
       className={cx(
         "flex items-start gap-2 rounded-lg border-l-4 px-3 py-2 text-sm",
         kind === "error"
-          ? "border-danger bg-danger/10 text-danger"
-          : "border-accent bg-accent-soft text-ink",
+          ? "border-danger bg-danger/10 text-danger-text"
+          : "border-success bg-success/10 text-ink",
       )}
     >
       <span aria-hidden="true" className="mt-0.5 shrink-0">
@@ -154,35 +158,49 @@ export function Banner({ kind, children }: { kind: "error" | "success"; children
  *  already reads without thinking. */
 const PIPS = ["W", "U", "B", "R", "G"];
 
+/**
+ * The muted five-color mana-pip row `EmptyState` used to render inline as its
+ * only decoration. Pulled out to its own component when Mort took over as the
+ * default, so the handful of card-context callers that still want the pip row
+ * specifically (rather than Mort, who is not always the right character for a
+ * dense in-collection empty state) can pass `icon={<ManaPipRow />}`.
+ */
+export function ManaPipRow() {
+  return (
+    <div className="mb-2 flex justify-center gap-1 opacity-35">
+      {PIPS.map((code) => (
+        <ManaSymbol key={code} code={code} />
+      ))}
+    </div>
+  );
+}
+
 export function EmptyState({
   title,
   children,
   icon,
+  actions,
 }: {
   title: string;
   children?: ReactNode;
-  /** Defaults to a muted five-color mana-pip row. Pass `false` to omit it, or
-   *  a node of your own to show something else instead. */
+  /** Defaults to a small idle Mort. Pass `false` to omit it, or a node of
+   *  your own (e.g. `<ManaPipRow />`) to show something else instead. */
   icon?: ReactNode | false;
+  /** Rendered below `children` — buttons/links that follow up on the empty
+   *  state, kept out of the prose so callers don't have to fight the
+   *  `children` paragraph's own spacing to add one. */
+  actions?: ReactNode;
 }) {
-  const decoration =
-    icon === false
-      ? null
-      : (icon ?? (
-          <div className="mb-2 flex justify-center gap-1 opacity-35">
-            {PIPS.map((code) => (
-              <ManaSymbol key={code} code={code} />
-            ))}
-          </div>
-        ));
+  const decoration = icon === false ? null : (icon ?? <MortStage size="s" />);
 
   return (
-    <div className="rounded-2xl border border-dashed border-border p-8 text-center">
+    <div className="rounded-2xl border border-dashed border-border-strong p-8 text-center">
       {decoration}
       <p className="font-medium">{title}</p>
       {children ? (
         <div className="mt-1 text-sm text-ink-muted">{children}</div>
       ) : null}
+      {actions ? <div className="mt-4 flex flex-wrap justify-center gap-2">{actions}</div> : null}
     </div>
   );
 }
@@ -201,7 +219,7 @@ export function Stat({
   hint?: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface-raised px-4 py-3.5">
+    <div className="rounded-xl border border-border bg-surface-raised px-4 py-3.5 shadow-[var(--shadow-card)]">
       <div className="font-display text-2xl font-semibold tabular-nums tracking-tight">
         {value}
       </div>
@@ -226,9 +244,12 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
   return (
     <Link
       href={href}
-      className="group inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-accent transition-colors hover:bg-surface-muted"
+      className="group inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm text-accent-text transition-colors hover:bg-surface-muted"
     >
-      <span aria-hidden="true" className="transition-transform group-hover:-translate-x-0.5">
+      <span
+        aria-hidden="true"
+        className="motion-safe:transition-transform motion-safe:group-hover:-translate-x-0.5"
+      >
         ←
       </span>
       {children}
@@ -245,6 +266,10 @@ export function BackLink({ href, children }: { href: string; children: ReactNode
  * back-link sat at three different distances, and the action rows used two
  * different flex layouts. Actions wrap below the title on a narrow screen
  * rather than squeezing it.
+ *
+ * The `<h1>` keeps `.font-display` (Inter, product-face) rather than
+ * `.font-brand` — this component is what guarantees Fraunces stays off every
+ * routine product page, since practically every page's title runs through it.
  */
 export function PageHeader({
   title,
@@ -336,7 +361,7 @@ export function ListRow({
 /** Small inline label, used for location types and card metadata. */
 export function Badge({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+    <span className="inline-flex items-center rounded-full border border-border-strong px-2 py-0.5 text-[11px] font-medium text-ink-muted">
       {children}
     </span>
   );

@@ -42,7 +42,7 @@ export function TradeList({
 
   if (trades.length === 0) {
     return (
-      <EmptyState title="No trades yet.">
+      <EmptyState title="No trades yet." icon={false}>
         Open a friend&rsquo;s trade binder and put an offer together.
       </EmptyState>
     );
@@ -165,7 +165,7 @@ function TradeCard({
             {!iProposed && other?.username ? (
               <Link
                 href={`/u/${encodeURIComponent(other.username)}?counter=${trade.id}`}
-                className="text-xs text-accent underline"
+                className="text-xs text-accent-text underline"
               >
                 Counter
               </Link>
@@ -194,7 +194,7 @@ function TradeCard({
             {!iProposed && other?.username ? (
               <Link
                 href={`/u/${encodeURIComponent(other.username)}?counter=${trade.id}`}
-                className="text-xs text-accent underline"
+                className="text-xs text-accent-text underline"
               >
                 Make a fresh offer
               </Link>

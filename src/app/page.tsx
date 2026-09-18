@@ -9,6 +9,8 @@ import { Reveal } from "@/components/Reveal";
 import { Wordmark } from "@/components/Wordmark";
 import { DeckStateMark } from "@/components/decks/DeckStateMark";
 import { entryState } from "@/lib/collection/deck-state";
+import { MortStage } from "@/components/mort/MortStage";
+import { MortLine } from "@/components/mort/MortLine";
 
 /**
  * A stand-in for a real deck list, built from the same entryState() logic
@@ -124,7 +126,7 @@ function FeatureSection({
               <ManaSymbol code={tone.toUpperCase()} size="sm" />
             </span>
             <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">{eyebrow}</p>
-            <h2 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+            <h2 className="font-brand text-2xl font-semibold tracking-tight sm:text-3xl">
               {title}
             </h2>
             <div className="space-y-3 text-sm text-ink-muted sm:text-base">{body}</div>
@@ -315,7 +317,7 @@ export default async function HomePage() {
       {/* ---- hero ---- */}
       <section className="mt-10 grid items-center gap-10 md:grid-cols-[1.15fr_1fr] md:gap-14">
         <div className="space-y-5">
-          <h1 className="font-display text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
+          <h1 className="font-brand text-4xl font-bold leading-[1.05] tracking-tight sm:text-5xl md:text-6xl">
             Collection management that feels like magic.
           </h1>
           <p className="text-base text-ink-muted sm:text-lg">
@@ -335,7 +337,22 @@ export default async function HomePage() {
           </div>
         </div>
 
-        <DeckPreview />
+        {/* Mort sits behind the deck preview, `l` scene size — md and up only.
+            Below md the detailed L scene is omitted rather than shrunk into an
+            xs/s slot (brand doc §26: "do not shrink a detailed L scene into an
+            xs slot"). */}
+        <div className="relative">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-12 -top-16 hidden md:block"
+          >
+            <MortStage size="l" reaction="idle" />
+          </div>
+          <DeckPreview />
+          <div className="mt-3 text-center">
+            <MortLine>Filed.</MortLine>
+          </div>
+        </div>
       </section>
 
       {/* ---- five features, five colours ---- */}
@@ -424,7 +441,7 @@ export default async function HomePage() {
       <Reveal>
         <section className="mt-16 grid gap-8 border-t border-border pt-10 md:grid-cols-2">
           <div className="space-y-3">
-            <h2 className="font-display text-xl font-semibold tracking-tight">
+            <h2 className="font-brand text-xl font-semibold tracking-tight">
               What it&rsquo;s worth, honestly
             </h2>
             <p className="text-sm text-ink-muted">
@@ -440,7 +457,7 @@ export default async function HomePage() {
           </div>
 
           <div className="space-y-3">
-            <h2 className="font-display text-xl font-semibold tracking-tight">
+            <h2 className="font-brand text-xl font-semibold tracking-tight">
               What it isn&rsquo;t
             </h2>
             <p className="text-sm text-ink-muted">
@@ -455,7 +472,7 @@ export default async function HomePage() {
 
       {/* ---- close ---- */}
       <section className="mt-16 border-t border-border pt-10">
-        <p className="font-display text-base">
+        <p className="font-brand text-base">
           I&rsquo;m building this for my own playgroup first, while Project
           Upkeep finds its feet.
         </p>
@@ -466,10 +483,10 @@ export default async function HomePage() {
         </div>
         <p className="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-muted">
           <span>Card data and prices from Scryfall.</span>
-          <Link href="/terms" className="text-accent underline">
+          <Link href="/terms" className="text-accent-text underline">
             Trading terms
           </Link>
-          <Link href="/privacy" className="text-accent underline">
+          <Link href="/privacy" className="text-accent-text underline">
             Privacy
           </Link>
         </p>

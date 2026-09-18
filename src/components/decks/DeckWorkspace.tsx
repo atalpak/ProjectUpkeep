@@ -326,7 +326,7 @@ export function DeckWorkspace({
             onToggleSelected={toggleSelected}
           />
 
-          <EmptyState title="This deck has no list yet.">
+          <EmptyState title="This deck has no list yet." icon={false}>
             Use <span className="font-medium">Add cards</span> to build the list. You can add
             cards you do not own yet — they will show as missing until you get them.
           </EmptyState>
@@ -557,7 +557,7 @@ function ListRow({
         className="flex min-w-0 flex-1 cursor-default items-center gap-1 truncate text-sm"
       >
         {isCommander ? (
-          <span className="text-accent" title="Commander" aria-label="Commander">
+          <span className="text-accent-text" title="Commander" aria-label="Commander">
             ★
           </span>
         ) : null}
@@ -765,7 +765,7 @@ function RowActions({
                           disabled={current}
                           className={cx(
                             "flex w-full items-start gap-1.5 px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-muted disabled:hover:bg-transparent",
-                            current && "font-medium text-accent",
+                            current && "font-medium text-accent-text",
                           )}
                         >
                           <SetSymbol code={p.set_code} size={12} className="mt-0.5" />
@@ -1018,7 +1018,7 @@ function GalleryCard({
         </span>
 
         {isCommander ? (
-          <span className="shrink-0 text-xs text-accent" title="Commander" aria-label="Commander">
+          <span className="shrink-0 text-xs text-accent-text" title="Commander" aria-label="Commander">
             ★
           </span>
         ) : null}
@@ -1279,7 +1279,7 @@ function WishList({
           <p className="text-xs text-ink-muted">
             Cards you want for this deck specifically. Tagging is optional — a card can be on
             your wish list without being tied to any deck — and a card stays on your global{" "}
-            <a href="/wants" className="text-accent underline">
+            <a href="/wants" className="text-accent-text underline">
               wish list
             </a>{" "}
             whether or not it is tagged here.

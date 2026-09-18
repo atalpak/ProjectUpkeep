@@ -25,7 +25,7 @@ export function TradingTerms({ accepted }: { accepted: boolean }) {
     return (
       <p className="text-xs text-ink-muted">
         You have accepted the{" "}
-        <Link href="/terms" className="text-accent underline">
+        <Link href="/terms" className="text-accent-text underline">
           trading terms
         </Link>
         .
@@ -64,7 +64,7 @@ export function TradingTerms({ accepted }: { accepted: boolean }) {
             {pending ? "Saving…" : "I agree to the trading terms"}
           </Button>
         </form>
-        <Link href="/terms" className="text-xs text-accent underline">
+        <Link href="/terms" className="text-xs text-accent-text underline">
           Read the full terms
         </Link>
       </div>

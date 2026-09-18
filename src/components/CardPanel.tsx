@@ -990,7 +990,7 @@ function ExternalLink({ href, children }: { href: string; children: React.ReactN
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-accent underline"
+      className="text-accent-text underline"
     >
       {children}
     </a>
@@ -1306,7 +1306,7 @@ function CardActions({ card }: { card: Card }) {
       {wishlisted ? (
         <p className="text-xs text-ink-muted">
           On your{" "}
-          <Link href="/wants" className="text-accent hover:underline">
+          <Link href="/wants" className="text-accent-text hover:underline">
             wish list
           </Link>{" "}
           (×{wishlisted.quantity})
@@ -1319,7 +1319,7 @@ function CardActions({ card }: { card: Card }) {
           <ul className="space-y-0.5 text-xs text-ink-muted">
             {friends.map((f) => (
               <li key={f.username}>
-                <Link href={`/u/${encodeURIComponent(f.username)}`} className="text-accent hover:underline">
+                <Link href={`/u/${encodeURIComponent(f.username)}`} className="text-accent-text hover:underline">
                   {f.username}
                 </Link>{" "}
                 has {f.count} ({f.samePrinting ? "this printing" : "another printing"})
@@ -1410,7 +1410,7 @@ function CardActions({ card }: { card: Card }) {
                 <span>1 · NM · non-foil · English · Unsorted</span>
                 <button
                   type="button"
-                  className="text-accent underline"
+                  className="text-accent-text underline"
                   onClick={() => setShowOptions(true)}
                 >
                   Options

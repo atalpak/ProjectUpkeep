@@ -102,7 +102,7 @@ export default async function SearchPage({
           Set at least one filter above, then press Search.
         </p>
       ) : searchError ? null : results.length === 0 ? (
-        <EmptyState title="Nothing matches those filters." />
+        <EmptyState title="Nothing matches those filters." icon={false} />
       ) : (
         <SearchResultsGrid results={results} />
       )}

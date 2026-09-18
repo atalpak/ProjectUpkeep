@@ -52,7 +52,7 @@ export default async function SettingsPage() {
           <p className="text-sm">
             <Link
               href={`/u/${encodeURIComponent(profile.username)}`}
-              className="text-accent underline"
+              className="text-accent-text underline"
             >
               View your public profile
             </Link>{" "}
@@ -85,7 +85,7 @@ export default async function SettingsPage() {
           {accepted ? (
             <>
               You accepted the{" "}
-              <Link href="/terms" className="text-accent underline">
+              <Link href="/terms" className="text-accent-text underline">
                 trading terms
               </Link>{" "}
               (version {tos?.version}).
@@ -93,11 +93,11 @@ export default async function SettingsPage() {
           ) : (
             <>
               You have not accepted the{" "}
-              <Link href="/terms" className="text-accent underline">
+              <Link href="/terms" className="text-accent-text underline">
                 trading terms
               </Link>{" "}
               (version {CURRENT_TOS_VERSION}) yet. You will be asked to on the{" "}
-              <Link href="/friends" className="text-accent underline">
+              <Link href="/friends" className="text-accent-text underline">
                 friends page
               </Link>{" "}
               before your first trade.
@@ -112,13 +112,13 @@ export default async function SettingsPage() {
       >
         <ul className="space-y-1 text-sm">
           <li>
-            <Link href="/collection/import" className="text-accent underline">
+            <Link href="/collection/import" className="text-accent-text underline">
               Import cards
             </Link>{" "}
             <span className="text-ink-muted">from a decklist or a CSV export.</span>
           </li>
           <li>
-            <Link href="/locations" className="text-accent underline">
+            <Link href="/locations" className="text-accent-text underline">
               Manage locations
             </Link>{" "}
             <span className="text-ink-muted">
@@ -126,7 +126,7 @@ export default async function SettingsPage() {
             </span>
           </li>
           <li>
-            <a href="/api/collection/export?format=csv" className="text-accent underline">
+            <a href="/api/collection/export?format=csv" className="text-accent-text underline">
               Export your collection
             </a>{" "}
             <span className="text-ink-muted">as a CSV, or a decklist with ?format=txt.</span>
@@ -145,7 +145,7 @@ export default async function SettingsPage() {
             One thing survives on purpose: a friend&rsquo;s own copy of a trade you completed with
             them stays in their history, with your identity removed from it — closing your
             account cannot erase their record of what they own. See the{" "}
-            <Link href="/privacy" className="text-accent underline">
+            <Link href="/privacy" className="text-accent-text underline">
               privacy notice
             </Link>{" "}
             for the full picture.

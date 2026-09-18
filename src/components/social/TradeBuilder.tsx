@@ -162,7 +162,7 @@ function Side({
       <h2 className="text-sm font-semibold">{title}</h2>
 
       {rows.length === 0 && search.trim() === "" ? (
-        <EmptyState title={empty} />
+        <EmptyState title={empty} icon={false} />
       ) : (
         <>
           <Input

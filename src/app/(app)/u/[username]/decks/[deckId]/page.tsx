@@ -77,7 +77,7 @@ export default async function FriendDeckPage({
       ) : null}
 
       {entries.length === 0 ? (
-        <EmptyState title="Nothing on this list yet.">
+        <EmptyState title="Nothing on this list yet." icon={false}>
           {profile.username} hasn&apos;t added any cards to this deck&apos;s list.
         </EmptyState>
       ) : (
@@ -108,7 +108,7 @@ export default async function FriendDeckPage({
       <p className="text-xs text-ink-muted">
         This is {profile.username}&apos;s decklist — what they physically have sleeved is theirs to
         show, not this page&apos;s.{" "}
-        <Link href={`/u/${encodeURIComponent(username)}`} className="text-accent underline">
+        <Link href={`/u/${encodeURIComponent(username)}`} className="text-accent-text underline">
           Back to their profile
         </Link>
         .

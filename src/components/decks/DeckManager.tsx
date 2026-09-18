@@ -38,7 +38,7 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
       </Panel>
 
       {decks.length === 0 ? (
-        <EmptyState title="No decks yet.">
+        <EmptyState title="No decks yet." icon={false}>
           A deck is a real place a card can be. Create one, then add cards to it from your
           collection — those copies stop counting as available.
         </EmptyState>
@@ -164,7 +164,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
                 aria-label={`${deck.sleevedCount} of ${deck.cardCount} cards sleeved`}
               >
                 <span
-                  className={cx("block h-full rounded-full", complete ? "bg-[#3fae7a]" : "bg-accent")}
+                  className={cx("block h-full rounded-full", complete ? "bg-success" : "bg-accent")}
                   style={{ width: `${Math.min(100, pct)}%` }}
                 />
               </div>

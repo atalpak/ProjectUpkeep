@@ -23,13 +23,39 @@
   --color-surface-muted: var(--surface-muted);
   /* One step elevated: menus, popovers, stat tiles — usually with a shadow. */
   --color-surface-raised: var(--surface-raised);
+  /* The opposite of `surface` — a solid chip meant to read the same regardless
+     of theme (see Button's `dark` variant). */
+  --color-surface-inverse: var(--surface-inverse);
   --color-border: var(--border);
+  /* A hairline that needs to actually be seen against its surface — small
+     controls (Badge, form fields) rather than a whole card's edge. */
+  --color-border-strong: var(--border-strong);
   --color-ink: var(--ink);
   --color-ink-muted: var(--ink-muted);
+  /* Text set against `surface-inverse` — the counterpart to `ink` the way
+     `surface-inverse` is the counterpart to `surface`. Named `inverse` (not
+     `text-inverse`) so it generates the `text-inverse` utility Button's `dark`
+     variant uses, the same way `--color-ink` generates plain `text-ink`. */
+  --color-inverse: var(--text-inverse);
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
+  /* Ochre used as *text* — links, the back-arrow label — rather than as a
+     filled chip. Raw `--accent` measures under 3:1 against either surface,
+     which is fine for a fill but not for text or a focus ring; this is the
+     darker/brighter reading of the same hue that actually clears contrast. */
+  --color-accent-text: var(--accent-text);
+  /* The keyboard focus ring. Same value as `accent-text` today (both solve the
+     same contrast problem) but its own token because the two mean different
+     things — one is "this is a link", the other is "this is focused" — and a
+     future brand pass may want to move them apart. */
+  --color-focus-ring: var(--focus-ring);
   --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-success: var(--success);
+  /* Fill/icon only — never text on a light surface. See the `:root` comment
+     on `--warning`. */
+  --color-warning: var(--warning);
   /* The dim behind a modal. A token rather than a literal black so dark mode
      can go heavier — the same 50% that reads as a scrim over a white page is
      barely visible over a dark one. */
@@ -48,24 +74,40 @@
 }
 
 /*
- * Light: warm parchment rather than cool grey — closer to a card binder page
- * or a shoebox of commons than a SaaS dashboard. Ink leans warm brown-green
- * instead of blue-black, and the accent is a marigold amber, not the
+ * Light: the Project Upkeep brand palette (see the brand handoff doc and
+ * Brand Bible v0.2) — warm parchment rather than cool grey, closer to a card
+ * binder page or a shoebox of commons than a SaaS dashboard. Ink leans warm
+ * near-black instead of blue-black, and the accent is Ochre, not the
  * blue-indigo every AI-scaffolded dashboard defaults to.
  */
 :root {
-  --canvas: #f6efde;
-  --surface: #fcf8ee;
-  --surface-muted: #ece1c6;
+  --canvas: #f5ede0;
+  --surface: #fdf8ef;
+  --surface-muted: #eae0cf;
   --surface-raised: #ffffff;
-  --border: #e1d6b8;
-  --ink: #26291f;
-  --ink-muted: #6b6752;
-  --accent: #d98a2c;
-  --accent-ink: #2a1b04;
-  --accent-soft: #f6e2bc;
-  --danger: #bf4429;
-  --scrim: rgb(38 27 10 / 0.45);
+  --surface-inverse: #1f1f1f;
+  --border: #d9d1c2;
+  --border-strong: #c3b8a4;
+  --ink: #1f1f1f;
+  --ink-muted: #6b4e3d;
+  --text-inverse: #f5ede0;
+  --accent: #c9a34a;
+  --accent-ink: #1f1f1f;
+  --accent-soft: #f0e3c4;
+  /* Raw Ochre (--accent) measures ~2:1 against either surface — fine for a
+     filled chip, not for text or a focus ring. This is Leather-toned Ochre,
+     the darker reading of the same hue, used everywhere Ochre carries text. */
+  --accent-text: #7a5d17;
+  --focus-ring: #7a5d17;
+  --danger: #b24d3c;
+  --danger-text: #9c4132;
+  --success: #5a6b3f;
+  /* Fill/icon use only — never text on a light surface, same rule as the
+     mobile app's `state.warning` (apps/mobile/src/theme.ts). */
+  --warning: #c9a34a;
+  --scrim: rgb(31 31 31 / 0.55);
+  --shadow-card: 0 1px 2px rgb(31 31 31 / 0.06);
+  --shadow-raised: 0 4px 16px rgb(31 31 31 / 0.1);
 
   /* WUBRG, tuned to sit on the parchment canvas rather than lifted verbatim
      off a card frame — a black pip at Magic's own near-black would all but
@@ -75,7 +117,8 @@
      4.3+:1 the other four reach — fine only because all five are used today
      as small `aria-hidden` decorative dots, where the 3:1 non-text threshold
      is what applies, not full AA text contrast. Revisit this if `--w` is ever
-     used to render text. */
+     used to render text. Deliberately left off the brand palette — see the
+     `@theme inline` block's own header comment. */
   --w: #a37f1f;
   --u: #3f6ea6;
   --b: #463a52;
@@ -86,26 +129,39 @@
 }
 
 /*
- * Dark: the same warm palette lifted off true black — a well-worn card box in
- * low light, not a slate-blue "dark mode" default. Accent brightens to a
- * bolder amber so it still pops against the darker canvas.
+ * Dark: the brand doc never specifies a dark palette, so this is a derived
+ * one — the same roles lifted off true near-black rather than reused
+ * verbatim, the same way the old palette's dark mode related to its light
+ * one. A well-worn card box in low light, not a slate-blue "dark mode"
+ * default. Accent brightens to a bolder amber so it still pops against the
+ * darker canvas.
  */
 .dark {
-  --canvas: #1b160f;
-  --surface: #221c13;
-  --surface-muted: #2e2718;
-  --surface-raised: #292216;
-  --border: #3d3320;
-  --ink: #efe7d3;
-  --ink-muted: #b3a98a;
-  --accent: #f2a93c;
-  --accent-ink: #2a1b04;
-  --accent-soft: #3a2d14;
-  --danger: #e2836a;
-  --scrim: rgb(10 8 4 / 0.65);
+  --canvas: #141310;
+  --surface: #1f1f1f;
+  --surface-muted: #2a2722;
+  --surface-raised: #26241f;
+  --surface-inverse: #f5ede0;
+  --border: #3a352d;
+  --border-strong: #4e463a;
+  --ink: #f5ede0;
+  --ink-muted: #bfb3a0;
+  --text-inverse: #1f1f1f;
+  --accent: #d9b45f;
+  --accent-ink: #1f1f1f;
+  --accent-soft: #3b3115;
+  --accent-text: #d9b45f;
+  --focus-ring: #d9b45f;
+  --danger: #d9705c;
+  --danger-text: #d9705c;
+  --success: #8fa368;
+  --warning: #d9b45f;
+  --scrim: rgb(10 9 7 / 0.7);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-raised: 0 6px 20px rgb(0 0 0 / 0.55);
 
-  /* Brightened off the dark canvas the same way --accent goes from #d98a2c to
-     #f2a93c: lifted, not just reused, so each colour still reads as itself
+  /* Brightened off the dark canvas the same way --accent goes from #c9a34a to
+     #d9b45f: lifted, not just reused, so each colour still reads as itself
      rather than sinking toward --surface. */
   --w: #d4b13a;
   --u: #6a9bd6;
@@ -133,6 +189,20 @@
  */
 @custom-variant coarse (@media (pointer: coarse));
 
+/*
+ * Motion tokens shared by the Mort controller (src/components/mort/*) and
+ * anything else that wants a named duration instead of a guessed number.
+ * Named after the brand doc's own animation tiers (§14) — micro/quick cover
+ * routine UI transitions, react/moment are Mort's tier-2/tier-3 reaction and
+ * "moment" holds. Same values on both themes; motion is not a colour.
+ */
+:root {
+  --dur-micro: 200ms;
+  --dur-quick: 300ms;
+  --dur-react: 900ms;
+  --dur-moment: 2400ms;
+}
+
 html,
 body {
   background: var(--canvas);
@@ -147,21 +217,35 @@ body {
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Headings and other places that should carry the brand's voice rather than
-   read as body copy — the pairing itself is what signals a considered
-   product instead of a default stack. */
+/* Product headings — Inter. Every ui.tsx PageHeader, Stat value, DeckBanner
+   h1, ListCheck, DeckManager, PlaytestResults, LocationManager,
+   ProfilePublicDecks already use this class; it now points at the product
+   face, not brand display type. Do NOT let Fraunces leak onto routine product
+   chrome — see the brand doc §7. */
 .font-display {
-  font-family: var(--font-display), var(--font-body), ui-sans-serif, system-ui,
-    sans-serif;
-  /* Cinzel is a variable face (400-900); nudge past the font-semibold/font-bold
-     utilities components pass alongside this class — unlayered, so it wins the
-     cascade over Tailwind's utility layer without touching every call site. */
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Inter is a variable face; nudge past the font-semibold/font-bold utilities
+     components pass alongside this class — unlayered, so it wins the cascade
+     over Tailwind's utility layer without touching every call site. */
   font-weight: 650;
+  letter-spacing: -0.011em;
 }
 
-/* Visible focus everywhere. Card management is keyboard-heavy data entry. */
+/* Brand voice — Fraunces. Marketing headlines, milestone moments, Mort's own
+   lines. Nothing that is part of a routine task — see the brand doc §7 and
+   §12 (Project Upkeep voice vs. Mort voice). */
+.font-brand {
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-weight: 600;
+  font-optical-sizing: auto;
+}
+
+/* Visible focus everywhere. Card management is keyboard-heavy data entry.
+   `--focus-ring`, not `--accent`: raw Ochre measures ~2:1 contrast, under the
+   3:1 minimum a UI focus indicator needs. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -274,6 +358,31 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-page-enter {
+    animation: none;
+  }
+}
+
+/**
+ * Mort's pose cross-fade (see MortStage.tsx). A plain opacity fade, keyed to
+ * the reaction so React remounts the element and restarts the animation on
+ * every pose change — the same "CSS animation, not JS state" shape as
+ * `.foil-mark` and `.animate-page-enter` above.
+ */
+@keyframes mort-pose-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-mort-pose {
+  animation: mort-pose-enter var(--dur-micro) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-mort-pose {
     animation: none;
   }
 }

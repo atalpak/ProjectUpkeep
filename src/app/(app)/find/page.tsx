@@ -10,6 +10,7 @@ import { LOCATION_TYPE_LABELS } from "@/lib/types";
 import { CardLocator } from "@/components/collection/CardLocator";
 import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
+import { MortStage } from "@/components/mort/MortStage";
 
 export const metadata = { title: "Find a card · Project Upkeep" };
 
@@ -55,10 +56,13 @@ export default async function FindPage({
       ) : (
         <>
           {results.length === 0 ? (
-            <EmptyState title={`Nothing in your collection matches “${query.trim()}”.`}>
+            <EmptyState
+              title={`Nothing in your collection matches “${query.trim()}”.`}
+              icon={<MortStage size="s" reaction="annoyed" />}
+            >
               <p>
                 You may own it under a different name, or not yet —{" "}
-                <Link href="/collection/add" className="text-accent underline">
+                <Link href="/collection/add" className="text-accent-text underline">
                   add a card
                 </Link>
                 .
@@ -198,7 +202,7 @@ function FriendMatchRow({
               </span>
               <Link
                 href={`/u/${encodeURIComponent(username)}`}
-                className="text-accent hover:underline"
+                className="text-accent-text hover:underline"
               >
                 {username}
               </Link>

@@ -27,7 +27,7 @@ export default function PrivacyPage() {
       </div>
 
       <div className="space-y-2">
-        <h1 className="font-display text-xl font-semibold tracking-tight">Privacy</h1>
+        <h1 className="font-brand text-xl font-semibold tracking-tight">Privacy</h1>
         <p className="text-sm text-ink-muted">Last updated: 11 September 2026</p>
       </div>
 
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
           <h2 className="font-semibold">Deleting your data</h2>
           <p>
             Delete your account any time from{" "}
-            <Link href="/settings" className="text-accent underline">
+            <Link href="/settings" className="text-accent-text underline">
               Settings
             </Link>{" "}
             — it removes your collection, locations, decks, want list, friendships, and
@@ -92,7 +92,7 @@ export default function PrivacyPage() {
             trade you completed with them, with your identity removed from it, so closing your
             account cannot erase their record of what they own. Trouble with the form, or a
             question about any of this: email{" "}
-            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline">
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent-text underline">
               {SUPPORT_EMAIL}
             </a>
             .
@@ -103,7 +103,7 @@ export default function PrivacyPage() {
           <h2 className="font-semibold">Contact</h2>
           <p>
             Questions about your data:{" "}
-            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent underline">
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="text-accent-text underline">
               {SUPPORT_EMAIL}
             </a>
             .

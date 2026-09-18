@@ -31,7 +31,7 @@ export default function TermsPage() {
       </div>
 
       <div className="space-y-2">
-        <h1 className="font-display text-xl font-semibold tracking-tight">Trading terms</h1>
+        <h1 className="font-brand text-xl font-semibold tracking-tight">Trading terms</h1>
         <p className="text-sm text-ink-muted">
           Version {CURRENT_TOS_VERSION}. These cover peer-to-peer trades arranged through
           Project Upkeep.

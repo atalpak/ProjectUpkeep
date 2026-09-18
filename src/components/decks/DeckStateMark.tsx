@@ -64,15 +64,16 @@ function cartGlow(rgb: string): string {
 }
 
 const GLOW: Record<Tone, string> = {
-  have: cx("text-[#22c55e]", glow("34,197,94")),
-  reachable: cx("text-[#eab308]", glow("234,179,8")),
-  absent: cx("text-[#ef4444]", glow("239,68,68")),
+  have: cx("text-[var(--success)]", glow("90,107,63")),
+  reachable: cx("text-[var(--warning)]", glow("201,163,74")),
+  absent: cx("text-[var(--danger)]", glow("178,77,60")),
 };
 
 /** The fourth mark, `DeckStateMark`-only: a card already on the wish list. Not
  *  part of `Tone` — it is a status on top of "absent", not a fourth thing the
- *  entry itself can be. */
-const WISHLISTED_GLOW = cx("text-[#3b82f6]", cartGlow("59,130,246"));
+ *  entry itself can be. Ochre, not the off-brand blue this used to be — there
+ *  is no blue anywhere in the brand palette. */
+const WISHLISTED_GLOW = cx("text-[var(--accent)]", cartGlow("201,163,74"));
 
 const GLYPHS: Record<Tone, string> = {
   have: "✓",

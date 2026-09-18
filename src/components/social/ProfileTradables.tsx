@@ -103,7 +103,7 @@ export function ProfileTradables({
             Propose a trade
           </Button>
         ) : (
-          <Link href="/friends" className="text-xs text-accent underline">
+          <Link href="/friends" className="text-xs text-accent-text underline">
             Accept the trading terms to propose a trade
           </Link>
         )}
@@ -149,7 +149,7 @@ export function ProfileTradables({
       </div>
 
       {rows.length === 0 ? (
-        <EmptyState title="Nothing matches that." />
+        <EmptyState title="Nothing matches that." icon={false} />
       ) : view === "gallery" ? (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {rows.map((row) => (
