@@ -13,7 +13,13 @@ export function validateDraft(draft: CollectionDraft, printing: Printing): Colle
 /** Collapse duplicate taps. Retrying an uncertain write MUST reuse operationId and identical draft. */
 // Scope this controller to a single review sheet; discard it when that review completes.
 export class ConfirmScan {
-  private pending = new Map<string, Promise<{id: string}>>();
+  // Matches CollectionWriter.save's real return shape -- narrowing this to
+  // `{id: string}` used to lose `replayed`/`quantity` off every caller's
+  // inferred result even though the runtime value always carried them; a
+  // continuous-mode auto-file (ScanScreen's fileDraft) needs the resulting
+  // stack quantity to keep its session tally accurate on a merge, not just
+  // on a fresh insert.
+  private pending = new Map<string, Promise<{ id: string; replayed: boolean; quantity: number }>>();
   private payloads = new Map<string, string>();
   constructor(private writer: CollectionWriter) {}
   save(scan: ConfirmedScan, printing: Printing) {

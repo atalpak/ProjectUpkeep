@@ -30,8 +30,10 @@ export async function refreshCatalog(): Promise<CardIndex> {
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok || !response.body) throw new Error('Catalog download failed. Your previous catalog is still available.');
-    const limit = 40_000_000;
-    if (Number(response.headers.get('content-length')) > limit) throw new Error('Catalog exceeds the 40 MB mobile budget.');
+    // The published catalog is ~39.98 MB today, right at the old 40 MB ceiling: the next
+    // sync that added a few sets would have failed every download. 80 MB leaves headroom.
+    const limit = 80_000_000;
+    if (Number(response.headers.get('content-length')) > limit) throw new Error('Catalog exceeds the 80 MB mobile budget.');
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let text = '', received = 0;

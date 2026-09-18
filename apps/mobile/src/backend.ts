@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
-import { createCollectionWriter, createMoveWriter, type CollectionStore, type StackAdditionInput, type StackAdditionResult, type MoveStore, type StackMoveInput, type StackMoveResult } from '@upkeep/scan-core';
+import { createCollectionWriter, createMoveWriter, type CollectionStore, type StackAdditionInput, type StackAdditionResult, type MoveStore, type StackMoveInput, type StackMoveResult, type Condition, type Finish } from '@upkeep/scan-core';
 
 // Persisted auth (phase 1b) needs a storage object with getItem/setItem/removeItem.
 // expo-secure-store is already a dependency and already used for the pending-scan

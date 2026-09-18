@@ -71,6 +71,12 @@ public class UpkeepVisionModule: Module {
       // A ranking hint only, never proof of a printing. Confirmation is mandatory in JS.
       return ["index": distances[0].0, "confident": distances[0].1 < distances[1].1 * 0.90]
     }.runOnQueue(worker)
+
+    View(UpkeepScannerView.self) {
+      Events("onCardRead", "onCardLost", "onOutlineChange", "onScannerError")
+      Prop("active") { (view: UpkeepScannerView, active: Bool) in view.active = active }
+      AsyncFunction("captureNow") { (view: UpkeepScannerView) in view.captureNow() }
+    }
   }
   private func localURL(_ value: String) throws -> URL {
     guard let url = URL(string: value), url.isFileURL, FileManager.default.fileExists(atPath: url.path) else {

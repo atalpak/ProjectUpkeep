@@ -40,11 +40,16 @@ import { border, space, surface, text as textColor, type as typeTokens } from '.
  */
 export default function App() {
   const [fonts] = useFonts({ Cinzel_600SemiBold, PlusJakartaSans_400Regular, PlusJakartaSans_600SemiBold });
+  // Scan is the initial tab, and onStateChange does not fire for the initial
+  // state, so this starts where the navigator actually starts.
+  const [scanFocused, setScanFocused] = useState(true);
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <NavigationContainer>
-          <RootShell fontsLoaded={fonts} />
+        <NavigationContainer
+          onStateChange={state => setScanFocused(state?.routes[state.index ?? 0]?.name === 'Scan')}
+        >
+          <RootShell fontsLoaded={fonts} scanFocused={scanFocused} />
         </NavigationContainer>
       </AppProvider>
     </SafeAreaProvider>
@@ -73,7 +78,14 @@ function AccountTab() { return <ScreenFade><AccountScreen /></ScreenFade>; }
 
 function SignedInTabs() {
   return (
-    <Tab.Navigator id="RootTabs" tabBar={props => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
+    <Tab.Navigator
+      id="RootTabs"
+      // The scanner is a full-bleed camera: the bar would sit on top of the
+      // live preview and its own result sheet. Its top bar carries a back
+      // arrow to Collection instead, the way the original scanner did.
+      tabBar={props => props.state.routes[props.state.index]?.name === 'Scan' ? null : <TabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
       <Tab.Screen name="Scan" component={ScanTab} />
       <Tab.Screen name="Collection" component={CollectionTab} />
       <Tab.Screen name="Decks" component={DecksTab} />
@@ -82,23 +94,42 @@ function SignedInTabs() {
   );
 }
 
-function RootShell({ fontsLoaded }: { fontsLoaded: boolean }) {
+/**
+ * The app header and the global banner are hidden while the scanner is the
+ * focused tab, so the camera runs edge to edge and under the status bar.
+ * ScanScreen re-renders `app.message` as an overlay inside itself for exactly
+ * that window — a message must never become invisible just because the
+ * scanner is open.
+ */
+function RootShell({ fontsLoaded, scanFocused }: { fontsLoaded: boolean; scanFocused: boolean }) {
   const app = useApp();
   const titleStyle = fontsLoaded ? styles.title : styles.titleFallback;
   const signedIn = app.backendAvailable && !!app.userId;
 
+  // ONE stable tree. Rendering SignedInTabs in two different branches gave it
+  // two different tree positions, so React unmounted and remounted the whole
+  // navigator on every focus change -- which resets it to its initial route
+  // (Scan) and would trap the user on the scanner. Only the chrome toggles;
+  // the element holding the navigator never changes position.
+  const fullBleed = signedIn && scanFocused;
+
   return (
     // edges omits 'bottom' deliberately -- the TabBar owns its own bottom
     // inset (see TabBar.tsx), and when it isn't rendered (no session) the
-    // ScrollView content itself already pads its bottom edge.
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>PROJECT UPKEEP</Text>
-        <Text style={titleStyle}>Every card has a place.</Text>
-      </View>
-      <View style={styles.banners}>
-        <GlobalBanners />
-      </View>
+    // ScrollView content itself already pads its bottom edge. Full-bleed
+    // takes no insets at all: the scanner draws under the status bar.
+    <SafeAreaView style={fullBleed ? styles.fullBleed : styles.safe} edges={fullBleed ? [] : ['top', 'left', 'right']}>
+      {!fullBleed && (
+        <View style={styles.header}>
+          <Text style={styles.eyebrow}>PROJECT UPKEEP</Text>
+          <Text style={titleStyle}>Every card has a place.</Text>
+        </View>
+      )}
+      {!fullBleed && (
+        <View style={styles.banners}>
+          <GlobalBanners />
+        </View>
+      )}
       <View style={styles.content}>
         {!app.backendAvailable ? (
           <DemoOnly />
@@ -167,6 +198,7 @@ function GlobalBanners() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: surface.canvas },
+  fullBleed: { flex: 1, backgroundColor: surface.inverse },
   header: { paddingHorizontal: space.xxl, paddingTop: space.md, gap: 4 },
   eyebrow: { ...typeTokens.eyebrow, color: textColor.secondary },
   title: { fontFamily: 'Cinzel_600SemiBold', fontSize: typeTokens.display.fontSize, lineHeight: typeTokens.display.lineHeight, color: textColor.primary },

@@ -11,6 +11,24 @@ export interface RecognitionPorts {
 export class ScanPipeline {
   private busy = false;
   constructor(private index: CardIndex, private ports: RecognitionPorts) {}
+  /**
+   * The name/printing match on its own, given text somebody else already
+   * read. The live iOS scanner (packages/upkeep-vision's UpkeepScannerView)
+   * OCRs natively and pushes finished evidence up as an event, so it never
+   * has a URI to hand `scan` — but it must rank candidates by exactly the
+   * same rules, not a second copy of them. Pure and synchronous: no ports, no
+   * image pass, nothing to cancel.
+   */
+  matchEvidence(text: TextEvidence): ScanResult {
+    const hints = printingHints(text.printingLines ?? []);
+    const merged = new Map<string, Candidate>();
+    for (const line of text.lines.slice(0, 8)) for (const c of this.index.search(line, hints)) {
+      if (!merged.has(c.printing.id) || merged.get(c.printing.id)!.score < c.score) merged.set(c.printing.id, c);
+    }
+    const candidates = [...merged.values()].sort((a,b) => Number(b.evidence === 'printing')-Number(a.evidence === 'printing') || b.score-a.score).slice(0, 50);
+    return { candidates, method: candidates.length ? 'ocr' : 'none', needsReview: true, warnings: [] };
+  }
+
   async scan(uri: string, signal: AbortSignal): Promise<ScanResult> {
     if (this.busy) throw new Error('A scan is already running');
     if (signal.aborted) throw new Error('Scan cancelled');
@@ -22,13 +40,9 @@ export class ScanPipeline {
       // Keep the lock until the native task settles: a JS timeout cannot cancel native OCR.
       const text = await this.ports.readText(uri);
       if (signal.aborted) throw new Error('Scan cancelled');
-      const hints = printingHints(text.printingLines ?? []);
-      const merged = new Map<string, Candidate>();
-      for (const line of text.lines.slice(0, 8)) for (const c of this.index.search(line, hints)) {
-        if (!merged.has(c.printing.id) || merged.get(c.printing.id)!.score < c.score) merged.set(c.printing.id, c);
-      }
-      let candidates = [...merged.values()].sort((a,b) => Number(b.evidence === 'printing')-Number(a.evidence === 'printing') || b.score-a.score).slice(0, 50);
-      let method: ScanResult['method'] = candidates.length ? 'ocr' : 'none';
+      const matched = this.matchEvidence(text);
+      let candidates = matched.candidates;
+      let method = matched.method;
       if ((!candidates.length || candidates[0]!.score < 0.78) && this.ports.identifyImage) {
         try {
           const matches = await this.ports.identifyImage(uri, signal);

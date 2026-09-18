@@ -90,6 +90,28 @@ test('fallback failure retains OCR results and telemetry failures do not break s
   const result = await pipeline.scan('file:///photo',new AbortController().signal);
   assert.ok(result.candidates.length); assert.equal(result.warnings.length,1);
 });
+test('matchEvidence ranks already-read text the same way a URI scan does, without ports', async () => {
+  const evidence = {lines:['Lightning Bolt'],printingLines:['STA 42 · EN']};
+  const pipeline = new ScanPipeline(new CardIndex(bundle),{readText:async()=>evidence});
+  const direct = pipeline.matchEvidence(evidence);
+  const viaScan = await pipeline.scan('file:///photo',new AbortController().signal);
+  assert.deepEqual(direct.candidates.map(c=>c.printing.id),viaScan.candidates.map(c=>c.printing.id));
+  // The printing line is a hint, so the STA printing leads without the m11 one being dropped.
+  assert.equal(direct.candidates[0]?.printing.id,b);
+  assert.equal(direct.candidates[0]?.evidence,'printing');
+  assert.equal(direct.candidates.length,2);
+  assert.equal(direct.method,'ocr');
+  assert.equal(direct.needsReview,true);
+});
+test('matchEvidence reports no match rather than guessing, and is reentrant', () => {
+  const pipeline = new ScanPipeline(new CardIndex(bundle),{readText:async()=>({lines:[]})});
+  assert.deepEqual(pipeline.matchEvidence({lines:[]}),{candidates:[],method:'none',needsReview:true,warnings:[]});
+  assert.equal(pipeline.matchEvidence({lines:['Qqqqzzz Not A Card']}).method,'none');
+  // No single-flight lock: the live scanner may match a second read while a
+  // URI-based scan is still awaiting native OCR.
+  assert.equal(scanBand(pipeline.matchEvidence({lines:['Lightning Bolt']}).candidates),'uncertain');
+  assert.equal(pipeline.matchEvidence({lines:['Lightning Bolt'],printingLines:['M11 146']}).candidates[0]?.printing.id,a);
+});
 test('image fallback cannot inject unknown printing IDs', async () => {
   const pipeline = new ScanPipeline(new CardIndex(bundle),{readText:async()=>({lines:[]}),identifyImage:async()=>[{printing:{...printing,id:op},score:1,evidence:'image'}]});
   assert.equal((await pipeline.scan('file:///photo',new AbortController().signal)).candidates.length,0);

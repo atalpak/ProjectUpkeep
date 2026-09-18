@@ -110,7 +110,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     alive.current = true;
-    setIndex(loadCatalog());
+    const loaded = loadCatalog();
+    setIndex(loaded);
+    // Nothing else ever calls syncCatalog now that the manual "Refresh offline
+    // catalog" button is gone, so a fresh install would run on the 3-card demo
+    // bundle forever -- matching nothing real, and (since `demo` below is
+    // derived from this same version string) silently faking every save.
+    // Fetch the real catalog on first launch whenever a backend is configured.
+    if (loaded.bundle.version === 'demo-only' && backend) void syncCatalog();
     const sub = AppState.addEventListener('change', state => {
       setActive(state === 'active');
       if (state !== 'active') { cameraStop.current?.(); backend?.auth.stopAutoRefresh(); }
@@ -198,7 +205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function syncCatalog() {
     setCatalogBusy(true); setMessage('');
-    try { setIndex(await refreshCatalog()); setMessage('Offline catalog updated.'); }
+    try { setIndex(await refreshCatalog()); setMessage('Card database ready.'); }
     catch (e) { setMessage(errorMessage(e)); } finally { setCatalogBusy(false); }
   }
 
