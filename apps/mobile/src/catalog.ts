@@ -26,7 +26,16 @@ export async function refreshCatalog(): Promise<CardIndex> {
   const url = process.env.EXPO_PUBLIC_CATALOG_URL;
   if (!url || !url.startsWith('https://')) throw new Error('Configure an HTTPS Upkeep catalog URL first.');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
+  // A flat 30s cap on the whole request would fail any download slower than ~1.3 MB/s
+  // (the catalog is ~40 MB). Abort on a 30s STALL instead, re-armed by every chunk, and
+  // keep a 10 minute ceiling so a connection that trickles forever still ends.
+  const STALL_MS = 30_000;
+  // Why we aborted, so a stall reads as "check your connection" rather than a bare AbortError.
+  let timedOut = false;
+  const timeout = () => { timedOut = true; controller.abort(); };
+  let stall = setTimeout(timeout, STALL_MS);
+  const rearm = () => { clearTimeout(stall); stall = setTimeout(timeout, STALL_MS); };
+  const ceiling = setTimeout(timeout, 10 * 60_000);
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok || !response.body) throw new Error('Catalog download failed. Your previous catalog is still available.');
@@ -41,6 +50,7 @@ export async function refreshCatalog(): Promise<CardIndex> {
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
+        rearm();
         received += chunk.value.byteLength;
         if (received > limit) { controller.abort(); throw new Error('Catalog exceeds the mobile budget.'); }
         text += decoder.decode(chunk.value, {stream:true});
@@ -52,5 +62,8 @@ export async function refreshCatalog(): Promise<CardIndex> {
     slot(nextSlot).write(text);
     activeSlot = nextSlot;
     return index;
-  } finally { clearTimeout(timer); }
+  } catch (e) {
+    if (timedOut) throw new Error('The card database download stalled. Check your connection and try again. Your previous catalog is still available.');
+    throw e;
+  } finally { clearTimeout(stall); clearTimeout(ceiling); }
 }
