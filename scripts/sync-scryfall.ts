@@ -28,12 +28,12 @@
  */
 
 import { appendFile } from "node:fs/promises";
-import { Readable } from "node:stream";
+import { Readable, pipeline } from "node:stream";
 import { createGunzip } from "node:zlib";
 
 import { config as loadEnv } from "dotenv";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   SCRYFALL_BULK_INDEX_URL,
   scryfallHeaders,
@@ -42,6 +42,7 @@ import {
 } from "../src/lib/scryfall";
 import { streamCardRows } from "../src/lib/scryfall-stream";
 import { createChunkedWriter } from "../src/lib/scryfall-upsert";
+import { withRetry } from "./sync-retry";
 
 // The web app reads .env.local via Next; this script runs outside Next, so load
 // it explicitly. .env.local wins, .env is the fallback (what CI usually sets).
@@ -185,13 +186,47 @@ async function main() {
   const runId = run.id as number;
   const syncedAt = new Date().toISOString();
 
+  // Per pass, reset at the top of each attempt. A retry starts the download
+  // over, so carrying the failed pass's count forward would report rows twice.
   let upserted = 0;
   let skippedRecords = 0;
 
+  // Visible to the last-resort handlers below, which run outside this function.
+  openRun = { db, runId, upserted: () => upserted, closed: false };
+
   try {
     // ---- 4. Stream, map, batch-upsert -------------------------------------
-    log(`downloading ${entry.jsonl_download_uri}`);
-    const download = await fetch(entry.jsonl_download_uri, {
+    // Retried only for a dropped connection; see scripts/sync-retry.ts for why
+    // a database error is deliberately not. The budget keeps the retries inside
+    // the workflow's 45-minute timeout, which also has to cover npm ci and the
+    // catalog steps that follow.
+    await withRetry(
+      async (attempt) => {
+        upserted = 0;
+        skippedRecords = 0;
+        await runPass(attempt);
+      },
+      {
+        budgetMs: RETRY_BUDGET_MS,
+        onRetry: ({ attempt, nextAttempt, waitMs, error }) =>
+          log(
+            `attempt ${attempt} failed with a network error (${describe(error)}); ` +
+              `retrying from the start as attempt ${nextAttempt} in ${waitMs / 1000}s`,
+          ),
+        onGiveUp: ({ attempt, reason, error }) =>
+          log(`giving up after attempt ${attempt}: ${reason} (${describe(error)})`),
+      },
+    );
+  } catch (error) {
+    // Record the failure before rethrowing, so a scheduled run that dies leaves
+    // evidence in the table rather than only in a CI log that ages out.
+    await failRun(error);
+    throw error;
+  }
+
+  async function runPass(attempt: number) {
+    log(`downloading ${entry!.jsonl_download_uri} (attempt ${attempt})`);
+    const download = await fetch(entry!.jsonl_download_uri, {
       headers: scryfallHeaders(contact),
     });
     if (!download.ok || !download.body) {
@@ -201,9 +236,20 @@ async function main() {
     // The export is served as application/gzip with no content-encoding header,
     // so fetch hands back the compressed bytes as-is. Decompress here, on the
     // transport side, and let streamCardRows deal only in plain JSON Lines.
-    const cards = Readable.fromWeb(
-      download.body as Parameters<typeof Readable.fromWeb>[0],
-    ).pipe(createGunzip());
+    //
+    // Not `.pipe()`: that does not forward a source error to the destination,
+    // so a dropped connection was emitted on the body stream with nobody
+    // listening, and crashed the process past the try/catch that records the
+    // failure. pipeline() destroys the gunzip stream *with* the error, and
+    // streamCardRows' own pipeline is already listening on it, so the failure
+    // arrives as an ordinary rejection. The callback has nothing to add — the
+    // error has already travelled that way — but pipeline() requires one.
+    const cards = createGunzip();
+    pipeline(
+      Readable.fromWeb(download.body as Parameters<typeof Readable.fromWeb>[0]),
+      cards,
+      () => {},
+    );
 
     // A statement timeout used to fail the whole run — see scryfall-upsert.ts.
     // Now it halves the chunk, keeps the smaller size, and carries on.
@@ -241,7 +287,7 @@ async function main() {
     if (result.stoppedEarly) log(`--limit ${limit} reached; stopped early`);
 
     // ---- 5. Close the run -------------------------------------------------
-    await db
+    const { error: closeError } = await db
       .from("scryfall_sync_runs")
       .update({
         status: "succeeded",
@@ -249,6 +295,15 @@ async function main() {
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
+    if (openRun) openRun.closed = true;
+    if (closeError) {
+      // The data landed, so this is not a failed run and the output below is
+      // still emitted. But the row will read `running` — say so, loudly.
+      console.error(
+        `[scryfall-sync] WARNING: sync succeeded but run ${runId} could not be marked ` +
+          `succeeded (row may be left at 'running'): ${closeError.message}`,
+      );
+    }
 
     log(
       `done: ${upserted.toLocaleString()} printings upserted` +
@@ -261,27 +316,107 @@ async function main() {
           : "") +
         (writer.retries() > 0 ? `, ${writer.retries()} write(s) retried` : ""),
     );
+    // Only after the run is closed as succeeded, and only once however many
+    // attempts it took: the catalog steps gate on this being exactly `true`.
     await setActionsOutput("upserted", "true");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // Record the failure before rethrowing, so a scheduled run that dies leaves
-    // evidence in the table rather than only in a CI log that ages out.
-    await db
-      .from("scryfall_sync_runs")
-      .update({
-        status: "failed",
-        cards_upserted: upserted,
-        error_message: message.slice(0, 2000),
-        finished_at: new Date().toISOString(),
-      })
-      .eq("id", runId);
-    throw error;
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(
-    `[scryfall-sync] FAILED: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  process.exitCode = 1;
-});
+/**
+ * The run row currently open, if any. Module state because the last-resort
+ * handlers (uncaught exception, SIGTERM from a cancelled or timed-out job) fire
+ * outside main() and still need to leave the row in a terminal state.
+ */
+let openRun: {
+  db: SupabaseClient;
+  runId: number;
+  upserted: () => number;
+  closed: boolean;
+  /** The one in-flight failure write, shared by every caller of failRun(). */
+  failing?: Promise<void>;
+} | null = null;
+
+/** supabase-js has no request timeout; a hung database must not hold the process. */
+const FAIL_WRITE_TIMEOUT_MS = 10_000;
+
+/**
+ * Marks the open run failed. Never throws: it runs while dying.
+ *
+ * Memoised, not just guarded by a flag: a second fatal() (SIGINT then SIGTERM,
+ * or an uncaught exception then an unhandled rejection) must wait for the
+ * first write to settle, not return early and process.exit() with it in flight.
+ */
+function failRun(error: unknown): Promise<void> {
+  const run = openRun;
+  if (!run || run.closed) return Promise.resolve();
+  run.failing ??= writeFailure(run, error);
+  return run.failing;
+}
+
+async function writeFailure(run: NonNullable<typeof openRun>, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const write = (async () => {
+      const { error: writeError } = await run.db
+        .from("scryfall_sync_runs")
+        .update({
+          status: "failed",
+          cards_upserted: run.upserted(),
+          error_message: message.slice(0, 2000),
+          finished_at: new Date().toISOString(),
+        })
+        .eq("id", run.runId);
+      if (writeError) throw new Error(writeError.message);
+    })();
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`no response after ${FAIL_WRITE_TIMEOUT_MS / 1000}s`)),
+        FAIL_WRITE_TIMEOUT_MS,
+      );
+    });
+    await Promise.race([write, timeout]);
+    run.closed = true;
+  } catch (writeFailure) {
+    // The database is the likeliest reason the run failed at all. Say plainly
+    // that the row is stuck at `running` so nobody trusts it.
+    console.error(
+      `[scryfall-sync] could not record run ${run.runId} as failed ` +
+        `(row may be left at 'running'): ` +
+        `${writeFailure instanceof Error ? writeFailure.message : String(writeFailure)}`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** One line for a log: the message plus the underlying code, which undici hides. */
+function describe(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as { cause?: { code?: string } }).cause;
+  return cause?.code ? `${error.message} [${cause.code}]` : error.message;
+}
+
+// The retries plus the passes themselves have to leave room in the workflow's
+// 45-minute timeout for `npm ci` and the catalog steps after the sync.
+const RETRY_BUDGET_MS = 30 * 60 * 1000;
+
+async function fatal(error: unknown): Promise<never> {
+  console.error(`[scryfall-sync] FAILED: ${describe(error)}`);
+  await failRun(error);
+  // Exit rather than set exitCode: after an uncaught stream error other handles
+  // may still be open, and a hung process would sit until the job timeout.
+  process.exit(1);
+}
+
+// Safety nets for anything that escapes main(): an emitter error with no
+// listener, a rejected promise nobody awaited. Before these, such a crash
+// skipped the catch inside main() and left the run at `running`.
+process.on("uncaughtException", (error) => void fatal(error));
+process.on("unhandledRejection", (reason) => void fatal(reason));
+// GitHub sends SIGINT then SIGTERM when a job is cancelled or times out.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => void fatal(new Error(`Sync interrupted by ${signal}`)));
+}
+
+main().catch((error: unknown) => fatal(error));
