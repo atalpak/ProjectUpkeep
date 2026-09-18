@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft } from '../src';
+import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, scanBand, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft, type Candidate } from '../src';
 const a = '11111111-1111-4111-8111-111111111111';
 const b = '22222222-2222-4222-8222-222222222222';
 const op = '33333333-3333-4333-8333-333333333333';
@@ -372,4 +372,14 @@ test('a second stale-source response is surfaced to the caller, not retried agai
   const writer = createMoveWriter(store);
   await assert.rejects(writer.move({ operationId: moveOp, draft: moveDraft }), /no longer matches what was decided/);
   assert.equal(applyCalls, 2, 'one retry, then surfaced -- not retried a third time');
+});
+
+test('scanBand classifies confident/uncertain/none the same way the mobile scanner UI does', () => {
+  const strongTop: Candidate = { printing, score: 0.9, evidence: 'printing' };
+  const weakTop: Candidate = { printing, score: 0.4, evidence: 'printing' };
+  const nameOnlyTop: Candidate = { printing, score: 0.95, evidence: 'name' };
+  assert.equal(scanBand([]), 'none');
+  assert.equal(scanBand([strongTop]), 'confident');
+  assert.equal(scanBand([weakTop]), 'uncertain', 'below the 0.78 threshold stays uncertain even with printing evidence');
+  assert.equal(scanBand([nameOnlyTop]), 'uncertain', 'a high score alone is not enough -- must be printing evidence');
 });
