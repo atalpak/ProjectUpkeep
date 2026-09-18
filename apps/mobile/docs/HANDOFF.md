@@ -1,5 +1,42 @@
 # Developer handoff — Project Upkeep mobile, phase one
 
+## Current state (2026-09-18)
+
+The rest of this file is the **2026-09-16 phase-one handoff**, kept as history. For the current
+state read [`.claude/rules/mobile.md`](../../../.claude/rules/mobile.md). Superseded passages below:
+"Implemented" (single-file `App.tsx`, manual still capture, Refresh button, one row per scan),
+"Files most likely to change next" (camera/review UX is now `src/screens/ScanScreen.tsx`,
+`ScanSessionSummary.tsx`, and the native view in `packages/upkeep-vision/ios/`), and several of the
+"next tasks" (collection/deck browsing, sleeve/unsleeve, stack-merging writes and the set/collector
+picker have shipped).
+
+What exists now: a four-tab app with an iOS-only live scanner (`UpkeepScannerView`, ported from the
+Flutter scanner at `/Users/anthonytalpak/MTGCardScanner`), a stage-then-commit add flow, and
+first-launch catalog download.
+
+**Building and running** (details and the reasons in `mobile.md`):
+
+```sh
+cd apps/mobile
+# Any native-module change needs a full rebuild. LANG matters: CocoaPods crashes with an
+# ASCII-8BIT encoding error without it. Use the device UDID (xcrun xctrace list devices), not its name.
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 npx expo run:ios --device <UDID>
+# JS-only changes reload through the running Metro server (npm run start -w @upkeep/scanner-app).
+xcrun devicectl device process launch --device <coredevice id> --terminate-existing dev.projectupkeep.scanner
+```
+
+The iOS Simulator has no camera and cannot exercise scanning.
+
+**Open items:** alternate-art printing accuracy
+([`SCANNER_ALTERNATE_ART_PLAN.md`](SCANNER_ALTERNATE_ART_PLAN.md), deferred); live scanning on
+Android; no prices in the mobile session list; mobile bulk commit is sequential per card (an impact
+map recommends caching the user id and prefetching merge targets before any batch RPC); no
+automated tests over mobile screens; the 40 MB catalog is parsed synchronously on the JS thread at
+launch (unmeasured). Brand fonts differ from the web app (mobile: Cinzel / Plus Jakarta Sans; web:
+Fraunces / Inter).
+
+Historical record follows.
+
 ## Start here
 
 Read `README.md`, then `docs/MIGRATION.md`. The owner clarified there is no existing React Native app: the mobile client built here is the starting point. The acquired Flutter code is retained for reference and its original UI is not the migration target.

@@ -34,7 +34,11 @@ async function main(source: string, output: string, version: string) {
 
   const bundle = parseCatalog({ schemaVersion: 1, version, generatedAt: new Date().toISOString(), printings });
   const json = JSON.stringify(bundle);
-  if (Buffer.byteLength(json) > 40_000_000) throw new Error('Catalog exceeds 40 MB. Shard by language/set before publishing.');
+  // The published catalog was ~39.98 MB, 18 KB under the previous 40 MB cap, so the next
+  // new set would have failed every nightly publish. 48 MB stays under the storage
+  // bucket's 50 MB fileSizeLimit (scripts/create-catalog-bucket.ts) and the app's 80 MB
+  // download cap. Past this, slim the bundle or shard it rather than raising it again.
+  if (Buffer.byteLength(json) > 48_000_000) throw new Error('Catalog exceeds 48 MB. Slim or shard it before publishing.');
   await writeFile(output + '.next', json);
   await rename(output + '.next', output);
 

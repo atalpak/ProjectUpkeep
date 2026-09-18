@@ -1,6 +1,11 @@
 # Project Upkeep — mobile scanner, phase one
 
-This workspace now contains the first **React Native / Expo mobile client** for Project Upkeep and reusable scanning packages. The original Flutter application remains intact as a reference. Start new development in `apps/mobile`, not `lib/`.
+> **Historical (2026-09-16) except where corrected below.** The current description of the mobile
+> app is [`.claude/rules/mobile.md`](../../../.claude/rules/mobile.md). Since this was written the app
+> gained a four-tab shell and an iOS-only live scanner; see the "Current state (2026-09-18)"
+> sections in [ARCHITECTURE.md](ARCHITECTURE.md) and [HANDOFF.md](HANDOFF.md).
+
+This workspace now contains the first **React Native / Expo mobile client** for Project Upkeep and reusable scanning packages. The original Flutter application is **not in this repository**; it lives separately at `/Users/anthonytalpak/MTGCardScanner` and is the behavioural reference for the live scanner. Develop in `apps/mobile` and `packages/*`.
 
 ## Run the mobile app
 
@@ -8,26 +13,25 @@ Use Node 22 LTS or newer, npm, Xcode for iOS, and Android Studio with JDK 17+ fo
 
 ```sh
 npm ci
-npm test
-npm run typecheck
+npm test -w @upkeep/scan-core
+npm run typecheck -w @upkeep/scanner-app
 cd apps/mobile
-npx expo run:ios
-# Or: npx expo run:android
+LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 npx expo run:ios --device <UDID>   # or: npx expo run:android
 ```
 
-Subsequent launches: `npm run mobile` from the workspace root. A native development build is required for OCR; Expo Go cannot load our custom module. The demo catalog contains **three synthetic printing records**, and demo additions only live in the current session. Search for “Lightning Bolt” or “Sol Ring” to exercise the confirmation flow.
+Subsequent JS-only launches: `npm run start -w @upkeep/scanner-app` (Metro) from the repo root; a change to any native module needs the full `expo run:ios` rebuild again. A native development build is required for OCR; Expo Go cannot load our custom module, and the iOS Simulator has no camera. Live scanning is iOS only. With no backend configured the app runs on a **three-record synthetic demo catalog** and demo additions only live in the current session; with a backend configured the real catalog downloads on first launch. (The root `npm test` / `npm run typecheck` cover only the Next.js app, not the workspaces.)
 
-To connect your existing Upkeep backend, follow [the migration guide](docs/MIGRATION.md). No production credentials, database migrations, or changes to the separate web checkout were made. The connected adapter uses the user's ordinary Supabase session and `card_instances` RLS. It saves one row per confirmed scan; web-style stack consolidation is a documented follow-up.
+To connect your existing Upkeep backend, follow [the migration guide](docs/MIGRATION.md). No production credentials, database migrations, or changes to the separate web checkout were made. The connected adapter uses the user's ordinary Supabase session. Adds go through the atomic `apply_stack_addition` function (migration 36), which merges into an existing stack; this superseded the original one-row-per-scan behaviour.
 
 ## What's here
 
 | Path | Purpose |
 | --- | --- |
-| `apps/mobile` | Upkeep-branded camera, search, review, account sign-in, catalog refresh, collection save |
-| `packages/scan-core` | Framework-independent TypeScript matching, validation, pipeline, write/retry contracts and tests |
-| `packages/upkeep-vision` | Expo native module: Apple Vision OCR / artwork comparison, Android ML Kit OCR |
-| `scripts` | Catalog exporter input contract, bundle builder, synthetic performance benchmark |
-| `lib`, `ios`, `android`, `macos`, `test` | Original Flutter implementation; reference only |
+| `apps/mobile` | Expo app: tabbed shell, live scanner UI, session review, collection and deck browsing, account, catalog download |
+| `packages/scan-core` | Framework-independent TypeScript matching, validation, pipeline, write/retry contracts and tests; also `packages/scan-core/scripts` (catalog builder, benchmark, toolchain patch) |
+| `packages/upkeep-domain` | Pure TS shared with the web app: stacking policy and card vocabulary |
+| `packages/upkeep-vision` | Expo native module: iOS live scanner view (AVFoundation + Apple Vision), photo OCR (Apple Vision / Android ML Kit), iOS artwork comparison |
+| `scripts` (repo root) | `export-catalog.ts`, `publish-catalog.ts`, `create-catalog-bucket.ts` alongside the web app's scripts |
 
 ## Read next
 

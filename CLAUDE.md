@@ -32,19 +32,25 @@ Prices are a display-only Scryfall estimate. These are decisions, not gaps.
 
 ## Directory map
 
-Verified against the tree on 2026-09-16. Keep it that way — a stale map sends
+Verified against the tree on 2026-09-18. Keep it that way — a stale map sends
 agents hunting in the wrong place, which is how the previous one failed.
 
 ```
-apps/mobile/                Expo app — the scanner shell. See .claude/rules/mobile.md
-  App.tsx  src/  docs/       one-screen UI for now · client + auth storage · handoff docs
+apps/mobile/                Expo app — four tabs (Scan / Collection / Decks / Account) and an
+                            iOS live scanner. See .claude/rules/mobile.md
+  App.tsx                    thin shell: providers → navigator → RootShell
+  src/                       AppProvider (state) · screens/ · components/ · mort/ (mascot)
+                            hooks/ · theme.ts · backend.ts · catalog.ts · decks.ts …
+  docs/                      historical handoff docs + the alternate-art plan
 packages/
   upkeep-domain/             pure TS, no RN/Expo and no Next.js imports — the stacking
                             policy and card_instance vocabulary shared by src/lib/**
                             and scan-core
   scan-core/                 pure TS: catalog search, scan pipeline, draft validation,
                             the collection writer, and its own scripts/ + test/
-  upkeep-vision/             native module boundary — Swift (iOS) / Kotlin (Android) OCR
+  upkeep-vision/             native module boundary — iOS live scanner view + Vision OCR
+                            (Swift), Android photo OCR only (Kotlin); scripts/ holds the
+                            offline detection validator
 src/
   proxy.ts                  session refresh + private-route gate (see below)
   app/
@@ -54,18 +60,24 @@ src/
       decks/                decks-as-locations · [id]/ · check/ · import/
       find/                 "where is my card?"
       dashboard/            stats and anything awaiting a decision
+      search/  trades/          card search · trade actions
       friends/  wants/  notifications/  settings/
       u/[username]/         public profile + tradable binder
     api/
-      cards/                search/ · printings/ · [id]/
+      cards/                search/ · printings/ · friend-suppliers/ · [id]/
       collection/           export/ · locate/
+      wants/                export/
       card-actions/  notifications/
-    auth/confirm/  login/  signup/
+    auth/                   confirm/ · reset/ · actions.ts
+    login/  signup/
     terms/  privacy/         public legal pages — outside (app), no proxy gate
     layout.tsx  page.tsx  globals.css  icon.svg  opengraph-image.tsx
   components/
     ui.tsx                  shared primitives — buttons, etc. Restyle here.
-    collection/  decks/  settings/  social/  ManaCost.tsx  SetSymbol.tsx  …
+    auth/  cards/  collection/  decks/  settings/  social/
+    mort/                   the Mort mascot — web mirror of apps/mobile/src/mort
+    ManaCost.tsx  SetSymbol.tsx  …
+  hooks/                    useReducedMotion
   lib/
     cx.ts                   class-name joiner; own module to avoid a cycle
     env.ts                  environment access with loud failures — READ THIS
@@ -74,15 +86,21 @@ src/
                             column. Second-largest piece of logic in the app.
     scryfall-stream.ts      streams the bulk export instead of buffering 500MB
     scryfall-upsert.ts      batched upsert with adaptive batch halving
-    auth/redirect.ts        open-redirect guard for the post-login bounce
+    auth/                   redirect (open-redirect guard) · invite · password
+                            reauth · recovery
+    cards/                  search · search-query
+    feedback/  search/      validate · recent-searches
+    playtest/               keep · library · mana · odds · present · rng · simulate
+    support.ts
     collection/             availability · breakdown · deck-state · deck-stats
                             deck-view · entries · export · filters · list-check
-                            locate · pricing · queries · stacking
+                            locate · pricing · queries · stacking · art
     import/                 parse · resolve · plan · deck-plan · select
-                            commit · name-variants · vocabulary
+                            commit · name-variants · vocabulary · want-plan
     social/                 queries · counter · trade-status · wants
-                            notifications · tos · types
+                            notifications · tos · types · want-export
     supabase/               client · server · session · errors
+public/                     logo-light/dark.png · mort/ (pose PNGs, web mirror)
 supabase/
   migrations/               numbered, applied in order — check the directory
                             for the current count rather than trusting a
@@ -90,8 +108,11 @@ supabase/
   tests/schema_test.sql     assertions the schema must keep satisfying
 scripts/
   sync-scryfall.ts          the scheduled sync job
+  sync-retry.ts             its retry/error-classification logic (network vs database)
+  export-catalog.ts  publish-catalog.ts  create-catalog-bucket.ts
+                            the mobile catalog pipeline (see mobile.md)
   verify-migrations.sh      migrations against a throwaway Postgres
-  *.test.ts                 48 unit-test files over the pure logic in src/lib
+  *.test.ts                 49 unit-test files over the pure logic in src/lib
 ```
 
 ## Data model in one paragraph

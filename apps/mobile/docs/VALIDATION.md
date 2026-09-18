@@ -1,5 +1,7 @@
 # Validation record — 2026-09-16
 
+> Historical (2026-09-16). This record predates the live scanner; nothing here validates it. See `.claude/rules/mobile.md`.
+
 This record separates executed checks from release gates. No live Supabase credentials, production writes, or physical-card image corpus were used.
 
 ## Executed

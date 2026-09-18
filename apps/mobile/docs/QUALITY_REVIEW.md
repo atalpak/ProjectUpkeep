@@ -1,5 +1,7 @@
 # Reliability and performance review
 
+> Historical (2026-09-16). Findings about the Flutter original still stand as written; statements about this app's scanner ("Recognition runs once per capture", manual still capture, 40 MB download cap) predate the 2026-09-18 live scanner and the 80 MB download cap. See `.claude/rules/mobile.md`.
+
 Reviewed 2026-09-16. Severity reflects implications for mobile collection writes, not an assertion that all legacy defects were reproduced on hardware. The original Flutter code remains unchanged for comparison.
 
 ## Original scanner findings

@@ -64,7 +64,7 @@ async function main() {
 
   const { error: createError } = await db.storage.createBucket(BUCKET, {
     public: true,
-    fileSizeLimit: "50MB", // catalog bundles are budgeted to 40MB; a little headroom.
+    fileSizeLimit: "50MB", // build-catalog.ts caps bundles at 48MB; keep this above that.
   });
   if (createError) throw new Error(`Could not create bucket "${BUCKET}": ${createError.message}`);
   console.log(`[create-catalog-bucket] created public bucket "${BUCKET}"`);

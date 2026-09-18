@@ -1,5 +1,34 @@
 # Architecture and due diligence
 
+## Current state (2026-09-18)
+
+Everything below this section is the **2026-09-16 phase-one record** and is kept as history. The
+current description of the app lives in [`.claude/rules/mobile.md`](../../../.claude/rules/mobile.md);
+where the two disagree, that file wins. What has changed:
+
+- **The app is no longer a single-file shell.** `App.tsx` is a thin shell (SafeAreaProvider -> fonts
+  -> `AppProvider` -> `NavigationContainer` -> `RootShell`). React Navigation bottom tabs (Scan /
+  Collection / Decks / Account, custom `TabBar`) with a nested native stack for Decks. State is in
+  `src/AppProvider.tsx`, screens in `src/screens/`, shared UI in `src/components/`, tokens in
+  `src/theme.ts`, the Mort mascot in `src/mort/`.
+- **Scanning is live, not photo capture.** Superseded below: "Expo Camera still photo", "Capture is
+  manual and single-flight", and "Recognition runs once per capture, not on every preview frame"
+  (in QUALITY_REVIEW). `packages/upkeep-vision` now has a native iOS view, `UpkeepScannerView`,
+  that runs its own AVCaptureSession, detects and outlines the card, and emits one finished read
+  per physical card. It is **iOS only**; Android has no live scanning. `readText` and
+  `compareArtwork` still exist; `compareArtwork` is unused by the screen.
+- **Stage, then commit.** Scans no longer go through a per-scan review-and-save. They are staged in
+  memory and written only on "Add to collection", row by row, through `apply_stack_addition`
+  (migration 36). The "Persist operation ID and payload in SecureStore" step in the data-flow
+  diagram below no longer happens for scans; a staged list is lost if the app is killed. Pending
+  sleeve/unsleeve moves are still persisted and recovered.
+- **Catalog.** The real ~40 MB catalog downloads automatically on first launch when only the
+  3-card demo bundle is loaded; the download cap is 80 MB. `demo` mode is derived from the bundle
+  version.
+- **Writes are no longer "one row per scan".** See the stacking notes in `mobile.md`.
+
+Historical record follows.
+
 ## Scope decision — 2026-09-16
 
 The owner clarified that Project Upkeep currently has a **Next.js web app only**. This is the first mobile phase. The attached architecture document was treated as planning context, with its assumptions checked against source code. It was not used as authorization to publish, replace the web app, or modify a live database.

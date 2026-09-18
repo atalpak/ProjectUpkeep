@@ -1,5 +1,7 @@
 # Connect the first mobile phase to Project Upkeep
 
+> Historical (2026-09-16). Superseded in part: the catalog is now built and published by `scripts/export-catalog.ts` -> `build-catalog.ts` -> `scripts/publish-catalog.ts` and downloads automatically on first launch (there is no "Refresh offline catalog" button); adds no longer insert one row per scan. See `.claude/rules/mobile.md`.
+
 ## Verified target contracts
 
 The separate `/Users/anthonytalpak/ProjectUpkeep` checkout is Next.js 16 + React + Supabase. It was inspected read-only. The authoritative paths there are:
