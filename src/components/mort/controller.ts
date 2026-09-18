@@ -119,11 +119,22 @@ export function useMortReaction(): MortReaction {
 }
 
 /**
+ * Public-file paths — mort-motion-v1 only shipped art for `idle` and `file`
+ * on the web reaction set (its other four delivered poses are scanner-only,
+ * mobile's reaction union). Everything else here falls through to
+ * MortStage's placeholder until its own art lands.
+ */
+const POSES: Partial<Record<MortReaction, string>> = {
+  idle: '/mort/mort_idle.png',
+  file: '/mort/mort_file.png',
+};
+
+/**
  * Lazy-loaded inside this module (not imported at any page's top level) so a
  * future real-asset drop only touches this function's body. Each pose can
  * render null / a placeholder until then — the point of this phase is that
  * the call sites and timing are correct, not that the art exists.
  */
-export async function loadPoseAsset(_reaction: MortReaction): Promise<unknown | null> {
-  return null;
+export async function loadPoseAsset(reaction: MortReaction): Promise<string | null> {
+  return POSES[reaction] ?? null;
 }

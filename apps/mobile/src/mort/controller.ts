@@ -5,10 +5,11 @@ import { duration as DURATION } from '../theme';
 /**
  * Semantic reaction API — decoupled from asset filenames, per the brand
  * handoff doc's "Animation Event Architecture" (§22): product code triggers
- * a semantic Mort reaction, the platform decides how it renders. Mort art
- * assets do not exist yet (owner decision), so `loadPoseAsset` below always
- * resolves `null` today and `MortStage` renders a placeholder — nothing
- * about this module's public shape changes once real poses land.
+ * a semantic Mort reaction, the platform decides how it renders. `idle`,
+ * `scan`, `scan_success`, `scan_uncertain`, and `file` have real art
+ * (mort-motion-v1); `look` and `annoyed` don't yet, so `loadPoseAsset`
+ * resolves `null` for those and `MortStage` renders its placeholder — this
+ * module's public shape doesn't change as more poses land.
  */
 export type MortReaction = 'idle' | 'look' | 'scan' | 'scan_success' | 'scan_uncertain' | 'file' | 'annoyed';
 
@@ -92,11 +93,29 @@ export function useMortReaction(): MortReaction {
 }
 
 /**
+ * Static require() map — Metro resolves asset requires at bundle time, so
+ * this cannot be a dynamic `require(\`./assets/${reaction}.png\`)`. Only the
+ * reactions with real art appear here; `idle_02` is the blink-closed frame
+ * MortStage swaps to on its own timer, not a reaction anyone calls react()
+ * with. `look` and `annoyed` have no delivered art yet (mort-motion-v1) —
+ * they fall through to MortStage's placeholder, same as before this pass.
+ */
+const POSES: Partial<Record<MortReaction, number>> = {
+  idle: require('./assets/mort_idle.png'),
+  scan: require('./assets/mort_scan.png'),
+  scan_success: require('./assets/mort_scan_success.png'),
+  scan_uncertain: require('./assets/mort_scan_uncertain.png'),
+  file: require('./assets/mort_file.png'),
+};
+
+export const BLINK_CLOSED_ASSET = require('./assets/mort_idle_02.png');
+
+/**
  * Lazy-loaded inside this module (not imported at App.tsx's top level) so a
  * future real-asset drop only touches this function's body. Each pose can
  * render null / a placeholder until then — the point of this phase is that
  * the call sites and timing are correct, not that the art exists.
  */
-export async function loadPoseAsset(_reaction: MortReaction): Promise<unknown | null> {
-  return null;
+export async function loadPoseAsset(reaction: MortReaction): Promise<number | null> {
+  return POSES[reaction] ?? null;
 }

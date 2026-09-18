@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import Image from "next/image";
 
 import { mortPalette } from "@/components/mort/palette";
 import {
   useMort,
   useMortReaction,
+  loadPoseAsset,
   type MortReaction,
 } from "@/components/mort/controller";
 
@@ -21,9 +23,10 @@ const SIZES: Record<"xs" | "s" | "m" | "l", number> = { xs: 28, s: 88, m: 160, l
  * never focusable — Mort must never be the sole carrier of information (brand
  * doc §25), and every call site pairs this with real copy.
  *
- * Renders a plain placeholder shape today because no real Mort art exists yet
- * — a future real-asset drop only touches this component's body, not any
- * call site. Mirrors `apps/mobile/src/mort/MortStage.tsx`'s shape.
+ * Renders the real `idle`/`file` pose art (mort-motion-v1, served from
+ * `public/mort/`); every other reaction still falls back to the placeholder
+ * shape until its own art lands. Mirrors `apps/mobile/src/mort/MortStage.tsx`'s
+ * shape.
  *
  * Most call sites want a specific static pose regardless of whatever the
  * global controller last showed (a server-rendered empty state has no
@@ -53,6 +56,7 @@ export function MortStage({
 }) {
   const { react } = useMort();
   const live = useMortReaction();
+  const [asset, setAsset] = useState<string | null>(null);
 
   useEffect(() => {
     if (reaction) react(reaction);
@@ -64,17 +68,39 @@ export function MortStage({
   const shown = reaction ?? live;
   const dimension = SIZES[size];
 
+  useEffect(() => {
+    let cancelled = false;
+    void loadPoseAsset(shown).then((a) => {
+      if (!cancelled) setAsset(a);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shown]);
+
   return (
     <div
       aria-hidden="true"
       className="mx-auto flex items-center justify-center"
       style={{ width: dimension, height: dimension }}
     >
-      <div
-        key={shown}
-        className={animated ? "h-full w-full rounded-full animate-mort-pose" : "h-full w-full rounded-full"}
-        style={{ backgroundColor: mortPalette.green }}
-      />
+      {asset ? (
+        <Image
+          key={shown}
+          src={asset}
+          alt=""
+          width={dimension}
+          height={dimension}
+          className={animated ? "h-full w-full object-contain animate-mort-pose" : "h-full w-full object-contain"}
+          priority={size === "l"}
+        />
+      ) : (
+        <div
+          key={shown}
+          className={animated ? "h-full w-full rounded-full animate-mort-pose" : "h-full w-full rounded-full"}
+          style={{ backgroundColor: mortPalette.green }}
+        />
+      )}
     </div>
   );
 }
