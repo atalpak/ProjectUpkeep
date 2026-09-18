@@ -29,7 +29,7 @@ export type CardReadEvent = {
   title: string;
   lines: string[];
   printingLines: string[];
-  /** Absent only if the straightened frame could not be written to disk. */
+  /** Which path produced this read -- see the type's own comment. */
   source: 'outline' | 'guide';
 };
 

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CONDITIONS, LANGUAGES, type CardIndex, type Candidate, type CollectionDraft, type Condition, type Finish, type Printing } from '@upkeep/scan-core';
 import { Button, Choices } from '../components/ui';
@@ -40,9 +39,6 @@ export function ScanSessionSummary({
   onScanMore(): void;
   onMessage(text: string): void;
 }) {
-  // The app shell no longer supplies a top inset while the scanner is
-  // full-bleed, so this screen has to keep its own header clear of the notch.
-  const insets = useSafeAreaInsets();
   const [editing, setEditing] = useState<StagedCard | null>(null);
   const [query, setQuery] = useState('');
   const [addingOpen, setAddingOpen] = useState(false);
@@ -52,7 +48,7 @@ export function ScanSessionSummary({
     : staged;
 
   return (
-    <ScrollView contentContainerStyle={[styles.page, { paddingTop: insets.top + space.md }]}>
+    <ScrollView contentContainerStyle={styles.page}>
       <View style={styles.header}>
         <MortStage size="S" />
         <View style={styles.grow}>

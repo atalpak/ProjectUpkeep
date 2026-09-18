@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
@@ -49,7 +49,7 @@ export default function App() {
         <NavigationContainer
           onStateChange={state => setScanFocused(state?.routes[state.index ?? 0]?.name === 'Scan')}
         >
-          <RootShell fontsLoaded={fonts} scanFocused={scanFocused} />
+          <RootShell fontsLoaded={fonts} scanFocused={scanFocused} onNavigatorMounted={() => setScanFocused(true)} />
         </NavigationContainer>
       </AppProvider>
     </SafeAreaProvider>
@@ -76,7 +76,11 @@ function CollectionTab() { return <ScreenFade><CollectionScreen /></ScreenFade>;
 function DecksTab() { return <ScreenFade><DecksNavigator /></ScreenFade>; }
 function AccountTab() { return <ScreenFade><AccountScreen /></ScreenFade>; }
 
-function SignedInTabs() {
+function SignedInTabs({ onMounted }: { onMounted(): void }) {
+  // A fresh navigator always starts on Scan, but onStateChange does not fire
+  // for its initial state -- without this, signing out and back in leaves
+  // scanFocused at whatever the last tab was.
+  useEffect(() => { onMounted(); }, []);
   return (
     <Tab.Navigator
       id="RootTabs"
@@ -95,13 +99,15 @@ function SignedInTabs() {
 }
 
 /**
- * The app header and the global banner are hidden while the scanner is the
- * focused tab, so the camera runs edge to edge and under the status bar.
- * ScanScreen re-renders `app.message` as an overlay inside itself for exactly
- * that window — a message must never become invisible just because the
- * scanner is open.
+ * The app header and the global banner are hidden only while the live camera
+ * view is actually on screen (Scan focused AND `scannerLive`), so the camera
+ * runs edge to edge and under the status bar. ScanScreen re-renders
+ * `app.message` as an overlay inside itself for exactly that window — a
+ * message must never become invisible just because the scanner is open. Every
+ * other Scan-tab screen (session list, permission and download panels) is
+ * ordinary content and keeps the header, banners and safe area.
  */
-function RootShell({ fontsLoaded, scanFocused }: { fontsLoaded: boolean; scanFocused: boolean }) {
+function RootShell({ fontsLoaded, scanFocused, onNavigatorMounted }: { fontsLoaded: boolean; scanFocused: boolean; onNavigatorMounted(): void }) {
   const app = useApp();
   const titleStyle = fontsLoaded ? styles.title : styles.titleFallback;
   const signedIn = app.backendAvailable && !!app.userId;
@@ -111,7 +117,7 @@ function RootShell({ fontsLoaded, scanFocused }: { fontsLoaded: boolean; scanFoc
   // navigator on every focus change -- which resets it to its initial route
   // (Scan) and would trap the user on the scanner. Only the chrome toggles;
   // the element holding the navigator never changes position.
-  const fullBleed = signedIn && scanFocused;
+  const fullBleed = signedIn && scanFocused && app.scannerLive;
 
   return (
     // edges omits 'bottom' deliberately -- the TabBar owns its own bottom
@@ -136,7 +142,7 @@ function RootShell({ fontsLoaded, scanFocused }: { fontsLoaded: boolean; scanFoc
         ) : !app.userId ? (
           <SignInForm />
         ) : (
-          <SignedInTabs />
+          <SignedInTabs onMounted={onNavigatorMounted} />
         )}
       </View>
     </SafeAreaView>

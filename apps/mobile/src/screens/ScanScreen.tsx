@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
@@ -89,6 +89,10 @@ export function ScanScreen() {
   const [staged, setStaged] = useState<StagedCard[]>([]);
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [outlineFound, setOutlineFound] = useState(false);
+  // Mirrors outlineFound for native event handlers, which can fire before the
+  // render that would refresh their closure.
+  const outlineFoundRef = useRef(false);
+  const [readingStale, setReadingStale] = useState(false);
   const [sessionReviewOpen, setSessionReviewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -137,6 +141,15 @@ export function ScanScreen() {
 
   const scannerActive = !!permission?.granted && isFocused && !suspended && app.active
     && !app.disabled && !sessionReviewOpen && !app.review;
+
+  // The native lock needs confidence >= 0.70 but the outline draws at less, so
+  // a steady low-confidence card would sit on "Reading" forever. After a few
+  // seconds say so, and let the manual button be the way out.
+  useEffect(() => {
+    if (sheet?.kind !== 'reading' || !outlineFound) { setReadingStale(false); return; }
+    const timer = setTimeout(() => setReadingStale(true), 3000);
+    return () => clearTimeout(timer);
+  }, [sheet?.kind, outlineFound]);
 
   function updateStaged(change: (prev: StagedCard[]) => StagedCard[]) {
     stagedRef.current = change(stagedRef.current);
@@ -231,10 +244,27 @@ export function ScanScreen() {
   // is the SAME card, so its match must stay on screen rather than flash back
   // to "reading" for a card that will never be read again.
   const cardGone = useRef(true);
-  function onCardLost() { cardGone.current = true; }
+  function onCardLost() {
+    // An outline still up means a new card went down without the frame ever
+    // emptying: it is already in view (so not "gone"), and the old match must
+    // not stay on screen for the ~300ms until its read lands.
+    cardGone.current = !outlineFoundRef.current;
+    if (outlineFoundRef.current) setSheet({ kind: 'reading' });
+  }
+
+  /** The native view unmounts whenever something else takes over this screen
+   * (the session list, a panel), taking its outline with it -- so what it
+   * last reported is stale by the time it comes back. */
+  function resetLiveState() {
+    outlineFoundRef.current = false;
+    setOutlineFound(false);
+    cardGone.current = true;
+    setSheet(prev => (prev?.kind === 'reading' ? null : prev));
+  }
 
   function onOutlineChange(event: { nativeEvent: { found: boolean } }) {
     const found = event.nativeEvent.found;
+    outlineFoundRef.current = found;
     setOutlineFound(found);
     if (found) {
       // A new card: drop the previous card's name immediately instead of
@@ -451,6 +481,7 @@ export function ScanScreen() {
 
   return (
     <View style={styles.full}>
+      <LiveViewPresence onGone={resetLiveState} />
       <UpkeepScannerView
         ref={scanner}
         style={StyleSheet.absoluteFill}
@@ -479,8 +510,8 @@ export function ScanScreen() {
         </View>
       </View>
 
-      {/* The app shell's banner is hidden while this screen is full-bleed
-          (see App.tsx), so a message has to surface here or nowhere. */}
+      {/* The app shell's banner is hidden while the live view is up (see
+          App.tsx), so a message has to surface here or nowhere. */}
       {!!app.message && (
         <Pressable style={[styles.banner, { top: insets.top + 104 }]} onPress={() => app.setMessage('')}>
           <Notice style={styles.bannerText}>{app.message}</Notice>
@@ -503,7 +534,7 @@ export function ScanScreen() {
         </View>
       )}
 
-      {(!outlineFound || mode === 'single') && (
+      {(!outlineFound || mode === 'single' || readingStale) && (
         <View style={styles.idle} pointerEvents="box-none">
           <Pressable
             accessibilityRole="button"
@@ -535,6 +566,7 @@ export function ScanScreen() {
       {sheet && (
         <ResultSheet
           sheet={sheet}
+          stale={readingStale}
           row={stagedRow}
           bottomInset={insets.bottom}
           onOpenPicker={() => setPickerOpen(true)}
@@ -545,6 +577,26 @@ export function ScanScreen() {
       )}
     </View>
   );
+}
+
+/**
+ * Rendered only inside the live-camera return. Its mount/unmount IS the signal
+ * the shell needs (chrome hidden only while the camera is on screen) and the
+ * one ScanScreen needs (reset what the native view last reported), so every
+ * other return path -- session list, panels, sign-out -- gets both for free.
+ * Layout effect so the chrome is gone before the first paint of the camera.
+ */
+function LiveViewPresence({ onGone }: { onGone(): void }) {
+  const { setScannerLive } = useApp();
+  const isFocused = useIsFocused();
+  const gone = useRef(onGone);
+  gone.current = onGone;
+  useLayoutEffect(() => {
+    setScannerLive(isFocused);
+    return () => setScannerLive(false);
+  }, [isFocused, setScannerLive]);
+  useEffect(() => () => gone.current(), []);
+  return null;
 }
 
 function IconButton({ label, name, onPress }: { label: string; name: keyof typeof Ionicons.glyphMap; onPress(): void }) {
@@ -577,8 +629,8 @@ function ModeGlyph({ label, icon, selected, onPress }: {
  * so the printing picker and the foil toggle remain reachable for the card
  * just scanned rather than vanishing with it.
  */
-function ResultSheet({ sheet, row, bottomInset, onOpenPicker, onToggleFoil, onAddAnother, onAdd }: {
-  sheet: SheetState; row: StagedCard | null; bottomInset: number;
+function ResultSheet({ sheet, stale, row, bottomInset, onOpenPicker, onToggleFoil, onAddAnother, onAdd }: {
+  sheet: SheetState; stale: boolean; row: StagedCard | null; bottomInset: number;
   onOpenPicker(): void; onToggleFoil(): void; onAddAnother(): void; onAdd(): void;
 }) {
   const padding = { paddingBottom: space.md + bottomInset };
@@ -588,7 +640,7 @@ function ResultSheet({ sheet, row, bottomInset, onOpenPicker, onToggleFoil, onAd
         <View style={styles.thumbPlaceholder} />
         <View style={styles.sheetBody}>
           <Text style={styles.sheetStatus}>READING CARD</Text>
-          <Text style={styles.sheetName}>Hold it steady…</Text>
+          <Text style={styles.sheetName}>{stale ? 'Hold it steady, or tap Scan card' : 'Hold it steady…'}</Text>
         </View>
       </View>
     );

@@ -76,6 +76,14 @@ type AppContextValue = {
    * options the spec allows, over threading an abort hook through props.
    */
   registerCameraStop(stop: (() => void) | null): void;
+  /**
+   * True only while ScanScreen is rendering the live camera view. The app
+   * shell hides its header, banners and safe-area insets for exactly that
+   * window and no other Scan-tab screen (session list, permission, download
+   * panels), which all need them.
+   */
+  scannerLive: boolean;
+  setScannerLive(live: boolean): void;
   signOut(): Promise<void>;
 };
 
@@ -101,6 +109,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastUsedDraft, setLastUsedDraft] = useState<LastUsedDraft | null>(null);
   const [recovering, setRecovering] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
+  const [scannerLive, setScannerLive] = useState(false);
   const currentUser = useRef<string | null>(null);
   const alive = useRef(true);
   const cameraStop = useRef<(() => void) | null>(null);
@@ -256,8 +265,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     userId, active, index, setIndex, demo, catalogBusy, syncCatalog,
     message, setMessage, busy, setBusy, recovering, disabled,
     review, setReview, locations, lastUsedDraft, setLastUsedDraft, recent, addRecent,
-    pendingMove, moveBusy, beginMove, retryPendingMove, registerCameraStop, signOut,
-  }), [userId, active, index, demo, catalogBusy, message, busy, recovering, disabled, review, locations, lastUsedDraft, recent, pendingMove, moveBusy]);
+    pendingMove, moveBusy, beginMove, retryPendingMove, registerCameraStop, scannerLive, setScannerLive, signOut,
+  }), [userId, active, index, demo, catalogBusy, message, busy, recovering, disabled, review, locations, lastUsedDraft, recent, pendingMove, moveBusy, scannerLive]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
