@@ -36,6 +36,10 @@ export type CardReadEvent = {
 export type ScannerViewProps = ViewProps & {
   /** Drives the capture session. The view never runs while this is false. */
   active: boolean;
+  /** Look for a card twice as often and retry with extra contrast sooner. The
+   *  two-steady-frames rule is unchanged. Native prop: needs a native rebuild,
+   *  ignored by an older build. */
+  fastDetection?: boolean;
   onCardRead?(event: { nativeEvent: CardReadEvent }): void;
   onCardLost?(event: { nativeEvent: Record<string, never> }): void;
   onOutlineChange?(event: { nativeEvent: { found: boolean } }): void;

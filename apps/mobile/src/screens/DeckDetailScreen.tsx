@@ -1,15 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Condition, Finish } from '@upkeep/scan-core';
-import { fetchDeckCards, fetchDeckHeader, fetchSleevedStacks, fetchSpareStacks, type DeckCardEntry, type DeckHeader, type SleeveCandidate } from '../decks';
+import { groupDeck } from '@upkeep/domain';
+import { entryKey, fetchDeckCards, fetchDeckHeader, fetchSleevedStacks, fetchSpareCounts, fetchSpareStacks, type DeckCardEntry, type DeckHeader, type SleeveCandidate } from '../decks';
 import { CollectionAuthError } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
 import { Button, Notice } from '../components/ui';
+import { CardDetails } from '../components/CardDetails';
+import { ManaCost } from '../components/ManaCost';
 import { ListRow } from '../components/ListRow';
 import type { DecksStackParamList } from '../navigation';
-import { border, radius, space, state, surface, text, type as typeTokens } from '../theme';
+import { accent, border, brand, fontFamily, radius, space, state, surface, text, type as typeTokens } from '../theme';
+import { makeStyles } from '../preferences';
 
 /**
  * One deck's decklist, with each entry's sleeved-vs-wanted count — see
@@ -19,14 +23,17 @@ import { border, radius, space, state, surface, text, type as typeTokens } from 
  * single-state-switch shell used.
  */
 export function DeckDetailScreen({ route }: NativeStackScreenProps<DecksStackParamList, 'DeckDetail'>) {
+  const styles = useStyles();
   const { deckId } = route.params;
   const { userId, pendingMove, moveBusy, beginMove } = useApp();
   const [header, setHeader] = useState<DeckHeader | null>(null);
   const [cards, setCards] = useState<DeckCardEntry[]>([]);
+  const [spare, setSpare] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(false);
   const [error, setError] = useState('');
   const [activePicker, setActivePicker] = useState<ActivePicker | null>(null);
+  const [details, setDetails] = useState<{ name: string; cardId: string } | null>(null);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
@@ -34,9 +41,9 @@ export function DeckDetailScreen({ route }: NativeStackScreenProps<DecksStackPar
     if (!userId) return;
     setLoading(true); setError(''); setAuthError(false);
     try {
-      const [h, c] = await Promise.all([fetchDeckHeader(userId, deckId), fetchDeckCards(userId, deckId)]);
+      const [h, c, sp] = await Promise.all([fetchDeckHeader(userId, deckId), fetchDeckCards(userId, deckId), fetchSpareCounts(userId)]);
       if (!alive.current) return;
-      setHeader(h); setCards(c);
+      setHeader(h); setCards(c); setSpare(sp);
     } catch (e) {
       if (!alive.current) return;
       if (e instanceof CollectionAuthError) setAuthError(true);
@@ -49,6 +56,29 @@ export function DeckDetailScreen({ route }: NativeStackScreenProps<DecksStackPar
 
   const moveDisabled = !!pendingMove || moveBusy;
 
+  // Per entry: sleeved in full, or not, and if not whether spare copies exist elsewhere.
+  function stateOf(c: DeckCardEntry): 'sleeved' | 'partial' | 'available' | 'missing' {
+    if (c.sleeved >= c.quantity) return 'sleeved';
+    const need = c.quantity - c.sleeved;
+    if ((spare.get(entryKey(c)) ?? 0) >= need) return c.sleeved > 0 ? 'partial' : 'available';
+    return 'missing';
+  }
+
+  const wanted = cards.reduce((sum, c) => sum + c.quantity, 0);
+  const sleevedTotal = cards.reduce((sum, c) => sum + c.sleeved, 0);
+  const missingEntries = cards.filter(c => stateOf(c) === 'missing').length;
+  const commanderEntry = header?.commanderCardId ? cards.find(c => c.cardId === header.commanderCardId) ?? null : null;
+  const groups = groupDeck(cards, commanderEntry?.id ?? null);
+
+  function stateLine(c: DeckCardEntry): { text: string; tone: 'good' | 'plain' | 'bad' } {
+    switch (stateOf(c)) {
+      case 'sleeved': return { text: c.quantity > 1 ? `${c.sleeved} of ${c.quantity} sleeved` : 'Sleeved', tone: 'good' };
+      case 'partial': return { text: `${c.sleeved} of ${c.quantity} sleeved · spare available`, tone: 'plain' };
+      case 'available': return { text: 'Not sleeved · spare available', tone: 'plain' };
+      default: return { text: c.sleeved > 0 ? `${c.sleeved} of ${c.quantity} sleeved · not available` : 'Not sleeved · not available', tone: 'bad' };
+    }
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.page}>
       {loading && <Text style={styles.body}>Loading deck…</Text>}
@@ -58,47 +88,82 @@ export function DeckDetailScreen({ route }: NativeStackScreenProps<DecksStackPar
         <Button secondary label="Retry" onPress={() => void load()} />
       </>}
       {!loading && !authError && !error && header && <>
-        {header.commanderImageUriSmall && <Image source={{ uri: header.commanderImageUriSmall }} style={styles.thumbnail} />}
-        <Text style={styles.section}>{header.name}</Text>
-        <Text style={styles.body}>{header.format ?? 'No format set'}{header.commanderName ? ` · Commander: ${header.commanderName}` : ''}</Text>
-        {!cards.length && <Text style={styles.body}>This deck&apos;s list is empty.</Text>}
-        {cards.map(c => {
-          const fullySleeved = c.sleeved >= c.quantity;
-          const noneSleeved = c.sleeved === 0;
-          const picking = activePicker?.entryId === c.id;
-          return (
-            <View key={c.id} style={styles.entry}>
-              <ListRow
-                title={c.name}
-                imageUri={c.imageUriSmall}
-                dimmed={noneSleeved}
-                subtitle={`${c.setCode.toUpperCase()} · #${c.collectorNumber} · Qty ${c.quantity}`}
-              />
-              <Text style={[styles.sleevedLine, fullySleeved ? styles.sleevedFull : noneSleeved ? styles.sleevedNone : undefined]}>
-                {c.sleeved}/{c.quantity} sleeved
-              </Text>
-              <View style={styles.choices}>
-                {!fullySleeved && (
-                  <Button secondary label={picking && activePicker?.mode === 'sleeve' ? 'Cancel' : 'Sleeve'} disabled={moveDisabled}
-                    onPress={() => setActivePicker(picking && activePicker?.mode === 'sleeve' ? null : { entryId: c.id, mode: 'sleeve' })} />
-                )}
-                {!noneSleeved && (
-                  <Button secondary label={picking && activePicker?.mode === 'unsleeve' ? 'Cancel' : 'Unsleeve'} disabled={moveDisabled}
-                    onPress={() => setActivePicker(picking && activePicker?.mode === 'unsleeve' ? null : { entryId: c.id, mode: 'unsleeve' })} />
-                )}
-              </View>
-              {picking && userId && (
-                <SleevePicker
-                  userId={userId} deckId={deckId} entry={c} mode={activePicker!.mode} onMove={beginMove}
-                  onClose={() => setActivePicker(null)}
-                  onMoved={() => { setActivePicker(null); void load(); }}
-                />
-              )}
+        <View style={styles.banner}>
+          {header.commanderArt
+            ? <><Image source={{ uri: header.commanderArt }} style={StyleSheet.absoluteFill} resizeMode="cover" /><View style={[StyleSheet.absoluteFill, styles.scrim]} /></>
+            : <View style={[StyleSheet.absoluteFill, { backgroundColor: surface.sunken }]} />}
+          <View style={styles.bannerBody}>
+            <Text style={[styles.deckTitle, { color: header.commanderArt ? brand.parchment : text.primary }]}>{header.name}</Text>
+            <Text style={[styles.commander, { color: header.commanderArt ? 'rgba(245,237,224,0.85)' : text.secondary }]}>
+              {header.commanderName ?? `${cards.length} unique card${cards.length === 1 ? '' : 's'}`}
+            </Text>
+            <View style={styles.pills}>
+              {!!header.format && <Pill label={header.format} art={!!header.commanderArt} />}
+              {header.tags.map(t => <Pill key={t} label={t} art={!!header.commanderArt} />)}
+              <Pill label={header.isPublic ? 'Shared with friends' : 'Private'} art={!!header.commanderArt} strong={header.isPublic} />
             </View>
-          );
-        })}
+            <Text style={[styles.progress, { color: header.commanderArt ? brand.parchment : text.primary }]}>
+              <Text style={styles.progressStrong}>{sleevedTotal} of {wanted}</Text> sleeved · {cards.length} card{cards.length === 1 ? '' : 's'} on the list
+              {missingEntries > 0 ? ` · ${missingEntries} not available` : ''}
+            </Text>
+          </View>
+        </View>
+
+        {!cards.length && <Text style={styles.body}>This deck&apos;s list is empty.</Text>}
+
+        {groups.map(group => (
+          <View key={group.section} style={styles.group}>
+            <Text style={styles.groupTitle}>{group.label} <Text style={styles.groupCount}>({group.count})</Text></Text>
+            {group.rows.map(c => {
+              const fullySleeved = c.sleeved >= c.quantity;
+              const line = stateLine(c);
+              const picking = activePicker?.entryId === c.id;
+              return (
+                <View key={c.id}>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`${c.name}, details`} onPress={() => setDetails({ name: c.name, cardId: c.cardId })} style={styles.row}>
+                    <Text style={styles.qty}>{c.quantity}</Text>
+                    <View style={styles.rowMain}>
+                      <View style={styles.rowTop}>
+                        <Text numberOfLines={1} style={styles.cardName}>{c.name}</Text>
+                        <ManaCost cost={c.manaCost} size={15} />
+                      </View>
+                      <Text numberOfLines={1} style={[styles.stateText, line.tone === 'good' && styles.stateGood, line.tone === 'bad' && styles.stateBad]}>{line.text}</Text>
+                    </View>
+                    <View style={styles.rowActions}>
+                      {!fullySleeved && (
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Sleeve ${c.name}`} disabled={moveDisabled} onPress={() => setActivePicker(picking && activePicker?.mode === 'sleeve' ? null : { entryId: c.id, mode: 'sleeve' })} style={[styles.actionPill, picking && activePicker?.mode === 'sleeve' && styles.actionPillOn, moveDisabled && styles.actionPillDisabled]}>
+                          <Text style={styles.actionText}>{picking && activePicker?.mode === 'sleeve' ? 'Cancel' : 'Sleeve'}</Text>
+                        </Pressable>
+                      )}
+                      {c.sleeved > 0 && (
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Unsleeve ${c.name}`} disabled={moveDisabled} onPress={() => setActivePicker(picking && activePicker?.mode === 'unsleeve' ? null : { entryId: c.id, mode: 'unsleeve' })} style={[styles.actionPill, picking && activePicker?.mode === 'unsleeve' && styles.actionPillOn, moveDisabled && styles.actionPillDisabled]}>
+                          <Text style={styles.actionText}>{picking && activePicker?.mode === 'unsleeve' ? 'Cancel' : 'Unsleeve'}</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  </Pressable>
+                  {picking && userId && (
+                    <SleevePicker
+                      userId={userId} deckId={deckId} entry={c} mode={activePicker!.mode} onMove={beginMove}
+                      onClose={() => setActivePicker(null)}
+                      onMoved={() => { setActivePicker(null); void load(); }}
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        ))}
       </>}
+      <CardDetails name={details?.name ?? null} printingId={details?.cardId} onClose={() => setDetails(null)} />
     </ScrollView>
+  );
+}
+
+function Pill({ label, art, strong }: { label: string; art: boolean; strong?: boolean }) {
+  const styles = useStyles();
+  return (
+    <Text style={[styles.pill, art ? styles.pillArt : styles.pillPlain, strong && (art ? styles.pillArtStrong : styles.pillPlainStrong)]}>{label}</Text>
   );
 }
 
@@ -119,6 +184,7 @@ function SleevePicker({ userId, deckId, entry, mode, onMove, onClose, onMoved }:
   onMove(draft: { sourceInstanceId: string; cardId: string; condition: Condition; finish: Finish; language: string; quantity: number; destinationLocationId: string | null }, label: string): Promise<{ instanceId: string; quantity: number; replayed: boolean }>;
   onClose(): void; onMoved(): void;
 }) {
+  const styles = useStyles();
   const [candidates, setCandidates] = useState<SleeveCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -186,16 +252,40 @@ function SleevePicker({ userId, deckId, entry, mode, onMove, onClose, onMoved }:
   );
 }
 
-const styles = StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
-  section: { ...typeTokens.title, color: text.primary },
+const useStyles = makeStyles(() => StyleSheet.create({
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   body: { fontSize: 13, lineHeight: 21, color: text.secondary },
   label: { fontSize: 13, fontWeight: '700', color: text.primary, marginTop: space.sm },
-  thumbnail: { width: 45, height: 63, borderRadius: 3 },
-  entry: { gap: space.sm },
-  sleevedLine: { fontSize: 13, lineHeight: 21, color: text.secondary },
-  sleevedFull: { color: state.success, fontWeight: '700' },
-  sleevedNone: { color: text.secondary },
-  choices: { flexDirection: 'row', gap: space.sm },
-  picker: { gap: space.sm, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, padding: space.lg, borderRadius: radius.md },
-});
+  banner: { borderRadius: radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: border.hairline },
+  // The same flat scrim the web banner uses, for the same reason.
+  scrim: { backgroundColor: 'rgba(0,0,0,0.55)' },
+  bannerBody: { padding: space.lg, gap: space.sm },
+  deckTitle: { fontFamily: fontFamily.display, fontSize: 26, lineHeight: 32 },
+  commander: { ...typeTokens.body },
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
+  pill: { ...typeTokens.label, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, overflow: 'hidden' },
+  pillArt: { color: 'rgba(245,237,224,0.9)', borderColor: 'rgba(245,237,224,0.4)' },
+  pillArtStrong: { backgroundColor: 'rgba(245,237,224,0.2)', borderColor: 'rgba(245,237,224,0.7)' },
+  pillPlain: { color: text.secondary, borderColor: border.strong },
+  pillPlainStrong: { color: text.primary, backgroundColor: accent.soft, borderColor: accent.DEFAULT },
+  progress: { ...typeTokens.bodySm },
+  progressStrong: { fontFamily: fontFamily.bodySemiBold },
+  group: { gap: 0, marginTop: space.sm },
+  groupTitle: { ...typeTokens.title, fontSize: 16, lineHeight: 22, color: text.primary, marginBottom: space.xs },
+  groupCount: { ...typeTokens.bodySm, color: text.secondary },
+  // A compact list row: quantity, name and mana cost, one line of state, small actions.
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
+  qty: { width: 20, ...typeTokens.title, fontSize: 15, color: text.secondary, textAlign: 'right' },
+  rowMain: { flex: 1, gap: 1 },
+  rowTop: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm },
+  cardName: { flex: 1, ...typeTokens.body, fontFamily: typeTokens.title.fontFamily, color: text.primary },
+  stateText: { ...typeTokens.label, fontFamily: fontFamily.body, color: text.secondary },
+  stateGood: { color: state.success },
+  stateBad: { color: state.error },
+  rowActions: { gap: 4, alignItems: 'flex-end' },
+  actionPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: border.strong },
+  actionPillOn: { backgroundColor: accent.soft, borderColor: accent.DEFAULT },
+  actionPillDisabled: { opacity: 0.4 },
+  actionText: { ...typeTokens.label, color: text.primary },
+  picker: { gap: space.sm, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, padding: space.lg, borderRadius: radius.md, marginVertical: space.sm },
+}));

@@ -33,6 +33,11 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
   private static let detectionInterval: TimeInterval = 0.2
   private static let contrastRetryInterval: TimeInterval = 0.75
+  /// Quick-scan mode: look for the card twice as often, and retry with extra
+  /// contrast sooner. The two-steady-frames rule is unchanged, so this makes
+  /// the lock arrive sooner without accepting a card that is still moving.
+  private static let fastDetectionInterval: TimeInterval = 0.1
+  private static let fastContrastRetryInterval: TimeInterval = 0.35
   /// ~0.8s of empty frames before the same physical card may be read again.
   private static let framesUntilRelease = 4
   private static let framesUntilOutlineHidden = 3
@@ -68,6 +73,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private var lastContrastRetry = Date.distantPast
   private var previousCorners: [CGPoint]?
   private var steadyFrames = 0
+  /// Read on frameQueue; set from JS (a plain Bool, so a torn read is harmless).
+  public var fastDetection = false
   private var missedFrames = 0
   private var awaitingRelease = false
   private var lastReadCentre: CGPoint?
@@ -240,10 +247,10 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     }
 
     let now = Date()
-    guard now.timeIntervalSince(lastDetectionAt) >= Self.detectionInterval else { return }
+    guard now.timeIntervalSince(lastDetectionAt) >= (fastDetection ? Self.fastDetectionInterval : Self.detectionInterval) else { return }
     lastDetectionAt = now
 
-    let retry = now.timeIntervalSince(lastContrastRetry) >= Self.contrastRetryInterval
+    let retry = now.timeIntervalSince(lastContrastRetry) >= (fastDetection ? Self.fastContrastRetryInterval : Self.contrastRetryInterval)
     if retry { lastContrastRetry = now }
     let card = UpkeepCardVision.bestCard(in: CIImage(cvPixelBuffer: buffer), orientation: .right, allowContrastRetry: retry)
     let corners = card.map(UpkeepCardVision.corners)

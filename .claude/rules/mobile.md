@@ -10,9 +10,11 @@ description: The Expo/React Native app (four-tab shell, live iOS scanner, stage-
 Merged into this repo from a separate scanner prototype (`MTGCardScanner`, a
 Flutter app that still exists at `/Users/anthonytalpak/MTGCardScanner` and is
 the *behavioural reference* for the live scanner) as npm workspaces. It has
-grown from a scan-and-confirm shell into a four-tab app (Scan, Collection,
-Decks, Account) with sign-in, but it is still not a full port of the web app:
-no friends, trades, wants or notifications, and deck-*list* editing is web-only.
+grown from a scan-and-confirm shell into an app with a slim header, a menu of
+every page and a five-slot nav bar (Scan fixed in the centre, the other four
+chosen in Settings; default Collection, Decks, Locations, Wish list) with sign-in, but it is still not a full port of the web app:
+Trades, Notifications and
+Import are menu entries that show a placeholder (`BUILT` in `src/navigation.ts`), and deck-*list* editing is web-only.
 The docs in `apps/mobile/docs/` are historical apart from the "Current state"
 sections at the top of `ARCHITECTURE.md` and `HANDOFF.md`; this file is the
 current description, and where they disagree this file wins.
@@ -35,17 +37,32 @@ apps/mobile/            Expo app.
   src/AppProvider.tsx   App-wide state: session/userId, the CardIndex + demo flag,
                         first-launch catalog download, locations, pending
                         sleeve/unsleeve, `scannerLive`, camera-stop registration
-  src/navigation.ts     Route param types (TabParamList, DecksStackParamList)
+  src/navigation.ts     Route param types + the PAGES registry, menu order, default
+                        nav slots, and which pages are BUILT (the rest are placeholders)
+  src/preferences.tsx   Device prefs (theme mode, nav slots) in SecureStore, the
+                        live dark/light scheme, and `makeStyles`
   src/screens/          ScanScreen · ScanSessionSummary · CollectionScreen ·
-                        DecksScreen · DeckDetailScreen (owns SleevePicker) ·
-                        AccountScreen
-  src/components/       TabBar (custom, + ScreenFade) · ScanQuickBar · ListRow · ui
+                        DecksScreen (commander-art tiles like the web deck list, plus "Start a deck"; data in src/decks.ts `fetchDeckTiles`) · DeckDetailScreen (commander-art banner, list grouped by type via `groupDeck` in @upkeep/domain, per-card sleeved/available/missing state, owns SleevePicker; `ManaCost` draws mana symbols) ·
+                        SettingsScreen (appearance, nav bar, account, catalog) ·
+                        PlaceholderScreen (pages not built yet)
+  src/components/       TabBar (5 slots, raised Scan, + ScreenFade) · AppHeader
+                        (Mort avatar, title, menu button) · MenuSheet · ScanQuickBar
+                        · SearchOverlay (slide-in card search: name or Scryfall syntax + a Filters panel, results grid; queries `cards` via src/cardSearch.ts) · CardDetails (page-sheet for one card, opened from a result: printings, flip for double-faced cards, what you own, which friends have it / want it, legality + rulings fetched from Scryfall's API on demand, foil copies (and a "Preview foil" toggle) get a subtle holographic overlay that follows phone tilt via expo-sensors DeviceMotion, or a horizontal finger drag (`FoilArt`; needs a native rebuild for the tilt, guarded so an older binary just lacks it), add to collection via ConfirmScan, add to wish list; data in src/cardDetails.ts; also opened from Collection, deck lists and the Wish List) · DashboardScreen (value, totals, needs-attention, deck status, recently added; data in src/dashboard.ts) · WishlistScreen · LocationsScreen / LocationDetailScreen (containers with card counts, create/edit/delete, the open-for-trade switch; data in src/locations.ts, decks excluded) · FriendsScreen / FriendProfileScreen (username search, requests, a friend's trade binder and wants; data in src/friends.ts, rules live in migration 9's policies) ·
+                        ListRow · ui. The centre Scan button is tap = Scan,
+                        hold-and-drag = fan of Search / Scan (PanResponder in TabBar); keep the finger on the fan's Scan option ~0.35s and a camera box opens (quick scan: first read is matched with ScanPipeline and opens CardDetails via `src/cardDetailsHost.tsx`; lifting first cancels; iOS only, needs camera permission already granted).
+                        Search is an action (`src/searchOverlay.tsx`), not a route
+                        anyone lands on, from the bar, the menu and the fan alike.
   src/mort/             Mort mascot: semantic reaction controller, MortStage,
                         and the real PNG poses in assets/. Web has a mirror in
                         src/components/mort/ and public/mort/.
   src/hooks/            useReducedMotion (web has its own in src/hooks/)
   src/theme.ts          Design tokens. Nothing else should hardcode a colour,
-                        size, radius or duration.
+                        size, radius or duration. surface/border/text/accent/state
+                        are LIVE objects switched by `applyScheme` (dark mode):
+                        never `StyleSheet.create` them at module level -- use
+                        `makeStyles(() => StyleSheet.create({...}))` and call the
+                        returned hook in each component. Camera-overlay UI uses
+                        fixed `brand.*` colours, not the scheme-aware tokens.
   src/backend.ts        Supabase client (anon key), the collection + move writers,
                         SecureStore auth storage
   src/catalog.ts        Offline catalog cache (two alternating disk slots)
@@ -73,7 +90,7 @@ packages/scan-core/      Pure TS: catalog parsing/search, scan pipeline, draft
 packages/upkeep-domain/  Pure TS, no RN/Expo imports AND no web-framework
                         imports either — this is the one package both
                         `src/lib/**` (the Next.js app) and `packages/scan-core`
-                        import from. Currently the stacking-decision policy
+                        import from. Currently the card-search filter model + Scryfall-syntax parser (`card-search.ts`; the web app still has its own older copy) and the stacking-decision policy
                         (`decideStacking`, `STACKING_ENABLED`) and the
                         condition/finish/language-code vocabulary. See its own
                         header comments and CLAUDE.md's "two reversible bets"
@@ -244,12 +261,23 @@ unchanged day skips a ~30MB re-publish for nothing) — see the sync script's
 
 ### On the device: download, demo, and the size cap
 
-- **Auto-download on first launch.** `AppProvider`'s mount effect calls
-  `loadCatalog()` (`apps/mobile/src/catalog.ts`); if what loaded is the 3-card
-  `demo-only` bundle *and* a backend is configured, it calls `syncCatalog()` ->
-  `refreshCatalog()` straight away. There is no manual "refresh" button any more,
-  so nothing else would ever fetch the real catalog. The URL is
-  `EXPO_PUBLIC_CATALOG_URL` (https only).
+- **A snapshot ships inside the app.** `npm run catalog:snapshot` (run it before
+  a native build; `scripts/catalog-snapshot.sh`) exports + builds the catalog
+  into `apps/mobile/assets/catalog-snapshot.db` (git-ignored, ~40 MB). On first
+  launch `AppProvider` calls `installBundledCatalog` (`src/catalog.ts`), which
+  unpacks it into the same two-slot store a download uses, so scanning works
+  with no download. The `require` is optional: a build without the file still
+  bundles and falls back to asking the user to download
+  (`CatalogDownloadModal` in `App.tsx`: a yes/no ask that says why, a progress
+  bar via `refreshCatalog`'s `onProgress`, and it closes itself when done;
+  "Not now" lasts the session).
+- **Updates.** The publish step writes a fixed `v1/latest.json` pointer
+  (`{version, generatedAt, bytes, url}`) *after* each hashed catalog upload; the
+  app derives its address from `EXPO_PUBLIC_CATALOG_URL` and checks it at most
+  once a day (`src/catalogUpdates.ts`), offering "New cards are available.
+  Update?" in the same window. "Later" is remembered per version; Settings has
+  "Check for updates". Nothing downloads without the user saying yes. The
+  pointer only exists after the next publish that follows this change.
 - **`demo` is derived, not a setting:** `index.bundle.version === 'demo-only'`.
   In demo mode saves are simulated and never reach the database (the demo
   records are synthetic and must never reach Supabase). A configured install

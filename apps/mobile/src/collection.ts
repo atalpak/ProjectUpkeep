@@ -12,7 +12,11 @@ import { backend } from './backend';
 // fetch-everything-then-sort-in-JS pass. See that migration's header for the
 // full reasoning.
 
-export const PAGE_SIZE = 50;
+// The whole collection is loaded (in pages of this size) and then searched and
+// filtered on the phone -- see packages/upkeep-domain/src/collection-filter.ts.
+export const PAGE_SIZE = 1000;
+// A safety stop, not a target: the web app caps its own collection reads the same way.
+export const MAX_ENTRIES = 20_000;
 
 export type CollectionEntry = {
   id: string;
@@ -30,6 +34,8 @@ export type CollectionEntry = {
   location_id: string | null;
   location_name: string | null;
   location_type: string | null;
+  card_colors: string[] | null;
+  card_type_line: string | null;
 };
 
 const COLUMNS = [
@@ -38,19 +44,12 @@ const COLUMNS = [
   'card_image_uri_small', 'card_image_uri',
   'condition', 'finish', 'language',
   'location_id', 'location_name', 'location_type',
+  'card_colors', 'card_type_line',
   // Not rendered — PostgREST allows filtering on a column outside the
   // select projection, so this is only here to keep the shape self-evident
   // when read alongside the .eq below. See that comment for why it's mandatory.
   'owner_user_id',
 ].join(',');
-
-export type CollectionPage = {
-  entries: CollectionEntry[];
-  // Only present on the first page's response (see fetchCollectionPage),
-  // because requesting an exact count on every page re-scans the whole
-  // result set for a number the caller already has after page one.
-  totalEntries: number | null;
-};
 
 // Thrown separately from a plain Error so the screen can tell "your session
 // is no longer valid" apart from "you have no cards" — collection_entries is
@@ -60,33 +59,55 @@ export type CollectionPage = {
 // the same.
 export class CollectionAuthError extends Error {}
 
-export async function fetchCollectionPage(userId: string, page: number): Promise<CollectionPage> {
-  if (!backend) throw new Error('Not connected.');
-  const from = page * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
-  let query = backend
-    .from('collection_entries')
-    .select(COLUMNS, page === 0 ? { count: 'exact' } : undefined)
-    // Mandatory: collection_entries runs with security_invoker, so RLS on
-    // card_instances still applies underneath it — including migration 9's
-    // policy that legitimately makes a friend's tradable binder readable.
-    // Without this explicit filter this query would return a friend's cards
-    // mixed in with the signed-in user's own, the same bug category phase 1
-    // fixed in the locations query above.
-    .eq('owner_user_id', userId)
-    // card_name is the primary sort; id is a stable tiebreak so that paging
-    // by range never skips or repeats a row when two cards share a name.
-    .order('card_name', { ascending: true })
-    .order('id', { ascending: true })
-    .range(from, to);
+export { EMPTY_COLLECTION_FILTER, collectionFacetCount, type CollectionFilter } from '@upkeep/domain';
 
-  const { data, error, count } = await query;
-  if (error) {
-    // PostgREST returns 42501 (insufficient_privilege) for a query an
-    // expired/invalid session is no longer allowed to run; surface that
-    // distinctly rather than letting the caller read it as "no cards".
-    if (error.code === '42501' || error.code === 'PGRST301') throw new CollectionAuthError(error.message);
-    throw new Error(error.message);
+/**
+ * Loads the signed-in user's whole collection, sorted by name, calling
+ * `onProgress` after each page so the screen can show the first rows at once
+ * and keep filling in. `total` is the exact entry count (asked for on the
+ * first page only: counting on every page re-scans the result for a number
+ * the caller already has).
+ */
+export async function fetchWholeCollection(
+  userId: string,
+  onProgress?: (entries: CollectionEntry[], total: number | null) => void,
+): Promise<CollectionEntry[]> {
+  if (!backend) throw new Error('Not connected.');
+  const all: CollectionEntry[] = [];
+  let total: number | null = null;
+  for (let page = 0; all.length < MAX_ENTRIES; page++) {
+    const from = page * PAGE_SIZE;
+    const { data, error, count } = await backend
+      .from('collection_entries')
+      .select(COLUMNS, page === 0 ? { count: 'exact' } : undefined)
+      // Mandatory: collection_entries runs with security_invoker, so RLS on
+      // card_instances still applies underneath it — including migration 9's
+      // policy that legitimately makes a friend's tradable binder readable.
+      // Without this explicit filter this query would return a friend's cards
+      // mixed in with the signed-in user's own, the same bug category phase 1
+      // fixed in the locations query above.
+      .eq('owner_user_id', userId)
+      // Cards sleeved into a deck belong to that deck, not the collection view.
+      // location_type is null for unsorted copies (the view left-joins
+      // locations), and `neq` alone would drop those, so null is allowed.
+      .or('location_type.is.null,location_type.neq.deck')
+      // card_name is the primary sort; id is a stable tiebreak so that paging
+      // by range never skips or repeats a row when two cards share a name.
+      .order('card_name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) {
+      // PostgREST returns 42501 (insufficient_privilege) for a query an
+      // expired/invalid session is no longer allowed to run; surface that
+      // distinctly rather than letting the caller read it as "no cards".
+      if (error.code === '42501' || error.code === 'PGRST301') throw new CollectionAuthError(error.message);
+      throw new Error(error.message);
+    }
+    if (page === 0) total = count ?? null;
+    const rows = (data ?? []) as unknown as CollectionEntry[];
+    all.push(...rows);
+    onProgress?.([...all], total);
+    if (rows.length < PAGE_SIZE) break;
   }
-  return { entries: (data ?? []) as unknown as CollectionEntry[], totalEntries: page === 0 ? (count ?? 0) : null };
+  return all;
 }

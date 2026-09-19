@@ -4,13 +4,15 @@
  * stop every screen re-inventing a button), rebuilt in React Native and
  * routed through theme.ts tokens rather than Tailwind classes.
  */
-import React from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { accent, border, radius, space, surface, text as textColor, type } from '../theme';
+import { makeStyles } from '../preferences';
 
 export function Button({ label, onPress, disabled, secondary }: {
   label: string; onPress(): void; disabled?: boolean; secondary?: boolean;
 }) {
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
@@ -27,6 +29,7 @@ export function Button({ label, onPress, disabled, secondary }: {
 export function Choices({ values, selected, disabled, onSelect, labels = {} }: {
   values: string[]; selected?: string; disabled?: boolean; onSelect(v: string): void; labels?: Record<string, string>;
 }) {
+  const styles = useStyles();
   return (
     <View style={styles.choices}>
       {values.map(v => (
@@ -47,6 +50,7 @@ export function Choices({ values, selected, disabled, onSelect, labels = {} }: {
 
 /** Standing banner for a message/error — role="alert" like the web Banner. */
 export function Notice({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+  const styles = useStyles();
   if (!children) return null;
   return (
     <Text accessibilityRole="alert" style={[styles.notice, style]}>
@@ -55,7 +59,32 @@ export function Notice({ children, style }: { children: React.ReactNode; style?:
   );
 }
 
-const styles = StyleSheet.create({
+/**
+ * A Notice that holds for a few seconds, then slides up and fades out before
+ * calling `onDone` (which should clear the message). Restarts whenever
+ * `children` changes, so a new message gets its full time on screen.
+ */
+export function DismissingNotice({ children, onDone, style, holdMs = 5000 }: { children: string; onDone(): void; style?: StyleProp<ViewStyle>; holdMs?: number }) {
+  const progress = useRef(new Animated.Value(1)).current;
+  const done = useRef(onDone);
+  done.current = onDone;
+  useEffect(() => {
+    progress.setValue(1);
+    const anim = Animated.sequence([
+      Animated.delay(holdMs),
+      Animated.timing(progress, { toValue: 0, duration: 300, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+    ]);
+    anim.start(({ finished }) => { if (finished) done.current(); });
+    return () => anim.stop();
+  }, [children, holdMs, progress]);
+  return (
+    <Animated.View style={{ opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) }] }}>
+      <Notice style={style}>{children}</Notice>
+    </Animated.View>
+  );
+}
+
+const useStyles = makeStyles(() => StyleSheet.create({
   button: { padding: space.lg, backgroundColor: accent.DEFAULT, borderRadius: radius.md, alignItems: 'center' },
   buttonSecondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: border.strong },
   buttonText: { fontFamily: type.title.fontFamily, fontSize: 15, fontWeight: '700', color: textColor.onAccent },
@@ -67,4 +96,4 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: surface.inverse, borderColor: surface.inverse },
   chipTextSelected: { color: textColor.inverse, fontSize: 13, lineHeight: 21 },
   body: { fontSize: 13, lineHeight: 21, color: textColor.secondary },
-});
+}));

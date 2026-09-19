@@ -17,7 +17,8 @@
     "db:reset": "npx --yes supabase db reset",
     "db:push": "npx --yes supabase db push",
     "test": "tsx --test scripts/*.test.ts",
-    "test:db": "./scripts/verify-migrations.sh"
+    "test:db": "./scripts/verify-migrations.sh",
+    "catalog:snapshot": "bash scripts/catalog-snapshot.sh"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

@@ -3,6 +3,7 @@ import { Animated, StyleSheet, View } from 'react-native';
 import { useMortReaction, loadPoseAsset, BLINK_CLOSED_ASSET } from './controller';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { mort as mortColors, duration as DURATION } from '../theme';
+import { makeStyles } from '../preferences';
 
 // Random gap between blinks, per mort-motion-v1's MOTION_DESIGN.md ("no
 // metronomic loop") — closed-frame hold matches its 120ms prototype value.
@@ -27,6 +28,7 @@ const SIZES: Record<'S' | 'M', number> = { S: 88, M: 140 };
  * this component needs to change either way.
  */
 export function MortStage({ size }: { size: 'S' | 'M' }) {
+  const styles = useStyles();
   const reaction = useMortReaction();
   const reducedMotion = useReducedMotion();
   const opacity = useRef(new Animated.Value(1)).current;
@@ -88,10 +90,10 @@ export function MortStage({ size }: { size: 'S' | 'M' }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(() => StyleSheet.create({
   stage: { alignItems: 'center', justifyContent: 'center' },
   // Mort Green, character-only per theme.ts's own rule — the one place in
   // this app that color is allowed to appear, since it stands in for the
   // character himself rather than any chrome.
   placeholder: { flex: 1, width: '100%', backgroundColor: mortColors.green },
-});
+}));

@@ -1,3 +1,4 @@
+import { Asset } from 'expo-asset';
 import { File, Paths } from 'expo-file-system';
 import { fetch } from 'expo/fetch';
 import { CardIndex, type CatalogBundle } from '@upkeep/scan-core';
@@ -22,8 +23,13 @@ export function loadCatalog(): CardIndex {
   }
   return new CardIndex(demoBundle);
 }
-export async function refreshCatalog(): Promise<CardIndex> {
-  const url = process.env.EXPO_PUBLIC_CATALOG_URL;
+export type CatalogProgress =
+  | { phase: 'downloading'; received: number; /** From content-length; null when the server did not say. */ total: number | null }
+  | { phase: 'preparing' };
+
+/** Downloads the catalog, reporting progress. Reports at most ~8 times a second: a 40 MB body arrives in hundreds of chunks. */
+export async function refreshCatalog(onProgress?: (progress: CatalogProgress) => void, urlOverride?: string): Promise<CardIndex> {
+  const url = urlOverride ?? process.env.EXPO_PUBLIC_CATALOG_URL;
   if (!url || !url.startsWith('https://')) throw new Error('Configure an HTTPS Upkeep catalog URL first.');
   const controller = new AbortController();
   // A flat 30s cap on the whole request would fail any download slower than ~1.3 MB/s
@@ -45,7 +51,10 @@ export async function refreshCatalog(): Promise<CardIndex> {
     if (Number(response.headers.get('content-length')) > limit) throw new Error('Catalog exceeds the 80 MB mobile budget.');
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let text = '', received = 0;
+    const declared = Number(response.headers.get('content-length'));
+    const total = Number.isFinite(declared) && declared > 0 ? declared : null;
+    let text = '', received = 0, lastReport = 0;
+    onProgress?.({ phase: 'downloading', received: 0, total });
     try {
       while (true) {
         const chunk = await reader.read();
@@ -54,9 +63,16 @@ export async function refreshCatalog(): Promise<CardIndex> {
         received += chunk.value.byteLength;
         if (received > limit) { controller.abort(); throw new Error('Catalog exceeds the mobile budget.'); }
         text += decoder.decode(chunk.value, {stream:true});
+        const now = Date.now();
+        if (onProgress && now - lastReport >= 120) { lastReport = now; onProgress({ phase: 'downloading', received, total }); }
       }
+      onProgress?.({ phase: 'downloading', received, total });
       text += decoder.decode();
     } finally { reader.releaseLock(); }
+    // Parsing ~40 MB runs on the JS thread and freezes the UI for a moment;
+    // say so first and give React a beat to paint it.
+    onProgress?.({ phase: 'preparing' });
+    await new Promise(resolve => setTimeout(resolve, 60));
     const index = new CardIndex(JSON.parse(text));
     const nextSlot = 1-activeSlot;
     slot(nextSlot).write(text);
@@ -66,4 +82,44 @@ export async function refreshCatalog(): Promise<CardIndex> {
     if (timedOut) throw new Error('The card database download stalled. Check your connection and try again. Your previous catalog is still available.');
     throw e;
   } finally { clearTimeout(stall); clearTimeout(ceiling); }
+}
+
+/**
+ * The card database shipped inside the app (apps/mobile/assets/catalog-snapshot.db,
+ * written by `npm run catalog:snapshot` before a native build). Optional: the
+ * `require` sits in a try because the file is git-ignored, and Metro treats a
+ * require inside a try as an optional dependency, so an app built without a
+ * snapshot still bundles and simply falls back to asking for the download.
+ */
+function bundledSnapshot(): number | null {
+  try { return require('../assets/catalog-snapshot.db') as number; } catch { return null; }
+}
+
+/**
+ * First launch: if there is no downloaded catalog yet, unpack the bundled one
+ * into the same two-slot store a download uses, and return it. Resolves null
+ * when this build carries no snapshot (or it is unreadable), in which case the
+ * caller falls back to asking the user to download.
+ *
+ * Not called when a catalog already exists: the newest of the saved and
+ * downloaded ones wins, and updates arrive through the update check.
+ */
+export async function installBundledCatalog(): Promise<CardIndex | null> {
+  const module = bundledSnapshot();
+  if (module === null) return null;
+  try {
+    const asset = Asset.fromModule(module);
+    await asset.downloadAsync();
+    const uri = asset.localUri ?? asset.uri;
+    const text = await new File(uri).text();
+    const index = new CardIndex(JSON.parse(text));
+    const nextSlot = 1 - activeSlot;
+    slot(nextSlot).write(text);
+    activeSlot = nextSlot;
+    return index;
+  } catch (e) {
+    // Not shown to the user (they get the download ask instead), but leave a trail for whoever builds the app.
+    console.warn('[catalog] bundled snapshot could not be installed:', e instanceof Error ? e.message : String(e));
+    return null;
+  }
 }

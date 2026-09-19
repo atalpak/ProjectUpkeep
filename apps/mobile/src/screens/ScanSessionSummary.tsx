@@ -6,6 +6,7 @@ import { ListRow } from '../components/ListRow';
 import { MortStage } from '../mort/MortStage';
 import type { StagedCard } from './ScanScreen';
 import { border, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
+import { makeStyles } from '../preferences';
 
 type Location = { id: string; name: string };
 
@@ -39,6 +40,7 @@ export function ScanSessionSummary({
   onScanMore(): void;
   onMessage(text: string): void;
 }) {
+  const styles = useStyles();
   const [editing, setEditing] = useState<StagedCard | null>(null);
   const [query, setQuery] = useState('');
   const [addingOpen, setAddingOpen] = useState(false);
@@ -128,6 +130,7 @@ function rowSubtitle(item: StagedCard): string {
  * here per the rebuild spec: a live camera has no room for a search form,
  * and a real card sometimes doesn't scan cleanly. */
 function ManualAddSheet({ index, onAdd, onCancel }: { index: CardIndex; onAdd(printing: Printing): void; onCancel(): void }) {
+  const styles = useStyles();
   const [name, setName] = useState('');
   const [setCode, setSetCode] = useState('');
   const [collectorNumber, setCollectorNumber] = useState('');
@@ -176,6 +179,7 @@ function EditSheet({ item, locations, onCancel, onSave, onMessage }: {
   item: StagedCard; locations: Location[];
   onCancel(): void; onSave(patch: Partial<CollectionDraft>): void; onMessage(text: string): void;
 }) {
+  const styles = useStyles();
   const [finish, setFinish] = useState<Finish>(item.draft.finish);
   const [condition, setCondition] = useState<Condition>(item.draft.condition);
   const [language, setLanguage] = useState(item.draft.language);
@@ -212,7 +216,7 @@ function EditSheet({ item, locations, onCancel, onSave, onMessage }: {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   section: { ...typeTokens.title, color: textColor.primary },
@@ -229,4 +233,4 @@ const styles = StyleSheet.create({
   iconText: { fontSize: 15 },
   footer: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
   sheet: { gap: space.sm, backgroundColor: surface.raised, padding: space.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: border.hairline },
-});
+}));

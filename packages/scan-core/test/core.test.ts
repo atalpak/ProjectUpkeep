@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, scanBand, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft, type Candidate } from '../src';
+import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, scanBand, quickMatch, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft, type Candidate } from '../src';
 const a = '11111111-1111-4111-8111-111111111111';
 const b = '22222222-2222-4222-8222-222222222222';
 const op = '33333333-3333-4333-8333-333333333333';
@@ -404,4 +404,20 @@ test('scanBand classifies confident/uncertain/none the same way the mobile scann
   assert.equal(scanBand([strongTop]), 'confident');
   assert.equal(scanBand([weakTop]), 'uncertain', 'below the 0.78 threshold stays uncertain even with printing evidence');
   assert.equal(scanBand([nameOnlyTop]), 'uncertain', 'a high score alone is not enough -- must be printing evidence');
+});
+
+test('quickMatch: rejects a fuzzy name, accepts an exact one, and only trusts the printing when set+number matched', () => {
+  const mk = (score: number, evidence: 'name' | 'printing', oracleId = oracle): Candidate => ({ printing: { ...printing, oracleId }, score, evidence });
+  assert.deepEqual(quickMatch([]), { ok: false, reason: 'none' });
+  // A 0.6 fuzzy match is "uncertain" for the scanner UI but far too weak to open unreviewed.
+  assert.deepEqual(quickMatch([mk(0.6, 'name')]), { ok: false, reason: 'weak' });
+  const exact = quickMatch([mk(1, 'name')]);
+  assert.equal(exact.ok && exact.exactPrinting, false);
+  const withPrinting = quickMatch([mk(0.9, 'printing')]);
+  assert.equal(withPrinting.ok && withPrinting.exactPrinting, true);
+  // A close-but-not-exact name with a different card nearly as good is a coin flip, not a match.
+  const other = '55555555-5555-4555-8555-555555555555';
+  assert.deepEqual(quickMatch([mk(0.9, 'name'), mk(0.88, 'name', other)]), { ok: false, reason: 'ambiguous' });
+  // Same card, other printings, is not ambiguity.
+  assert.equal(quickMatch([mk(0.9, 'name'), mk(0.9, 'name')]).ok, true);
 });
