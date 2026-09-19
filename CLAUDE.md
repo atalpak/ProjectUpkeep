@@ -91,6 +91,8 @@ src/
     scryfall.ts             Scryfall → `cards` field mapping, incl. every price
                             column. Second-largest piece of logic in the app.
     scryfall-stream.ts      streams the bulk export instead of buffering 500MB
+    scryfall-download.ts    downloads to a temp file before upserts; cleans up
+                            after each attempt
     scryfall-upsert.ts      batched upsert with adaptive batch halving
     scryfall-oracle.ts      oracle_cards export → `oracle_cards` row: mapper, fingerprint, diff
     pg-copy.ts              COPY CSV encoding for the direct loader (no driver — pure text)
@@ -131,7 +133,7 @@ scripts/
   verify-migrations.sh      migrations against a throwaway Postgres
   catalog-snapshot.sh       exports + builds the catalog into the mobile app before
                             a native build (`npm run catalog:snapshot`)
-  *.test.ts                 81 unit-test files over pure logic, including 28 playtest tests
+  *.test.ts                 82 unit-test files over pure logic, including 28 playtest tests
 ```
 
 ## Data model in one paragraph
