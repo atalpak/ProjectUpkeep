@@ -48,11 +48,42 @@ function anglesOf(m: MotionReading): { beta: number; gamma: number } | null {
   return null;
 }
 
-// Soft rainbow: seven hues at low opacity so it tints the art, never hides it.
-// [r, g, b, alpha]; `strength` scales the alpha (1 = the subtle details-page look).
-const HUES: [number, number, number, number][] = [[255, 95, 162, 0.11], [255, 179, 107, 0.11], [255, 243, 107, 0.10], [123, 255, 154, 0.10], [107, 215, 255, 0.11], [143, 123, 255, 0.11], [255, 95, 162, 0.11]];
-// A soft highlight, faked as stacked circles (no gradients without a native dep).
-const GLARE = [1, 0.78, 0.58, 0.4, 0.24];
+// expo-linear-gradient is a native module too, and gets the same treatment as
+// DeviceMotion above: an older binary has no `ExpoLinearGradient`, so look for it
+// before requiring the JS wrapper. Without it the hue layer falls back to many
+// thin slices at reduced opacity (close enough to a gradient to not look striped)
+// and the sheen is left out.
+type GradientProps = { colors: readonly [string, string, ...string[]]; start?: { x: number; y: number }; end?: { x: number; y: number }; style?: object };
+const LinearGradient: React.ComponentType<GradientProps> | null = (() => {
+  if (!requireOptionalNativeModule('ExpoLinearGradient')) return null;
+  try { return (require('expo-linear-gradient') as { LinearGradient: React.ComponentType<GradientProps> }).LinearGradient; } catch { return null; }
+})();
+
+// Pastel foil hues, blended by a continuous gradient rather than banded: the
+// first and last stop are fully transparent so the layer has no visible edge.
+// [r, g, b, alpha]; `strength` scales alpha (1 = the subtle baseline). Alpha stays
+// low on purpose -- the layer should tint the art the way real foil does, never
+// paint over it, and hard-edged or saturated colour is what read as fake.
+const HUES: [number, number, number, number][] = [
+  [255, 170, 200, 0], [255, 170, 200, 0.11], [255, 200, 160, 0.12], [255, 240, 170, 0.11],
+  [170, 245, 200, 0.12], [160, 215, 255, 0.12], [200, 180, 255, 0.11], [200, 180, 255, 0],
+];
+// A wide, soft white band that sweeps with the tilt (peak alpha before `strength`).
+const SHEEN_ALPHA = 0.07;
+const SHEEN_MAX = 0.12;
+// Fallback slices when there is no gradient module, and how much quieter they are.
+const SLICES = 24;
+const SLICE_DAMPING = 0.6;
+
+const rgba = (r: number, g: number, b: number, a: number) => `rgba(${r},${g},${b},${a.toFixed(3)})`;
+/** The hue ramp sampled at t in 0..1, linearly interpolated between stops. */
+function hueAt(t: number): [number, number, number, number] {
+  const x = t * (HUES.length - 1);
+  const i = Math.min(Math.floor(x), HUES.length - 2);
+  const f = x - i;
+  const [a, b] = [HUES[i], HUES[i + 1]];
+  return [0, 1, 2, 3].map(k => a[k] + (b[k] - a[k]) * f) as [number, number, number, number];
+}
 
 type Tilt = Animated.ValueXY;
 
@@ -105,40 +136,52 @@ export function useFoilTilt(active: boolean, touching?: React.MutableRefObject<b
 }
 
 /**
- * The holographic layer on its own: rainbow bands that slide with `tilt` and a
- * soft highlight that drifts. Absolutely fills its parent, so the parent
- * decides the size; `radius` should match the art's corners. `strength` scales
- * the opacity (1 = subtle; the collection grid uses more because its cards are
- * small).
+ * The holographic layer on its own: a wide diagonal pastel gradient that slides
+ * with `tilt`, and a soft white sheen band that sweeps across it. Absolutely
+ * fills its parent, so the parent decides the size; `radius` should match the
+ * art's corners. `strength` scales the opacity (1 = the quiet baseline; the
+ * collection grid uses a little more because its cards are small). Only
+ * transforms move, so nothing is re-laid-out per sensor tick.
  */
 export function FoilOverlay({ tilt, width, height, radius = 16, strength = 1 }: { tilt: Tilt; width: number; height: number; radius?: number; strength?: number }) {
   const bandShift = tilt.x.interpolate({ inputRange: [-1, 1], outputRange: [width * 0.7, -width * 0.7] });
   const bandLift = tilt.y.interpolate({ inputRange: [-1, 1], outputRange: [height * 0.12, -height * 0.12] });
-  const glareX = tilt.x.interpolate({ inputRange: [-1, 1], outputRange: [width * 0.15, width * 0.85] });
-  const glareY = tilt.y.interpolate({ inputRange: [-1, 1], outputRange: [height * 0.15, height * 0.65] });
+  const sheenShift = tilt.x.interpolate({ inputRange: [-1, 1], outputRange: [width * 0.9, -width * 0.9] });
+  const sheenLift = tilt.y.interpolate({ inputRange: [-1, 1], outputRange: [height * 0.1, -height * 0.1] });
   const bandWidth = width * 2.4;
+  const sheenWidth = width * 1.1;
+  const layer = { position: 'absolute' as const, top: -height * 0.4, height: height * 1.8 };
+  const hues = HUES.map(([r, g, b, a]) => rgba(r, g, b, Math.min(a * strength, 0.4)));
+  const sheenPeak = Math.min(SHEEN_ALPHA * strength, SHEEN_MAX);
+  const clear = 'rgba(255,255,255,0)';
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: radius, overflow: 'hidden' }]}>
-      <Animated.View style={{ position: 'absolute', left: (width - bandWidth) / 2, top: -height * 0.4, width: bandWidth, height: height * 1.8, flexDirection: 'row', transform: [{ translateX: bandShift }, { translateY: bandLift }, { rotate: '28deg' }] }}>
-        {HUES.map(([r, g, b, a], i) => <View key={i} style={{ flex: 1, backgroundColor: `rgba(${r},${g},${b},${Math.min(a * strength, 0.6).toFixed(3)})` }} />)}
+      <Animated.View style={{ ...layer, left: (width - bandWidth) / 2, width: bandWidth, transform: [{ translateX: bandShift }, { translateY: bandLift }, { rotate: '28deg' }] }}>
+        {LinearGradient
+          ? <LinearGradient colors={hues as unknown as [string, string, ...string[]]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
+          : <View style={{ flex: 1, flexDirection: 'row' }}>
+              {Array.from({ length: SLICES }, (_, i) => {
+                const [r, g, b, a] = hueAt((i + 0.5) / SLICES);
+                return <View key={i} style={{ flex: 1, backgroundColor: rgba(r, g, b, Math.min(a * strength * SLICE_DAMPING, 0.3)) }} />;
+              })}
+            </View>}
       </Animated.View>
-      <Animated.View style={{ position: 'absolute', left: 0, top: 0, transform: [{ translateX: glareX }, { translateY: glareY }] }}>
-        {GLARE.map((f, i) => {
-          const size = width * f;
-          return <View key={i} style={{ position: 'absolute', left: -size / 2, top: -size / 2, width: size, height: size, borderRadius: size / 2, backgroundColor: `rgba(255,255,255,${Math.min(0.05 * strength, 0.28).toFixed(3)})` }} />;
-        })}
-      </Animated.View>
+      {LinearGradient && (
+        <Animated.View style={{ ...layer, left: (width - sheenWidth) / 2, width: sheenWidth, transform: [{ translateX: sheenShift }, { translateY: sheenLift }, { rotate: '28deg' }] }}>
+          <LinearGradient colors={[clear, `rgba(255,255,255,${(sheenPeak / 2).toFixed(3)})`, `rgba(255,255,255,${sheenPeak.toFixed(3)})`, `rgba(255,255,255,${(sheenPeak / 2).toFixed(3)})`, clear]} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={StyleSheet.absoluteFill} />
+        </Animated.View>
+      )}
     </View>
   );
 }
 
 /**
- * A card image that, when `foil`, carries a very subtle holographic sheen that
+ * A card image that, when `foil`, carries a subtle holographic sheen that
  * follows how the phone is tilted, and leans a few degrees toward you.
  * Dragging a finger sideways across the card does the same, for a phone with
  * no motion sensor (and the simulator). Costs nothing when `foil` is false.
  */
-export function FoilArt({ uri, width, height, foil, strength = 2.4 }: { uri: string | null; width: number; height: number; foil: boolean; strength?: number }) {
+export function FoilArt({ uri, width, height, foil, strength = 1.4 }: { uri: string | null; width: number; height: number; foil: boolean; strength?: number }) {
   const touching = useRef(false);
   const start = useRef({ x: 0, y: 0 });
   const { tilt, current } = useFoilTilt(foil, touching);

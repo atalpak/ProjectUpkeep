@@ -210,14 +210,14 @@ function CollectionList({ userId }: { userId: string }) {
             {e.card_image_uri_small
               ? <Image source={{ uri: e.card_image_uri_small }} style={[styles.tileImage, { width: tile, height: tile / CARD_ASPECT }]} />
               : <View style={[styles.tileImage, styles.tileEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.tileName}>{e.card_name}</Text></View>}
-            {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={tile} height={tile / CARD_ASPECT} radius={6} strength={1.8} />}
+            {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={tile} height={tile / CARD_ASPECT} radius={6} strength={1.05} />}
             {e.quantity > 1 && <View style={styles.qtyBadge}><Text style={styles.qtyBadgeText}>×{e.quantity}</Text></View>}
           </Pressable>
         ) : (
           <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, details`} onPress={() => setDetails(e)} style={styles.row}>
             <View style={styles.thumb}>
               {e.card_image_uri_small ? <Image source={{ uri: e.card_image_uri_small }} style={styles.thumbImage} /> : null}
-              {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={38} height={53} radius={4} strength={2.2} />}
+              {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={38} height={53} radius={4} strength={1.25} />}
             </View>
             <View style={styles.grow}>
               <Text numberOfLines={1} style={styles.name}>{e.card_name}</Text>

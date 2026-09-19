@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, scanBand, quickMatch, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft, type Candidate } from '../src';
+import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, scanBand, quickMatch, quickRejectionHint, readTitle, describeRejection, QUICK_GIVE_UP_HINT, QUICK_RETRY_CAP, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft, type Candidate } from '../src';
 const a = '11111111-1111-4111-8111-111111111111';
 const b = '22222222-2222-4222-8222-222222222222';
 const op = '33333333-3333-4333-8333-333333333333';
@@ -420,4 +420,27 @@ test('quickMatch: rejects a fuzzy name, accepts an exact one, and only trusts th
   assert.deepEqual(quickMatch([mk(0.9, 'name'), mk(0.88, 'name', other)]), { ok: false, reason: 'ambiguous' });
   // Same card, other printings, is not ambiguity.
   assert.equal(quickMatch([mk(0.9, 'name'), mk(0.9, 'name')]).ok, true);
+});
+
+test('quick-scan rejection hints say what was read and separate no-text, weak and ambiguous', () => {
+  assert.equal(quickRejectionHint('weak', ['Bloodl1ne Bidd1ng', 'Sorcery'], 0), 'Read “Bloodl1ne Bidd1ng Sorcery” — not sure of it, trying again');
+  assert.match(quickRejectionHint('ambiguous', ['Lightning Bolt'], 1), /^Read “Lightning Bolt” — two cards fit/);
+  assert.match(quickRejectionHint('none', ['Zzzz'], 0), /no match/);
+  // Nothing legible: OCR, not matching, is the problem, whatever the match said.
+  assert.match(quickRejectionHint('none', [], 0), /^No text found/);
+  assert.match(quickRejectionHint('weak', ['  ', ''], 0), /^No text found/);
+  // Past the cap the wording is advice, and stays the same however many more tries follow.
+  assert.equal(quickRejectionHint('weak', ['Lightning Bolt'], QUICK_RETRY_CAP), QUICK_GIVE_UP_HINT);
+  assert.equal(quickRejectionHint('ambiguous', [], QUICK_RETRY_CAP + 3), QUICK_GIVE_UP_HINT);
+});
+test('readTitle uses lines 0-1 only and trims to the limit with an ellipsis', () => {
+  assert.equal(readTitle(['Lightning Bolt', 'Instant', 'Deals 3 damage']), 'Lightning Bolt Instant');
+  const long = readTitle(['A very long card title that goes on and on']);
+  assert.equal(long.length, 28);
+  assert.ok(long.endsWith('…'));
+});
+test('describeRejection reports the top candidate for the dev log', () => {
+  const mk = (score: number): Candidate => ({ printing, score, evidence: 'name' });
+  assert.deepEqual(describeRejection('weak', ['Lightning Bolt'], [mk(0.6123456)]), { reason: 'weak', title: 'Lightning Bolt', top: { name: 'Lightning Bolt', score: 0.612, evidence: 'name' }, candidates: 1 });
+  assert.equal(describeRejection('none', [], []).top, null);
 });

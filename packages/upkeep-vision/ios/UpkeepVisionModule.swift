@@ -102,6 +102,7 @@ public class UpkeepVisionModule: Module {
       Events("onCardRead", "onCardLost", "onOutlineChange", "onScannerError", "onScanStatus")
       Prop("active") { (view: UpkeepScannerView, active: Bool) in view.active = active }
       Prop("fastDetection") { (view: UpkeepScannerView, fast: Bool) in view.fastDetection = fast }
+      Prop("retryToken") { (view: UpkeepScannerView, token: Int) in view.retryToken = token }
       AsyncFunction("captureNow") { (view: UpkeepScannerView) in view.captureNow() }
     }
   }

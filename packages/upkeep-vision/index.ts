@@ -64,6 +64,11 @@ export type ScannerViewProps = ViewProps & {
    *  card to hold still. Native prop: needs a native rebuild, ignored by an
    *  older build. */
   fastDetection?: boolean;
+  /** Quick scan: bump this each time a read is rejected. The scanner then clears
+   *  its "one read per physical card" gate ~0.4s later and reads the card that is
+   *  still in frame again, instead of waiting for it to be taken away. Native
+   *  prop: ignored by an older build, which keeps the old take-it-away behaviour. */
+  retryToken?: number;
   onCardRead?(event: { nativeEvent: CardReadEvent }): void;
   onCardLost?(event: { nativeEvent: Record<string, never> }): void;
   onOutlineChange?(event: { nativeEvent: { found: boolean } }): void;

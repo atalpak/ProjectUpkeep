@@ -52,6 +52,18 @@ is the live list.
   old builds keep the static hint). Tune from real use: `BurstTracker` constants,
   `minimumSharpness`, the area floor (0.18), `STATUS_MIN_MS` (400). The frame is
   detected whole, so a card can lock while partly outside the visible (cropped) box.
+- Quick scan "Couldn't read that clearly" every time (2026-09-19 owner feedback, all
+  unverified on a device): focus/exposure/zoom are re-applied after each preset change
+  (they were probably being lost to the 4K switch) and follow the tracked card; zoom
+  targets a card filling the frame from 1.2x minimum focus distance (`quickZoomCap`
+  2.0, set 1.0 to disable); frames are skipped while the lens hunts (<= 0.6s);
+  blurry 1.2s fallbacks are retried (<= 2); a rejected read is retried on the held
+  card (`retryToken`, 0.4s, hint after 4) and the hint names what was read. To
+  confirm on a phone: whether the focus point orientation is right (a wrong mapping
+  focuses on the wrong part of the frame, so watch for it on a card held off-centre),
+  whether `focusPointOfInterest` is relative to the zoomed or the full field of view,
+  the zoom the device picks, and the constants above. Read the `[quick-scan] rejected`
+  log in Metro to tell OCR from matching.
 - Wrong printing on quick scan (Bloodline Bidding ECL #91 opened ECL #385): the
   default is now the regular print (`regularFirst`), the picture switch needs a
   0.75 ratio (0.5 over a footer guess), the footer is read from a 4K session and a

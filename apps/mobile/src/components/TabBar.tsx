@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flushStatus, initialPacer, isScanStatus, paceStatus, printingHints, quickMatch, rankPrintings, type PacerState, type ScanStatus } from '@upkeep/scan-core';
+import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flushStatus, initialPacer, isScanStatus, paceStatus, describeRejection, printingHints, quickMatch, quickRejectionHint, rankPrintings, type PacerState, type ScanStatus } from '@upkeep/scan-core';
 import { UpkeepScannerView, cardImageRankingAvailable, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
 import { useApp } from '../AppProvider';
 import { useOpenCardDetails } from '../cardDetailsHost';
@@ -145,6 +145,13 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
   // A message that is not about what the camera sees (a rejected read, a camera
   // error); it wins over the live coaching line until native reports no card.
   const [quickHint, setQuickHint] = useState('');
+  // Bumped on every hint, so the same text shown again (a second rejection with the
+  // same wording) restarts its clear-after timer instead of vanishing mid-retry.
+  const [hintTick, setHintTick] = useState(0);
+  // Rejected reads this hold, and the prop that tells native to read the card again.
+  // Reset when the card leaves or quick scan closes.
+  const retries = useRef(0);
+  const [retryToken, setRetryToken] = useState(0);
   // The live coaching line (see scan-core `paceStatus`). Older native builds send
   // no onScanStatus, so this stays on its first value: the static hint.
   const [scanStatus, setScanStatus] = useState<ScanStatus>('searching');
@@ -191,6 +198,7 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     quickRef.current = true;
     doneRef.current = false;
     setQuickHint('');
+    retries.current = 0;
     setQuick(true);
     if (reducedMotion) quickAnim.setValue(1);
     else Animated.spring(quickAnim, { toValue: 1, useNativeDriver: true, friction: 9, tension: 220 }).start();
@@ -222,7 +230,7 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     const status = event.nativeEvent.status;
     if (!isScanStatus(status)) return;
     // The card was taken away: whatever a rejected read said is finished.
-    if (status === 'searching') setQuickHint('');
+    if (status === 'searching') { setQuickHint(''); retries.current = 0; }
     applyPace(paceStatus(pacer.current, status, Date.now()));
   }
 
@@ -233,12 +241,13 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     if (!quickHint) return;
     const timer = setTimeout(() => setQuickHint(''), QUICK_HINT_MS);
     return () => clearTimeout(timer);
-  }, [quickHint]);
+  }, [quickHint, hintTick]);
 
   useEffect(() => () => { if (pacerTimer.current) clearTimeout(pacerTimer.current); }, []);
 
   function stopQuick() {
     pendingRead.current = null;
+    retries.current = 0;
     resetStatus();
     if (beat.current) { clearTimeout(beat.current); beat.current = null; }
     setWarm(false);
@@ -257,8 +266,15 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     const candidates = env.current.pipeline.matchEvidence({ lines, printingLines }).candidates;
     const match = quickMatch(candidates);
     if ('reason' in match) {
-      // The scanner reads each physical card once, so a rejected read needs the card taken away and shown again.
-      setQuickHint(match.reason === 'ambiguous' ? 'Not sure which card that is. Take it away and try again.' : 'Couldn’t read that clearly. Take it away and try again.');
+      // The card does not need taking away: bumping the token has native re-read it
+      // (~0.4s later). The hint names what was read so OCR and matching failures
+      // can be told apart; after QUICK_RETRY_CAP tries it turns into advice while
+      // the retries carry on for as long as the card is held.
+      if (__DEV__) console.log('[quick-scan] rejected', describeRejection(match.reason, lines, candidates), { attempt: retries.current });
+      setQuickHint(quickRejectionHint(match.reason, lines, retries.current));
+      setHintTick(t => t + 1);
+      retries.current += 1;
+      setRetryToken(t => t + 1);
       return;
     }
     // The name settled the card. Open the details page NOW on the best guess
@@ -369,6 +385,7 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
             // before onCardRead arrives, so nothing here needs its own delay and
             // the view stays mounted and active until the details open.
             fastDetection
+            retryToken={retryToken}
             onCardRead={onQuickRead}
             onScanStatus={onScanStatus}
             onScannerError={e => setQuickHint(e.nativeEvent.message)}

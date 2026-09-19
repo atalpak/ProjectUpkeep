@@ -491,6 +491,10 @@ struct BurstTracker {
     case lockCurrent
     /// Read the frame stored earlier (it was sharper than this one).
     case lockBest
+    /// The 1.2s fallback arrived with nothing better than a smear and the caller
+    /// asked not to read one: the burst has been restarted (its frames dropped),
+    /// so wait for the next one. Only returned when `allowBlurryFallback` is false.
+    case retry
   }
 
   private var previous: [CGPoint]?
@@ -531,13 +535,21 @@ struct BurstTracker {
   }
 
   /// `.lockBest` means `bestCrop` is the frame to read; take it before `reset`.
-  mutating func offer(sharpness: Double, crop: CGImage, at now: TimeInterval) -> Verdict {
+  /// `allowBlurryFallback` false turns the 1.2s "read whatever we have" into a
+  /// `.retry` when even the best frame is under the acceptable share of the
+  /// threshold: a frame that soft costs a whole OCR pass and comes back as a
+  /// rejection, so waiting one more burst for focus to settle is cheaper.
+  mutating func offer(sharpness: Double, crop: CGImage, at now: TimeInterval, allowBlurryFallback: Bool = true) -> Verdict {
     let isBest = sharpness > bestSharpness
     if isBest { bestSharpness = sharpness; bestCrop = crop }
     if sharpness >= Self.minimumSharpness { return .lockCurrent }
     let elapsed = now - streakStart
-    let due = elapsed >= Self.fallbackAfter ||
-      (elapsed >= Self.earlyWindow && bestSharpness >= Self.minimumSharpness * Self.acceptableFraction)
+    let acceptable = bestSharpness >= Self.minimumSharpness * Self.acceptableFraction
+    let due = elapsed >= Self.fallbackAfter || (elapsed >= Self.earlyWindow && acceptable)
+    if due && !acceptable && !allowBlurryFallback {
+      restart(at: now)
+      return .retry
+    }
     if due { return isBest ? .lockCurrent : .lockBest }
     return isBest ? .store : .skip
   }
@@ -550,6 +562,62 @@ struct BurstTracker {
  * Raw states change frame to frame; `ScanStatusTracker` makes them steady enough
  * to send, and JS paces them again for the eye (scan-core `paceStatus`).
  */
+/// Quick scan skips a burst frame while the lens is still hunting, but never for
+/// long: continuous autofocus on a low-contrast card can report "adjusting" for
+/// seconds, and a gate that waited for it to stop would never read. The cap is
+/// per burst (the caller resets it whenever the burst is not sampling).
+struct FocusGate {
+  static let maxWait: TimeInterval = 0.6
+  private var waitingSince: TimeInterval?
+
+  mutating func shouldSkip(adjusting: Bool, at now: TimeInterval) -> Bool {
+    guard adjusting else { return false }
+    let since = waitingSince ?? now
+    waitingSince = since
+    return now - since < Self.maxWait
+  }
+
+  mutating func reset() { waitingSince = nil }
+}
+
+/// Pure camera maths for quick scan's focus and zoom, kept out of the view so the
+/// offline check can run it.
+enum CameraFocus {
+  /// Vision reports a point in the ORIENTED image (portrait, origin bottom-left,
+  /// y up). The device's point of interest is in the sensor's native landscape
+  /// space (origin top-left, y down, home button right), and the view tells
+  /// Vision `.right`, i.e. the buffer is rotated 90 degrees clockwise to be
+  /// upright. Inverting that rotation gives (1 - y, 1 - x).
+  static func devicePoint(fromOriented p: CGPoint) -> CGPoint {
+    CGPoint(x: 1 - p.y, y: 1 - p.x)
+  }
+
+  /// A card is 88 mm on its long side, which lies along the landscape buffer's width.
+  static let cardLongSideMM: CGFloat = 88
+  /// How much of that width the card should take when the phone sits just outside
+  /// its minimum focus distance.
+  static let cardFillFraction: CGFloat = 0.7
+  /// Distance to aim for, as a multiple of the lens's minimum focus distance:
+  /// exactly at it, focus is marginal.
+  static let focusMargin: CGFloat = 1.2
+
+  /// The zoom that lets the card fill the frame from `focusMargin` x the minimum
+  /// focus distance, so a person who moves in until the card "fits" is not inside
+  /// the range where the lens cannot focus at all. Never below 1, and never past
+  /// `cap`, the format's maximum, or the point where the format starts upscaling
+  /// (`videoZoomFactorUpscaleThreshold`) since upscaled pixels do not help OCR.
+  /// An unknown minimum focus distance (<= 0) leaves zoom alone.
+  static func zoom(minimumFocusDistanceMM: Int, fieldOfViewDegrees: Float, cap: CGFloat,
+                   maxZoom: CGFloat, upscaleThreshold: CGFloat?) -> CGFloat {
+    let ceiling = min(cap, maxZoom, upscaleThreshold ?? maxZoom)
+    guard minimumFocusDistanceMM > 0, fieldOfViewDegrees > 0, ceiling > 1 else { return 1 }
+    let distance = CGFloat(minimumFocusDistanceMM) * focusMargin
+    let extent = 2 * distance * CGFloat(tan(Double(fieldOfViewDegrees) * .pi / 360))
+    let wanted = extent / (cardLongSideMM / cardFillFraction)
+    return max(1, min(wanted, ceiling))
+  }
+}
+
 enum ScanStatus: String {
   /// No card-like rectangle in view.
   case searching

@@ -32,7 +32,11 @@ import Vision
  * so the screen can coach ("move closer"). It then refuses to read
  * again until that card has left (`framesUntilRelease` empty detections) or a
  * different card has clearly replaced it (`swapDistance`), which is what stops
- * one card held in frame from being added over and over.
+ * one card held in frame from being added over and over. A read that JS rejects
+ * bumps `retryToken` and the same card is read again (`retryHeldCard`) rather than
+ * waiting for it to leave. Focus, exposure and zoom are configured in
+ * `configureDevice` and re-applied after every preset change, since the switch
+ * to 4K discards what was set before it.
  */
 public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBufferDelegate {
   let onCardRead = EventDispatcher()
@@ -70,6 +74,23 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   /// A steady card whose centre has jumped this far (normalized) is a
   /// different physical card swapped in without a gap, not the same one.
   private static let swapDistance: CGFloat = 0.15
+  /// Quick scan's largest zoom. `CameraFocus.zoom` picks the factor that lets a
+  /// card fill the frame from just outside the lens's minimum focus distance and
+  /// this caps it (also clamped to the format's maximum and upscale threshold).
+  /// 1.0 turns zoom off entirely. The preview and detection both see the zoomed
+  /// buffer, so the outline mapping is unaffected either way. Not measured on a phone.
+  private static let quickZoomCap: CGFloat = 2.0
+  /// After a rejected read JS bumps `retryToken`; the same card is read again this
+  /// long after, so the hint is readable and focus has a moment to settle.
+  private static let retryDelay: TimeInterval = 0.4
+  /// How many times a hold may throw away a blurry 1.2s fallback and wait for a
+  /// sharper burst before reading whatever it has. Each is ~1.2s, so 2 bounds the
+  /// extra wait at about 2.4s.
+  private static let maxBlurryRestarts = 2
+  /// The focus point follows the card only when its centre moved this far
+  /// (normalized), and at most this often: every change restarts the focus search.
+  private static let focusFollowDistance: CGFloat = 0.08
+  private static let focusFollowInterval: TimeInterval = 0.5
   private static let outlineGold = UIColor(red: 0xC9 / 255, green: 0xA3 / 255, blue: 0x4A / 255, alpha: 1)
   private static let outlineGreen = UIColor(red: 0x7F / 255, green: 0xA3 / 255, blue: 0x5A / 255, alpha: 1)
 
@@ -85,6 +106,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private let outlineLayer = CAShapeLayer()
   private let guideLayer = CAShapeLayer()
 
+  /// Set once in `configure()` before the session runs; read on frameQueue for
+  /// `isAdjustingFocus` (a plain property read, safe off the session queue).
+  private var captureDevice: AVCaptureDevice?
   private var configured = false
   private var configurationFailed = false
 
@@ -101,7 +125,20 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private var tracker = OutlineTracker()
   private var burst = BurstTracker()
   private var statusTracker = ScanStatusTracker()
+  private var focusGate = FocusGate()
+  private var blurryRestarts = 0
+  private var focusCentre: CGPoint?
+  private var focusSetAt: TimeInterval = 0
   private var lastFullCardAt: TimeInterval = 0
+  /// Bumped from JS each time it rejects a quick-scan read: the card is still in
+  /// frame, so re-arm the gate and read it again instead of asking for it to be
+  /// taken away. An older JS never sets it, an older native build ignores it.
+  public var retryToken = 0 {
+    didSet {
+      guard retryToken != oldValue else { return }
+      frameQueue.asyncAfter(deadline: .now() + Self.retryDelay) { [weak self] in self?.retryHeldCard() }
+    }
+  }
   /// Read on frameQueue; set from JS (a plain Bool, so a torn read is harmless).
   public var fastDetection = false {
     didSet {
@@ -196,6 +233,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       // output -> view would keep every scanner view alive forever.
       self.output.setSampleBufferDelegate(self, queue: self.frameQueue)
       self.session.startRunning()
+      // Starting can reset what was configured before it ran.
+      if let device = self.captureDevice { self.configureDevice(device) }
     }
   }
 
@@ -221,6 +260,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       fail("This device has no usable back camera.")
       return false
     }
+    captureDevice = device
     session.beginConfiguration()
     session.sessionPreset = preferredPreset()
     output.alwaysDiscardsLateVideoFrames = true
@@ -255,18 +295,75 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private func applyPreset() {
     guard configured else { return }
     let wanted = preferredPreset()
-    guard session.sessionPreset != wanted else { return }
-    session.beginConfiguration()
-    session.sessionPreset = wanted
-    session.commitConfiguration()
+    if session.sessionPreset != wanted {
+      session.beginConfiguration()
+      session.sessionPreset = wanted
+      session.commitConfiguration()
+    }
+    // A preset change swaps the device's active format, which discards the focus,
+    // exposure and zoom set on the old one -- the first version configured these
+    // once and lost them to the 4K switch. Always re-apply, even when the preset
+    // did not change, because the zoom depends on the mode.
+    if let device = captureDevice { configureDevice(device) }
   }
 
+  /// Session queue. Continuous autofocus limited to the near range (a card is held
+  /// at arm's length or closer, and a far-range hunt is what finds the background),
+  /// centre metering, no "smooth" autofocus (it slows the lens in video on purpose),
+  /// and quick scan's zoom. Idempotent; called at configure, after every preset
+  /// change and after the session starts.
   private func configureDevice(_ device: AVCaptureDevice) {
     guard (try? device.lockForConfiguration()) != nil else { return }
+    defer { device.unlockForConfiguration() }
     if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
     if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
     if device.isAutoFocusRangeRestrictionSupported { device.autoFocusRangeRestriction = .near }
-    device.unlockForConfiguration()
+    if device.isSmoothAutoFocusSupported { device.isSmoothAutoFocusEnabled = false }
+    // A lock on the old card's position must not outlive it.
+    if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+    if device.isExposurePointOfInterestSupported { device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+    device.videoZoomFactor = zoomFactor(for: device)
+  }
+
+  private func zoomFactor(for device: AVCaptureDevice) -> CGFloat {
+    guard fastDetection, #available(iOS 15.0, *) else { return 1 }
+    let format = device.activeFormat
+    return CameraFocus.zoom(minimumFocusDistanceMM: device.minimumFocusDistance,
+                            fieldOfViewDegrees: format.videoFieldOfView, cap: Self.quickZoomCap,
+                            maxZoom: format.videoMaxZoomFactor,
+                            upscaleThreshold: format.videoZoomFactorUpscaleThreshold)
+  }
+
+  /// Session queue. Points focus and exposure at the tracked card (`nil` = back to
+  /// the centre) so the lens refocuses on the card, not the background behind it.
+  /// `oriented` is a Vision point; the device wants the sensor's own space.
+  private func aimFocus(at oriented: CGPoint?) {
+    guard let device = captureDevice, device.isFocusPointOfInterestSupported,
+          (try? device.lockForConfiguration()) != nil else { return }
+    defer { device.unlockForConfiguration() }
+    let point = oriented.map(CameraFocus.devicePoint(fromOriented:)) ?? CGPoint(x: 0.5, y: 0.5)
+    device.focusPointOfInterest = point
+    if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+    if device.isExposurePointOfInterestSupported {
+      device.exposurePointOfInterest = point
+      if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+    }
+  }
+
+  /// frameQueue. Follows the card with the focus point, rate-limited (see the
+  /// constants) because each change restarts the focus search.
+  private func followWithFocus(_ centre: CGPoint, at now: TimeInterval) {
+    if let last = focusCentre,
+       hypot(last.x - centre.x, last.y - centre.y) < Self.focusFollowDistance || now - focusSetAt < Self.focusFollowInterval { return }
+    focusCentre = centre
+    focusSetAt = now
+    sessionQueue.async { [weak self] in self?.aimFocus(at: centre) }
+  }
+
+  private func recentreFocus() {
+    guard focusCentre != nil else { return }
+    focusCentre = nil
+    sessionQueue.async { [weak self] in self?.aimFocus(at: nil) }
   }
 
   /// Only the preview layer is rotated. The video data output keeps its native
@@ -387,27 +484,43 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       // The burst keeps its best crop across a short gap; the tracker drops it
       // itself when the gap is long enough to end the burst.
       publish(miss.map { $0 == .far ? .far : .partial } ?? .searching, at: now)
+      if miss == nil { recentreFocus() }
       return
     }
+    // Focus on the card rather than whatever is behind it.
+    followWithFocus(CGPoint(x: card.boundingBox.midX, y: card.boundingBox.midY), at: now)
     switch step {
     case .sweeping:
       publish(.moving, at: now)
       return
     case .waiting:
+      focusGate.reset()
       return
     case .sample:
       break
     }
     guard tracker.follows(corners) else { return }
+    // A frame taken while the lens is still hunting is soft whatever the sharpness
+    // threshold says; wait for it (bounded, see `FocusGate`).
+    if focusGate.shouldSkip(adjusting: captureDevice?.isAdjustingFocus == true, at: now) {
+      publish(.blurry, at: now)
+      return
+    }
     // The pixel buffer is recycled the moment this delegate call returns, so the
     // straighten has to happen here, synchronously, from the FULL-resolution buffer.
     let image = CIImage(cvPixelBuffer: buffer).oriented(.right)
     guard let crop = UpkeepCardVision.straighten(image, corners: corners, context: imageContext) else { return }
     let centre = CGPoint(x: card.boundingBox.midX, y: card.boundingBox.midY)
-    switch burst.offer(sharpness: UpkeepCardVision.sharpness(of: crop), crop: crop, at: now) {
-    case .store:
+    // A blurry 1.2s fallback is thrown away (and the burst restarted) up to
+    // `maxBlurryRestarts` times per hold before a soft frame is read anyway.
+    let verdict = burst.offer(sharpness: UpkeepCardVision.sharpness(of: crop), crop: crop, at: now,
+                              allowBlurryFallback: blurryRestarts >= Self.maxBlurryRestarts)
+    switch verdict {
+    case .store, .skip:
       publish(.blurry, at: now)
-    case .skip:
+    case .retry:
+      blurryRestarts += 1
+      focusGate.reset()
       publish(.blurry, at: now)
     case .lockCurrent:
       commit(crop, corners: corners, centre: centre, fast: true)
@@ -460,6 +573,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     previousCorners = nil
     burst.reset()
     statusTracker.reset()
+    focusGate.reset()
+    blurryRestarts = 0
+    recentreFocus()
     steadyFrames = 0
     tracker.reset()
     awaitingRelease = false
@@ -474,10 +590,28 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     lastReadCentre = nil
     previousCorners = nil
     burst.reset()
+    focusGate.reset()
+    blurryRestarts = 0
+    recentreFocus()
     steadyFrames = 0
     // Quick scan has no tracking outline to fall back to, so the green one goes.
     setOutline(hidden: fastDetection ? true : nil, locked: false)
     DispatchQueue.main.async { self.onCardLost([:]) }
+  }
+
+  /// frameQueue, `retryDelay` after JS rejected a read. Clears the once-per-card
+  /// gate so the card still in frame is read again. Does nothing if the card has
+  /// already left or been swapped (the gate was released then, and a new card's
+  /// burst must not be reset), or the read was accepted (the view is going away).
+  private func retryHeldCard() {
+    guard awaitingRelease, active else { return }
+    bumpGeneration()
+    awaitingRelease = false
+    lastReadCentre = nil
+    burst.reset()
+    focusGate.reset()
+    // Not `blurryRestarts`: that budget belongs to the hold, not to one read.
+    setOutline(hidden: true, locked: false)
   }
 
   // MARK: - Reading one card

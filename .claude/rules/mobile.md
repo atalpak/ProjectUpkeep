@@ -47,7 +47,7 @@ apps/mobile/            Expo app.
                         PlaceholderScreen (pages not built yet)
   src/components/       TabBar (5 slots, raised Scan, + ScreenFade) · AppHeader
                         (Mort avatar, title, menu button) · MenuSheet · ScanQuickBar
-                        · SearchOverlay (slide-in card search: name or Scryfall syntax + a Filters panel, results grid; queries `cards` via src/cardSearch.ts) · CardDetails (page-sheet for one card, opened from a result: printings, flip for double-faced cards, what you own, which friends have it / want it, legality + rulings fetched from Scryfall's API on demand, foil copies (and a "Preview foil" toggle) get a subtle holographic overlay that follows phone tilt via expo-sensors DeviceMotion, or a horizontal finger drag (`FoilArt`; needs a native rebuild for the tilt, guarded so an older binary just lacks it), add to collection via ConfirmScan, add to wish list; data in src/cardDetails.ts; also opened from Collection, deck lists and the Wish List) · DashboardScreen (value, totals, needs-attention, deck status, recently added; data in src/dashboard.ts) · WishlistScreen · LocationsScreen / LocationDetailScreen (containers with card counts, create/edit/delete, the open-for-trade switch; data in src/locations.ts, decks excluded) · FriendsScreen / FriendProfileScreen (username search, requests, a friend's trade binder and wants; data in src/friends.ts, rules live in migration 9's policies) ·
+                        · SearchOverlay (slide-in card search: name or Scryfall syntax + a Filters panel, results grid; queries `cards` via src/cardSearch.ts) · CardDetails (page-sheet for one card, opened from a result: printings, flip for double-faced cards, what you own, which friends have it / want it, legality + rulings fetched from Scryfall's API on demand, foil copies (and a "Preview foil" toggle) get a subtle holographic overlay (a soft pastel gradient plus a faint white sheen band, via expo-linear-gradient; tunables at the top of `FoilArt.tsx`) that follows phone tilt via expo-sensors DeviceMotion, or a horizontal finger drag (`FoilArt`; needs a native rebuild for the tilt and the gradient, both guarded: an older binary lacks the tilt, and gets thin low-opacity slices and no sheen), add to collection via ConfirmScan, add to wish list; data in src/cardDetails.ts; also opened from Collection, deck lists and the Wish List) · DashboardScreen (value, totals, needs-attention, deck status, recently added; data in src/dashboard.ts) · WishlistScreen · LocationsScreen / LocationDetailScreen (containers with card counts, create/edit/delete, the open-for-trade switch; data in src/locations.ts, decks excluded) · FriendsScreen / FriendProfileScreen (username search, requests, a friend's trade binder and wants; data in src/friends.ts, rules live in migration 9's policies) ·
                         ListRow · ui. The centre Scan button is tap = Scan,
                         hold-and-drag = fan of Search / Scan (PanResponder in TabBar); keep the finger on the fan's Scan option ~0.35s and a camera box opens (quick scan: first read is matched with ScanPipeline and CardDetails opens at once on a best-guess printing, refined in the background -- see "Quick scan and the printing" below -- through `src/cardDetailsHost.tsx`; lifting first cancels; iOS only, needs camera permission already granted).
                         Search is an action (`src/searchOverlay.tsx`), not a route
@@ -200,6 +200,29 @@ where Vision finds no edge. Two modes, same file:
   the reveal. Quick scan asks for a 4K session preset when the device supports it
   (`preferredPreset`; 4K is 16:9 like 1080p so the outline mapping, which uses only
   the buffer's aspect, is unchanged), the normal tab stays at 1080p.
+- *Focus, zoom and retry* (quick scan; owner report 2026-09-19: "Couldn't read that
+  clearly" every time, suspected focus). `configureDevice` (continuous autofocus, near
+  range, smooth AF off, exposure, zoom) is re-applied after every preset change and
+  after the session starts, because the 4K switch swaps the active format and had been
+  discarding the one-time setup. While a card is tracked the focus and exposure points
+  follow its centre (`CameraFocus.devicePoint`: Vision's oriented space to the
+  sensor's landscape space; moved only past 0.08 and at most every 0.5s, since each
+  change restarts the search) and return to the centre when it leaves. Zoom: the
+  factor that lets a card fill the frame from 1.2x `minimumFocusDistance`
+  (`CameraFocus.zoom`), capped by `quickZoomCap` (2.0; set 1.0 to turn zoom off),
+  the format's maximum and its upscale threshold. The buffer is already zoomed, so
+  the outline mapping is unchanged. `FocusGate` skips a burst frame while
+  `isAdjustingFocus`, for at most 0.6s per burst. A 1.2s fallback whose best frame is
+  under half the sharpness threshold is not read: `BurstTracker.offer(allowBlurryFallback:)`
+  returns `.retry` and restarts the burst, up to `maxBlurryRestarts` (2) per hold.
+  A read JS rejects no longer needs the card taken away: TabBar bumps the `retryToken`
+  prop and native clears the read-once gate 0.4s later (`retryHeldCard`, only if that
+  card is still the held one). JS counts retries per hold; hints come from scan-core
+  `quickRejectionHint` (`Read "<title>" - two cards fit / not sure of it / no match`,
+  `No text found on the card`, and after `QUICK_RETRY_CAP` (4) a "more light or a bit
+  further away" line while retrying continues). In `__DEV__` each rejection logs
+  reason, title and top candidate score. Old native builds ignore `retryToken`, so
+  they keep the old take-it-away behaviour under the new wording.
 - *Live coaching* (quick scan): `onScanStatus` sends `{ status }` only when it
   changes: `searching | far | partial | moving | blurry | reading`. Derived from the
   same pipeline: a card-like rectangle refused for area is `far`, one touching the

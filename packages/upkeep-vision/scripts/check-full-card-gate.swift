@@ -89,7 +89,8 @@ expect(gone.observe(nil, at: 0.75) == nil, "normal cadence: gone after the 0.5s 
 // frame and one sharpness per SAMPLE frame, and reports when it locked. A nil
 // position is a missed detection.
 struct Lock { var at: Double; var sharpness: Double; var sweepSeen: Bool }
-func run(frames: Int, position: (Int) -> Double?, sharpness: (Int) -> Double) -> Lock? {
+func run(frames: Int, position: (Int) -> Double?, sharpness: (Int) -> Double, allowBlurryFallback: Bool = true,
+         retries: UnsafeMutablePointer<Int>? = nil) -> Lock? {
   var burst = BurstTracker()
   var sweepSeen = false
   for i in 0..<frames {
@@ -101,8 +102,9 @@ func run(frames: Int, position: (Int) -> Double?, sharpness: (Int) -> Double) ->
     let sharp = sharpness(i)
     let crop = fakeCrop(sharp)
     // Mirrors readQuick: report the crop that would actually be committed.
-    switch burst.offer(sharpness: sharp, crop: crop, at: t) {
+    switch burst.offer(sharpness: sharp, crop: crop, at: t, allowBlurryFallback: allowBlurryFallback) {
     case .store, .skip: break
+    case .retry: retries?.pointee += 1
     case .lockCurrent: return Lock(at: t, sharpness: Double(crop.width - 1), sweepSeen: sweepSeen)
     case .lockBest:
       let read = burst.bestCrop ?? crop
@@ -208,6 +210,52 @@ let sharpScore = UpkeepCardVision.sharpness(of: sharpImage)
 let blurScore = UpkeepCardVision.sharpness(of: blurredImage)
 print("sharp \(sharpScore) blurred \(blurScore)")
 expect(sharpScore > 40 && blurScore < 40 && sharpScore > blurScore * 20, "sharp scores above 40, blurred below")
+
+// Blurry fallback -> retry: with the fallback disallowed, a stream that never
+// gets past a smear is not read at 1.2s; the burst restarts and (frames dropped)
+// waits another 1.2s. A stream that sharpens after the restart still reads.
+var retried = 0
+let refused = run(frames: 60, position: tremor, sharpness: { _ in 8 }, allowBlurryFallback: false, retries: &retried)
+expect(refused == nil && retried >= 1, "a hopeless stream is retried, not read, when the blurry fallback is disallowed (\(retried) retries in 2s)")
+var retriedThenSharp = 0
+let recovered = run(frames: 120, position: tremor, sharpness: { $0 < 45 ? 8 : 60 }, allowBlurryFallback: false, retries: &retriedThenSharp)
+expect(recovered != nil && retriedThenSharp >= 1 && recovered!.sharpness >= 40, "a burst that sharpens after the retry is read sharp")
+var midBurst = BurstTracker()
+for i in 0..<4 { _ = midBurst.observe(quad(), at: Double(i) * 0.03) }
+expect(midBurst.offer(sharpness: 25, crop: fakeCrop(25), at: 0.75, allowBlurryFallback: false) != .retry, "the early window still reads an acceptable (>= half) frame with the fallback disallowed")
+
+// Focus gate: skip while the lens hunts, but only for 0.6s per burst.
+var gateFocus = FocusGate()
+expect(!gateFocus.shouldSkip(adjusting: false, at: 0), "focus settled: no skip")
+expect(gateFocus.shouldSkip(adjusting: true, at: 1.0), "focus adjusting: skip")
+expect(gateFocus.shouldSkip(adjusting: true, at: 1.5), "still adjusting inside 0.6s: skip")
+expect(!gateFocus.shouldSkip(adjusting: true, at: 1.7), "adjusting past 0.6s: read anyway (a hunting lens must not block forever)")
+expect(!gateFocus.shouldSkip(adjusting: false, at: 1.8) && !gateFocus.shouldSkip(adjusting: true, at: 1.9), "the cap is per burst: settling then hunting again does not restart it")
+gateFocus.reset()
+expect(gateFocus.shouldSkip(adjusting: true, at: 5.0), "reset starts a fresh wait")
+
+// Point of interest: Vision's oriented space (portrait, y up) -> sensor space
+// (landscape, y down, home button right). Buffer is rotated 90 degrees CW to be upright.
+func near(_ a: CGPoint, _ b: CGPoint) -> Bool { abs(a.x - b.x) < 1e-9 && abs(a.y - b.y) < 1e-9 }
+expect(near(CameraFocus.devicePoint(fromOriented: CGPoint(x: 0.5, y: 0.5)), CGPoint(x: 0.5, y: 0.5)), "centre maps to centre")
+expect(near(CameraFocus.devicePoint(fromOriented: CGPoint(x: 0, y: 1)), CGPoint(x: 0, y: 1)), "upright top-left is the sensor's bottom-left")
+expect(near(CameraFocus.devicePoint(fromOriented: CGPoint(x: 1, y: 1)), CGPoint(x: 0, y: 0)), "upright top-right is the sensor's top-left")
+expect(near(CameraFocus.devicePoint(fromOriented: CGPoint(x: 0, y: 0)), CGPoint(x: 1, y: 1)), "upright bottom-left is the sensor's bottom-right")
+expect(near(CameraFocus.devicePoint(fromOriented: CGPoint(x: 0.25, y: 0.75)), CGPoint(x: 0.25, y: 0.75)), "an off-centre point (0.25, 0.75 up) lands at (0.25, 0.75)")
+expect(near(CameraFocus.devicePoint(fromOriented: CGPoint(x: 0.9, y: 0.2)), CGPoint(x: 0.8, y: 0.1)), "an asymmetric point is not just transposed")
+
+// Zoom: enough to fill the frame from 1.2x the minimum focus distance, clamped.
+func z(_ mm: Int, fov: Float = 69, cap: CGFloat = 2, max: CGFloat = 16, up: CGFloat? = 4) -> CGFloat {
+  CameraFocus.zoom(minimumFocusDistanceMM: mm, fieldOfViewDegrees: fov, cap: cap, maxZoom: max, upscaleThreshold: up)
+}
+print("zoom 120mm \(z(120)) 200mm \(z(200))")
+expect(z(120) > 1.3 && z(120) < 2.0, "a 120 mm lens needs a modest zoom (unclamped ~1.6)")
+expect(z(200) == 2.0, "a 200 mm lens hits the cap")
+expect(z(200, cap: 1.0) == 1.0, "a cap of 1.0 turns zoom off")
+expect(z(200, up: 1.5) == 1.5, "the upscale threshold clamps it")
+expect(z(200, max: 1.2) == 1.2, "the format's maximum clamps it")
+expect(z(-1) == 1 && z(0) == 1, "an unknown minimum focus distance leaves zoom alone")
+expect(z(20) == 1, "a very close lens never zooms out")
 
 // Footer evidence: the second OCR pass must fire when the number was read but
 // the set was not, and must not be fooled by artist or copyright lines.
