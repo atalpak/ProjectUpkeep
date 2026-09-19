@@ -197,32 +197,31 @@ where Vision finds no edge. Two modes, same file:
   (the delivery is dropped once `active` is false, or if a generation token bumped
   by release/stop shows the card left or was swapped during the hold). A read that
   arrives while the box is still hidden is held in TabBar and acted on 350ms after
-  the reveal. Quick scan asks for a 4K session preset when the device supports it
-  (`preferredPreset`; 4K is 16:9 like 1080p so the outline mapping, which uses only
-  the buffer's aspect, is unchanged), the normal tab stays at 1080p.
+  the reveal. The session is 1080p in every mode
+  (`preferredPreset`). A 4K preset plus zoom was tried and backed out 2026-09-19 after
+  phone testing; `detectionLongSide` is now a no-op guard on buffers over 1920.
 - *Focus, zoom and retry* (quick scan; owner report 2026-09-19: "Couldn't read that
   clearly" every time, suspected focus). `configureDevice` (continuous autofocus, near
   range, smooth AF off, exposure, zoom) is re-applied after every preset change and
-  after the session starts, because the 4K switch swaps the active format and had been
+  after the session starts, because a preset switch swaps the active format and had been
   discarding the one-time setup. While a card is tracked the focus and exposure points
   follow its centre (`CameraFocus.devicePoint`: Vision's oriented space to the
   sensor's landscape space; moved only past 0.08 and at most every 0.5s, since each
-  change restarts the search) and return to the centre when it leaves. Zoom: the
-  factor that lets a card fill the frame from 1.2x `minimumFocusDistance`
-  (`CameraFocus.zoom`), capped by `quickZoomCap` (2.0; set 1.0 to turn zoom off),
-  the format's maximum and its upscale threshold. The buffer is already zoomed, so
-  the outline mapping is unchanged. `FocusGate` skips a burst frame while
+  change restarts the search) and return to the centre when it leaves. Zoom is
+  off: `quickZoomCap` is 1.0 (`CameraFocus.zoom` still computes a factor if it is raised). `FocusGate` skips a burst frame while
   `isAdjustingFocus`, for at most 0.6s per burst. A 1.2s fallback whose best frame is
   under half the sharpness threshold is not read: `BurstTracker.offer(allowBlurryFallback:)`
   returns `.retry` and restarts the burst, up to `maxBlurryRestarts` (2) per hold.
   A read JS rejects no longer needs the card taken away: TabBar bumps the `retryToken`
   prop and native clears the read-once gate 0.4s later (`retryHeldCard`, only if that
-  card is still the held one). JS counts retries per hold; hints come from scan-core
-  `quickRejectionHint` (`Read "<title>" - two cards fit / not sure of it / no match`,
-  `No text found on the card`, and after `QUICK_RETRY_CAP` (4) a "more light or a bit
-  further away" line while retrying continues). In `__DEV__` each rejection logs
-  reason, title and top candidate score. Old native builds ignore `retryToken`, so
-  they keep the old take-it-away behaviour under the new wording.
+  card is still the held one). JS counts retries per hold. The person is never told what the
+  scanner read or why it failed (owner, 2026-09-19: it showed body text as a "title"):
+  the first `QUICK_RETRY_CAP` (4) retries are silent, then `quickRejectionHint(attempt)`
+  alternates "Try more light" / "Tilt the card to reduce glare" while retrying continues.
+  In `__DEV__` each rejection logs reason, title and top candidate score. The title is
+  read from the top ~23% of the straightened card only (`titleRegion`), and an
+  unreadable name is `""`, not another line. Quick scan no longer passes the "may not
+  be the printing scanned" note to `openDetails`.
 - *Live coaching* (quick scan): `onScanStatus` sends `{ status }` only when it
   changes: `searching | far | partial | moving | blurry | reading`. Derived from the
   same pipeline: a card-like rectangle refused for area is `far`, one touching the
@@ -235,7 +234,7 @@ where Vision finds no edge. Two modes, same file:
   up to the camera" stays.
 
 Thresholds are constants at the top of the Swift files; they are ported from the
-Flutter original or estimated, and the quick-scan ones (burst, sharpness, 4K) are
+Flutter original or estimated, and the quick-scan ones (burst, sharpness) are
 NOT yet measured on a phone. `packages/upkeep-vision/scripts/check-full-card-gate.swift`
 runs the gate, tracker, burst and status logic offline (usage in its header);
 `validate-detection.swift` still calls the ungated `bestCard` on stills, so it

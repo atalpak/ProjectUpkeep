@@ -2,24 +2,22 @@ import type { Candidate } from './types';
 import type { QuickMatch } from './band';
 
 /**
- * What quick scan says when it rejects a read. The old line ("Couldn't read that
- * clearly") could not tell an OCR failure from a match failure, so the person
- * (and the developer) had no way to know whether to change the light or the
- * catalog. Each hint now names what was read, and the wording separates the
- * three ways a read fails: no text at all, a name too far from any card, or two
- * cards that fit equally well.
- *
- * A rejected read is retried by the scanner without the card being taken away
- * (the `retryToken` prop), so the messages are calm and describe a retry in
- * progress rather than an error. After `QUICK_RETRY_CAP` automatic tries in one
- * hold the message changes to advice; the retries themselves carry on.
+ * What quick scan says when it rejects a read: nothing, at first. The scanner
+ * retries a rejected read without the card being taken away (the `retryToken`
+ * prop), and a message about what was read or why it failed is internal detail
+ * the person cannot act on (and showed body text as if it were the title). So
+ * the first `QUICK_RETRY_CAP` tries are silent, the live coaching line keeps
+ * saying "Hold steady", and only repeated failure earns advice that helps: more
+ * light, or less glare, alternating. The retries themselves carry on. What was
+ * read stays available to developers through `describeRejection`.
  */
 export const QUICK_RETRY_CAP = 4;
 export const QUICK_HINT_TITLE_CHARS = 28;
 
-export const QUICK_GIVE_UP_HINT = 'Couldn’t read that card — try more light or a bit further away';
+export const QUICK_LIGHT_HINT = 'Try more light';
+export const QUICK_GLARE_HINT = 'Tilt the card to reduce glare';
 
-/** The first two OCR lines as one trimmed string, or '' when nothing legible was read. */
+/** The first two OCR lines as one trimmed string, or '' when nothing legible was read. Dev diagnostics only. */
 export function readTitle(lines: readonly string[], max = QUICK_HINT_TITLE_CHARS): string {
   const text = lines.slice(0, 2).map(l => l.trim()).filter(Boolean).join(' ');
   return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
@@ -27,16 +25,13 @@ export function readTitle(lines: readonly string[], max = QUICK_HINT_TITLE_CHARS
 
 export type QuickRejection = Extract<QuickMatch, { ok: false }>['reason'];
 
-/** `attempt` is how many automatic retries this hold has already had (0 on the first rejection). */
-export function quickRejectionHint(reason: QuickRejection, lines: readonly string[], attempt: number): string {
-  if (attempt >= QUICK_RETRY_CAP) return QUICK_GIVE_UP_HINT;
-  const title = readTitle(lines);
-  if (!title) return 'No text found on the card — hold steady, trying again';
-  switch (reason) {
-    case 'ambiguous': return `Read “${title}” — two cards fit, trying again`;
-    case 'weak': return `Read “${title}” — not sure of it, trying again`;
-    case 'none': return `Read “${title}” — no match, trying again`;
-  }
+/**
+ * `attempt` is how many automatic retries this hold has already had (0 on the
+ * first rejection). '' means show nothing beyond the live coaching line.
+ */
+export function quickRejectionHint(attempt: number): string {
+  if (attempt < QUICK_RETRY_CAP) return '';
+  return (attempt - QUICK_RETRY_CAP) % 2 === 0 ? QUICK_LIGHT_HINT : QUICK_GLARE_HINT;
 }
 
 /** Dev-only diagnostic: what was read and how the top candidate scored. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, scanBand, quickMatch, quickRejectionHint, readTitle, describeRejection, QUICK_GIVE_UP_HINT, QUICK_RETRY_CAP, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft, type Candidate } from '../src';
+import { CardIndex, parseCatalog, normalizeName, ScanPipeline, ConfirmScan, validateDraft, createCollectionWriter, createMoveWriter, buildCatalogRow, scanBand, quickMatch, quickRejectionHint, readTitle, describeRejection, QUICK_LIGHT_HINT, QUICK_GLARE_HINT, QUICK_RETRY_CAP, type CatalogBundle, type CollectionDraft, type CollectionStore, type MoveStore, type StackMoveDraft, type Candidate } from '../src';
 const a = '11111111-1111-4111-8111-111111111111';
 const b = '22222222-2222-4222-8222-222222222222';
 const op = '33333333-3333-4333-8333-333333333333';
@@ -422,16 +422,13 @@ test('quickMatch: rejects a fuzzy name, accepts an exact one, and only trusts th
   assert.equal(quickMatch([mk(0.9, 'name'), mk(0.9, 'name')]).ok, true);
 });
 
-test('quick-scan rejection hints say what was read and separate no-text, weak and ambiguous', () => {
-  assert.equal(quickRejectionHint('weak', ['Bloodl1ne Bidd1ng', 'Sorcery'], 0), 'Read “Bloodl1ne Bidd1ng Sorcery” — not sure of it, trying again');
-  assert.match(quickRejectionHint('ambiguous', ['Lightning Bolt'], 1), /^Read “Lightning Bolt” — two cards fit/);
-  assert.match(quickRejectionHint('none', ['Zzzz'], 0), /no match/);
-  // Nothing legible: OCR, not matching, is the problem, whatever the match said.
-  assert.match(quickRejectionHint('none', [], 0), /^No text found/);
-  assert.match(quickRejectionHint('weak', ['  ', ''], 0), /^No text found/);
-  // Past the cap the wording is advice, and stays the same however many more tries follow.
-  assert.equal(quickRejectionHint('weak', ['Lightning Bolt'], QUICK_RETRY_CAP), QUICK_GIVE_UP_HINT);
-  assert.equal(quickRejectionHint('ambiguous', [], QUICK_RETRY_CAP + 3), QUICK_GIVE_UP_HINT);
+test('quick-scan rejection hints stay silent at first, then give advice the person can act on', () => {
+  // Never what was read or why: the first tries show nothing beyond the coaching line.
+  for (let attempt = 0; attempt < QUICK_RETRY_CAP; attempt++) assert.equal(quickRejectionHint(attempt), '');
+  // Past the cap the wording is advice, alternating so it does not read as stuck.
+  assert.equal(quickRejectionHint(QUICK_RETRY_CAP), QUICK_LIGHT_HINT);
+  assert.equal(quickRejectionHint(QUICK_RETRY_CAP + 1), QUICK_GLARE_HINT);
+  assert.equal(quickRejectionHint(QUICK_RETRY_CAP + 2), QUICK_LIGHT_HINT);
 });
 test('readTitle uses lines 0-1 only and trims to the limit with an ellipsis', () => {
   assert.equal(readTitle(['Lightning Bolt', 'Instant', 'Deals 3 damage']), 'Lightning Bolt Instant');

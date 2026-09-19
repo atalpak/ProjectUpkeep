@@ -700,7 +700,10 @@ enum UpkeepCardText {
     }
     var lines: [String] = []
     for line in titleLines + printingLines where !lines.contains(line) { lines.append(line) }
-    let name = titleLines.first(where: hasLetters) ?? lines.first(where: hasLetters) ?? ""
+    // Only the top band may name the card. Falling back to any other line (the
+    // old behaviour) turned footer and body text into a "title" whenever the
+    // name itself was unreadable; an empty title is honest and JS handles it.
+    let name = titleLines.first(where: hasLetters) ?? ""
     return Evidence(title: name, lines: lines, printingLines: printingLines)
   }
 
@@ -710,7 +713,7 @@ enum UpkeepCardText {
   static let footerBandHeight: CGFloat = 0.14
   /// The footer is upscaled until the crop is about this wide, capped at
   /// `footerMaxScale`, so tiny type gets enough pixels per stroke for the accurate
-  /// recogniser. A 4K capture needs little; a 1080p one about 2.5x.
+  /// recogniser. A 1080p capture needs about 2.5x.
   static let footerTargetWidth: CGFloat = 1800
   static let footerMaxScale: CGFloat = 3
 
@@ -807,8 +810,12 @@ enum UpkeepCardText {
   }
 
   static func titleRegion(of card: CGRect) -> CGRect {
-    CGRect(x: card.minX + card.width * 0.03, y: card.minY + card.height * 0.58,
-           width: card.width * 0.94, height: card.height * 0.37)
+    // Vision's origin is bottom-left, so this is the top ~23% of the card: the
+    // name bar and its margin, and nothing below the art's upper edge. It used to
+    // reach down to 42% from the top, which admitted art-area and text-box
+    // fragments whenever the quad was a little off the card.
+    CGRect(x: card.minX + card.width * 0.03, y: card.minY + card.height * 0.76,
+           width: card.width * 0.94, height: card.height * 0.23)
       .intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
   }
 

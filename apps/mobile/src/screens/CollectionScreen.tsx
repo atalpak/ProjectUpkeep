@@ -10,6 +10,7 @@ import { useApp } from '../AppProvider';
 import { Button, Choices, EmptyState, Notice } from '../components/ui';
 import { useSearchOverlay } from '../searchOverlay';
 import { CardDetails } from '../components/CardDetails';
+import type { CardSeed } from '../cardDetails';
 import { FoilOverlay, useFoilTilt } from '../components/FoilArt';
 import { border, radius, space, surface, text, type as typeTokens, accent } from '../theme';
 import { makeStyles, usePreferences } from '../preferences';
@@ -32,11 +33,22 @@ export function CollectionScreen() {
   return <CollectionList userId={userId} />;
 }
 
+/** What the row already says about the printing, so the details sheet can paint before any request. */
+function seedOf(e: CollectionEntry): CardSeed {
+  return {
+    id: e.card_id, name: e.card_name, setCode: e.card_set_code, collectorNumber: e.card_collector_number, rarity: e.card_rarity, typeLine: e.card_type_line,
+    image: e.card_image_uri, imageSmall: e.card_image_uri_small, priceUsd: e.card_price_usd, priceUsdFoil: e.card_price_usd_foil, priceUsdEtched: e.card_price_usd_etched,
+  };
+}
+
 function metaLine(e: CollectionEntry): string {
   const finish = e.finish === 'foil' ? 'Foil' : e.finish === 'etched' ? 'Etched' : null;
   return [`${e.card_set_code.toUpperCase()} #${e.card_collector_number}`, e.condition.toUpperCase(), finish, e.language !== 'en' ? e.language.toUpperCase() : null, e.location_name ?? 'Unsorted']
     .filter(Boolean).join(' · ');
 }
+
+// Slower than the sheet's own tilt: a grid can mount dozens of overlays, each moved from the JS thread.
+const COLLECTION_TILT_INTERVAL_MS = 100;
 
 function CollectionList({ userId }: { userId: string }) {
   const styles = useStyles();
@@ -47,7 +59,11 @@ function CollectionList({ userId }: { userId: string }) {
   const { width } = useWindowDimensions();
   const { collectionView, setCollectionView, collectionSort, setCollectionSort } = usePreferences();
   // One motion listener shared by every foil tile and row thumbnail, only while this tab is showing.
-  const { tilt: foilTilt } = useFoilTilt(focused && (collectionView === 'grid' || collectionView === 'list'));
+  // Paused while the details sheet is open: the tiles under it are invisible, and a second tilt
+  // listener driving every mounted foil tile at 30Hz on the JS thread (plus the sheet's own) is what froze
+  // the app on opening a foil card.
+  const [details, setDetails] = useState<CollectionEntry | null>(null);
+  const { tilt: foilTilt } = useFoilTilt(focused && !details && (collectionView === 'grid' || collectionView === 'list'), undefined, COLLECTION_TILT_INTERVAL_MS);
   const [query, setQuery] = useState('');
   const [facets, setFacets] = useState<CollectionFilter>(EMPTY_COLLECTION_FILTER);
   const [showFilters, setShowFilters] = useState(false);
@@ -60,7 +76,8 @@ function CollectionList({ userId }: { userId: string }) {
   const [loadingRest, setLoadingRest] = useState(false);
   const [authError, setAuthError] = useState(false);
   const [error, setError] = useState('');
-  const [details, setDetails] = useState<CollectionEntry | null>(null);
+  // Set when the sheet added something, so closing reloads the collection only then (a full reload is 20 heavy pages).
+  const dirty = useRef(false);
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
   const requestId = useRef(0);
@@ -99,6 +116,31 @@ function CollectionList({ userId }: { userId: string }) {
   const facetCount = collectionFacetCount(facets);
   const filtering = !!query.trim() || facetCount > 0;
   const tile = (width - space.xl * 2 - space.sm * (COLUMNS - 1)) / COLUMNS;
+
+  // Stable between renders that only open or close the sheet, so the rows are not re-rendered by it.
+  const renderItem = useCallback(({ item: e }: { item: CollectionEntry }) => (
+    collectionView === 'grid' ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, ${e.quantity} owned`} onPress={() => setDetails(e)} style={{ width: tile }}>
+              {e.card_image_uri_small
+                ? <Image source={{ uri: e.card_image_uri_small }} style={[styles.tileImage, { width: tile, height: tile / CARD_ASPECT }]} />
+                : <View style={[styles.tileImage, styles.tileEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.tileName}>{e.card_name}</Text></View>}
+              {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={tile} height={tile / CARD_ASPECT} radius={6} strength={1.05} />}
+              {e.quantity > 1 && <View style={styles.qtyBadge}><Text style={styles.qtyBadgeText}>×{e.quantity}</Text></View>}
+            </Pressable>
+          ) : (
+            <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, details`} onPress={() => setDetails(e)} style={styles.row}>
+              <View style={styles.thumb}>
+                {e.card_image_uri_small ? <Image source={{ uri: e.card_image_uri_small }} style={styles.thumbImage} /> : null}
+                {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={38} height={53} radius={4} strength={1.25} />}
+              </View>
+              <View style={styles.grow}>
+                <Text numberOfLines={1} style={styles.name}>{e.card_name}</Text>
+                <Text numberOfLines={1} style={styles.meta}>{metaLine(e)}</Text>
+              </View>
+              {e.quantity > 1 && <Text style={styles.qty}>×{e.quantity}</Text>}
+            </Pressable>
+          )
+  ), [collectionView, tile, foilTilt, styles]);
 
   function toggleColor(c: (typeof COLORS)[number]) {
     setFacets(f => ({ ...f, colorless: false, colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c] }));
@@ -187,6 +229,12 @@ function CollectionList({ userId }: { userId: string }) {
         columnWrapperStyle={collectionView === 'grid' ? styles.gridRow : undefined}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        // Every mounted foil tile is animated from the JS thread, so keep the mounted window small
+        // (the default keeps ~10 screens of rows alive and grows as you scroll).
+        windowSize={5}
+        maxToRenderPerBatch={8}
+        initialNumToRender={12}
+        removeClippedSubviews
         ListHeaderComponent={header}
         contentContainerStyle={styles.content}
         ListEmptyComponent={
@@ -205,29 +253,16 @@ function CollectionList({ userId }: { userId: string }) {
           </View>
         }
         ListFooterComponent={loadingRest && all.length > 0 ? <Text style={styles.body}>Loading the rest of your collection…</Text> : null}
-        renderItem={({ item: e }) => collectionView === 'grid' ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, ${e.quantity} owned`} onPress={() => setDetails(e)} style={{ width: tile }}>
-            {e.card_image_uri_small
-              ? <Image source={{ uri: e.card_image_uri_small }} style={[styles.tileImage, { width: tile, height: tile / CARD_ASPECT }]} />
-              : <View style={[styles.tileImage, styles.tileEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.tileName}>{e.card_name}</Text></View>}
-            {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={tile} height={tile / CARD_ASPECT} radius={6} strength={1.05} />}
-            {e.quantity > 1 && <View style={styles.qtyBadge}><Text style={styles.qtyBadgeText}>×{e.quantity}</Text></View>}
-          </Pressable>
-        ) : (
-          <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, details`} onPress={() => setDetails(e)} style={styles.row}>
-            <View style={styles.thumb}>
-              {e.card_image_uri_small ? <Image source={{ uri: e.card_image_uri_small }} style={styles.thumbImage} /> : null}
-              {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={38} height={53} radius={4} strength={1.25} />}
-            </View>
-            <View style={styles.grow}>
-              <Text numberOfLines={1} style={styles.name}>{e.card_name}</Text>
-              <Text numberOfLines={1} style={styles.meta}>{metaLine(e)}</Text>
-            </View>
-            {e.quantity > 1 && <Text style={styles.qty}>×{e.quantity}</Text>}
-          </Pressable>
-        )}
+        renderItem={renderItem}
       />
-      <CardDetails name={details?.card_name ?? null} printingId={details?.card_id} ownedFinish={details?.finish} onClose={() => { setDetails(null); void load({ silent: true }); }} />
+      <CardDetails
+        name={details?.card_name ?? null}
+        printingId={details?.card_id}
+        seed={details ? seedOf(details) : null}
+        ownedFinish={details?.finish}
+        onChanged={() => { dirty.current = true; }}
+        onClose={() => { setDetails(null); if (dirty.current) { dirty.current = false; void load({ silent: true }); } }}
+      />
     </View>
   );
 }

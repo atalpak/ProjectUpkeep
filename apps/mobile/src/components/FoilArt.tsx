@@ -93,7 +93,7 @@ type Tilt = Animated.ValueXY;
  * what lets a whole grid of foils shimmer for the price of a single listener.
  * `touching` lets a finger drag take over from the sensor.
  */
-export function useFoilTilt(active: boolean, touching?: React.MutableRefObject<boolean>) {
+export function useFoilTilt(active: boolean, touching?: React.MutableRefObject<boolean>, intervalMs = 33) {
   const tilt = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const current = useRef({ x: 0, y: 0 });
   const held = useRef(false);
@@ -108,7 +108,7 @@ export function useFoilTilt(active: boolean, touching?: React.MutableRefObject<b
     let base: { beta: number; gamma: number } | null = null;
     void motion.isAvailableAsync().then(ok => {
       if (!ok || cancelled) return;
-      motion.setUpdateInterval(33);
+      motion.setUpdateInterval(intervalMs);
       sub = motion.addListener(m => {
         const r = anglesOf(m);
         if (!r || isTouching.current) return;
@@ -130,7 +130,7 @@ export function useFoilTilt(active: boolean, touching?: React.MutableRefObject<b
       current.current = { x: 0, y: 0 };
       tilt.setValue({ x: 0, y: 0 });
     };
-  }, [active, tilt, isTouching]);
+  }, [active, tilt, isTouching, intervalMs]);
 
   return { tilt, current };
 }

@@ -9,3 +9,4 @@ export * from './band';
 export * from './printing';
 export * from './scan-status';
 export * from './quick-hint';
+export * from './async-utils';

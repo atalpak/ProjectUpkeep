@@ -267,11 +267,11 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     const match = quickMatch(candidates);
     if ('reason' in match) {
       // The card does not need taking away: bumping the token has native re-read it
-      // (~0.4s later). The hint names what was read so OCR and matching failures
-      // can be told apart; after QUICK_RETRY_CAP tries it turns into advice while
-      // the retries carry on for as long as the card is held.
+      // (~0.4s later). The retries are silent (what was read is not something the
+      // person can act on); after QUICK_RETRY_CAP tries the line turns into advice
+      // while the retries carry on for as long as the card is held.
       if (__DEV__) console.log('[quick-scan] rejected', describeRejection(match.reason, lines, candidates), { attempt: retries.current });
-      setQuickHint(quickRejectionHint(match.reason, lines, retries.current));
+      setQuickHint(quickRejectionHint(retries.current));
       setHintTick(t => t + 1);
       retries.current += 1;
       setRetryToken(t => t + 1);
@@ -285,14 +285,11 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     const index = env.current.index;
     const ranking = rankPrintings(index.printingsOf(match.printing.oracleId), printingHints(printingLines, index.setCodes));
     const guess = bestGuessPrinting(ranking);
-    // No footer evidence named a printing (unreadable, or several fit): say so
-    // rather than open on the default as if it had been recognised.
-    const unsure = guess ? undefined : 'Couldn’t read the set and number on this card, so this may not be the printing you scanned. Check the printing below.';
     const artPool = imageUri && cardImageRankingAvailable ? artCandidates(ranking) : null;
     doneRef.current = true;
     stopQuick();
     closeFan();
-    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, note: unsure, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined });
+    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined });
   }
 
   function openFan() {

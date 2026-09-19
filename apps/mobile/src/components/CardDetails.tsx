@@ -7,8 +7,9 @@ import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, type ArtRes
 import { useApp } from '../AppProvider';
 import { writer } from '../backend';
 import {
-  FORMATS, addToWishList, fetchFriendActivity, fetchOwned, fetchPrinting, fetchPrintings, fetchScryfallExtras, fetchWantedQuantity, pickRepresentative, toPrinting,
-  type CardPrinting, type FriendActivity, type Legality, type OwnedStack, type ScryfallExtras,
+  FORMATS, LOAD_FAILED, addToWishList, cachedPrinting, cachedPrintings, fetchFriendActivity, fetchOwned, fetchPrinting, fetchPrintings, fetchScryfallExtras, fetchWantedQuantity,
+  pickRepresentative, seedToPrinting, toPrinting,
+  type CardPrinting, type CardSeed, type FriendActivity, type Legality, type OwnedStack, type ScryfallExtras,
 } from '../cardDetails';
 import type { CardDetailsTarget } from '../cardDetailsHost';
 import { errorMessage } from '../errors';
@@ -50,12 +51,14 @@ function knownFinishOf(p: CardPrinting, ownedFinish: string | null | undefined, 
  */
 const LEGALITY_LABELS: Record<Legality, string> = { legal: 'Legal', not_legal: 'Not legal', banned: 'Banned', restricted: 'Restricted' };
 
-export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose }: {
+export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChanged, onClose }: {
   name: string | null;
   /** Open on this printing (e.g. the one you own) instead of the default. */
   printingId?: string | null;
-  /** A line shown above the card, e.g. how a scan matched. */
-  note?: string;
+  /** What the caller already knows about that printing; painted at once, with no network. */
+  seed?: CardSeed | null;
+  /** Called after this sheet changed the collection or wish list, so the caller can refresh. */
+  onChanged?(): void;
   /** Quick scan's photo and candidate printings: checked in the background, and may switch the selection (see cardDetailsHost). */
   scan?: CardDetailsTarget['scan'];
   /** The finish of the copy this sheet was opened from, so a foil copy shows foil. */
@@ -77,8 +80,13 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
   const [faceIndex, setFaceIndex] = useState(0);
   const [previewFoil, setPreviewFoil] = useState(false);
   const [friends, setFriends] = useState<FriendActivity | null>(null);
-  // The full printing list can trail the first paint (the opened-on printing is fetched alone first).
+  // The full printing list can trail the first paint (the sheet opens on a seed or a cached row first).
   const [listState, setListState] = useState<'loading' | 'ready' | 'error'>('loading');
+  // The selected printing's own row (rules text, faces) can trail it too; a failure offers a retry instead of hanging.
+  const [detailFailed, setDetailFailed] = useState(false);
+  // Bumped by "Try again" to re-run the matching fetch effect.
+  const [listTick, setListTick] = useState(0);
+  const [detailTick, setDetailTick] = useState(0);
   // Tagged with the card and scan it was computed for, so a result can never be applied to another card.
   const [art, setArt] = useState<{ name: string; scan: NonNullable<CardDetailsTarget['scan']>; result: ArtResult } | null>(null);
   const [artNote, setArtNote] = useState<string | null>(null);
@@ -95,12 +103,19 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
   // The background picture match may only switch a selection nobody has touched.
   const userPicked = useRef(false);
   const selectedRef = useRef<string | null>(null);
+  const printingIdRef = useRef<string | null | undefined>(printingId);
+  printingIdRef.current = printingId;
+  const printingsRef = useRef<CardPrinting[]>([]);
+  // The seed is read once per open, from a ref, so a caller re-creating the object cannot re-run the open effect.
+  const seedRef = useRef<CardSeed | null | undefined>(seed);
+  seedRef.current = seed;
   // Held in a ref so a session refresh (new userId identity) does not re-run the reset effect and wipe an open add form.
   const userIdRef = useRef(app.userId);
   userIdRef.current = app.userId;
   // Only the newest user-data round may write state: the early one-printing round can finish after the full one.
   const userSeq = useRef(0);
 
+  printingsRef.current = printings;
   const selected = printings.find(p => p.id === selectedId) ?? null;
   const refreshUserData = useCallback(async (cardName: string, ids: string[], selected: string | null) => {
     const userId = userIdRef.current;
@@ -119,51 +134,71 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
 
   const select = useCallback((id: string | null) => { selectedRef.current = id; setSelectedId(id); }, []);
 
+  // Open: paint at once from what is already in hand (a cached row or list, else the
+  // caller's seed), then let the fetch effects below fill in. Nothing here waits on the network.
+  // Deps are the identity of the card being shown only; `scan` is a whole-open constant.
   useEffect(() => {
     if (!name) {
       // Closing must not leave the last card's results behind for the next open.
       userSeq.current++;
       userPicked.current = false;
-      setPrintings([]); setListState('loading'); setArt(null); setArtNote(null);
+      setPrintings([]); setListState('loading'); setArt(null); setArtNote(null); setDetailFailed(false);
       return;
     }
-    let alive = true;
-    let listArrived = false;
-    let shownEarly = false;
     userPicked.current = false;
-    select(null);
-    setLoading(true); setLoadError(null); setPrintings([]); setListState('loading'); setOwned([]); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setPreviewFoil(false); setFriends(null); setArt(null); setArtNote(null); setExtras({ state: 'idle' });
-    // The printing we were told to open on is one light row; the whole list for a
-    // name can be a hundred heavy ones. Show the page (and its price) from the
-    // first, and let the list fill in.
-    if (printingId) {
-      void fetchPrinting(printingId).then(p => {
-        if (!alive || listArrived || !p || p.name !== name) return;
-        shownEarly = true;
-        setLoading(false);
-        setPrintings([p]);
-        select(p.id);
-        void refreshUserData(name, [p.id], p.id);
-      });
-    }
+    const cachedList = cachedPrintings(name);
+    const cachedRow = printingId ? cachedPrinting(printingId) : undefined;
+    const seedP = seedRef.current && seedRef.current.id === printingId ? seedToPrinting(seedRef.current) : null;
+    let initial: CardPrinting[] = [];
+    if (cachedList) initial = cachedRow ? cachedList.map(p => (p.id === cachedRow.id ? cachedRow : p)) : cachedList;
+    else if (cachedRow) initial = [cachedRow];
+    else if (seedP) initial = [seedP];
+    const start = initial.find(p => p.id === printingId) ?? (cachedList ? pickRepresentative(initial) : null) ?? initial[0] ?? null;
+    select(start?.id ?? null);
+    setPrintings(initial); setLoading(initial.length === 0); setLoadError(null); setListState(cachedList ? 'ready' : 'loading'); setDetailFailed(false);
+    setOwned([]); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setPreviewFoil(false); setFriends(null); setArt(null); setArtNote(null); setExtras({ state: 'idle' });
+    // Owned copies need only the name, so they start now, in parallel with the printing fetches.
+    if (start) void refreshUserData(name, initial.map(p => p.id), start.id);
+  }, [name, printingId, refreshUserData, select]);
+
+  // The full printing list. Skipped when a recent open already cached it.
+  useEffect(() => {
+    if (!name || cachedPrintings(name)) return;
+    let alive = true;
+    setListState('loading');
     void fetchPrintings(name).then(({ printings: list, error }) => {
       if (!alive) return;
-      listArrived = true;
       setLoading(false);
       if (error || list.length === 0) {
-        if (shownEarly) setListState('error'); else setLoadError(error ?? 'No printings found for this card.');
+        if (printingsRef.current.length > 0) setListState('error'); else setLoadError(error ?? 'No printings found for this card.');
         return;
       }
-      setPrintings(list);
+      // Keep any full row already fetched for a printing (the light list rows have no rules text).
+      setPrintings(prev => list.map(p => prev.find(x => x.id === p.id && x.full) ?? p));
       setListState('ready');
-      // Keep whatever is selected (the early printing, or one the person chose meanwhile).
-      const start = list.find(p => p.id === printingId) ?? pickRepresentative(list) ?? list[0]!;
+      // Keep whatever is selected (the opened-on row, or one the person chose meanwhile).
+      const start = list.find(p => p.id === printingIdRef.current) ?? pickRepresentative(list) ?? list[0]!;
       const keep = selectedRef.current && list.some(p => p.id === selectedRef.current) ? selectedRef.current : start.id;
       select(keep);
       void refreshUserData(name, list.map(p => p.id), keep);
     });
     return () => { alive = false; };
-  }, [name, printingId, scan, refreshUserData, select]);
+  }, [name, printingId, listTick, refreshUserData, select]);
+
+  // The selected printing's own row: rules text, faces, artist. One primary-key read, cached.
+  useEffect(() => {
+    if (!name || !selectedId) return;
+    if (printingsRef.current.find(p => p.id === selectedId)?.full) return;
+    let alive = true;
+    setDetailFailed(false);
+    void fetchPrinting(selectedId).then(p => {
+      if (!alive) return;
+      if (!p || p.name !== name) { setDetailFailed(true); return; }
+      setPrintings(prev => (prev.some(x => x.id === p.id) ? prev.map(x => (x.id === p.id ? p : x)) : [p, ...prev]));
+      setLoading(false);
+    });
+    return () => { alive = false; };
+  }, [name, selectedId, detailTick]);
 
   // The picture check starts only once the page is complete, so it never competes
   // with what the person is waiting for, and stops if the sheet closes or the card changes.
@@ -231,6 +266,7 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
       operationId.current = null;
       setAdding(false);
       setStatus({ kind: 'ok', text: `Added ${qty} × ${selected.name}. You now have ${result.quantity} in that stack.` });
+      onChanged?.();
       if (name) void refreshUserData(name, printings.map(p => p.id), selected.id);
     } catch (e) {
       // Same operation id stays, so pressing Add again retries safely.
@@ -245,6 +281,7 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
     try {
       await addToWishList(app.userId, selected.id);
       setStatus({ kind: 'ok', text: `Added ${selected.name} to your wish list.` });
+      onChanged?.();
       if (name) void refreshUserData(name, printings.map(p => p.id), selected.id);
     } catch (e) { setStatus({ kind: 'error', text: errorMessage(e) }); } finally { setBusy(false); }
   }
@@ -288,9 +325,13 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
           </Pressable>
         </View>
 
-        {loading ? <ActivityIndicator color={text.secondary} style={styles.spinner} /> : loadError ? <Text style={styles.error}>{loadError}</Text> : selected && (
+        {loading ? <ActivityIndicator color={text.secondary} style={styles.spinner} /> : loadError ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.error}>{loadError}</Text>
+            <Button secondary label="Try again" onPress={() => { setLoadError(null); setLoading(true); setListTick(t => t + 1); }} />
+          </View>
+        ) : selected && (
           <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled">
-            {!!note && <Text style={styles.note}>{note}</Text>}
             {!!artNote && (
               <View style={styles.artNote} accessibilityRole="alert">
                 <Text style={styles.artNoteText}>{artNote}</Text>
@@ -350,11 +391,20 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
               </View>
             ))}
 
+            {!selected.full && (detailFailed
+              ? (
+                <View style={styles.block}>
+                  <Text style={styles.muted}>{LOAD_FAILED}</Text>
+                  <Button secondary label="Try again" onPress={() => setDetailTick(t => t + 1)} />
+                </View>
+              )
+              : <Text style={styles.muted}>Loading card text…</Text>)}
+
             {status && <Text style={[styles.status, status.kind === 'error' ? styles.statusError : styles.statusOk]} accessibilityRole="alert">{status.text}</Text>}
 
             {!adding ? (
               <View style={styles.actions}>
-                <Button label="Add to collection" onPress={startAdding} disabled={busy || !app.userId} />
+                <Button label="Add to collection" onPress={startAdding} disabled={busy || !app.userId || selected.finishes.length === 0} />
                 <Button secondary label={busy ? 'Working…' : 'Add to wish list'} onPress={() => void wishList()} disabled={busy || !app.userId} />
               </View>
             ) : (
@@ -441,7 +491,12 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
 
             <View style={styles.block}>
               <Text style={styles.sectionTitle}>{listState === 'loading' ? 'Loading printings…' : printings.length === 1 ? '1 printing' : `${printings.length} printings`}</Text>
-              {listState === 'error' && <Text style={styles.muted}>Couldn’t load the other printings.</Text>}
+              {listState === 'error' && (
+                <>
+                  <Text style={styles.muted}>Couldn’t load the other printings.</Text>
+                  <Button secondary label="Try again" onPress={() => setListTick(t => t + 1)} />
+                </>
+              )}
               <FlatList
                 horizontal
                 data={printings}
@@ -475,7 +530,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   topTitle: { flex: 1, ...type.title, color: text.primary },
   close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -space.sm },
   spinner: { marginTop: space.xxxl },
-  error: { ...type.body, color: text.primary, padding: space.xxl },
+  errorBox: { padding: space.xxl, gap: space.lg },
+  error: { ...type.body, color: text.primary },
   body: { paddingHorizontal: space.xxl, gap: space.xl, alignItems: 'stretch' },
   block: { gap: space.sm },
   titleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: space.md },
@@ -493,7 +549,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   formTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
   label: { ...type.label, color: text.secondary, marginTop: space.sm },
   input: { height: 44, paddingHorizontal: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...type.body },
-  note: { ...type.bodySm, color: text.primary, padding: space.md, borderRadius: radius.md, overflow: 'hidden', backgroundColor: accent.soft },
   status: { ...type.bodySm, padding: space.md, borderRadius: radius.md, overflow: 'hidden' },
   statusOk: { backgroundColor: accent.soft, color: text.primary },
   statusError: { backgroundColor: surface.sunken, color: stateColor.error },

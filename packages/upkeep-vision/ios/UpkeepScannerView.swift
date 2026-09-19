@@ -35,8 +35,8 @@ import Vision
  * one card held in frame from being added over and over. A read that JS rejects
  * bumps `retryToken` and the same card is read again (`retryHeldCard`) rather than
  * waiting for it to leave. Focus, exposure and zoom are configured in
- * `configureDevice` and re-applied after every preset change, since the switch
- * to 4K discards what was set before it.
+ * `configureDevice` and re-applied after every preset change, since a switch
+ * of active format discards what was set before it.
  */
 public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBufferDelegate {
   let onCardRead = EventDispatcher()
@@ -59,13 +59,10 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   /// from the lock, so OCR time (~0.3s) is part of the hold rather than added
   /// to it; a read that finishes early waits, a slow one is not delayed.
   private static let greenHold: TimeInterval = 0.35
-  /// Quick scan captures from a 4K session when the device offers one, and runs
-  /// rectangle detection on a copy scaled down to this many pixels on its long
-  /// side (about what the 1080p session gave, so detection cost and the tuned
-  /// thresholds are unchanged). The straighten and OCR use the full-resolution
-  /// buffer: the set and collector number are the smallest text on the card and
-  /// the reason a printing was mis-identified. Normalized corners map straight
-  /// across because the scale is uniform.
+  /// Detection runs on a copy scaled down to this many pixels on its long side
+  /// when a buffer is larger. At the 1080p preset the buffer is already 1920, so
+  /// this is a no-op; it only guards against a larger format being chosen.
+  /// Normalized corners map straight across because the scale is uniform.
   private static let detectionLongSide: CGFloat = 1920
   /// ~0.8s without a full card before the same physical card may be read again.
   /// Time, not a frame count: quick scan detects every frame, so four frames
@@ -74,12 +71,10 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   /// A steady card whose centre has jumped this far (normalized) is a
   /// different physical card swapped in without a gap, not the same one.
   private static let swapDistance: CGFloat = 0.15
-  /// Quick scan's largest zoom. `CameraFocus.zoom` picks the factor that lets a
-  /// card fill the frame from just outside the lens's minimum focus distance and
-  /// this caps it (also clamped to the format's maximum and upscale threshold).
-  /// 1.0 turns zoom off entirely. The preview and detection both see the zoomed
-  /// buffer, so the outline mapping is unaffected either way. Not measured on a phone.
-  private static let quickZoomCap: CGFloat = 2.0
+  /// Quick scan's largest zoom. 1.0 is off, and stays off: a 2.0 cap was tried
+  /// with the 4K preset and backed out after phone testing. `CameraFocus.zoom`
+  /// still computes a factor (clamped to this cap) if it is ever raised again.
+  private static let quickZoomCap: CGFloat = 1.0
   /// After a rejected read JS bumps `retryToken`; the same card is read again this
   /// long after, so the hint is readable and focus has a moment to settle.
   private static let retryDelay: TimeInterval = 0.4
@@ -280,13 +275,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     return true
   }
 
-  /// 4K only for quick scan, and only where the device supports it: detection
-  /// runs on a downscaled copy (`detectionLongSide`) so the extra pixels cost the
-  /// straighten and OCR, not the per-frame search. The normal tab stays at 1080p.
-  /// 4K is 16:9 like 1080p, so the aspect-fill mapping of the outline onto the
-  /// preview (which uses only the buffer's aspect, via `imageSize`) is unchanged.
+  /// 1080p in every mode. A 4K session was tried for quick scan (sharper footer)
+  /// and backed out after phone testing: the known-good behaviour is 1080p.
   private func preferredPreset() -> AVCaptureSession.Preset {
-    if fastDetection, session.canSetSessionPreset(.hd4K3840x2160) { return .hd4K3840x2160 }
     return session.canSetSessionPreset(.hd1920x1080) ? .hd1920x1080 : .high
   }
 
@@ -687,8 +678,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
   /// Writes the straightened card as a JPEG in the temp directory and returns
   /// its file:// URI. This is the same image OCR just read: from the full-resolution
-  /// buffer, so about 1500x2100 px in quick scan on a 4K session and about
-  /// 700x1000 px at 1080p.
+  /// buffer, so about
+  /// 700x1000 px (1080p session).
   private static func writeSnapshot(_ card: CGImage) -> String? {
     let manager = FileManager.default
     do {

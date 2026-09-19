@@ -23,7 +23,9 @@ export const SCAN_STATUS_TEXT: Record<ScanStatus, string> = {
   partial: 'Show the whole card',
   moving: 'Hold steady',
   blurry: 'Hold steady, focusing…',
-  reading: 'Reading…',
+  // The card is locked and the details sheet is about to open: the only
+  // useful instruction left is not to move it.
+  reading: 'Hold steady',
 };
 
 /** Fewest milliseconds one message stays on screen before another replaces it. */

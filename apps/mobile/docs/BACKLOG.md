@@ -54,11 +54,13 @@ is the live list.
   detected whole, so a card can lock while partly outside the visible (cropped) box.
 - Quick scan "Couldn't read that clearly" every time (2026-09-19 owner feedback, all
   unverified on a device): focus/exposure/zoom are re-applied after each preset change
-  (they were probably being lost to the 4K switch) and follow the tracked card; zoom
-  targets a card filling the frame from 1.2x minimum focus distance (`quickZoomCap`
-  2.0, set 1.0 to disable); frames are skipped while the lens hunts (<= 0.6s);
+  (they were probably being lost to the preset switch) and follow the tracked card;
+  zoom is OFF (`quickZoomCap` 1.0) and the session is back to 1080p (the 4K + 2x zoom
+  experiment was backed out after phone testing); frames are skipped while the lens hunts (<= 0.6s);
   blurry 1.2s fallbacks are retried (<= 2); a rejected read is retried on the held
-  card (`retryToken`, 0.4s, hint after 4) and the hint names what was read. To
+  card (`retryToken`, 0.4s); the retries are silent and after 4 the line advises more
+  light / less glare (the person is never told what was read). The title is now read
+  from the top 23% of the card only. To
   confirm on a phone: whether the focus point orientation is right (a wrong mapping
   focuses on the wrong part of the frame, so watch for it on a card held off-centre),
   whether `focusPointOfInterest` is relative to the zoomed or the full field of view,
@@ -66,10 +68,10 @@ is the live list.
   log in Metro to tell OCR from matching.
 - Wrong printing on quick scan (Bloodline Bidding ECL #91 opened ECL #385): the
   default is now the regular print (`regularFirst`), the picture switch needs a
-  0.75 ratio (0.5 over a footer guess), the footer is read from a 4K session and a
-  footer-only second OCR pass, and the sheet says when no footer named the printing.
-  Unverified on a device: whether the footer now reads (4K thermals/frame rate are
-  unmeasured too), and the ratios. The web wish-list default (`wants/actions.ts`)
+  0.75 ratio (0.5 over a footer guess), the footer gets a
+  footer-only second OCR pass (on the 1080p card; the "may not be the printing" note was
+  removed from quick scan's hand-off). Unverified on a device: whether the footer
+  now reads at 1080p, and the ratios. The web wish-list default (`wants/actions.ts`)
   has the same set-type-only tie and was left alone.
 - Quick scan (hold Scan, slide to the Scan option): tune the "how sure" cutoff
   (`QUICK_MIN_SCORE` in `packages/scan-core/src/band.ts`) against real cards, and

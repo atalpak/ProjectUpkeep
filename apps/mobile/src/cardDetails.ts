@@ -1,4 +1,4 @@
-import { FINISHES, regularFirst, type Finish, type Printing } from '@upkeep/scan-core';
+import { FINISHES, LruCache, TimeoutError, regularFirst, rejectAfter, type Finish, type Printing } from '@upkeep/scan-core';
 import { backend } from './backend';
 
 // Data for the card details sheet: every printing of a card (public Scryfall
@@ -44,7 +44,21 @@ export type CardPrinting = {
   priceUsdFoil: number | null;
   priceUsdEtched: number | null;
   scryfallUri: string | null;
+  /** False for a row from the light list query (no rules text, flavor or faces). The sheet fetches the full row for whichever printing is selected. */
+  full: boolean;
 };
+
+/** How long the sheet waits on any one request before showing "Couldn't load -- Try again". */
+export const REQUEST_TIMEOUT_MS = 8_000;
+
+/** Plain-language text for a failed or timed-out request; never a raw driver message. */
+export const LOAD_FAILED = 'Couldn’t load — check your connection and try again.';
+
+/** Runs a request under the deadline. A timeout becomes the same shape as any other failure. */
+async function bounded<T>(work: PromiseLike<T>): Promise<T> {
+  return rejectAfter(work, REQUEST_TIMEOUT_MS);
+}
+export const isTimeout = (e: unknown) => e instanceof TimeoutError;
 
 type Row = {
   scryfall_id: string; oracle_id: string; name: string; flavor_name: string | null; set_code: string; set_name: string | null;
@@ -75,40 +89,91 @@ function facesOf(r: Row): CardFace[] {
 
 const num = (v: number | string | null): number | null => (v === null || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
-function toCardPrinting(r: Row): CardPrinting {
+// The printing list only needs what the chips and the default pick read. The
+// heavy columns (rules text, flavor text, the card_faces JSON) are fetched for
+// the ONE printing on screen (fetchPrinting), not for every printing of a name:
+// "Lightning Bolt" is ~100 rows and card_faces is the widest column we have.
+const LIGHT_COLUMNS = 'scryfall_id,oracle_id,name,flavor_name,set_code,set_name,collector_number,rarity,released_at,set_type,image_uri,image_uri_small,available_finishes,lang,mana_cost,type_line,power,toughness,loyalty,artist,layout,price_usd,price_usd_foil,price_usd_etched,scryfall_uri';
+
+function toCardPrinting(r: Row, full: boolean): CardPrinting {
   return {
+    full,
     id: r.scryfall_id, oracleId: r.oracle_id, name: r.name, flavorName: r.flavor_name, setCode: r.set_code, setName: r.set_name ?? r.set_code.toUpperCase(),
     collectorNumber: r.collector_number, rarity: r.rarity, releasedAt: r.released_at, setType: r.set_type, image: r.image_uri, imageSmall: r.image_uri_small,
     finishes: (r.available_finishes ?? []).filter((f): f is Finish => (FINISHES as readonly string[]).includes(f)),
-    language: r.lang, manaCost: r.mana_cost, typeLine: r.type_line, oracleText: r.oracle_text, flavorText: r.flavor_text,
+    language: r.lang, manaCost: r.mana_cost, typeLine: r.type_line, oracleText: r.oracle_text ?? null, flavorText: r.flavor_text ?? null,
     power: r.power, toughness: r.toughness, loyalty: r.loyalty, artist: r.artist, layout: r.layout,
     faces: facesOf(r),
     priceUsd: num(r.price_usd), priceUsdFoil: num(r.price_usd_foil), priceUsdEtched: num(r.price_usd_etched), scryfallUri: r.scryfall_uri,
   };
 }
 
-/** Every non-digital printing of a card by exact name, newest first. Sorted
- *  here, not in SQL: cards.released_at has no index and an ordered query can
- *  time out (see cardSearch.ts). */
+/**
+ * What a caller already knows about the copy it opens the sheet from (the
+ * collection row: name, set, number, picture, prices). The sheet paints from
+ * this at once with no network, then fills in the rest.
+ */
+export type CardSeed = {
+  id: string; name: string; setCode: string; collectorNumber: string; rarity: string | null; typeLine: string | null;
+  image: string | null; imageSmall: string | null;
+  priceUsd: number | string | null; priceUsdFoil: number | string | null; priceUsdEtched: number | string | null;
+};
+
+/** A provisional printing from a seed: enough to draw the picture, name and price. `finishes` is empty
+ *  until the real row arrives, which is also what keeps "Add to collection" off until then. */
+export function seedToPrinting(s: CardSeed): CardPrinting {
+  return {
+    id: s.id, oracleId: '', name: s.name, flavorName: null, setCode: s.setCode, setName: s.setCode.toUpperCase(), collectorNumber: s.collectorNumber,
+    rarity: s.rarity ?? '', releasedAt: null, setType: null, image: s.image, imageSmall: s.imageSmall, finishes: [], language: 'en',
+    manaCost: null, typeLine: s.typeLine, oracleText: null, flavorText: null, power: null, toughness: null, loyalty: null, artist: null, layout: null,
+    faces: [{ name: s.name, manaCost: null, typeLine: s.typeLine, oracleText: null, flavorText: null, power: null, toughness: null, loyalty: null, image: s.image }],
+    priceUsd: num(s.priceUsd), priceUsdFoil: num(s.priceUsdFoil), priceUsdEtched: num(s.priceUsdEtched), scryfallUri: null, full: false,
+  };
+}
+
+// Recent results, so reopening a card (or the one you just closed) paints with
+// no network at all. Public Scryfall data only -- nothing user-specific is cached.
+const listCache = new LruCache<string, CardPrinting[]>(50);
+const rowCache = new LruCache<string, CardPrinting>(50);
+
+/** Instant, network-free lookups for the sheet's first paint. */
+export const cachedPrintings = (name: string): CardPrinting[] | undefined => listCache.get(name);
+export const cachedPrinting = (id: string): CardPrinting | undefined => rowCache.get(id);
+
+/** Every non-digital printing of a card by exact name, newest first (light rows: see LIGHT_COLUMNS).
+ *  Sorted here, not in SQL: cards.released_at has no index and an ordered query can time out (see cardSearch.ts).
+ *  `cards.name` is indexed (migration 24), so the filter itself is an index scan. */
 export async function fetchPrintings(name: string): Promise<{ printings: CardPrinting[]; error: string | null }> {
   if (!backend) return { printings: [], error: 'Card details need an internet connection and an account.' };
-  const { data, error } = await backend.from('cards').select(COLUMNS).eq('name', name).eq('digital', false).limit(500).returns<Row[]>();
-  if (error) return { printings: [], error: error.message };
-  const printings = (data ?? []).map(toCardPrinting);
-  printings.sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? ''));
-  return { printings, error: null };
+  const hit = listCache.get(name);
+  if (hit) return { printings: hit, error: null };
+  try {
+    const { data, error } = await bounded(backend.from('cards').select(LIGHT_COLUMNS).eq('name', name).eq('digital', false).limit(500).returns<Row[]>());
+    if (error) return { printings: [], error: LOAD_FAILED };
+    const printings = (data ?? []).map(r => cachedPrinting(r.scryfall_id) ?? toCardPrinting(r, false));
+    printings.sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? ''));
+    if (printings.length > 0) listCache.set(name, printings);
+    return { printings, error: null };
+  } catch { return { printings: [], error: LOAD_FAILED }; }
 }
 
 /**
- * One printing by id: a single primary-key row, far lighter than the whole
- * list a name like "Lightning Bolt" returns. Lets the sheet show the best-guess
- * printing and its price while the full list is still on its way. Null on any
- * failure or a missing row; the caller falls back to waiting for the list.
+ * One printing by id with every column: a single primary-key row, far lighter
+ * than the whole list a name like "Lightning Bolt" returns. Lets the sheet show
+ * rules text and the price while the list is still on its way, and is how a
+ * chosen printing gets its full detail. Null on any failure or a missing row.
  */
 export async function fetchPrinting(id: string): Promise<CardPrinting | null> {
   if (!backend) return null;
-  const { data, error } = await backend.from('cards').select(COLUMNS).eq('scryfall_id', id).eq('digital', false).maybeSingle<Row>();
-  return error || !data ? null : toCardPrinting(data);
+  const hit = rowCache.get(id);
+  if (hit) return hit;
+  try {
+    const { data, error } = await bounded(backend.from('cards').select(COLUMNS).eq('scryfall_id', id).eq('digital', false).maybeSingle<Row>());
+    if (error || !data) return null;
+    const p = toCardPrinting(data, true);
+    rowCache.set(id, p);
+    return p;
+  } catch { return null; }
 }
 
 // Same ranking the web wish list uses (src/app/(app)/wants/actions.ts) so a
@@ -140,13 +205,17 @@ export type OwnedStack = { id: string; quantity: number; setCode: string; collec
 /** The signed-in user's own copies of this card, across printings. */
 export async function fetchOwned(userId: string, name: string): Promise<{ stacks: OwnedStack[]; error: string | null }> {
   if (!backend) return { stacks: [], error: null };
-  const { data, error } = await backend
-    .from('collection_entries')
-    .select('id,quantity,card_set_code,card_collector_number,finish,condition,location_name')
-    .eq('owner_user_id', userId)
-    .eq('card_name', name)
-    .limit(200);
-  if (error) return { stacks: [], error: error.message };
+  let res;
+  try {
+    res = await bounded(backend
+      .from('collection_entries')
+      .select('id,quantity,card_set_code,card_collector_number,finish,condition,location_name')
+      .eq('owner_user_id', userId)
+      .eq('card_name', name)
+      .limit(200));
+  } catch { return { stacks: [], error: LOAD_FAILED }; }
+  const { data, error } = res;
+  if (error) return { stacks: [], error: LOAD_FAILED };
   return {
     stacks: (data ?? []).map(r => ({
       id: r.id as string, quantity: r.quantity as number, setCode: r.card_set_code as string, collectorNumber: r.card_collector_number as string,
@@ -159,7 +228,7 @@ export async function fetchOwned(userId: string, name: string): Promise<{ stacks
 /** Total wanted across printings of this card, for this user. */
 export async function fetchWantedQuantity(userId: string, printingIds: string[]): Promise<number> {
   if (!backend || printingIds.length === 0) return 0;
-  const { data } = await backend.from('want_list').select('quantity').eq('user_id', userId).in('card_id', printingIds);
+  const { data } = await bounded(backend.from('want_list').select('quantity').eq('user_id', userId).in('card_id', printingIds));
   return (data ?? []).reduce((sum, r) => sum + (r.quantity as number), 0);
 }
 
@@ -193,10 +262,10 @@ export type FriendActivity = {
 export async function fetchFriendActivity(userId: string, printingIds: string[], selectedId: string | null): Promise<FriendActivity> {
   const empty: FriendActivity = { haveForTrade: [], want: [] };
   if (!backend || printingIds.length === 0) return empty;
-  const [tradable, wants] = await Promise.all([
+  const [tradable, wants] = await bounded(Promise.all([
     backend.from('card_instances').select('owner_user_id,quantity,card_id').neq('owner_user_id', userId).in('card_id', printingIds).limit(500),
     backend.from('want_list').select('user_id,quantity').neq('user_id', userId).in('card_id', printingIds).limit(500),
-  ]);
+  ]));
   const have = new Map<string, { quantity: number; samePrinting: boolean }>();
   for (const r of tradable.data ?? []) {
     const id = r.owner_user_id as string;
@@ -208,7 +277,7 @@ export async function fetchFriendActivity(userId: string, printingIds: string[],
 
   const ids = [...new Set([...have.keys(), ...want.keys()])];
   if (ids.length === 0) return empty;
-  const { data: profiles } = await backend.from('profiles').select('id,username').in('id', ids);
+  const { data: profiles } = await bounded(backend.from('profiles').select('id,username').in('id', ids));
   const names = new Map((profiles ?? []).map(p => [p.id as string, p.username as string]));
   const name = (id: string) => names.get(id) ?? 'a friend';
   return {
@@ -233,10 +302,10 @@ const SCRYFALL_HEADERS = { Accept: 'application/json', 'User-Agent': 'ProjectUpk
 
 export async function fetchScryfallExtras(printingId: string): Promise<ScryfallExtras> {
   const base = `https://api.scryfall.com/cards/${printingId}`;
-  const [cardRes, rulingsRes] = await Promise.all([fetch(base, { headers: SCRYFALL_HEADERS }), fetch(`${base}/rulings`, { headers: SCRYFALL_HEADERS })]);
+  const [cardRes, rulingsRes] = await bounded(Promise.all([fetch(base, { headers: SCRYFALL_HEADERS }), fetch(`${base}/rulings`, { headers: SCRYFALL_HEADERS })]));
   if (!cardRes.ok) throw new Error('Scryfall could not be reached.');
-  const card = (await cardRes.json()) as { legalities?: Record<string, string> };
-  const rulings = rulingsRes.ok ? ((await rulingsRes.json()) as { data?: { published_at: string; comment: string }[] }).data ?? [] : [];
+  const card = (await bounded(cardRes.json())) as { legalities?: Record<string, string> };
+  const rulings = rulingsRes.ok ? ((await bounded(rulingsRes.json())) as { data?: { published_at: string; comment: string }[] }).data ?? [] : [];
   const legalities: ScryfallExtras['legalities'] = {};
   for (const f of FORMATS) {
     const v = card.legalities?.[f];
