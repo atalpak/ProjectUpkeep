@@ -79,9 +79,10 @@ packages/scan-core/      Pure TS: catalog parsing/search, scan pipeline, draft
                         validation, the collection writer. No RN/Expo imports —
                         this is what makes it unit-testable with node's test
                         runner, the same shape `src/lib/**` uses on the web side.
-  scripts/               build-catalog.ts, benchmark.ts,
-                        patch-native-toolchain.cjs — catalog tooling and the
-                        RN/Gradle compatibility patch. Deliberately separate
+  scripts/               build-catalog.ts, benchmark.ts, accuracy.ts (offline
+                        matching benchmark, `npm run accuracy`; sample data in
+                        fixtures/), patch-native-toolchain.cjs — catalog
+                        tooling and the RN/Gradle compatibility patch. Deliberately separate
                         from the repo's root scripts/, which is `src/lib/**`'s
                         unit-test suite plus the Scryfall sync job; mixing the
                         two would make scripts/ mean two unrelated things, see
@@ -129,9 +130,12 @@ packages/upkeep-vision/  Native module boundary (Expo module name `UpkeepVision`
   automated tests over the mobile screens**; scan-core and upkeep-domain are
   the tested surface.
 - `apps/mobile`'s own `start`/`ios`/`android` scripts run Expo; they are not
-  part of the root `npm test`/`npm run typecheck`/`npm run lint`, which stay
-  scoped to the Next.js app (see the root `tsconfig.json` excludes and
-  `eslint.config.mjs` ignores for `apps/**` and `packages/**`).
+  part of the root `npm test`/`npm run typecheck`, which stay scoped to the
+  Next.js app (see the root `tsconfig.json` excludes). Lint is the exception:
+  root `eslint.config.mjs` has a separate Expo/RN block, so `npm run lint`
+  covers `apps/**` and `packages/**` too (TypeScript-recommended + hooks rules;
+  `no-require-imports` is off in `apps/**` because Metro assets need `require`).
+  `apps/mobile/tsconfig.json` is `strict`.
 - `apps/mobile`'s `postinstall` patches an RN/Gradle compatibility issue and is
   scoped to that workspace's own `package.json` for exactly this reason: it
   must never be able to fail a web-only `npm ci` at the repo root.

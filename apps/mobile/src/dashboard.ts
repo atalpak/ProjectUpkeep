@@ -36,8 +36,6 @@ type Row = {
   card_price_usd: number | string | null; card_price_usd_foil: number | string | null; card_price_usd_etched: number | string | null;
 };
 
-const num = (v: number | string | null): number | null => (v === null || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
-
 function bucketFor(colors: string[] | null): ColourBucket {
   const five = (colors ?? []).filter(c => 'WUBRG'.includes(c));
   if (five.length === 0) return 'C';
