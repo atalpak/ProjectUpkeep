@@ -22,9 +22,11 @@ import Vision
  * (`bestFullCard`) → outline tracker (one stable outline, no bouncing) → two
  * consecutive steady detections lock it → straighten with the detected quad →
  * OCR title and printing bands → `onCardRead`. Quick scan (`fastDetection`)
- * detects on every frame the device can keep up with and also refuses a blurry
- * crop, so the lock lands within a few frames of the card being held still.
- * It then refuses to read
+ * detects on every frame the device can keep up with, but shows NO outline while
+ * searching: the card must sit steady for `SettleTracker.duration` and pass a
+ * sharpness check, and only then is a green outline drawn at the locked quad and
+ * held for `greenHold` before the read is delivered, so the person sees what was
+ * captured. It then refuses to read
  * again until that card has left (`framesUntilRelease` empty detections) or a
  * different card has clearly replaced it (`swapDistance`), which is what stops
  * one card held in frame from being added over and over.
@@ -40,13 +42,14 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   /// Quick-scan mode: no throttle. Vision runs synchronously inside the frame
   /// delegate on a serial queue with `alwaysDiscardsLateVideoFrames`, so a slow
   /// detection just makes the camera drop frames rather than queue them up;
-  /// the loop is its own busy flag. The two-steady-detections rule is
-  /// unchanged, so the lock arrives sooner without accepting a moving card.
+  /// the loop is its own busy flag. What stops it locking on a card still
+  /// moving is `SettleTracker` (elapsed time, not a detection count).
   private static let fastContrastRetryInterval: TimeInterval = 0.35
-  /// Quick scan: two steady detections only count as consecutive if they are
-  /// this close in time (a few frames). Without it, a gap where the card was
-  /// out of the gate could pair two unrelated frames.
-  private static let fastMaxPairGap: TimeInterval = 0.25
+  /// Quick scan: how long the green capture outline is on screen before the read
+  /// reaches JS (which opens the details and tears the camera down). Counted
+  /// from the lock, so OCR time (~0.3s) is part of the hold rather than added
+  /// to it; a read that finishes early waits, a slow one is not delayed.
+  private static let greenHold: TimeInterval = 0.35
   /// Quick scan: variance of the Laplacian (UpkeepCardVision.sharpness) below
   /// which the straightened crop is treated as motion blur or missed focus and
   /// the read waits for the next frame. Estimated, not measured on a phone;
@@ -93,9 +96,16 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private var steadyFrames = 0
   private var blurSkips = 0
   private var tracker = OutlineTracker()
+  private var settle = SettleTracker()
   private var lastFullCardAt: TimeInterval = 0
   /// Read on frameQueue; set from JS (a plain Bool, so a torn read is harmless).
-  public var fastDetection = false
+  public var fastDetection = false {
+    didSet {
+      // The gold corner marks are an aim aid for the normal tab; quick scan
+      // shows nothing at all until it captures.
+      DispatchQueue.main.async { self.syncGuide() }
+    }
+  }
   private var awaitingRelease = false
   private var lastReadCentre: CGPoint?
   private var guideCaptureRequested = false
@@ -273,10 +283,12 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     lastDetectionAt = now
 
     let retry = now - lastContrastRetry >= (fast ? Self.fastContrastRetryInterval : Self.contrastRetryInterval)
-    if retry { lastContrastRetry = now }
     let size = geometry().image
-    let card = UpkeepCardVision.bestFullCard(in: CIImage(cvPixelBuffer: buffer), orientation: .right,
-                                             imageSize: size, allowContrastRetry: retry)
+    let found = UpkeepCardVision.findFullCard(in: CIImage(cvPixelBuffer: buffer), orientation: .right,
+                                              imageSize: size, allowContrastRetry: retry)
+    // Only a retry that actually ran uses up the allowance.
+    if found.retryRan { lastContrastRetry = now }
+    let card = found.card
     let corners = card.map(UpkeepCardVision.corners)
 
     if card != nil {
@@ -285,9 +297,17 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       release()
     }
 
-    tracker.observe(corners, at: now)
-    let steady = assessStability(corners, at: now, maxGap: fast ? Self.fastMaxPairGap : .infinity)
-    updateOutline(tracker.shown)
+    tracker.observe(corners, at: now, grace: fast ? OutlineTracker.fastGrace : OutlineTracker.normalGrace)
+    let steady: Bool
+    if fast {
+      // No tracking outline in quick scan; the only thing ever drawn is the
+      // green one at the moment of capture (see `lock`).
+      steady = settle.observe(corners, at: now)
+      if corners == nil { blurSkips = 0 }
+    } else {
+      steady = assessStability(corners, at: now)
+      updateOutline(tracker.shown)
+    }
 
     // Only the card the outline is following may be read, so what is read is
     // always what the player sees outlined.
@@ -298,10 +318,11 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
             hypot(previous.x - centre.x, previous.y - centre.y) > Self.swapDistance else { return }
       release()
     }
-    lock(corners: corners, centre: centre, buffer: buffer, checkSharpness: fast)
+    lock(corners: corners, centre: centre, buffer: buffer, fast: fast)
   }
 
-  private func assessStability(_ corners: [CGPoint]?, at now: TimeInterval, maxGap: TimeInterval) -> Bool {
+  /// The normal tab's rule: two consecutive steady detections ~0.2s apart.
+  private func assessStability(_ corners: [CGPoint]?, at now: TimeInterval) -> Bool {
     guard let corners else {
       previousCorners = nil
       steadyFrames = 0
@@ -312,7 +333,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       previousCorners = corners
       previousCornersAt = now
     }
-    guard let previous = previousCorners, previous.count == corners.count, now - previousCornersAt <= maxGap else {
+    guard let previous = previousCorners, previous.count == corners.count else {
       steadyFrames = 1
       return false
     }
@@ -326,6 +347,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
   private func resetTracking() {
     previousCorners = nil
+    settle.reset()
     steadyFrames = 0
     blurSkips = 0
     tracker.reset()
@@ -339,14 +361,16 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     awaitingRelease = false
     lastReadCentre = nil
     previousCorners = nil
+    settle.reset()
     steadyFrames = 0
-    setOutline(locked: false)
+    // Quick scan has no tracking outline to fall back to, so the green one goes.
+    setOutline(hidden: fastDetection ? true : nil, locked: false)
     DispatchQueue.main.async { self.onCardLost([:]) }
   }
 
   // MARK: - Reading one card
 
-  private func lock(corners: [CGPoint], centre: CGPoint, buffer: CVPixelBuffer, checkSharpness: Bool) {
+  private func lock(corners: [CGPoint], centre: CGPoint, buffer: CVPixelBuffer, fast: Bool) {
     // The pixel buffer is recycled the moment this delegate call returns, so
     // the straighten has to happen here, synchronously, before handing an
     // independent CGImage to the OCR queue.
@@ -358,15 +382,21 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     // Quick scan reads the very frame it locked on, so a blurred one is
     // refused and the next frame gets its turn -- reading blur would cost a
     // whole wrong-card round trip. Bounded by maxBlurSkips (see there).
-    if checkSharpness, UpkeepCardVision.sharpness(of: card) < Self.minimumSharpness, blurSkips < Self.maxBlurSkips {
+    if fast, UpkeepCardVision.sharpness(of: card) < Self.minimumSharpness, blurSkips < Self.maxBlurSkips {
       blurSkips += 1
       return
     }
     blurSkips = 0
     awaitingRelease = true
     lastReadCentre = centre
+    var deliverAfter: TimeInterval = 0
+    if fast {
+      // The one outline quick scan ever draws: green, on the locked quad.
+      updateOutline(corners)
+      deliverAfter = CACurrentMediaTime() + Self.greenHold
+    }
     setOutline(locked: true)
-    readQueue.async { self.read(card, source: "outline") }
+    readQueue.async { self.read(card, source: "outline", deliverAfter: deliverAfter) }
   }
 
   private func captureGuideArea(_ buffer: CVPixelBuffer) {
@@ -375,7 +405,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     readQueue.async { self.read(card, source: "guide") }
   }
 
-  private func read(_ card: CGImage, source: String) {
+  private func read(_ card: CGImage, source: String, deliverAfter: TimeInterval = 0) {
     let evidence = UpkeepCardText.read(card)
     var payload: [String: Any] = [
       "title": evidence.title,
@@ -388,11 +418,20 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     // promo from its reprint when the footer is unreadable. Left out if the
     // write fails: an older JS or a full disk degrades to text-only.
     if let uri = Self.writeSnapshot(card) { payload["imageUri"] = uri }
-    DispatchQueue.main.async {
+    let deliver = {
       // A read finishing after the tab blurred or the view left the screen
       // must not stage a card behind the user's back.
       guard self.window != nil, self.active else { return }
       self.onCardRead(payload)
+      // A read JS rejects leaves the card in frame; the green outline must not
+      // linger as if it were still being tracked.
+      if deliverAfter > 0 { self.frameQueue.async { self.setOutline(hidden: true, locked: false) } }
+    }
+    let wait = deliverAfter - CACurrentMediaTime()
+    if wait > 0 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: deliver)
+    } else {
+      DispatchQueue.main.async(execute: deliver)
     }
   }
 
@@ -477,7 +516,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       outlineShown = !hidden
       DispatchQueue.main.async {
         self.outlineLayer.isHidden = hidden
-        self.guideLayer.isHidden = !hidden
+        self.syncGuide()
         self.onOutlineChange(["found": !hidden])
       }
     }
@@ -485,6 +524,12 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       let colour = (locked ? Self.outlineGreen : Self.outlineGold).cgColor
       DispatchQueue.main.async { self.outlineLayer.strokeColor = colour }
     }
+  }
+
+  /// Main thread. The guide marks show only while there is no outline, and never
+  /// in quick scan.
+  private func syncGuide() {
+    guideLayer.isHidden = fastDetection || !outlineLayer.isHidden
   }
 
   /// The four gold L-marks, drawn from the same guide rectangle the manual

@@ -43,6 +43,12 @@ is the live list.
   step; a sharper still-photo capture for the footer (step 3); printing-type flags
   in the catalog (step 5, needs a migration); the 20-30 real-card test set (step 6),
   which is what turns the accuracy script's sample numbers into evidence.
+- Quick scan capture feel (2026-09-19 owner feedback, changes unverified on a device):
+  no outline while searching, green outline on capture held 0.35s, must settle 0.3s
+  (`SettleTracker` in `UpkeepCardVision.swift`), box 320x440. Tune settle
+  tolerance/duration, `minimumSharpness` and the full-card area minimum (0.18) from
+  real use. The frame is detected whole, so a card can lock while partly outside the
+  visible (cropped) box.
 - Quick scan (hold Scan, slide to the Scan option): tune the "how sure" cutoff
   (`QUICK_MIN_SCORE` in `packages/scan-core/src/band.ts`) against real cards, and
   check the lock-on speed in poor light.

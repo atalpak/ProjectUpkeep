@@ -36,6 +36,8 @@ expect(!gate(quad(), confidence: 0.5), "low confidence fails")
 expect(!gate(quad(cx: 0.05)), "corner near the left edge fails")
 expect(!gate(quad(cy: 0.97)), "corner near the top edge fails")
 expect(!gate(quad(w: 300)), "tiny card (below minimum area) fails")
+expect(!gate(quad(w: 480)), "card covering ~0.15 of the frame fails the 0.18 minimum")
+expect(gate(quad(w: 560)), "card covering ~0.22 of the frame passes")
 expect(!gate(quad(aspect: 1.0)), "square-ish quad fails")
 expect(!gate(quad(aspect: 0.55)), "too tall quad fails")
 expect(gate(quad(aspect: 0.716 * 1.10)), "aspect +10% passes")
@@ -63,8 +65,41 @@ expect(tracker.observe(a, at: 0.09) != nil && tracker.follows(a), "flip back lea
 _ = tracker.observe(b, at: 0.12)
 _ = tracker.observe(b, at: 0.15)
 expect(tracker.follows(b), "two consecutive on a new card switch to it")
-expect(tracker.observe(nil, at: 0.25) != nil, "a miss inside the grace period keeps the outline")
-expect(tracker.observe(nil, at: 0.60) == nil, "a miss past the grace period hides it")
+expect(tracker.observe(nil, at: 0.25, grace: OutlineTracker.fastGrace) != nil, "a miss inside the fast grace keeps the outline")
+expect(tracker.observe(nil, at: 0.60, grace: OutlineTracker.fastGrace) == nil, "a miss past the fast grace hides it")
+
+// Normal tab: detection every 0.2s, so one missed detection means the next
+// sighting arrives 0.4s after the last accepted one.
+var slow = OutlineTracker()
+_ = slow.observe(a, at: 0.0); _ = slow.observe(a, at: 0.2)
+expect(slow.observe(nil, at: 0.4) != nil, "normal cadence: a missed detection keeps the outline")
+expect(slow.observe(a, at: 0.6) != nil && slow.follows(a), "normal cadence: the card is picked up again with no re-acquire flicker")
+var slowFast = OutlineTracker()
+_ = slowFast.observe(a, at: 0.0); _ = slowFast.observe(a, at: 0.2)
+_ = slowFast.observe(nil, at: 0.4, grace: OutlineTracker.fastGrace)
+expect(slowFast.observe(a, at: 0.6, grace: OutlineTracker.fastGrace) == nil, "the fast grace would have dropped it (why grace is per-mode)")
+var gone = OutlineTracker()
+_ = gone.observe(a, at: 0.0); _ = gone.observe(a, at: 0.2)
+expect(gone.observe(nil, at: 0.75) == nil, "normal cadence: gone after the 0.5s grace")
+
+// Settle: quick scan's elapsed-time hold-still rule at ~30fps.
+var settle = SettleTracker()
+var settled = false
+for i in 0..<8 { settled = settle.observe(quad(cx: 0.5), at: Double(i) * 0.033) }
+expect(!settled, "eight steady frames (0.23s) are not yet settled")
+for i in 8..<12 { settled = settle.observe(quad(cx: 0.5 + 0.002), at: Double(i) * 0.033) }
+expect(settled, "steady for 0.3s with jitter settles")
+expect(!settle.observe(quad(cx: 0.55), at: 0.40), "a jump restarts the wait")
+var creeping = SettleTracker()
+var creepSettled = false
+for i in 0..<30 { creepSettled = creeping.observe(quad(cx: 0.4 + Double(i) * 0.003), at: Double(i) * 0.033) }
+expect(!creepSettled, "a card sliding slowly (small per frame, large overall) never settles")
+var gap = SettleTracker()
+_ = gap.observe(quad(), at: 0.0)
+expect(!gap.observe(quad(), at: 0.5), "a detection gap restarts the wait")
+var lost = SettleTracker()
+_ = lost.observe(quad(), at: 0.0); _ = lost.observe(nil, at: 0.2)
+expect(!lost.observe(quad(), at: 0.35), "a missing detection restarts the wait")
 
 var moving = OutlineTracker()
 _ = moving.observe(quad(cx: 0.4), at: 0); _ = moving.observe(quad(cx: 0.4), at: 0.03)

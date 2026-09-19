@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Animated, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -93,8 +93,14 @@ const DEAD_ZONE = 34;
 // Quick scan: the camera warms up the moment the finger reaches the Scan
 // option, and the box reveals after holding there this long.
 const DWELL_MS = 200;
-const QUICK_W = 240;
-const QUICK_H = 330;
+// Ideal size of the quick-scan camera box (a card-ish 320x440), shrunk on a
+// narrow phone so it keeps QUICK_MARGIN of screen on each side (375pt wide: 320
+// fits with 27pt spare; a 320pt-wide phone gets 272x374). Its bottom edge sits
+// just above the bar, so on the shortest iPhones (667pt tall) it still leaves
+// ~160pt above it.
+const QUICK_W = 320;
+const QUICK_H = 440;
+const QUICK_MARGIN = 24;
 type FanOption = 'search' | 'scan';
 
 /**
@@ -107,6 +113,9 @@ type FanOption = 'search' | 'scan';
 function ScanButton({ width, selected, onPress, onSearch }: { width: number; selected: boolean; onPress(): void; onSearch(): void }) {
   const styles = useStyles();
   const reducedMotion = useReducedMotion();
+  const { width: screenWidth } = useWindowDimensions();
+  const quickW = Math.min(QUICK_W, screenWidth - 2 * QUICK_MARGIN);
+  const quickH = Math.round((quickW * QUICK_H) / QUICK_W);
   const app = useApp();
   const openDetails = useOpenCardDetails();
   const [permission] = useCameraPermissions();
@@ -288,12 +297,15 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
       {(warm || quick) && (
         <Animated.View
           pointerEvents="none"
-          style={[styles.quickBox, { opacity: quickAnim, transform: [{ translateY: quickAnim.interpolate({ inputRange: [0, 1], outputRange: [QUICK_H / 2, 0] }) }, { scale: quickAnim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }] }]}
+          style={[styles.quickBox, { top: PROTRUDE - 12 - quickH, width: quickW, height: quickH, opacity: quickAnim, transform: [{ translateY: quickAnim.interpolate({ inputRange: [0, 1], outputRange: [quickH / 2, 0] }) }, { scale: quickAnim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }] }]}
         >
           <UpkeepScannerView
             style={StyleSheet.absoluteFill}
             active={(warm || quick) && app.active}
-            // Look for the card more often; the hold-still check stays.
+            // Quick scan: no outline while searching; the card must settle, then
+            // a green outline is held ~0.35s (natively, counted from the lock)
+            // before onCardRead arrives, so nothing here needs its own delay and
+            // the view stays mounted and active until the details open.
             fastDetection
             onCardRead={onQuickRead}
             onScannerError={e => setQuickHint(e.nativeEvent.message)}
@@ -427,11 +439,9 @@ const useStyles = makeStyles(() => StyleSheet.create({
     borderColor: border.strong,
   },
   // The quick-scan camera: bottom edge just above the bar, centred on the button.
+  // top/width/height are set inline (they depend on the screen width).
   quickBox: {
     position: 'absolute',
-    top: PROTRUDE - 12 - QUICK_H,
-    width: QUICK_W,
-    height: QUICK_H,
     borderRadius: radius.xl,
     overflow: 'hidden',
     backgroundColor: brand.ink,

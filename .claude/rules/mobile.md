@@ -159,20 +159,43 @@ loop into a native live scanner, ported from the Flutter original's
 hand frames to native code, so the camera moved into `UpkeepScannerView`, which
 owns its own `AVCaptureSession`.
 
-**Native side** (`packages/upkeep-vision/ios/UpkeepScannerView.swift`). A
-throttled frame (every 0.2s) goes through Apple Vision rectangle detection
-(`UpkeepCardVision.bestCard`, with a contrast-enhanced retry), the outline is
-drawn natively in gold, and a card must be steady for two consecutive frames
-before it locks. A locked card is straightened by its detected quad, OCR'd (title
-band + printing band), and emitted once as `onCardRead` (`{ title, lines,
-printingLines, source }`; `source` is `outline` for an automatic lock, `guide`
-for a manual capture). **One read per physical card:** the view will not read
-again until the card has left (four empty detections, ~0.8s) or a clearly
-different card has replaced it (centre jump > 0.15). Other events:
-`onCardLost`, `onOutlineChange`, `onScannerError`. `captureNow()` (ref handle)
-reads the corner-marked guide area — the fallback for full-art cards where
-Vision finds no edge. Thresholds are constants at the top of the Swift files;
-tune them with `validate-detection.swift`, not by guessing on a phone.
+**Native side** (`packages/upkeep-vision/ios/UpkeepScannerView.swift`). Each
+frame goes through Apple Vision rectangle detection and the **full-card gate**
+(`UpkeepCardVision.findFullCard`: confidence, corners inside the frame, convex,
+area >= 0.18 of the frame, card aspect; with a contrast-enhanced retry that is
+rate-limited and only charged when it actually ran). `OutlineTracker` keeps one
+stable quad (hysteresis, per-mode grace). A locked card is straightened by its
+detected quad, OCR'd (title band + printing band), and emitted once as
+`onCardRead` (`{ title, lines, printingLines, imageUri, source }`; `source` is
+`outline` for an automatic lock, `guide` for a manual capture). **One read per
+physical card:** the view will not read again until no full card has been seen
+for 0.8s or a clearly different card has replaced it (centre jump > 0.15). Other
+events: `onCardLost`, `onOutlineChange`, `onScannerError`. `captureNow()` (ref
+handle) reads the corner-marked guide area — the fallback for full-art cards
+where Vision finds no edge. Two modes, same file:
+
+- *Normal Scan tab*: detection throttled to every 0.2s, a gold outline follows
+  the card (`OutlineTracker.normalGrace` 0.5s so one missed detection does not
+  hide it), and two consecutive steady detections (`isSteady`, tuned for 0.2s
+  spacing) lock it. Gold corner marks show while there is no outline.
+- *Quick scan* (`fastDetection`, the fan's Scan option): detection on every
+  frame, **no outline and no corner marks while searching**. The card must pass
+  the gate and stay within `SettleTracker.tolerance` (0.015 mean corner
+  movement, measured from where the window began, not frame to frame) for
+  `SettleTracker.duration` (0.3s) of elapsed time, then a sharpness check
+  (`minimumSharpness` 40, at most 8 refusals in a row). Only then is a **green
+  outline drawn at the locked quad**, held until `greenHold` (0.35s) after the
+  lock (OCR time counts towards it, so JS gets `onCardRead` no sooner), after
+  which the outline is hidden and JS opens the details. The hold is native, so
+  the camera view stays mounted and active until the read is delivered; lifting
+  the finger first cancels it (the delivery is dropped once `active` is false).
+
+Thresholds are constants at the top of the Swift files; they are ported from the
+Flutter original or estimated, and the quick-scan ones (settle, sharpness) are
+NOT yet measured on a phone. `packages/upkeep-vision/scripts/check-full-card-gate.swift`
+runs the gate, tracker and settle logic offline (usage in its header);
+`validate-detection.swift` still calls the ungated `bestCard` on stills, so it
+reports the best rectangle and OCR, not whether the full-card gate would pass.
 
 **JS side** (`apps/mobile/src/screens/ScanScreen.tsx`). `onCardRead` feeds the
 text to `ScanPipeline.matchEvidence` (`packages/scan-core/src/pipeline.ts`,
