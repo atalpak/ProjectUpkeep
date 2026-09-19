@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Condition, Finish } from '@upkeep/scan-core';
@@ -40,7 +40,12 @@ export function DeckDetailScreen({ route, navigation }: NativeStackScreenProps<D
   const [manageError, setManageError] = useState('');
   const [notice, setNotice] = useState('');
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => {
+    // Reset on mount as well as clear on unmount, like AppProvider: a remount
+    // that reuses the ref would otherwise stay "dead" and drop every result.
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   async function saveDetails(input: { name: string; format: string; tags: string[]; notes: string }) {
     await updateDeckDetails(userId!, deckId, input);
@@ -75,7 +80,7 @@ export function DeckDetailScreen({ route, navigation }: NativeStackScreenProps<D
     ]);
   }
 
-  async function load(silent = false) {
+  const load = useCallback(async (silent = false) => {
     if (!userId) return;
     if (!silent) setLoading(true);
     setError(''); setAuthError(false);
@@ -90,8 +95,8 @@ export function DeckDetailScreen({ route, navigation }: NativeStackScreenProps<D
     } finally {
       if (alive.current) setLoading(false);
     }
-  }
-  useEffect(() => { void load(); }, [userId, deckId]);
+  }, [userId, deckId]);
+  useEffect(() => { void load(); }, [load]);
 
   const moveDisabled = !!pendingMove || moveBusy;
 
@@ -248,7 +253,12 @@ function SleevePicker({ userId, deckId, entry, mode, onMove, onClose, onMoved }:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => {
+    // Reset on mount as well as clear on unmount, like AppProvider: a remount
+    // that reuses the ref would otherwise stay "dead" and drop every result.
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

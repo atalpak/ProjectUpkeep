@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { DefaultTheme, NavigationContainer, createNavigationContainerRef, type NavigationState, type PartialState } from '@react-navigation/native';
@@ -70,6 +70,9 @@ export default function App() {
   // Dashboard is the initial tab, and onStateChange does not fire for the initial
   // state, so this starts where the navigator actually starts.
   const [page, setPage] = useState<PageId>('Dashboard');
+  // Stable identity: SignedInTabs runs this from a mount effect, so an inline
+  // arrow (new every render) would either re-fire it or need the dep ignored.
+  const onNavigatorMounted = useCallback(() => setPage('Dashboard'), []);
   return (
     <SafeAreaProvider>
       <PreferencesProvider>
@@ -80,7 +83,7 @@ export default function App() {
             {/* Inside the providers so the fallback can be themed; a crash anywhere
                 below shows "Something went wrong" instead of a white screen. */}
             <ErrorBoundary context="app.shell">
-              <RootShell fontsLoaded={fonts} page={page} onNavigatorMounted={() => setPage('Dashboard')} />
+              <RootShell fontsLoaded={fonts} page={page} onNavigatorMounted={onNavigatorMounted} />
             </ErrorBoundary>
           </ThemedNavigation>
         </AppProvider>
@@ -178,7 +181,7 @@ function SignedInTabs({ onMounted }: { onMounted(): void }) {
   // A fresh navigator always starts on Dashboard, but onStateChange does not fire
   // for its initial state -- without this, signing out and back in leaves
   // the tracked page at whatever the last one was.
-  useEffect(() => { onMounted(); }, []);
+  useEffect(() => { onMounted(); }, [onMounted]);
   return (
     <Tab.Navigator
       id="RootTabs"
