@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, bestGuessPrinting, artCandidates, artSwitchTarget, artSwitchNow, usableArt, withTimeout, ART_CONFIDENCE_RATIO, type CatalogBundle, type Printing } from '../src';
+import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, bestGuessPrinting, artCandidates, artSwitchTarget, artSwitchNow, usableArt, withTimeout, regularFirst, ART_CONFIDENCE_RATIO, ART_OVERRIDE_FOOTER_RATIO, type CatalogBundle, type Printing } from '../src';
 
 const oracle = '00000000-0000-4000-8000-00000000aaaa';
 const mk = (n: number, setCode: string, collectorNumber: string, extra: Partial<Printing> = {}): Printing => ({
@@ -57,9 +57,10 @@ test('rankPrintings: evidence that fits nothing drops nothing, and a set with tw
   assert.equal(two.printingConfidence, 'none');
 });
 
-test('rankPrintings: ties break newest release first, then set and number, not by id', () => {
+test('rankPrintings: ties prefer the regular print (plain number, nonfoil), then newest, not by id', () => {
   const ordered = rankPrintings(all, {}).ranked.map(r => r.printing.setCode);
-  assert.deepEqual(ordered, ['fdn', 'slz', 'm19', 'pm19']);
+  // slz and m19 are ordinary nonfoil prints (newest first); fdn is foil-only; pm19 is a promo-numbered "185s".
+  assert.deepEqual(ordered, ['slz', 'm19', 'fdn', 'pm19']);
   // Same input in any order gives the same order.
   assert.deepEqual(rankPrintings([...all].reverse(), {}).ranked.map(r => r.printing.setCode), ordered);
   // Rarity letter breaks a tie among otherwise equal fits.
@@ -77,14 +78,15 @@ test('CardIndex: printingsOf and setCodes expose what the footer step needs; pip
   const top = pipeline.matchEvidence({ lines: ['Gigantosaurus'], printingLines: ['0718', 'FDN • EN'] }).candidates[0]!;
   assert.equal(top.printing.id, fdn.id);
   assert.equal(top.evidence, 'printing');
-  // Name only: no longer a random printing but the newest, deterministically.
-  assert.equal(pipeline.matchEvidence({ lines: ['Gigantosaurus'] }).candidates[0]!.printing.id, fdn.id);
+  // Name only: no longer a random printing but the regular one, deterministically.
+  assert.equal(pipeline.matchEvidence({ lines: ['Gigantosaurus'] }).candidates[0]!.printing.id, slz.id);
 });
 
 test('artVerdict: clear winner is confident, a tie (identical art) never is, junk gives null', () => {
   assert.deepEqual(artVerdict({ ids: ['a', 'b', 'c'], distances: [0.2, 0.5, 0.6] }), { bestId: 'a', confident: true });
   assert.equal(artVerdict({ ids: ['a', 'b'], distances: [0.3, 0.3] })!.confident, false);
   assert.equal(artVerdict({ ids: ['a', 'b'], distances: [0.3, 0.3 * ART_CONFIDENCE_RATIO + 0.001] })!.confident, false);
+  assert.equal(artVerdict({ ids: ['a', 'b'], distances: [0.28, 0.3] })!.confident, false, 'a 7% margin is what glare produces; it must not count');
   assert.equal(artVerdict({ ids: [], distances: [] }), null);
   assert.equal(artVerdict({ ids: ['a'], distances: [NaN] }), null);
   assert.equal(artVerdict({ ids: ['a', 'b'], distances: [1] }), null);
@@ -161,4 +163,63 @@ test('artSwitchNow: a stale card, a made choice or an open form all leave the se
   assert.equal(artSwitchNow({ ...base, adding: true }), null, 'add form open');
   assert.equal(artSwitchNow({ ...base, art: art([[fdn, 0.3], [m19, 0.31], [slz, 0.7], [promo, 0.65]]) }), null, 'not confident');
   assert.equal(artSwitchNow({ ...base, all: [], art: null }), null);
+});
+
+// The real shape of the Bloodline Bidding report: ECL #0091 scanned, ECL #0385 opened.
+const eclOracle = '00000000-0000-4000-8000-00000000bbbb';
+const ecl = (n: number, setCode: string, collectorNumber: string, finishes: Printing['finishes'], releasedAt = '2026-01-23'): Printing => ({
+  id: `00000000-0000-4000-8000-0000000001${String(n).padStart(2, '0')}`, oracleId: eclOracle, name: 'Bloodline Bidding', aliases: [], setCode, collectorNumber,
+  finishes, language: 'en', imageUri: `https://img.example/ecl${n}.jpg`, releasedAt, rarity: 'rare',
+});
+const bb91 = ecl(1, 'ecl', '91', ['nonfoil', 'foil']);
+const bb359 = ecl(2, 'ecl', '359', ['nonfoil', 'foil']);
+const bb385 = ecl(3, 'ecl', '385', ['foil']);
+const bb395 = ecl(4, 'ecl', '395', ['foil']);
+const bbPromo = ecl(5, 'pecl', '91p', ['nonfoil', 'foil'], '2026-02-06');
+const bidding = [bb385, bb395, bbPromo, bb359, bb91];
+
+test('regularFirst: the ordinary print of a set wins whatever order the database returned', () => {
+  for (const order of [bidding, [...bidding].reverse(), [bb359, bb91, bbPromo, bb395, bb385]]) {
+    assert.deepEqual([...order].sort(regularFirst).map(p => p.collectorNumber), ['91', '359', '385', '395', '91p']);
+  }
+});
+
+test('regularFirst: a footer that failed to read opens the regular print, not a foil-only showcase', () => {
+  // No footer evidence at all, and set-only evidence (bySet has four printings): both fall back to the ordering.
+  assert.equal(rankPrintings(bidding, {}).ranked[0]!.printing.id, bb91.id);
+  assert.equal(rankPrintings(bidding, { setCode: 'ecl' }).ranked[0]!.printing.id, bb91.id);
+  assert.equal(rankPrintings(bidding, { setCode: 'ecl' }).printingConfidence, 'none');
+  assert.equal(bestGuessPrinting(rankPrintings(bidding, {})), null, 'and nothing pretends to be a guess');
+  // A garbled number reading "385" is still a footer match, and is honoured as evidence.
+  assert.equal(rankPrintings(bidding, { setCode: 'ecl', collectorNumber: '385' }).ranked[0]!.printing.id, bb385.id);
+});
+
+test('regularFirst: the clean footer of the report resolves exactly, and the promo number is not the same as 91', () => {
+  const hints = printingHints(['0091', 'ECL • EN'], new Set(['ecl', 'pecl']));
+  assert.deepEqual(hints, { setCode: 'ECL', collectorNumber: '0091' });
+  const ranking = rankPrintings(bidding, hints);
+  assert.equal(ranking.printingConfidence, 'exact');
+  assert.equal(ranking.ranked[0]!.printing.id, bb91.id);
+  assert.equal(rankPrintings(bidding, { collectorNumber: '0091' }).printingConfidence, 'partial', '91p is a different number from 91');
+});
+
+test('regularFirst: across sets the newer release wins; number only ranks within the same release', () => {
+  const older = mk(20, 'aaa', '5', { releasedAt: '2019-01-01' });
+  const newer = mk(21, 'zzz', '400', { releasedAt: '2025-01-01' });
+  assert.equal([older, newer].sort(regularFirst)[0]!.id, newer.id);
+  // Structural: a mobile-shaped printing (readonly finishes, null release date) works too.
+  const a = { id: 'a', setCode: 'x', collectorNumber: '2', finishes: ['nonfoil'] as const, releasedAt: null };
+  const b = { id: 'b', setCode: 'x', collectorNumber: '1', finishes: ['nonfoil'] as const, releasedAt: null };
+  assert.equal([a, b].sort(regularFirst)[0]!.id, 'b');
+});
+
+test('art switch: a 0.8 ratio no longer switches, and a footer-named printing needs an overwhelming picture', () => {
+  assert.ok(ART_CONFIDENCE_RATIO <= 0.75 && ART_OVERRIDE_FOOTER_RATIO < ART_CONFIDENCE_RATIO);
+  const distances = (best: number) => art(bidding.map((p, i) => [p, i === 0 ? best : 1] as [Printing, number]));
+  assert.equal(artSwitchTarget(bidding, distances(0.8)), null, 'only 20% closer: not decisive');
+  assert.equal(artSwitchTarget(bidding, distances(0.7))?.id, bb385.id, 'a quarter closer is decisive');
+  const base = { name: 'Bloodline Bidding', artName: 'Bloodline Bidding', all: bidding, userPicked: false, adding: false };
+  assert.equal(artSwitchNow({ ...base, art: distances(0.7) })?.id, bb385.id, 'no footer: the default may be overruled');
+  assert.equal(artSwitchNow({ ...base, art: distances(0.7), footerGuess: true }), null, 'a footer-named printing is not overruled by a 30% margin');
+  assert.equal(artSwitchNow({ ...base, art: distances(0.4), footerGuess: true })?.id, bb385.id, 'but is by an overwhelming one');
 });

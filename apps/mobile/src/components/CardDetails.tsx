@@ -182,14 +182,14 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
     const target = artSwitchNow({
       name, artName: art && art.scan === scan ? art.name : null,
       all: listState === 'ready' ? printings.map(toPrinting) : [], art: art?.result ?? null,
-      userPicked: userPicked.current, adding,
+      userPicked: userPicked.current, adding, footerGuess: !!printingId,
     });
     if (!name || !target || target.id === selectedRef.current) return;
     select(target.id);
     setFaceIndex(0); setPreviewFoil(false); setExtras({ state: 'idle' });
     setArtNote(`Matched to ${target.setCode.toUpperCase()} #${target.collectorNumber} by artwork`);
     void refreshUserData(name, printings.map(p => p.id), target.id);
-  }, [art, listState, printings, adding, name, scan, select, refreshUserData]);
+  }, [art, listState, printings, adding, name, scan, printingId, select, refreshUserData]);
 
   function startAdding() {
     if (!selected) return;
@@ -266,8 +266,10 @@ export function CardDetails({ name, printingId, note, scan, ownedFinish, onClose
 
   const isFoilFinish = (f?: string | null) => f === 'foil' || f === 'etched';
   // Foil shows for a copy you own in foil, while adding a foil copy, or when asked to preview.
-  const foilShown = isFoilFinish(ownedFinish) || (adding && isFoilFinish(finish)) || previewFoil;
-  const canPreviewFoil = !!selected && !isFoilFinish(ownedFinish) && !adding && selected.finishes.some(f => isFoilFinish(f));
+  // A foil-only printing has no plain version to compare against, so it shows foil by default.
+  const foilOnly = !!selected && selected.finishes.length > 0 && selected.finishes.every(f => isFoilFinish(f));
+  const foilShown = isFoilFinish(ownedFinish) || (adding && isFoilFinish(finish)) || previewFoil || foilOnly;
+  const canPreviewFoil = !!selected && !isFoilFinish(ownedFinish) && !adding && !foilOnly && selected.finishes.some(f => isFoilFinish(f));
 
   const imageWidth = Math.min(width - space.xxl * 2, 340);
   const variants = selected ? priceVariants(selected) : [];

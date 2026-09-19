@@ -1,5 +1,5 @@
 import { FINISHES, type Candidate, type CatalogBundle, type Printing } from './types';
-import { canonicalNumber } from './printing';
+import { canonicalNumber, regularFirst } from './printing';
 
 export function normalizeName(value: string): string {
   return value.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en').replace(/[^\p{L}\p{N}]/gu, '');
@@ -106,7 +106,7 @@ export class CardIndex {
       if (!results.has(id) || results.get(id)!.score < score) results.set(id, candidate);
     }
     return [...results.values()].sort((a,b) => Number(b.evidence === 'printing') - Number(a.evidence === 'printing') ||
-      b.score - a.score || a.printing.name.localeCompare(b.printing.name) || newestFirst(a.printing, b.printing));
+      b.score - a.score || a.printing.name.localeCompare(b.printing.name) || regularFirst(a.printing, b.printing));
   }
 
   search(text: string, hints: { setCode?: string; collectorNumber?: string } = {}, filter: { setCode?: string; collectorNumber?: string } = {}, limit = 50): Candidate[] {
@@ -122,15 +122,4 @@ export class CardIndex {
     const all = this.rank(text, hints, filter);
     return { results: all.slice(0, Math.max(1, Math.min(200, limit))), total: all.length };
   }
-}
-
-/**
- * Between printings of equal name and score: newest release, then set and
- * number. This replaced a compare on the internal UUID, which made the printing
- * a name-only match landed on effectively random. The id only separates rows
- * that are identical in every visible respect.
- */
-function newestFirst(a: Printing, b: Printing): number {
-  return (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '') || a.setCode.localeCompare(b.setCode) ||
-    canonicalNumber(a.collectorNumber).localeCompare(canonicalNumber(b.collectorNumber), 'en', { numeric: true }) || a.id.localeCompare(b.id);
 }

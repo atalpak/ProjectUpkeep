@@ -1,5 +1,6 @@
 // Unit checks for the pure helpers in ios/UpkeepCardVision.swift: the
-// full-card gate, the outline tracker's hysteresis and the sharpness measure.
+// full-card gate, the outline tracker's hysteresis, quick scan's burst capture
+// rule, the coaching-status tracker and the sharpness measure.
 // Compiles the SHIPPED file, no camera and no Expo needed:
 //
 //   TMP=$(mktemp -d); cp packages/upkeep-vision/scripts/check-full-card-gate.swift "$TMP/main.swift"
@@ -84,46 +85,101 @@ var gone = OutlineTracker()
 _ = gone.observe(a, at: 0.0); _ = gone.observe(a, at: 0.2)
 expect(gone.observe(nil, at: 0.75) == nil, "normal cadence: gone after the 0.5s grace")
 
-// Settle: quick scan's elapsed-time hold-still rule at ~30fps.
-var settle = SettleTracker()
-var settled = false
-for i in 0..<8 { settled = settle.observe(quad(cx: 0.5), at: Double(i) * 0.033) }
-expect(!settled, "eight steady frames (0.23s) are not yet settled")
-for i in 8..<12 { settled = settle.observe(quad(cx: 0.5 + 0.002), at: Double(i) * 0.033) }
-expect(settled, "steady for 0.3s with jitter settles")
-expect(!settle.observe(quad(cx: 0.55), at: 0.40), "a jump restarts the wait")
-var creeping = SettleTracker()
-var creepSettled = false
-for i in 0..<30 { creepSettled = creeping.observe(quad(cx: 0.4 + Double(i) * 0.02), at: Double(i) * 0.033) }
-expect(!creepSettled, "a card sliding briskly (small per frame, large overall) does not settle")
-// Fallback: a hand that sways past the tight tolerance still locks eventually.
-var sway = SettleTracker()
-var swaySettledAt: Double?
-for i in 0..<120 {
-  let t = Double(i) * 0.033
-  let x = 0.5 + 0.02 * sin(t * 2 * .pi * 2)
-  if sway.observe(quad(cx: CGFloat(x)), at: t), swaySettledAt == nil { swaySettledAt = t }
+// Burst: quick scan's hand-held capture at ~30fps. `run` feeds one detection per
+// frame and one sharpness per SAMPLE frame, and reports when it locked. A nil
+// position is a missed detection.
+struct Lock { var at: Double; var sharpness: Double; var sweepSeen: Bool }
+func run(frames: Int, position: (Int) -> Double?, sharpness: (Int) -> Double) -> Lock? {
+  var burst = BurstTracker()
+  var sweepSeen = false
+  for i in 0..<frames {
+    let t = Double(i) * 0.033
+    let corners = position(i).map { quad(cx: CGFloat($0)) }
+    let step = burst.observe(corners, at: t)
+    if step == .sweeping { sweepSeen = true }
+    guard step == .sample else { continue }
+    let sharp = sharpness(i)
+    let crop = fakeCrop(sharp)
+    // Mirrors readQuick: report the crop that would actually be committed.
+    switch burst.offer(sharpness: sharp, crop: crop, at: t) {
+    case .store, .skip: break
+    case .lockCurrent: return Lock(at: t, sharpness: Double(crop.width - 1), sweepSeen: sweepSeen)
+    case .lockBest:
+      let read = burst.bestCrop ?? crop
+      return Lock(at: t, sharpness: Double(read.width - 1), sweepSeen: sweepSeen)
+    }
+  }
+  return nil
 }
-print("sway settled at \(swaySettledAt.map { String($0) } ?? "never")")
-expect((swaySettledAt ?? 0) >= SettleTracker.fallbackAfter, "a swaying card does not settle before the fallback")
-expect(swaySettledAt != nil, "a swaying card settles once the fallback relaxes the tolerance")
-var fastMover = SettleTracker()
-var fastSettled = false
-for i in 0..<150 {
-  let x = 0.2 + (Double(i) * 0.02).truncatingRemainder(dividingBy: 0.6)
-  if fastMover.observe(quad(cx: CGFloat(x)), at: Double(i) * 0.033) { fastSettled = true }
+// A stand-in crop whose width encodes its sharpness, so the frame the view would
+// read (`lockBest` -> `burst.bestCrop`) can be told apart from the last score.
+func fakeCrop(_ sharpness: Double) -> CGImage {
+  let context = CGContext(data: nil, width: Int(sharpness) + 1, height: 1, bitsPerComponent: 8, bytesPerRow: 0,
+                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+  return context.makeImage()!
 }
-expect(!fastSettled, "a card moving fast never settles, fallback included")
-var drift = SettleTracker()
-var driftSettled = false
-for i in 0..<30 { driftSettled = drift.observe(quad(cx: 0.4 + Double(i) * 0.0005), at: Double(i) * 0.033) }
-expect(driftSettled, "a very slow drift settles (measured against a moving average)")
-var gap = SettleTracker()
-_ = gap.observe(quad(), at: 0.0)
-expect(!gap.observe(quad(), at: 0.5), "a detection gap restarts the wait")
-var lost = SettleTracker()
-_ = lost.observe(quad(), at: 0.0); _ = lost.observe(nil, at: 0.2)
-expect(!lost.observe(quad(), at: 0.35), "a missing detection restarts the wait")
+// Deterministic hand tremor: mean corner movement between frames stays ~0.02-0.04.
+func tremor(_ i: Int) -> Double { 0.5 + 0.02 * sin(Double(i) * 2.3) + 0.012 * cos(Double(i) * 5.1) }
+
+let handHeld = run(frames: 60, position: tremor, sharpness: { $0 < 4 ? 22 : 55 })
+print("hand-held locked at \(handHeld.map { String($0.at) } ?? "never")")
+expect(handHeld != nil && handHeld!.at < 0.7, "a jittery hand-held card locks in under 0.7s once a frame is sharp")
+expect(handHeld?.sweepSeen == false, "hand tremor is never mistaken for a sweep")
+let instant = run(frames: 30, position: { _ in 0.5 }, sharpness: { _ in 80 })
+expect(instant != nil && instant!.at <= 0.1, "a sharp still card locks as soon as the 3-detection streak is met")
+let sweepStream = run(frames: 150, position: { 0.2 + (Double($0) * 0.06).truncatingRemainder(dividingBy: 0.6) }, sharpness: { _ in 80 })
+expect(sweepStream == nil, "a card swept through the frame (0.06 per detection) never locks, even with sharp frames")
+let slowSweep = run(frames: 20, position: { 0.2 + Double($0) * 0.045 }, sharpness: { _ in 80 })
+expect(slowSweep != nil, "movement under the loose 0.05 tolerance still counts as held")
+// Blurry-only: nothing clears the threshold, so the best frame is read at the window/timeout.
+let blurry = run(frames: 120, position: tremor, sharpness: { 10.0 + Double(($0 * 7) % 15) })
+print("blurry-only locked at \(blurry.map { String($0.at) } ?? "never") with sharpness \(blurry?.sharpness ?? 0)")
+expect(blurry != nil && blurry!.at >= BurstTracker.earlyWindow && blurry!.at < BurstTracker.earlyWindow + 0.1, "acceptably blurry frames (best >= half the threshold) are read at the early window")
+expect(blurry != nil && blurry!.sharpness >= 20, "the frame read is the sharpest seen, not the last")
+let hopeless = run(frames: 120, position: tremor, sharpness: { _ in 8 })
+print("hopeless locked at \(hopeless.map { String($0.at) } ?? "never")")
+expect(hopeless != nil && hopeless!.at >= BurstTracker.fallbackAfter && hopeless!.at < BurstTracker.fallbackAfter + 0.1, "a stream that never sharpens is read anyway at the 1.2s timeout")
+let skipped = run(frames: 60, position: { $0 % 7 == 3 ? nil : tremor($0) }, sharpness: { $0 < 12 ? 20 : 60 })
+expect(skipped != nil && skipped!.at < 0.7, "an occasional missed detection does not restart the burst")
+// Frame 11 is the best (30); every later frame is worse (25) and every 4th
+// detection is missed. What is read at the early window must be the 30 frame.
+let retained = run(frames: 120, position: { $0 % 4 == 0 ? nil : tremor($0) }, sharpness: { $0 == 11 ? 30 : ($0 < 11 ? 12 : 25) })
+print("retained read sharpness \(retained?.sharpness ?? 0) at \(retained.map { String($0.at) } ?? "never")")
+expect(retained != nil && retained!.sharpness == 30, "missed detections keep the best crop: the 30 frame is read, not the later 25 or an earlier worse one")
+var droppedBurst = BurstTracker()
+for i in 0..<4 { _ = droppedBurst.observe(quad(), at: Double(i) * 0.03) }
+_ = droppedBurst.offer(sharpness: 30, crop: fakeCrop(30), at: 0.12)
+_ = droppedBurst.observe(nil, at: 0.2)
+expect(droppedBurst.bestCrop != nil, "a short gap keeps the best crop")
+_ = droppedBurst.observe(nil, at: 0.5)
+expect(droppedBurst.bestCrop == nil, "a gap over 0.25s drops the best crop together with its score")
+var sweptCrop = BurstTracker()
+for i in 0..<4 { _ = sweptCrop.observe(quad(cx: 0.3), at: Double(i) * 0.03) }
+_ = sweptCrop.offer(sharpness: 30, crop: fakeCrop(30), at: 0.12)
+_ = sweptCrop.observe(quad(cx: 0.5), at: 0.15)
+expect(sweptCrop.bestCrop == nil, "a sweep drops the best crop")
+var gapBurst = BurstTracker()
+_ = gapBurst.observe(quad(), at: 0); _ = gapBurst.observe(quad(), at: 0.03)
+expect(gapBurst.observe(quad(), at: 0.6) == .waiting, "a gap over 0.25s restarts the streak")
+var lostBurst = BurstTracker()
+_ = lostBurst.observe(quad(), at: 0); _ = lostBurst.observe(quad(), at: 0.03)
+_ = lostBurst.observe(nil, at: 0.5)
+expect(lostBurst.observe(quad(), at: 0.53) == .waiting, "a long absence restarts the streak")
+var swept = BurstTracker()
+_ = swept.observe(quad(cx: 0.3), at: 0); _ = swept.observe(quad(cx: 0.3), at: 0.03); _ = swept.observe(quad(cx: 0.3), at: 0.06)
+expect(swept.observe(quad(cx: 0.4), at: 0.09) == .sweeping, "a 0.1 jump mid-streak is a sweep and restarts it")
+expect(swept.observe(quad(cx: 0.4), at: 0.12) == .waiting, "the streak has to be rebuilt after a sweep")
+
+// Status: sent only on change, and searching only after a grace of nothing.
+var status = ScanStatusTracker()
+expect(status.observe(.searching, at: 0) == nil, "starts on searching, nothing to send")
+expect(status.observe(.far, at: 0.1) == .far, "far is sent at once")
+expect(status.observe(.far, at: 0.13) == nil, "no repeat")
+expect(status.observe(.searching, at: 0.16) == nil, "one empty frame does not clear a hint")
+expect(status.observe(.far, at: 0.20) == nil, "and the far hint is still current")
+expect(status.observe(.searching, at: 0.30) == nil && status.observe(.searching, at: 0.62) == .searching, "0.3s of nothing returns to searching")
+expect(status.observe(nil, at: 0.65) == nil, "no opinion changes nothing")
+expect(status.observe(.reading, at: 0.7) == .reading, "reading is sent at once")
 
 var moving = OutlineTracker()
 _ = moving.observe(quad(cx: 0.4), at: 0); _ = moving.observe(quad(cx: 0.4), at: 0.03)
@@ -152,5 +208,16 @@ let sharpScore = UpkeepCardVision.sharpness(of: sharpImage)
 let blurScore = UpkeepCardVision.sharpness(of: blurredImage)
 print("sharp \(sharpScore) blurred \(blurScore)")
 expect(sharpScore > 40 && blurScore < 40 && sharpScore > blurScore * 20, "sharp scores above 40, blurred below")
+
+// Footer evidence: the second OCR pass must fire when the number was read but
+// the set was not, and must not be fooled by artist or copyright lines.
+expect(UpkeepCardText.hasFooterEvidence(["FDN • EN", "0696/271 R"]), "set and number both read: no second pass")
+expect(UpkeepCardText.hasFooterEvidence(["0696 R", "FDN • EN"]), "a set on a bullet/language line counts")
+expect(!UpkeepCardText.hasFooterEvidence(["0696 R", "Illus. Kev Walker"]), "number without a set triggers the second pass; artist line ignored")
+expect(!UpkeepCardText.hasFooterEvidence(["0696", "KEV WALKER"]), "an artist name with no marker is not a set code")
+expect(!UpkeepCardText.hasFooterEvidence(["0696 EN"]), "a language code alone is not a set code")
+expect(!UpkeepCardText.hasFooterEvidence(["FDN • EN"]), "set without a number triggers the second pass")
+expect(!UpkeepCardText.hasFooterEvidence(["0696 R", "TM & © 2025 Wizards of the Coast"]), "copyright line is skipped")
+expect(!UpkeepCardText.hasFooterEvidence(["0O96 • EN"]), "a digit misread as a letter is not a set code")
 
 exit(failures == 0 ? 0 : 1)

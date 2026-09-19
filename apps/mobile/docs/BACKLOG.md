@@ -43,12 +43,22 @@ is the live list.
   step; a sharper still-photo capture for the footer (step 3); printing-type flags
   in the catalog (step 5, needs a migration); the 20-30 real-card test set (step 6),
   which is what turns the accuracy script's sample numbers into evidence.
-- Quick scan capture feel (2026-09-19 owner feedback, changes unverified on a device):
-  no outline while searching, green outline on capture held 0.35s, must settle 0.3s
-  (`SettleTracker` in `UpkeepCardVision.swift`), box 320x440. Tune settle
-  tolerance/duration, `minimumSharpness` and the full-card area minimum (0.18) from
-  real use. The frame is detected whole, so a card can lock while partly outside the
-  visible (cropped) box.
+- Quick scan capture feel (2026-09-19 owner feedback, all unverified on a device): built
+  for a card held in the HAND. No outline while searching; once a card has been a
+  valid full card for 3 detections and is not being swept through (`BurstTracker`,
+  0.05 loose movement), every frame is straightened and the first with sharpness >= 40
+  is read, else the sharpest at 0.7s (if >= 20) or at 1.2s regardless; green outline
+  held 0.35s; box 320x440; a live coaching line at the TOP of the box (`onScanStatus`,
+  old builds keep the static hint). Tune from real use: `BurstTracker` constants,
+  `minimumSharpness`, the area floor (0.18), `STATUS_MIN_MS` (400). The frame is
+  detected whole, so a card can lock while partly outside the visible (cropped) box.
+- Wrong printing on quick scan (Bloodline Bidding ECL #91 opened ECL #385): the
+  default is now the regular print (`regularFirst`), the picture switch needs a
+  0.75 ratio (0.5 over a footer guess), the footer is read from a 4K session and a
+  footer-only second OCR pass, and the sheet says when no footer named the printing.
+  Unverified on a device: whether the footer now reads (4K thermals/frame rate are
+  unmeasured too), and the ratios. The web wish-list default (`wants/actions.ts`)
+  has the same set-type-only tie and was left alone.
 - Quick scan (hold Scan, slide to the Scan option): tune the "how sure" cutoff
   (`QUICK_MIN_SCORE` in `packages/scan-core/src/band.ts`) against real cards, and
   check the lock-on speed in poor light.
@@ -77,6 +87,14 @@ is the live list.
 - `expo-sensors` (foil tilt) was added after the last phone build. The tilt only
   works once the phone is rebuilt; until then the foil shows and responds to a
   finger drag.
+
+## Scanner tuning on the phone
+
+- Recalibrate the sharpness thresholds (`BurstTracker.minimumSharpness` and the
+  early-window fraction) for the 4K straightened crop; they were estimated on
+  smaller images and are not yet measured on a device.
+- If the phone runs hot in quick scan, straighten and score only every Nth
+  sample frame instead of every one.
 
 ## App shell and polish
 

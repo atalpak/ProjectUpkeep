@@ -112,9 +112,38 @@ export interface PrintingRanking {
   printingConfidence: PrintingConfidence;
 }
 
-/** Newest first, then a fixed order by set and number. The id only decides between identical rows. */
-function tieOrder(a: Printing, b: Printing): number {
-  return (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '') || a.setCode.localeCompare(b.setCode) ||
+/**
+ * The printing to prefer when nothing else separates two of a card. Reads as
+ * "the regular print": a plain collector number (no promo suffix like "91p" or
+ * a star), one that can be had nonfoil, the newest release, then the LOWEST
+ * number, then set code and id so the order is total and input-order free.
+ *
+ * Why this is not just "newest": a card's printings inside ONE set share a
+ * release date, and the tie used to fall through to an arbitrary order. That is
+ * how a footer read that failed opened Bloodline Bidding on ECL #385 (a
+ * foil-only showcase treatment) instead of ECL #91, the ordinary card. Within a
+ * set the low numbers are the regular frame and the high ones are showcase,
+ * extended-art and borderless treatments, so number ascending is the right
+ * proxy. Across sets a number means nothing, so the release date decides first.
+ * Structural on purpose: scan-core's `Printing` and the mobile app's
+ * `CardPrinting` both satisfy it, so one rule serves both.
+ */
+export interface RegularOrderable {
+  id: string;
+  setCode: string;
+  collectorNumber: string;
+  finishes: readonly string[];
+  releasedAt?: string | null;
+}
+
+export function regularFirst(a: RegularOrderable, b: RegularOrderable): number {
+  const plain = (p: RegularOrderable) => /^\d+$/.test(canonicalNumber(p.collectorNumber));
+  const nonfoil = (p: RegularOrderable) => p.finishes.includes('nonfoil');
+  const number = (p: RegularOrderable) => parseInt(canonicalNumber(p.collectorNumber), 10);
+  return Number(plain(b)) - Number(plain(a)) || Number(nonfoil(b)) - Number(nonfoil(a)) ||
+    (b.releasedAt ?? '').localeCompare(a.releasedAt ?? '') ||
+    (plain(a) && plain(b) ? number(a) - number(b) : 0) ||
+    a.setCode.localeCompare(b.setCode) ||
     canonicalNumber(a.collectorNumber).localeCompare(canonicalNumber(b.collectorNumber), 'en', { numeric: true }) || a.id.localeCompare(b.id);
 }
 
@@ -134,7 +163,7 @@ export function rankPrintings(printings: Printing[], hints: PrintingHints): Prin
     matchedRarity: !!hints.rarity && hints.rarity === printing.rarity,
   }));
   const weight = (r: RankedPrinting) => (r.matchedSet && r.matchedNumber ? 8 : 0) + (r.matchedNumber ? 4 : 0) + (r.matchedSet ? 2 : 0) + (r.matchedRarity ? 1 : 0);
-  ranked.sort((a, b) => weight(b) - weight(a) || tieOrder(a.printing, b.printing));
+  ranked.sort((a, b) => weight(b) - weight(a) || regularFirst(a.printing, b.printing));
 
   const both = ranked.filter(r => r.matchedSet && r.matchedNumber);
   const byNumber = ranked.filter(r => r.matchedNumber);
@@ -146,8 +175,23 @@ export function rankPrintings(printings: Printing[], hints: PrintingHints): Prin
   return { ranked, printingConfidence };
 }
 
-/** How much closer the best picture must be than the runner-up to count as a clear winner. Ported from the native compareArtwork's 0.90. */
-export const ART_CONFIDENCE_RATIO = 0.9;
+/**
+ * How much closer the best picture must be than the runner-up (best < runner-up
+ * x ratio) to count as a decisive winner. It was 0.90, ported from the native
+ * compareArtwork, and 0.90 is a 10% margin between two whole-card feature
+ * prints, which glare, a sleeve or a thumb can produce by themselves: it is what
+ * moved a Bloodline Bidding scan (ECL #91) onto a different-looking printing
+ * (ECL #385). 0.75 asks for a quarter of the runner-up's distance to be
+ * closed. Still an estimate, not measured on real cards.
+ */
+export const ART_CONFIDENCE_RATIO = 0.75;
+/**
+ * The stricter ratio when the selection came from the footer text, not from the
+ * arbitrary default. A footer that named a printing (even only its number) is
+ * real evidence, so the picture may overrule it only when it is overwhelming:
+ * best under HALF the runner-up's distance.
+ */
+export const ART_OVERRIDE_FOOTER_RATIO = 0.5;
 /** Most references worth downloading and comparing for one scan. */
 export const MAX_ART_CANDIDATES = 24;
 
@@ -164,12 +208,12 @@ export interface ArtResult { ids: string[]; distances: number[] }
  * printings with the same art are equally close, so they can never be
  * "confident": only the footer can separate those.
  */
-export function artVerdict(art: ArtResult): { bestId: string; confident: boolean } | null {
+export function artVerdict(art: ArtResult, ratio = ART_CONFIDENCE_RATIO): { bestId: string; confident: boolean } | null {
   if (art.ids.length === 0 || art.ids.length !== art.distances.length || art.distances.some(d => !Number.isFinite(d) || d < 0)) return null;
   let best = 0;
   art.distances.forEach((d, i) => { if (d < art.distances[best]!) best = i; });
   const second = Math.min(...art.distances.filter((_, i) => i !== best));
-  const confident = art.ids.length === 1 || art.distances[best]! < second * ART_CONFIDENCE_RATIO;
+  const confident = art.ids.length === 1 || art.distances[best]! < second * ratio;
   return { bestId: art.ids[best]!, confident };
 }
 
@@ -220,9 +264,9 @@ export function artCandidates(ranking: PrintingRanking, max = MAX_ART_CANDIDATES
  * that was left out. Identical pictures are never confident (see `artVerdict`),
  * so a card whose printings share one image is never switched.
  */
-export function artSwitchTarget(all: Printing[], art: ArtResult | null): Printing | null {
+export function artSwitchTarget(all: Printing[], art: ArtResult | null, ratio = ART_CONFIDENCE_RATIO): Printing | null {
   if (!art || all.length < 2 || !artCoversAll(all, art)) return null;
-  const verdict = artVerdict(art);
+  const verdict = artVerdict(art, ratio);
   if (!verdict?.confident) return null;
   return all.find(p => p.id === verdict.bestId) ?? null;
 }
@@ -244,11 +288,14 @@ export function artSwitchNow(input: {
   art: ArtResult | null;
   userPicked: boolean;
   adding: boolean;
+  /** True when the open selection came from a footer match rather than the
+   *  default: the picture then needs the stricter `ART_OVERRIDE_FOOTER_RATIO`. */
+  footerGuess?: boolean;
 }): Printing | null {
-  const { name, artName, all, art, userPicked, adding } = input;
+  const { name, artName, all, art, userPicked, adding, footerGuess } = input;
   if (!name || userPicked || adding || artName !== name) return null;
   if (all.length === 0 || all.some(p => p.name !== name)) return null;
-  return artSwitchTarget(all, art);
+  return artSwitchTarget(all, art, footerGuess ? ART_OVERRIDE_FOOTER_RATIO : ART_CONFIDENCE_RATIO);
 }
 
 /**

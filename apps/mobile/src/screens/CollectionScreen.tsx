@@ -46,8 +46,8 @@ function CollectionList({ userId }: { userId: string }) {
   const focused = useIsFocused();
   const { width } = useWindowDimensions();
   const { collectionView, setCollectionView, collectionSort, setCollectionSort } = usePreferences();
-  // One motion listener shared by every foil tile, and only while the image view is showing.
-  const { tilt: foilTilt } = useFoilTilt(focused && collectionView === 'grid');
+  // One motion listener shared by every foil tile and row thumbnail, only while this tab is showing.
+  const { tilt: foilTilt } = useFoilTilt(focused && (collectionView === 'grid' || collectionView === 'list'));
   const [query, setQuery] = useState('');
   const [facets, setFacets] = useState<CollectionFilter>(EMPTY_COLLECTION_FILTER);
   const [showFilters, setShowFilters] = useState(false);
@@ -215,7 +215,10 @@ function CollectionList({ userId }: { userId: string }) {
           </Pressable>
         ) : (
           <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, details`} onPress={() => setDetails(e)} style={styles.row}>
-            {e.card_image_uri_small ? <Image source={{ uri: e.card_image_uri_small }} style={styles.thumb} /> : <View style={styles.thumb} />}
+            <View style={styles.thumb}>
+              {e.card_image_uri_small ? <Image source={{ uri: e.card_image_uri_small }} style={styles.thumbImage} /> : null}
+              {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={38} height={53} radius={4} strength={2.2} />}
+            </View>
             <View style={styles.grow}>
               <Text numberOfLines={1} style={styles.name}>{e.card_name}</Text>
               <Text numberOfLines={1} style={styles.meta}>{metaLine(e)}</Text>
@@ -256,7 +259,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   body: { ...typeTokens.bodySm, color: text.secondary },
   // Compact row: a small thumbnail, name, one line of detail, the quantity on the right.
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
-  thumb: { width: 38, height: 53, borderRadius: 4, backgroundColor: surface.sunken },
+  thumb: { width: 38, height: 53, borderRadius: 4, backgroundColor: surface.sunken, overflow: 'hidden' },
+  thumbImage: { width: 38, height: 53 },
   grow: { flex: 1, gap: 1 },
   name: { ...typeTokens.body, fontFamily: typeTokens.title.fontFamily, color: text.primary },
   meta: { ...typeTokens.label, color: text.secondary, fontFamily: typeTokens.bodySm.fontFamily },

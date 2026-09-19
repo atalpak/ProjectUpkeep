@@ -23,10 +23,13 @@ import Vision
  * consecutive steady detections lock it → straighten with the detected quad →
  * OCR title and printing bands → `onCardRead`. Quick scan (`fastDetection`)
  * detects on every frame the device can keep up with, but shows NO outline while
- * searching: the card must sit steady for `SettleTracker.duration` and pass a
- * sharpness check, and only then is a green outline drawn at the locked quad and
- * held for `greenHold` before the read is delivered, so the person sees what was
- * captured. It then refuses to read
+ * searching. It is built for a card held in the hand: once a card has been a
+ * valid full card for a few detections (and is not being swept through) every
+ * frame is straightened and its sharpness measured, the first one sharp enough is
+ * read, and failing that the sharpest seen (`BurstTracker`). Only then is a green
+ * outline drawn and held for `greenHold` before the read is delivered, so the
+ * person sees what was captured. It also reports what it sees (`onScanStatus`)
+ * so the screen can coach ("move closer"). It then refuses to read
  * again until that card has left (`framesUntilRelease` empty detections) or a
  * different card has clearly replaced it (`swapDistance`), which is what stops
  * one card held in frame from being added over and over.
@@ -36,6 +39,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   let onCardLost = EventDispatcher()
   let onOutlineChange = EventDispatcher()
   let onScannerError = EventDispatcher()
+  /// Quick scan only: `{ status: ScanStatus.rawValue }`, sent when it changes.
+  let onScanStatus = EventDispatcher()
 
   private static let detectionInterval: TimeInterval = 0.2
   private static let contrastRetryInterval: TimeInterval = 0.75
@@ -50,15 +55,14 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   /// from the lock, so OCR time (~0.3s) is part of the hold rather than added
   /// to it; a read that finishes early waits, a slow one is not delayed.
   private static let greenHold: TimeInterval = 0.35
-  /// Quick scan: variance of the Laplacian (UpkeepCardVision.sharpness) below
-  /// which the straightened crop is treated as motion blur or missed focus and
-  /// the read waits for the next frame. Estimated, not measured on a phone;
-  /// tune it from real cards.
-  private static let minimumSharpness = 40.0
-  /// A flat card (black-bordered, plain art) can score low while perfectly
-  /// sharp. After this many refused frames in a row the read goes ahead, so
-  /// the sharpness check can delay a scan but never prevent one.
-  private static let maxBlurSkips = 8
+  /// Quick scan captures from a 4K session when the device offers one, and runs
+  /// rectangle detection on a copy scaled down to this many pixels on its long
+  /// side (about what the 1080p session gave, so detection cost and the tuned
+  /// thresholds are unchanged). The straighten and OCR use the full-resolution
+  /// buffer: the set and collector number are the smallest text on the card and
+  /// the reason a printing was mis-identified. Normalized corners map straight
+  /// across because the scale is uniform.
+  private static let detectionLongSide: CGFloat = 1920
   /// ~0.8s without a full card before the same physical card may be read again.
   /// Time, not a frame count: quick scan detects every frame, so four frames
   /// would be a tenth of a second.
@@ -94,9 +98,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private var previousCorners: [CGPoint]?
   private var previousCornersAt: TimeInterval = 0
   private var steadyFrames = 0
-  private var blurSkips = 0
   private var tracker = OutlineTracker()
-  private var settle = SettleTracker()
+  private var burst = BurstTracker()
+  private var statusTracker = ScanStatusTracker()
   private var lastFullCardAt: TimeInterval = 0
   /// Read on frameQueue; set from JS (a plain Bool, so a torn read is harmless).
   public var fastDetection = false {
@@ -104,6 +108,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       // The gold corner marks are an aim aid for the normal tab; quick scan
       // shows nothing at all until it captures.
       DispatchQueue.main.async { self.syncGuide() }
+      // The prop can arrive after the session was configured, so re-pick the
+      // resolution on the session queue rather than only at configure time.
+      sessionQueue.async { [weak self] in self?.applyPreset() }
     }
   }
   private var awaitingRelease = false
@@ -215,7 +222,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       return false
     }
     session.beginConfiguration()
-    session.sessionPreset = session.canSetSessionPreset(.hd1920x1080) ? .hd1920x1080 : .high
+    session.sessionPreset = preferredPreset()
     output.alwaysDiscardsLateVideoFrames = true
     output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
     guard session.canAddInput(input), session.canAddOutput(output) else {
@@ -231,6 +238,27 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     DispatchQueue.main.async { self.orientPreview() }
     configured = true
     return true
+  }
+
+  /// 4K only for quick scan, and only where the device supports it: detection
+  /// runs on a downscaled copy (`detectionLongSide`) so the extra pixels cost the
+  /// straighten and OCR, not the per-frame search. The normal tab stays at 1080p.
+  /// 4K is 16:9 like 1080p, so the aspect-fill mapping of the outline onto the
+  /// preview (which uses only the buffer's aspect, via `imageSize`) is unchanged.
+  private func preferredPreset() -> AVCaptureSession.Preset {
+    if fastDetection, session.canSetSessionPreset(.hd4K3840x2160) { return .hd4K3840x2160 }
+    return session.canSetSessionPreset(.hd1920x1080) ? .hd1920x1080 : .high
+  }
+
+  /// Session queue. Switches resolution live when quick scan is toggled after
+  /// configuration; a no-op before `configure()` or when it would not change.
+  private func applyPreset() {
+    guard configured else { return }
+    let wanted = preferredPreset()
+    guard session.sessionPreset != wanted else { return }
+    session.beginConfiguration()
+    session.sessionPreset = wanted
+    session.commitConfiguration()
   }
 
   private func configureDevice(_ device: AVCaptureDevice) {
@@ -291,7 +319,16 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
     let retry = now - lastContrastRetry >= (fast ? Self.fastContrastRetryInterval : Self.contrastRetryInterval)
     let size = geometry().image
-    let found = UpkeepCardVision.findFullCard(in: CIImage(cvPixelBuffer: buffer), orientation: .right,
+    // Detect on a copy no larger than `detectionLongSide`; the full buffer is
+    // kept for the straighten. A lazy scale, so Core Image only ever renders the
+    // small version.
+    var detectionImage = CIImage(cvPixelBuffer: buffer)
+    let longSide = max(size.width, size.height)
+    if fast, longSide > Self.detectionLongSide * 1.25 {
+      let scale = Self.detectionLongSide / longSide
+      detectionImage = detectionImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    }
+    let found = UpkeepCardVision.findFullCard(in: detectionImage, orientation: .right,
                                               imageSize: size, allowContrastRetry: retry,
                                               minimumArea: fast ? UpkeepCardVision.quickMinimumArea : UpkeepCardVision.minimumArea)
     // Only a retry that actually ran uses up the allowance.
@@ -306,17 +343,14 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     }
 
     tracker.observe(corners, at: now, grace: fast ? OutlineTracker.fastGrace : OutlineTracker.normalGrace)
-    let steady: Bool
+
     if fast {
-      // No tracking outline in quick scan; the only thing ever drawn is the
-      // green one at the moment of capture (see `lock`).
-      steady = settle.observe(corners, at: now)
-      if corners == nil { blurSkips = 0 }
-    } else {
-      steady = assessStability(corners, at: now)
-      updateOutline(tracker.shown)
+      readQuick(card: card, corners: corners, miss: found.miss, buffer: buffer, at: now)
+      return
     }
 
+    let steady = assessStability(corners, at: now)
+    updateOutline(tracker.shown)
     // Only the card the outline is following may be read, so what is read is
     // always what the player sees outlined.
     guard let card, let corners, steady, tracker.follows(corners) else { return }
@@ -326,7 +360,67 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
             hypot(previous.x - centre.x, previous.y - centre.y) > Self.swapDistance else { return }
       release()
     }
-    lock(corners: corners, centre: centre, buffer: buffer, fast: fast)
+    let image = CIImage(cvPixelBuffer: buffer).oriented(.right)
+    // The gate is armed only once a read is really queued. Arming it first
+    // would leave a card whose crop failed permanently un-readable (green
+    // outline, no result) until it left the frame.
+    guard let crop = UpkeepCardVision.straighten(image, corners: corners, context: imageContext) else { return }
+    commit(crop, corners: corners, centre: centre, fast: false)
+  }
+
+  /// Quick scan's per-frame step: coach, and while a valid card is in view
+  /// collect frames and read the sharpest (`BurstTracker`). Everything runs on
+  /// frameQueue.
+  private func readQuick(card: VNRectangleObservation?, corners: [CGPoint]?, miss: UpkeepCardVision.NearMiss?,
+                         buffer: CVPixelBuffer, at now: TimeInterval) {
+    if awaitingRelease {
+      publish(.reading, at: now)
+      // A different card swapped in without a gap releases the gate; the same
+      // card staying in frame does not read again.
+      guard let card, let corners, tracker.follows(corners), let previous = lastReadCentre,
+            hypot(previous.x - card.boundingBox.midX, previous.y - card.boundingBox.midY) > Self.swapDistance else { return }
+      release()
+      return
+    }
+    let step = burst.observe(corners, at: now)
+    guard let card, let corners else {
+      // The burst keeps its best crop across a short gap; the tracker drops it
+      // itself when the gap is long enough to end the burst.
+      publish(miss.map { $0 == .far ? .far : .partial } ?? .searching, at: now)
+      return
+    }
+    switch step {
+    case .sweeping:
+      publish(.moving, at: now)
+      return
+    case .waiting:
+      return
+    case .sample:
+      break
+    }
+    guard tracker.follows(corners) else { return }
+    // The pixel buffer is recycled the moment this delegate call returns, so the
+    // straighten has to happen here, synchronously, from the FULL-resolution buffer.
+    let image = CIImage(cvPixelBuffer: buffer).oriented(.right)
+    guard let crop = UpkeepCardVision.straighten(image, corners: corners, context: imageContext) else { return }
+    let centre = CGPoint(x: card.boundingBox.midX, y: card.boundingBox.midY)
+    switch burst.offer(sharpness: UpkeepCardVision.sharpness(of: crop), crop: crop, at: now) {
+    case .store:
+      publish(.blurry, at: now)
+    case .skip:
+      publish(.blurry, at: now)
+    case .lockCurrent:
+      commit(crop, corners: corners, centre: centre, fast: true)
+    case .lockBest:
+      commit(burst.bestCrop ?? crop, corners: corners, centre: centre, fast: true)
+    }
+  }
+
+  /// Sends a status change to JS (quick scan only), after the tracker's own
+  /// debounce. Nil = no opinion this frame.
+  private func publish(_ status: ScanStatus?, at now: TimeInterval) {
+    guard let changed = statusTracker.observe(status, at: now) else { return }
+    DispatchQueue.main.async { self.onScanStatus(["status": changed.rawValue]) }
   }
 
   /// The normal tab's rule: two consecutive steady detections ~0.2s apart.
@@ -334,7 +428,6 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     guard let corners else {
       previousCorners = nil
       steadyFrames = 0
-      blurSkips = 0
       return false
     }
     defer {
@@ -365,9 +458,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private func resetTracking() {
     bumpGeneration()
     previousCorners = nil
-    settle.reset()
+    burst.reset()
+    statusTracker.reset()
     steadyFrames = 0
-    blurSkips = 0
     tracker.reset()
     awaitingRelease = false
     guideCaptureRequested = false
@@ -380,7 +473,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     awaitingRelease = false
     lastReadCentre = nil
     previousCorners = nil
-    settle.reset()
+    burst.reset()
     steadyFrames = 0
     // Quick scan has no tracking outline to fall back to, so the green one goes.
     setOutline(hidden: fastDetection ? true : nil, locked: false)
@@ -389,31 +482,20 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
   // MARK: - Reading one card
 
-  private func lock(corners: [CGPoint], centre: CGPoint, buffer: CVPixelBuffer, fast: Bool) {
-    // The pixel buffer is recycled the moment this delegate call returns, so
-    // the straighten has to happen here, synchronously, before handing an
-    // independent CGImage to the OCR queue.
-    let image = CIImage(cvPixelBuffer: buffer).oriented(.right)
-    // The gate is armed only once a read is really queued. Arming it first
-    // would leave a card whose crop failed permanently un-readable (green
-    // outline, no result) until it left the frame.
-    guard let card = UpkeepCardVision.straighten(image, corners: corners, context: imageContext) else { return }
-    // Quick scan reads the very frame it locked on, so a blurred one is
-    // refused and the next frame gets its turn -- reading blur would cost a
-    // whole wrong-card round trip. Bounded by maxBlurSkips (see there).
-    if fast, UpkeepCardVision.sharpness(of: card) < Self.minimumSharpness, blurSkips < Self.maxBlurSkips {
-      blurSkips += 1
-      return
-    }
-    blurSkips = 0
+  /// Queues the read of an already-straightened card. `fast` (quick scan) draws
+  /// the green outline at the card's current position and holds delivery for
+  /// `greenHold`.
+  private func commit(_ card: CGImage, corners: [CGPoint], centre: CGPoint, fast: Bool) {
     awaitingRelease = true
     lastReadCentre = centre
+    burst.reset()
     var deliverAfter: TimeInterval = 0
     let token = currentGeneration()
     if fast {
-      // The one outline quick scan ever draws: green, on the locked quad.
+      // The one outline quick scan ever draws: green, where the card is now.
       updateOutline(corners)
       deliverAfter = CACurrentMediaTime() + Self.greenHold
+      publish(.reading, at: CACurrentMediaTime())
     }
     setOutline(locked: true)
     readQueue.async { self.read(card, source: "outline", deliverAfter: deliverAfter, generation: token) }
@@ -470,10 +552,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     .appendingPathComponent("upkeep-scan", isDirectory: true)
 
   /// Writes the straightened card as a JPEG in the temp directory and returns
-  /// its file:// URI. This is the same image OCR just read, at the resolution
-  /// the 1080p preview gives (the card fills roughly 700x1000 px); a sharper
-  /// capture for the footer would need a still-photo output on the session and
-  /// was deliberately left out of this change.
+  /// its file:// URI. This is the same image OCR just read: from the full-resolution
+  /// buffer, so about 1500x2100 px in quick scan on a 4K session and about
+  /// 700x1000 px at 1080p.
   private static func writeSnapshot(_ card: CGImage) -> String? {
     let manager = FileManager.default
     do {

@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScanPipeline, artCandidates, bestGuessPrinting, printingHints, quickMatch, rankPrintings } from '@upkeep/scan-core';
+import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flushStatus, initialPacer, isScanStatus, paceStatus, printingHints, quickMatch, rankPrintings, type PacerState, type ScanStatus } from '@upkeep/scan-core';
 import { UpkeepScannerView, cardImageRankingAvailable, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
 import { useApp } from '../AppProvider';
 import { useOpenCardDetails } from '../cardDetailsHost';
@@ -32,6 +32,8 @@ const ROW_INSET = 14;
  * so React Navigation still supplies real screens, back gestures and
  * per-screen scroll position.
  */
+const QUICK_HINT_MS = 4000;
+
 export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
   const styles = useStyles();
   const { slots } = usePreferences();
@@ -140,7 +142,14 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
   const [warm, setWarm] = useState(false);
   const pendingRead = useRef<CardReadEvent | null>(null);
   const beat = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A message that is not about what the camera sees (a rejected read, a camera
+  // error); it wins over the live coaching line until native reports no card.
   const [quickHint, setQuickHint] = useState('');
+  // The live coaching line (see scan-core `paceStatus`). Older native builds send
+  // no onScanStatus, so this stays on its first value: the static hint.
+  const [scanStatus, setScanStatus] = useState<ScanStatus>('searching');
+  const pacer = useRef<PacerState>(initialPacer());
+  const pacerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fanNote, setFanNote] = useState('');
   const quickRef = useRef(false);
   // Set once a quick scan resolved a card, so the finger lifting afterwards
@@ -171,7 +180,7 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     hoverRef.current = next;
     setHover(next);
     if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; }
-    if (next === 'scan' && env.current.canQuick) { setWarm(true); dwell.current = setTimeout(startQuick, DWELL_MS); }
+    if (next === 'scan' && env.current.canQuick) { resetStatus(); setWarm(true); dwell.current = setTimeout(startQuick, DWELL_MS); }
     else setWarm(false);
     // Say why, rather than silently doing nothing, when quick scan can't start.
     setFanNote(next === 'scan' && !env.current.canQuick ? env.current.blocker : '');
@@ -181,7 +190,7 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     dwell.current = null;
     quickRef.current = true;
     doneRef.current = false;
-    setQuickHint('Hold a card up to the camera');
+    setQuickHint('');
     setQuick(true);
     if (reducedMotion) quickAnim.setValue(1);
     else Animated.spring(quickAnim, { toValue: 1, useNativeDriver: true, friction: 9, tension: 220 }).start();
@@ -194,8 +203,43 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     if (early) beat.current = setTimeout(() => { beat.current = null; handleRead(early); }, REVEAL_BEAT_MS);
   }
 
+  function resetStatus() {
+    if (pacerTimer.current) { clearTimeout(pacerTimer.current); pacerTimer.current = null; }
+    pacer.current = initialPacer();
+    setScanStatus('searching');
+  }
+
+  function applyPace(step: { state: PacerState; waitMs: number | null }) {
+    pacer.current = step.state;
+    setScanStatus(step.state.shown);
+    if (pacerTimer.current) { clearTimeout(pacerTimer.current); pacerTimer.current = null; }
+    if (step.waitMs !== null) {
+      pacerTimer.current = setTimeout(() => { pacerTimer.current = null; applyPace(flushStatus(pacer.current, Date.now())); }, step.waitMs);
+    }
+  }
+
+  function onScanStatus(event: { nativeEvent: { status: string } }) {
+    const status = event.nativeEvent.status;
+    if (!isScanStatus(status)) return;
+    // The card was taken away: whatever a rejected read said is finished.
+    if (status === 'searching') setQuickHint('');
+    applyPace(paceStatus(pacer.current, status, Date.now()));
+  }
+
+  // A rejected-read hint clears itself. Native normally ends it (the card is
+  // taken away -> 'searching'), but an older build sends no onScanStatus and
+  // the hint would otherwise stay until the camera closes.
+  useEffect(() => {
+    if (!quickHint) return;
+    const timer = setTimeout(() => setQuickHint(''), QUICK_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [quickHint]);
+
+  useEffect(() => () => { if (pacerTimer.current) clearTimeout(pacerTimer.current); }, []);
+
   function stopQuick() {
     pendingRead.current = null;
+    resetStatus();
     if (beat.current) { clearTimeout(beat.current); beat.current = null; }
     setWarm(false);
     if (!quickRef.current) return;
@@ -225,11 +269,14 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     const index = env.current.index;
     const ranking = rankPrintings(index.printingsOf(match.printing.oracleId), printingHints(printingLines, index.setCodes));
     const guess = bestGuessPrinting(ranking);
+    // No footer evidence named a printing (unreadable, or several fit): say so
+    // rather than open on the default as if it had been recognised.
+    const unsure = guess ? undefined : 'Couldn’t read the set and number on this card, so this may not be the printing you scanned. Check the printing below.';
     const artPool = imageUri && cardImageRankingAvailable ? artCandidates(ranking) : null;
     doneRef.current = true;
     stopQuick();
     closeFan();
-    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined });
+    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, note: unsure, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined });
   }
 
   function openFan() {
@@ -323,9 +370,10 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
             // the view stays mounted and active until the details open.
             fastDetection
             onCardRead={onQuickRead}
+            onScanStatus={onScanStatus}
             onScannerError={e => setQuickHint(e.nativeEvent.message)}
           />
-          <Text style={styles.quickHint}>{quickHint}</Text>
+          <Text style={styles.quickHint}>{quickHint || SCAN_STATUS_TEXT[scanStatus]}</Text>
         </Animated.View>
       )}
       <Animated.View ref={circle} style={[styles.scanCircle, { transform: [{ scale }] }]}>
@@ -463,7 +511,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
     borderWidth: 2,
     borderColor: accent.DEFAULT,
   },
-  quickHint: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingVertical: 8, paddingHorizontal: 10, textAlign: 'center', ...type.label, color: brand.parchment, backgroundColor: 'rgba(31,31,31,0.72)' },
+  quickHint: { position: 'absolute', left: 0, right: 0, top: 0, paddingVertical: 8, paddingHorizontal: 10, textAlign: 'center', ...type.label, color: brand.parchment, backgroundColor: 'rgba(31,31,31,0.72)' },
   fanNote: { position: 'absolute', top: -(DOME_R - SCAN_SIZE / 2) - 30, alignSelf: 'center', paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.sm, overflow: 'hidden', ...type.label, color: text.primary, backgroundColor: surface.raised },
   // Sits on the circle's centre; each option travels out from there.
   fanLayer: { position: 'absolute', top: 0, left: 0, right: 0, height: SCAN_SIZE, alignItems: 'center' },

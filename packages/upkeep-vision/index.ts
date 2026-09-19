@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import { requireOptionalNativeModule, requireNativeViewManager } from 'expo-modules-core';
 import type * as React from 'react';
 import type { ViewProps } from 'react-native';
-import type { TextEvidence } from '@upkeep/scan-core';
+import type { ScanStatus, TextEvidence } from '@upkeep/scan-core';
 interface VisionModule {
   readText(uri: string): Promise<TextEvidence>;
   compareArtwork(uri: string, references: string[]): Promise<{index: number; confident: boolean}>;
@@ -59,14 +59,19 @@ export type CardReadEvent = {
 export type ScannerViewProps = ViewProps & {
   /** Drives the capture session. The view never runs while this is false. */
   active: boolean;
-  /** Look for a card twice as often and retry with extra contrast sooner. The
-   *  two-steady-frames rule is unchanged. Native prop: needs a native rebuild,
-   *  ignored by an older build. */
+  /** Quick scan: detect on every frame, show no outline while searching, and
+   *  capture the sharpest frame of a hand-held burst instead of waiting for the
+   *  card to hold still. Native prop: needs a native rebuild, ignored by an
+   *  older build. */
   fastDetection?: boolean;
   onCardRead?(event: { nativeEvent: CardReadEvent }): void;
   onCardLost?(event: { nativeEvent: Record<string, never> }): void;
   onOutlineChange?(event: { nativeEvent: { found: boolean } }): void;
   onScannerError?(event: { nativeEvent: { message: string } }): void;
+  /** Quick scan only: what the scanner currently sees, sent when it changes, for
+   *  live coaching. Absent on an older native build, so callers must treat the
+   *  silence as "no information" and keep a static hint. */
+  onScanStatus?(event: { nativeEvent: { status: ScanStatus } }): void;
 };
 
 export type ScannerViewHandle = { captureNow(): Promise<void> };

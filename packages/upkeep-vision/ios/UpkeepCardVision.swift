@@ -125,14 +125,54 @@ enum UpkeepCardVision {
   /// ran. The caller's rate limiter must only be charged for a pass that was
   /// spent: charging it on every frame that merely *offered* one meant a frame
   /// where the plain pass succeeded used up the retry a later dark frame needed.
+  /// `miss`, set only when no card passed, says WHY the nearest candidate did not
+  /// (`NearMiss`), which is what lets quick scan tell the person "move closer"
+  /// instead of leaving them guessing.
   static func findFullCard(in image: CIImage, orientation: CGImagePropertyOrientation, imageSize: CGSize,
                            allowContrastRetry: Bool,
-                           minimumArea: CGFloat = UpkeepCardVision.minimumArea) -> (card: VNRectangleObservation?, retryRan: Bool) {
-    if let found = pickFullCard(detectRectangles(in: image, orientation: orientation), imageSize: imageSize,
-                                minimumArea: minimumArea) { return (found, false) }
-    guard allowContrastRetry, let enhanced = contrastEnhanced(image) else { return (nil, false) }
-    return (pickFullCard(detectRectangles(in: enhanced, orientation: orientation), imageSize: imageSize,
-                         minimumArea: minimumArea), true)
+                           minimumArea: CGFloat = UpkeepCardVision.minimumArea)
+    -> (card: VNRectangleObservation?, retryRan: Bool, miss: NearMiss?) {
+    let plain = detectRectangles(in: image, orientation: orientation)
+    if let found = pickFullCard(plain, imageSize: imageSize, minimumArea: minimumArea) { return (found, false, nil) }
+    let plainMiss = nearMiss(plain, imageSize: imageSize, minimumArea: minimumArea)
+    guard allowContrastRetry, let enhanced = contrastEnhanced(image) else { return (nil, false, plainMiss) }
+    let boosted = detectRectangles(in: enhanced, orientation: orientation)
+    let card = pickFullCard(boosted, imageSize: imageSize, minimumArea: minimumArea)
+    return (card, true, card == nil ? (nearMiss(boosted, imageSize: imageSize, minimumArea: minimumArea) ?? plainMiss) : nil)
+  }
+
+  /// Why a card-like rectangle was refused, for the live coaching text.
+  enum NearMiss: Equatable {
+    /// A whole card, but covering less of the frame than the floor: too far away.
+    case far
+    /// A card-like rectangle touching or crossing the frame edge: part of it is cut off.
+    case partial
+  }
+
+  /// Lower than `minimumConfidence` on purpose: a card half out of frame is
+  /// exactly where Vision is least sure, and this only ever changes a hint.
+  static let missConfidence: VNConfidence = 0.5
+  /// A rectangle covering less than this is table clutter, not a card worth coaching about.
+  static let missMinimumArea: CGFloat = 0.06
+
+  /// The most plausible reason no card passed, or nil when nothing card-like was
+  /// seen at all. `partial` wins over `far`: a card cut off by the edge is the
+  /// more actionable message, and it is often ALSO small. A cut-off card's visible
+  /// quad has no card aspect, so aspect is only judged for the `far` case, where
+  /// the whole quad is inside the frame. Vision's own aspect request bounds
+  /// (0.55...0.90) already reject anything wildly un-card-like.
+  static func nearMiss(_ observations: [VNRectangleObservation], imageSize: CGSize,
+                       minimumArea: CGFloat) -> NearMiss? {
+    var sawFar = false
+    for observation in observations where observation.confidence >= missConfidence {
+      let quad = corners(of: observation)
+      guard isConvex(quad), area(of: quad) >= missMinimumArea else { continue }
+      if !isInsideWithMargin(quad, margin: edgeMargin) { return .partial }
+      if area(of: quad) < minimumArea, let ratio = aspectRatio(corners: quad, imageSize: imageSize), isCardAspect(ratio) {
+        sawFar = true
+      }
+    }
+    return sawFar ? .far : nil
   }
 
   /// Short side over long side of the quad, measured in pixels: 0.716 for a
@@ -269,7 +309,7 @@ enum UpkeepCardVision {
   /// For detections ~0.2s apart (the normal Scan tab). 0.0245 is the mean corner
   /// movement over that whole gap, so it is meaningless between frames a few
   /// milliseconds apart -- two near-identical frames always "pass" it. Quick
-  /// scan, which detects every frame, uses `SettleTracker` instead.
+  /// scan, which detects every frame, uses `BurstTracker` instead.
   static func isSteady(movement: CGFloat) -> Bool { 1 - movement / 0.07 >= 0.65 }
 
   /// Painted-line smoothing that does not trail. Tiny movement is detection
@@ -390,62 +430,170 @@ struct OutlineTracker {
 }
 
 /**
- * Quick scan's "hold still" rule, for detections on every frame. A card must be
- * a valid full card whose corners stay within `tolerance` (mean, normalized) of
- * a running average of where it has been, for `duration` seconds of elapsed
- * time. Judging against an average rather than the previous frame is
- * deliberate: at 30fps a card sliding fast moves little per frame yet leaves
- * its own average behind, and a two-detections rule (the old one) is satisfied
- * within ~60ms, which is why a card laid on a table was read before it had come
- * to rest. Against an average rather than a fixed starting point so that Vision
- * jitter and a slow drift do not restart the wait forever.
+ * Quick scan's capture rule, built for a card held IN THE HAND. The earlier rule
+ * (a card must stay within 0.015 of its own running average for 0.3s) asked for
+ * a stillness a hand does not have, so it either waited out a 1.5s fallback or
+ * fought the person. This one does not ask for stillness at all. It asks for a
+ * card that is really there and is not being swept through the frame, and then
+ * lets SHARPNESS -- the actual quality question -- pick the frame:
  *
- * Fallback: a hand never holds perfectly still, and quick scan has no manual
- * capture, so after `fallbackAfter` of continuous full-card detection the
- * tolerance relaxes to `relaxedTolerance`. It is still far tighter than a card
- * in motion (which trails its own average by ~0.06 at a brisk 0.02/frame), and
- * the sharpness check in the scanner view still refuses a blurred frame. Any
- * missing detection, or a gap over `maxGap`, restarts everything. Pure state,
- * no clock of its own.
+ *  - a detection counts toward a streak while the card moves less than
+ *    `looseMovement` (mean corner movement between consecutive detections)
+ *    from the previous one. Bigger than that is a card being carried through the
+ *    frame: the streak, and every frame collected so far, restart;
+ *  - once the streak is `minimumStreak` detections long each further frame is a
+ *    SAMPLE: the caller straightens it, measures its sharpness and `offer`s it;
+ *  - the first sample whose sharpness clears `minimumSharpness` locks at once. If
+ *    none does, the sharpest sample so far is read after `earlyWindow` provided
+ *    it reached `acceptableFraction` of the threshold, and unconditionally after
+ *    `fallbackAfter`, so a flat card that scores low while perfectly sharp, or a
+ *    hand that never steadies, still scans. A blurred read costs a wrong-card
+ *    round trip, which is why the threshold is still the gate whenever a frame
+ *    can pass it.
+ *
+ * A single missing detection does not restart anything (a hand-held card drops
+ * out of Vision now and then); only a gap over `maxGap` does. Pure state, no
+ * clock of its own.
  */
-struct SettleTracker {
-  static let duration: TimeInterval = 0.3
-  static let tolerance: CGFloat = 0.015
-  static let relaxedTolerance: CGFloat = 0.03
-  static let fallbackAfter: TimeInterval = 1.5
+struct BurstTracker {
+  /// Mean corner movement (normalized) between consecutive detections above which
+  /// the card is being swept through the frame, not held. Loose on purpose: real
+  /// hand tremor is ~0.005-0.03 per frame.
+  static let looseMovement: CGFloat = 0.05
+  static let minimumStreak = 3
+  /// Seconds into a streak after which a merely acceptable best frame is read.
+  static let earlyWindow: TimeInterval = 0.7
+  /// Seconds into a streak after which the best frame is read whatever it scored.
+  static let fallbackAfter: TimeInterval = 1.2
+  /// Variance of the Laplacian (UpkeepCardVision.sharpness) below which the
+  /// straightened crop is treated as motion blur or missed focus. Estimated, not
+  /// measured on a phone; tune it from real cards.
+  static let minimumSharpness = 40.0
+  /// At `earlyWindow` the best frame needs at least this share of the threshold.
+  static let acceptableFraction = 0.5
   static let maxGap: TimeInterval = 0.25
-  /// Weight of the newest frame in the running average.
-  static let averageWeight: CGFloat = 0.25
 
-  private var average: [CGPoint]?
-  private var windowStart: TimeInterval = 0
-  private var presentSince: TimeInterval = 0
-  private var lastAt: TimeInterval = 0
-
-  /// Feed one detection (nil = no full card); true once the card has settled.
-  mutating func observe(_ corners: [CGPoint]?, at now: TimeInterval) -> Bool {
-    guard let corners else {
-      average = nil
-      return false
-    }
-    if average == nil || now - lastAt > Self.maxGap {
-      presentSince = now
-      average = nil
-    }
-    let tolerance = now - presentSince >= Self.fallbackAfter ? Self.relaxedTolerance : Self.tolerance
-    if let current = average, current.count == corners.count,
-       UpkeepCardVision.movement(from: current, to: corners) <= tolerance {
-      let w = Self.averageWeight
-      average = zip(current, corners).map { CGPoint(x: $0.x * (1 - w) + $1.x * w, y: $0.y * (1 - w) + $1.y * w) }
-    } else {
-      average = corners
-      windowStart = now
-    }
-    lastAt = now
-    return now - windowStart >= Self.duration
+  enum Step {
+    /// Not enough consecutive detections yet, or none this frame.
+    case waiting
+    /// The card jumped further than `looseMovement`: it is being swept through.
+    case sweeping
+    /// Straighten this frame and `offer` it.
+    case sample
   }
 
-  mutating func reset() { self = SettleTracker() }
+  enum Verdict {
+    /// Keep collecting, and remember THIS frame: it is the sharpest so far.
+    case store
+    /// Keep collecting, discard this frame.
+    case skip
+    /// Read this frame.
+    case lockCurrent
+    /// Read the frame stored earlier (it was sharper than this one).
+    case lockBest
+  }
+
+  private var previous: [CGPoint]?
+  private var lastAt: TimeInterval = 0
+  private var streak = 0
+  private var streakStart: TimeInterval = 0
+  private var bestSharpness = -1.0
+  /// The sharpest straightened crop of the current burst. Held HERE, beside the
+  /// score it belongs to, so the two can only be cleared together: every path
+  /// that forgets `bestSharpness` (restart, a gap over `maxGap`, `reset`) drops
+  /// the crop, and none that keeps it can lose the crop. A view-side copy drifted
+  /// from this once, discarding the best frame on a single missed detection.
+  private(set) var bestCrop: CGImage?
+
+  mutating func observe(_ corners: [CGPoint]?, at now: TimeInterval) -> Step {
+    guard let corners else {
+      if now - lastAt > Self.maxGap { self = BurstTracker() }
+      return .waiting
+    }
+    defer { previous = corners; lastAt = now }
+    guard let last = previous, last.count == corners.count, now - lastAt <= Self.maxGap else {
+      restart(at: now)
+      return .waiting
+    }
+    if UpkeepCardVision.movement(from: last, to: corners) > Self.looseMovement {
+      restart(at: now)
+      return .sweeping
+    }
+    streak += 1
+    return streak >= Self.minimumStreak ? .sample : .waiting
+  }
+
+  private mutating func restart(at now: TimeInterval) {
+    streak = 1
+    streakStart = now
+    bestSharpness = -1
+    bestCrop = nil
+  }
+
+  /// `.lockBest` means `bestCrop` is the frame to read; take it before `reset`.
+  mutating func offer(sharpness: Double, crop: CGImage, at now: TimeInterval) -> Verdict {
+    let isBest = sharpness > bestSharpness
+    if isBest { bestSharpness = sharpness; bestCrop = crop }
+    if sharpness >= Self.minimumSharpness { return .lockCurrent }
+    let elapsed = now - streakStart
+    let due = elapsed >= Self.fallbackAfter ||
+      (elapsed >= Self.earlyWindow && bestSharpness >= Self.minimumSharpness * Self.acceptableFraction)
+    if due { return isBest ? .lockCurrent : .lockBest }
+    return isBest ? .store : .skip
+  }
+
+  mutating func reset() { self = BurstTracker() }
+}
+
+/**
+ * What quick scan is seeing, for the live coaching line above the camera box.
+ * Raw states change frame to frame; `ScanStatusTracker` makes them steady enough
+ * to send, and JS paces them again for the eye (scan-core `paceStatus`).
+ */
+enum ScanStatus: String {
+  /// No card-like rectangle in view.
+  case searching
+  /// A whole card, too small in the frame.
+  case far
+  /// A card-like shape touching the frame edge.
+  case partial
+  /// The card is being swept through, not held.
+  case moving
+  /// Steady enough, but the frames are not sharp yet.
+  case blurry
+  /// Captured; OCR is running.
+  case reading
+}
+
+/**
+ * Turns per-frame raw status into changes worth sending: an event only when the
+ * status differs, and a fall back to `searching` only after `searchingGrace` of
+ * continuous nothing, so the single missed detection every hand-held card has
+ * does not flash the hint. Anything more specific than `searching` is sent at
+ * once. A raw value of nil means "no opinion this frame" and changes nothing.
+ * Pure state, no clock of its own.
+ */
+struct ScanStatusTracker {
+  static let searchingGrace: TimeInterval = 0.3
+  private(set) var current: ScanStatus = .searching
+  private var searchingSince: TimeInterval?
+
+  /// The new status when it changed, else nil.
+  mutating func observe(_ raw: ScanStatus?, at now: TimeInterval) -> ScanStatus? {
+    guard let raw else { return nil }
+    if raw == .searching {
+      guard current != .searching else { searchingSince = nil; return nil }
+      let since = searchingSince ?? now
+      searchingSince = since
+      guard now - since >= Self.searchingGrace else { return nil }
+    }
+    searchingSince = nil
+    guard raw != current else { return nil }
+    current = raw
+    return raw
+  }
+
+  mutating func reset() { self = ScanStatusTracker() }
 }
 
 /**
@@ -475,11 +623,94 @@ enum UpkeepCardText {
       return Evidence(title: "", lines: [], printingLines: [])
     }
     let titleLines = readingOrder(title)
-    let printingLines = readingOrder(printing)
+    var printingLines = readingOrder(printing)
+    // The footer is the smallest text on the card and the one JS most needs to
+    // choose a printing, so a pass that produced no readable set or number gets a
+    // second, footer-only attempt at higher magnification.
+    if !hasFooterEvidence(printingLines) {
+      for line in readFooterBand(card) where !printingLines.contains(line) { printingLines.append(line) }
+    }
     var lines: [String] = []
     for line in titleLines + printingLines where !lines.contains(line) { lines.append(line) }
     let name = titleLines.first(where: hasLetters) ?? lines.first(where: hasLetters) ?? ""
     return Evidence(title: name, lines: lines, printingLines: printingLines)
+  }
+
+  /// The footer's bottom strip, as a fraction of card height. The printing
+  /// region above is 28% tall so it also catches the artist line; the set and
+  /// collector number sit in the last ~12%.
+  static let footerBandHeight: CGFloat = 0.14
+  /// The footer is upscaled until the crop is about this wide, capped at
+  /// `footerMaxScale`, so tiny type gets enough pixels per stroke for the accurate
+  /// recogniser. A 4K capture needs little; a 1080p one about 2.5x.
+  static let footerTargetWidth: CGFloat = 1800
+  static let footerMaxScale: CGFloat = 3
+
+  private static let footerContext = CIContext(options: nil)
+
+  /// Cheap shape test on the first pass's printing lines, deliberately looser
+  /// than scan-core's `printingHints` (which needs the catalog). A collector
+  /// number is a standalone run of 2-5 digits. A set code is 3-5 uppercase
+  /// letters/digits with at least one letter, that is not a language code, and
+  /// that sits on a line that also carries a number, a bullet/dot or a language
+  /// token -- the shape of "FDN 0696 R" or "0696 * EN" -- so a stray word from
+  /// the artist line ("Kev", "Walker") no longer counts. Missing either triggers
+  /// the second pass; a false "found" only skips an optional retry.
+  static func hasFooterEvidence(_ lines: [String]) -> Bool {
+    let languages: Set<String> = ["EN", "DE", "FR", "ES", "IT", "PT", "JA", "JP", "KO", "RU", "ZH", "ZHS", "ZHT", "PH"]
+    var number = false
+    var set = false
+    for line in lines {
+      // Artist credit and copyright are words and years, never the printing.
+      let upper = line.uppercased()
+      if upper.contains("ILLUS") || upper.contains("WIZARDS") || upper.contains("COAST") || upper.contains("©") || upper.contains("™") { continue }
+      let hasMarker = upper.contains("•") || upper.contains("·") || upper.contains("*")
+      let tokens = upper.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "/" }).map(String.init)
+      let lineNumber = tokens.contains { token in
+        let head = token.split(separator: "/").first.map(String.init) ?? token
+        return (2...5).contains(head.count) && head.allSatisfy(\.isNumber)
+      }
+      let hasLanguage = tokens.contains { languages.contains($0) }
+      if lineNumber { number = true }
+      guard lineNumber || hasMarker || hasLanguage else { continue }
+      for token in tokens where (3...5).contains(token.count) && token.contains(where: \.isLetter)
+        && token.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }) && !languages.contains(token) {
+        // Numeric-looking tokens with one stray letter ("0O96") are number misreads, not sets.
+        if token.filter(\.isLetter).count >= 2 || token.first?.isLetter == true { set = true }
+      }
+    }
+    return number && set
+  }
+
+  /// The footer strip alone, enlarged and sharpened, read with the accurate
+  /// recogniser and no language correction (which turns "FDN 0696" into words).
+  /// Returns nothing on any failure: this is a best-effort second chance.
+  static func readFooterBand(_ card: CGImage) -> [String] {
+    let bandHeight = max(1, Int((CGFloat(card.height) * footerBandHeight).rounded()))
+    let band = CGRect(x: 0, y: card.height - bandHeight, width: card.width, height: bandHeight)
+    guard let strip = card.cropping(to: band) else { return [] }
+    let scale = min(footerMaxScale, max(1, footerTargetWidth / CGFloat(strip.width)))
+    var image = CIImage(cgImage: strip)
+    if scale > 1.05, let lanczos = CIFilter(name: "CILanczosScaleTransform") {
+      lanczos.setValue(image, forKey: kCIInputImageKey)
+      lanczos.setValue(scale, forKey: kCIInputScaleKey)
+      lanczos.setValue(1, forKey: kCIInputAspectRatioKey)
+      image = lanczos.outputImage ?? image
+    }
+    if let sharpen = CIFilter(name: "CIUnsharpMask") {
+      sharpen.setValue(image, forKey: kCIInputImageKey)
+      sharpen.setValue(1.6, forKey: kCIInputRadiusKey)
+      sharpen.setValue(1.2, forKey: kCIInputIntensityKey)
+      image = sharpen.outputImage ?? image
+    }
+    guard let enlarged = footerContext.createCGImage(image, from: image.extent) else { return [] }
+    let request = makeRequest(languageCorrection: false)
+    do {
+      try VNImageRequestHandler(cgImage: enlarged, orientation: .up, options: [:]).perform([request])
+    } catch {
+      return []
+    }
+    return readingOrder(request)
   }
 
   private static func makeRequest(languageCorrection: Bool) -> VNRecognizeTextRequest {

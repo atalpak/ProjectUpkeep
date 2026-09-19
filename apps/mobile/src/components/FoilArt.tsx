@@ -8,10 +8,16 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 // and only then load the JS wrapper -- and load the DeviceMotion file directly,
 // not the package index, which pulls in every other sensor's native module.
 // Without it the foil still works by finger and just lacks the tilt.
+type MotionReading = {
+  // iOS reports attitude in radians (CMAttitude pitch/roll), Android the same unit.
+  rotation?: { beta: number; gamma: number } | null;
+  // m/s^2 including gravity: a second source for when `rotation` is missing.
+  accelerationIncludingGravity?: { x: number; y: number; z: number } | null;
+};
 type Motion = {
   isAvailableAsync(): Promise<boolean>;
   setUpdateInterval(ms: number): void;
-  addListener(cb: (m: { rotation?: { beta: number; gamma: number } }) => void): { remove(): void };
+  addListener(cb: (m: MotionReading) => void): { remove(): void };
 };
 function deviceMotion(): Motion | null {
   if (!requireOptionalNativeModule('ExponentDeviceMotion')) return null;
@@ -19,9 +25,28 @@ function deviceMotion(): Motion | null {
 }
 
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
-// How far (radians) the phone has to tip, from wherever it was held when the
-// sheet opened, for the effect to reach its full travel.
-const FULL_TILT = 0.45;
+// How far (radians, ~12 degrees) the phone has to tip from where it is being
+// held for the effect to reach its full travel. 0.45 was too much to ask: a
+// hand holding a phone to read a card moves a fraction of that.
+const FULL_TILT = 0.22;
+// Each sensor tick the reference angle moves this fraction toward the current
+// angle (~1.5s time constant at 30Hz), so holding the phone at a new angle
+// slowly becomes the new "centre" instead of pinning the effect at an edge.
+const BASE_DRIFT = 0.02;
+const GRAVITY = 9.80665;
+
+/** Tilt angles (radians) from a reading: attitude if present, else from gravity. */
+function anglesOf(m: MotionReading): { beta: number; gamma: number } | null {
+  const r = m.rotation;
+  if (r && Number.isFinite(r.beta) && Number.isFinite(r.gamma)) return { beta: r.beta, gamma: r.gamma };
+  const a = m.accelerationIncludingGravity;
+  if (a && Number.isFinite(a.x) && Number.isFinite(a.y)) {
+    const c = (v: number) => Math.max(-1, Math.min(1, v / GRAVITY));
+    // Direction may be mirrored between platforms; for a shimmer that is harmless.
+    return { beta: Math.asin(c(a.y)), gamma: Math.asin(c(a.x)) };
+  }
+  return null;
+}
 
 // Soft rainbow: seven hues at low opacity so it tints the art, never hides it.
 // [r, g, b, alpha]; `strength` scales the alpha (1 = the subtle details-page look).
@@ -54,18 +79,26 @@ export function useFoilTilt(active: boolean, touching?: React.MutableRefObject<b
       if (!ok || cancelled) return;
       motion.setUpdateInterval(33);
       sub = motion.addListener(m => {
-        const r = m.rotation;
+        const r = anglesOf(m);
         if (!r || isTouching.current) return;
-        // Centre on however the phone was held when it started, not on "flat".
+        // Centre on however the phone was held when it started, not on "flat",
+        // and let that centre follow the hand slowly.
         if (!base) base = { beta: r.beta, gamma: r.gamma };
+        else base = { beta: base.beta + (r.beta - base.beta) * BASE_DRIFT, gamma: base.gamma + (r.gamma - base.gamma) * BASE_DRIFT };
         const tx = clamp((r.gamma - base.gamma) / FULL_TILT);
         const ty = clamp((r.beta - base.beta) / FULL_TILT);
         // Ease toward the target so sensor jitter does not shimmer.
-        current.current = { x: current.current.x + (tx - current.current.x) * 0.25, y: current.current.y + (ty - current.current.y) * 0.25 };
+        current.current = { x: current.current.x + (tx - current.current.x) * 0.3, y: current.current.y + (ty - current.current.y) * 0.3 };
         tilt.setValue(current.current);
       });
     }, () => {});
-    return () => { cancelled = true; sub?.remove(); };
+    return () => {
+      cancelled = true;
+      sub?.remove();
+      // Back to rest, so a sheet that reopens (or a view that switches back) does not start skewed.
+      current.current = { x: 0, y: 0 };
+      tilt.setValue({ x: 0, y: 0 });
+    };
   }, [active, tilt, isTouching]);
 
   return { tilt, current };
@@ -92,7 +125,7 @@ export function FoilOverlay({ tilt, width, height, radius = 16, strength = 1 }: 
       <Animated.View style={{ position: 'absolute', left: 0, top: 0, transform: [{ translateX: glareX }, { translateY: glareY }] }}>
         {GLARE.map((f, i) => {
           const size = width * f;
-          return <View key={i} style={{ position: 'absolute', left: -size / 2, top: -size / 2, width: size, height: size, borderRadius: size / 2, backgroundColor: `rgba(255,255,255,${Math.min(0.035 * strength, 0.2).toFixed(3)})` }} />;
+          return <View key={i} style={{ position: 'absolute', left: -size / 2, top: -size / 2, width: size, height: size, borderRadius: size / 2, backgroundColor: `rgba(255,255,255,${Math.min(0.05 * strength, 0.28).toFixed(3)})` }} />;
         })}
       </Animated.View>
     </View>
@@ -105,7 +138,7 @@ export function FoilOverlay({ tilt, width, height, radius = 16, strength = 1 }: 
  * Dragging a finger sideways across the card does the same, for a phone with
  * no motion sensor (and the simulator). Costs nothing when `foil` is false.
  */
-export function FoilArt({ uri, width, height, foil }: { uri: string | null; width: number; height: number; foil: boolean }) {
+export function FoilArt({ uri, width, height, foil, strength = 2.4 }: { uri: string | null; width: number; height: number; foil: boolean; strength?: number }) {
   const touching = useRef(false);
   const start = useRef({ x: 0, y: 0 });
   const { tilt, current } = useFoilTilt(foil, touching);
@@ -125,7 +158,10 @@ export function FoilArt({ uri, width, height, foil }: { uri: string | null; widt
   function release() {
     touching.current = false;
     current.current = { x: 0, y: 0 };
-    Animated.spring(tilt, { toValue: { x: 0, y: 0 }, useNativeDriver: true, friction: 6, tension: 60 }).start();
+    // JS driver, like every other write to `tilt` (setValue from the sensor and
+    // the drag): mixing in a native-driven animation on the same value is what
+    // can leave later JS updates silently not showing.
+    Animated.spring(tilt, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 6, tension: 60 }).start();
   }
 
   const image = uri
@@ -139,7 +175,7 @@ export function FoilArt({ uri, width, height, foil }: { uri: string | null; widt
     <View style={styles.center} {...pan.panHandlers}>
       <Animated.View style={{ width, height, transform: [{ perspective: 900 }, { rotateY }, { rotateX }] }}>
         {image}
-        <FoilOverlay tilt={tilt} width={width} height={height} />
+        <FoilOverlay tilt={tilt} width={width} height={height} strength={strength} />
       </Animated.View>
     </View>
   );

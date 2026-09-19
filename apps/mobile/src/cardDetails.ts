@@ -1,4 +1,4 @@
-import { FINISHES, type Finish, type Printing } from '@upkeep/scan-core';
+import { FINISHES, regularFirst, type Finish, type Printing } from '@upkeep/scan-core';
 import { backend } from './backend';
 
 // Data for the card details sheet: every printing of a card (public Scryfall
@@ -115,9 +115,15 @@ export async function fetchPrinting(id: string): Promise<CardPrinting | null> {
 // card opens on a normal copy, not a promo or a memorabilia reprint.
 const SET_TYPE_RANK: Record<string, number> = { core: 0, expansion: 0, draft_innovation: 1, commander: 1, masters: 2, starter: 3 };
 
-/** The printing to open on: a normal one, newest of the best kind. `printings` is newest-first. */
+/**
+ * The printing to open on: the best kind of set, then the regular print of it
+ * (`regularFirst` in scan-core: plain number, nonfoil, newest, lowest number).
+ * It used to rely on the input being newest-first and a stable sort, so
+ * printings of one set tied and the winner was whichever the database returned
+ * first (a foil-only showcase, ECL #385, for Bloodline Bidding).
+ */
 export function pickRepresentative(printings: CardPrinting[]): CardPrinting | null {
-  return [...printings].sort((a, b) => (SET_TYPE_RANK[a.setType ?? ''] ?? 5) - (SET_TYPE_RANK[b.setType ?? ''] ?? 5))[0] ?? null;
+  return [...printings].sort((a, b) => (SET_TYPE_RANK[a.setType ?? ''] ?? 5) - (SET_TYPE_RANK[b.setType ?? ''] ?? 5) || regularFirst(a, b))[0] ?? null;
 }
 
 /** The scan-core shape the collection writer validates against. */

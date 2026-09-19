@@ -178,27 +178,43 @@ where Vision finds no edge. Two modes, same file:
   the card (`OutlineTracker.normalGrace` 0.5s so one missed detection does not
   hide it), and two consecutive steady detections (`isSteady`, tuned for 0.2s
   spacing) lock it. Gold corner marks show while there is no outline.
-- *Quick scan* (`fastDetection`, the fan's Scan option): detection on every
-  frame, **no outline and no corner marks while searching**. The card must pass
-  the gate and stay within `SettleTracker.tolerance` (0.015 mean corner
-  movement, measured from a running average, not frame to frame) for
-  `SettleTracker.duration` (0.3s) of elapsed time. Fallback: after 1.5s of
-  continuous detection the tolerance relaxes to 0.03, because there is no
-  manual capture and a hand never holds still. Then a sharpness check
-  (`minimumSharpness` 40, at most 8 refusals in a row). Only then is a **green
-  outline drawn at the locked quad**, held until `greenHold` (0.35s) after the
-  lock (OCR time counts towards it, so JS gets `onCardRead` no sooner), after
-  which the outline is hidden and JS opens the details. The hold is native, so
-  the camera view stays mounted and active until the read is delivered; lifting
-  the finger first cancels it (the delivery is dropped once `active` is false,
-  or if a generation token bumped by release/stop shows the card left or was
-  swapped during the hold). A read that arrives while the box is still hidden
-  is held in TabBar and acted on 350ms after the reveal.
+- *Quick scan* (`fastDetection`, the fan's Scan option): built for a card held in
+  the HAND, so it does not ask for stillness. Detection runs on every frame (on a
+  copy scaled to 1920 px on its long side, `detectionLongSide`), with **no outline
+  and no corner marks while searching**. `BurstTracker` counts a streak of
+  detections each moving less than `looseMovement` (0.05 mean corner movement from
+  the previous one; more is a card being swept through and restarts the streak and
+  the frames collected). From the 3rd detection (`minimumStreak`) every frame is a
+  sample: straightened from the **full-resolution buffer** and scored by sharpness
+  (`minimumSharpness` 40). The first sample at or over 40 is read at once;
+  otherwise the sharpest is read at `earlyWindow` 0.7s if it reached half the
+  threshold, and at `fallbackAfter` 1.2s whatever it scored, so sharpness delays a
+  scan but cannot prevent one. One missed detection does not restart anything, a gap
+  over 0.25s does. Then a **green outline** at the card's current quad, held until
+  `greenHold` (0.35s) after the lock (OCR time counts towards it), after which the
+  outline is hidden and JS opens the details. The hold is native, so the camera view
+  stays mounted until the read is delivered; lifting the finger first cancels it
+  (the delivery is dropped once `active` is false, or if a generation token bumped
+  by release/stop shows the card left or was swapped during the hold). A read that
+  arrives while the box is still hidden is held in TabBar and acted on 350ms after
+  the reveal. Quick scan asks for a 4K session preset when the device supports it
+  (`preferredPreset`; 4K is 16:9 like 1080p so the outline mapping, which uses only
+  the buffer's aspect, is unchanged), the normal tab stays at 1080p.
+- *Live coaching* (quick scan): `onScanStatus` sends `{ status }` only when it
+  changes: `searching | far | partial | moving | blurry | reading`. Derived from the
+  same pipeline: a card-like rectangle refused for area is `far`, one touching the
+  frame edge `partial` (`findFullCard`'s `miss`, `NearMiss`), a swept card `moving`,
+  a sample under the sharpness threshold `blurry`, a lock `reading`. `ScanStatusTracker`
+  holds a fall back to `searching` for 0.3s; JS (`paceStatus` in scan-core, used by
+  `TabBar`) keeps each message up for at least 400ms, prefers the more actionable
+  one inside a hold, and never delays `reading`. The line sits at the TOP of the
+  camera box. A build without the event never sends one and the static "Hold a card
+  up to the camera" stays.
 
 Thresholds are constants at the top of the Swift files; they are ported from the
-Flutter original or estimated, and the quick-scan ones (settle, sharpness) are
+Flutter original or estimated, and the quick-scan ones (burst, sharpness, 4K) are
 NOT yet measured on a phone. `packages/upkeep-vision/scripts/check-full-card-gate.swift`
-runs the gate, tracker and settle logic offline (usage in its header);
+runs the gate, tracker, burst and status logic offline (usage in its header);
 `validate-detection.swift` still calls the ungated `bestCard` on stills, so it
 reports the best rectangle and OCR, not whether the full-card gate would pass.
 
@@ -253,7 +269,15 @@ collection and wish list are enabled normally.
    zeros, rarity letter, number alone if the set is unreadable) and `rankPrintings`
    feed `bestGuessPrinting`: an exact or partial footer match, or the card's only
    printing. With no guess the sheet uses its normal default (`pickRepresentative`).
-   Nothing waits on a download or comparison before the sheet opens.
+   Nothing waits on a download or comparison before the sheet opens. When no footer
+   evidence named a printing the sheet says so (`note`: "may not be the printing you
+   scanned") instead of opening on the default as if recognised. The default is
+   `regularFirst` (scan-core `printing.ts`, shared by `rankPrintings`, `CardIndex.search`
+   ties and `pickRepresentative`): plain collector number, nonfoil-available, newest
+   release, then lowest number, so a card's regular print beats its foil-only showcase
+   printings and a promo-numbered ("91p") one. The footer OCR also gets a second,
+   footer-only pass (bottom 14% of the card, upscaled and sharpened, no language
+   correction) when the first produced no plausible set and number.
 2. *Fast paint* (`CardDetails`): the opened-on printing is fetched alone
    (`fetchPrinting`, one primary-key row) and shown with its price while the full
    printing list (`fetchPrintings`, up to hundreds of heavy rows) fills in.
@@ -266,7 +290,9 @@ collection and wish list are enabled normally.
    Pictures go to `Paths.cache/printing-art` (newest 200 kept, temp-file-then-move,
    10s timeout, abandoned when the sheet closes) and are ranked with native
    `rankCardImage`. `artSwitchTarget` (pure, tested) then allows a switch only if the
-   winner is confident AND every printing of the LIVE list was compared. CardDetails
+   winner is decisive (best distance under 0.75 of the runner-up's,
+   `ART_CONFIDENCE_RATIO`; under 0.5, `ART_OVERRIDE_FOOTER_RATIO`, when the footer
+   named the printing) AND every printing of the LIVE list was compared. CardDetails
    applies it only if the person has not picked a printing, opened the add form or
    used the wish list button, drops it if the sheet closed or the card changed, and
    shows a dismissable "Matched to SET #num by artwork" line. Any failure (old
