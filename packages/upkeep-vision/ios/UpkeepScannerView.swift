@@ -339,17 +339,62 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
   private func read(_ card: CGImage, source: String) {
     let evidence = UpkeepCardText.read(card)
-    let payload: [String: Any] = [
+    var payload: [String: Any] = [
       "title": evidence.title,
       "lines": evidence.lines,
       "printingLines": evidence.printingLines,
       "source": source
     ]
+    // The straightened card itself, so JS can compare its picture with each
+    // candidate printing's (`rankCardImage`). Text alone cannot tell a full-art
+    // promo from its reprint when the footer is unreadable. Left out if the
+    // write fails: an older JS or a full disk degrades to text-only.
+    if let uri = Self.writeSnapshot(card) { payload["imageUri"] = uri }
     DispatchQueue.main.async {
       // A read finishing after the tab blurred or the view left the screen
       // must not stage a card behind the user's back.
       guard self.window != nil, self.active else { return }
       self.onCardRead(payload)
+    }
+  }
+
+  // MARK: - Snapshot of the straightened card
+
+  /// Only the newest few are kept, so a session of scans never accumulates
+  /// files. A read is verified in JS (downloads plus a comparison, seconds) and
+  /// its details sheet holds the photo open after that, so nothing is removed
+  /// while it is young, whatever the count.
+  private static let snapshotsKept = 12
+  private static let snapshotMinimumAge: TimeInterval = 60
+  private static let snapshotDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    .appendingPathComponent("upkeep-scan", isDirectory: true)
+
+  /// Writes the straightened card as a JPEG in the temp directory and returns
+  /// its file:// URI. This is the same image OCR just read, at the resolution
+  /// the 1080p preview gives (the card fills roughly 700x1000 px); a sharper
+  /// capture for the footer would need a still-photo output on the session and
+  /// was deliberately left out of this change.
+  private static func writeSnapshot(_ card: CGImage) -> String? {
+    let manager = FileManager.default
+    do {
+      try manager.createDirectory(at: snapshotDirectory, withIntermediateDirectories: true)
+      let modified: (URL) -> Date = {
+        (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+      }
+      let existing = try manager.contentsOfDirectory(at: snapshotDirectory, includingPropertiesForKeys: [.contentModificationDateKey])
+      // Make room for the one about to be written, but never remove a file
+      // that may still be on screen or being compared.
+      let now = Date()
+      for old in existing.sorted(by: { modified($0) > modified($1) }).dropFirst(snapshotsKept - 1)
+      where now.timeIntervalSince(modified(old)) > snapshotMinimumAge {
+        try? manager.removeItem(at: old)
+      }
+      guard let data = UIImage(cgImage: card).jpegData(compressionQuality: 0.92) else { return nil }
+      let url = snapshotDirectory.appendingPathComponent("scan-\(UUID().uuidString).jpg")
+      try data.write(to: url, options: .atomic)
+      return url.absoluteString
+    } catch {
+      return nil
     }
   }
 

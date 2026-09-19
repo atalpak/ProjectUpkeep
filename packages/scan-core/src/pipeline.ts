@@ -1,4 +1,5 @@
-import { CardIndex, printingHints } from './catalog';
+import { CardIndex } from './catalog';
+import { printingHints } from './printing';
 import type { Candidate, ScanEvent, ScanResult, TextEvidence } from './types';
 export interface RecognitionPorts {
   readText(uri: string): Promise<TextEvidence>;
@@ -20,7 +21,7 @@ export class ScanPipeline {
    * image pass, nothing to cancel.
    */
   matchEvidence(text: TextEvidence): ScanResult {
-    const hints = printingHints(text.printingLines ?? []);
+    const hints = printingHints(text.printingLines ?? [], this.index.setCodes);
     const merged = new Map<string, Candidate>();
     for (const line of text.lines.slice(0, 8)) for (const c of this.index.search(line, hints)) {
       if (!merged.has(c.printing.id) || merged.get(c.printing.id)!.score < c.score) merged.set(c.printing.id, c);

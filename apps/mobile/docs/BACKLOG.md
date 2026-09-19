@@ -36,8 +36,13 @@ is the live list.
 
 ## Scanner
 
-- Alternate-art accuracy: right card, wrong printing on full-art cards. Plan is
-  in `SCANNER_ALTERNATE_ART_PLAN.md`; deferred.
+- Alternate-art accuracy: **quick scan** now reads the footer properly, compares
+  the card's picture with each candidate printing's and asks "Which printing is
+  this?" rather than guessing (plan steps 2 and 4; needs a native rebuild and is
+  unverified on a device). Still open: the main Scan tab does not use the picture
+  step; a sharper still-photo capture for the footer (step 3); printing-type flags
+  in the catalog (step 5, needs a migration); the 20-30 real-card test set (step 6),
+  which is what turns the accuracy script's sample numbers into evidence.
 - Quick scan (hold Scan, slide to the Scan option): tune the "how sure" cutoff
   (`QUICK_MIN_SCORE` in `packages/scan-core/src/band.ts`) against real cards, and
   check the lock-on speed in poor light.

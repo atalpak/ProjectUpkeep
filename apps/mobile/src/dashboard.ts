@@ -1,3 +1,4 @@
+import { entryPrice } from '@upkeep/domain';
 import { reportError } from './errors';
 import { backend } from './backend';
 import { CollectionAuthError } from './collection';
@@ -36,14 +37,6 @@ type Row = {
 };
 
 const num = (v: number | string | null): number | null => (v === null || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
-
-/** Foil and etched fall back to the plain price when Scryfall has no separate one (an estimate, like the web app's). */
-function priceOf(r: Row): number | null {
-  const plain = num(r.card_price_usd);
-  if (r.finish === 'foil') return num(r.card_price_usd_foil) ?? plain;
-  if (r.finish === 'etched') return num(r.card_price_usd_etched) ?? plain;
-  return plain;
-}
 
 function bucketFor(colors: string[] | null): ColourBucket {
   const five = (colors ?? []).filter(c => 'WUBRG'.includes(c));
@@ -100,7 +93,7 @@ export async function fetchDashboard(userId: string): Promise<DashboardData> {
   for (const r of rows) {
     totalCards += r.quantity;
     if (r.location_id === null) unsortedCards += r.quantity;
-    const price = priceOf(r);
+    const price = entryPrice({ finish: r.finish, card_price_usd: r.card_price_usd, card_price_usd_foil: r.card_price_usd_foil, card_price_usd_etched: r.card_price_usd_etched });
     if (price === null) unpricedEntries += 1;
     else {
       valueTotal += price * r.quantity;

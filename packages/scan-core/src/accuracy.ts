@@ -1,6 +1,7 @@
 import { CardIndex } from './catalog';
 import { ScanPipeline } from './pipeline';
 import { quickMatch, scanBand, type QuickLimits, type ScanBand } from './band';
+import { printingHints, rankPrintings, type PrintingConfidence } from './printing';
 import type { Candidate, TextEvidence } from './types';
 
 /**
@@ -151,6 +152,48 @@ export function bandSummary(scored: ScoredCase[]): Record<ScanBand, { total: num
     const top = s.candidates[0]?.printing;
     if (top?.id === s.case.expectedId) row.topExact++;
     if (top && top.oracleId === s.expectedOracleId) row.topSameCard++;
+  }
+  return out;
+}
+
+/**
+ * How the printing step of quick scan fares, footer evidence only. The picture
+ * comparison is native and cannot run here, so this measures the part that
+ * decides *whether the picture is needed*: for every read quick scan accepts,
+ * how sure the footer alone makes the printing, and whether the footer's best
+ * printing is the labelled one.
+ *
+ * `needsVerification` counts reads whose footer did not settle the printing
+ * (`partial` or `none`): those are the ones that depend on the picture or on
+ * the person. `exact` reads still get a picture check in the app, because a
+ * misread digit can land exactly on a different real printing; `exactWrong`
+ * is how often that already happened here.
+ */
+export interface VerificationSummary {
+  accepted: number;
+  byConfidence: Record<PrintingConfidence, { reads: number; topRight: number }>;
+  needsVerification: number;
+  exactWrong: number;
+}
+
+export function verificationSummary(index: CardIndex, scored: ScoredCase[], limits: QuickLimits): VerificationSummary {
+  const out: VerificationSummary = {
+    accepted: 0, needsVerification: 0, exactWrong: 0,
+    byConfidence: { exact: { reads: 0, topRight: 0 }, unique: { reads: 0, topRight: 0 }, partial: { reads: 0, topRight: 0 }, none: { reads: 0, topRight: 0 } },
+  };
+  for (const s of scored) {
+    if (s.case.expectedId === null) continue;
+    const match = quickMatch(s.candidates, limits);
+    if (!match.ok) continue;
+    const hints = printingHints(toEvidence(s.case).printingLines ?? [], index.setCodes);
+    const { ranked, printingConfidence } = rankPrintings(index.printingsOf(match.printing.oracleId), hints);
+    out.accepted++;
+    const row = out.byConfidence[printingConfidence];
+    row.reads++;
+    const right = ranked[0]?.printing.id === s.case.expectedId;
+    if (right) row.topRight++;
+    if (printingConfidence === 'exact' && !right) out.exactWrong++;
+    if (printingConfidence === 'partial' || printingConfidence === 'none') out.needsVerification++;
   }
   return out;
 }

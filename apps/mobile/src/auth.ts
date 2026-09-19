@@ -8,7 +8,7 @@
  */
 import { backend } from './backend';
 import { errorMessage } from './errors';
-import { validateNewPassword, validateUsername } from './passwordRules';
+import { validateNewPassword, validateUsername } from '@upkeep/domain';
 
 // Both are read as literal `process.env.EXPO_PUBLIC_*` member expressions --
 // see mobile.md; the dynamic form is not inlined into the bundle.
@@ -66,9 +66,10 @@ export async function signUpWithPassword(input: {
     return { ok: false, error: 'Fill in every field.' };
   }
   const nameCheck = validateUsername(username);
-  if (!nameCheck.ok) return { ok: false, error: nameCheck.error };
+  // `in` narrows the shared union even though this workspace is not strictNullChecks.
+  if ('error' in nameCheck) return { ok: false, error: nameCheck.error };
   const pwCheck = validateNewPassword(input.password, input.confirm);
-  if (!pwCheck.ok) return { ok: false, error: pwCheck.error };
+  if ('error' in pwCheck) return { ok: false, error: pwCheck.error };
 
   // TODO(invite): the web checks the code inside its Next server action against
   // the server-only SIGNUP_INVITE_CODE, and there is no endpoint the app can

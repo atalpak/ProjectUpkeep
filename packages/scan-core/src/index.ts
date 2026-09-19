@@ -6,3 +6,4 @@ export * from './writer';
 export * from './move';
 export * from './build-row';
 export * from './band';
+export * from './printing';

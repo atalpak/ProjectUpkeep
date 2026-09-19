@@ -62,6 +62,7 @@ export type DeckHeader = {
   name: string;
   format: string | null;
   tags: string[];
+  notes: string | null;
   /** Visible to accepted friends. */
   isPublic: boolean;
   commanderCardId: string | null;
@@ -75,7 +76,7 @@ export async function fetchDeckHeader(userId: string, deckId: string): Promise<D
   if (!backend) throw new Error('Not connected.');
   const { data, error } = await backend
     .from('locations')
-    .select('id,name,format,tags,is_public,commander_card_id')
+    .select('id,name,format,tags,notes,is_public,commander_card_id')
     // Same reasoning as fetchDecks: `id` alone resolves "the deck with this
     // id", which RLS would happily hand back for a friend's public deck too.
     // `user_id` is what actually makes this "my deck, not any deck".
@@ -109,7 +110,7 @@ export async function fetchDeckHeader(userId: string, deckId: string): Promise<D
   }
 
   return {
-    id: data.id, name: data.name, format: data.format, tags: (data.tags as string[] | null) ?? [], isPublic: !!data.is_public,
+    id: data.id, name: data.name, format: data.format, tags: (data.tags as string[] | null) ?? [], notes: (data.notes as string | null) ?? null, isPublic: !!data.is_public,
     commanderCardId: (data.commander_card_id as string | null) ?? null, commanderName, commanderImageUriSmall, commanderArt,
   };
 }
@@ -550,4 +551,106 @@ export async function fetchSpareCounts(userId: string): Promise<Map<string, numb
 /** The identity a list entry is matched on ("any printing counts"), exported so screens can look a spare count up. */
 export function entryKey(entry: { oracleId: string | null; name: string }): string {
   return cardKey(entry.oracleId, entry.name);
+}
+
+// ---------------------------------------------------------------------------
+// Deck management: rename, details, sharing, delete.
+//
+// Every write below mirrors src/app/(app)/decks/actions.ts (renameDeck,
+// updateDeckDetails, setDeckPublic, deleteDeck) column for column, with two
+// differences on purpose. Web leans on RLS's own-row update policy alone; here
+// each write also carries .eq('user_id', userId), because migration 35 made a
+// friend's public deck row readable and constraint 3 says "mine" is something
+// the query states, not something RLS implies. And each write asks for the
+// row back, so "nothing matched" (a deck deleted on another device) surfaces
+// as a sentence instead of a silent success. Nothing here touches deck_cards:
+// list editing stays web-only.
+//
+// The validation below is a small local copy of updateDeckDetails' rules. The
+// web keeps them inline in a server action, so there is nothing importable to
+// share yet; the limits (80 / 40 / 20 tags of 40 / 5000) come from that action
+// and migration 21's CHECK constraints.
+// ---------------------------------------------------------------------------
+
+export const DECK_NAME_MAX = 80;
+export const DECK_FORMAT_MAX = 40;
+export const DECK_NOTES_MAX = 5000;
+export const DECK_TAG_MAX = 40;
+export const DECK_TAGS_MAX = 20;
+
+/** Suggestions only, as on the web (src/lib/types.ts): a format or tag can be anything. */
+export const DECK_FORMATS = ['Commander', 'Modern', 'Standard', 'Pioneer', 'Legacy', 'Vintage', 'Pauper', 'Historic', 'Brawl', 'Limited', 'Other'] as const;
+export const DECK_ARCHETYPES = ['Aggro', 'Midrange', 'Control', 'Combo', 'Tempo', 'Ramp', 'Aggro-Control', 'Prison', 'Stax', 'Tribal', 'Toolbox', 'Voltron'] as const;
+
+function deckWriteError(message: string): Error {
+  return new Error(message.includes('duplicate key') ? 'You already have a deck called that.' : message);
+}
+
+function checkDeckName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Give the deck a name.');
+  if (trimmed.length > DECK_NAME_MAX) throw new Error('That name is too long.');
+  return trimmed;
+}
+
+/** Trim, clamp each tag, drop blanks and case-insensitive duplicates, cap the count -- as the web does. */
+export function normalizeTags(raw: string[]): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const part of raw) {
+    const tag = part.trim().slice(0, DECK_TAG_MAX);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length >= DECK_TAGS_MAX) break;
+  }
+  return tags;
+}
+
+export type DeckDetailsInput = { name: string; format: string; tags: string[]; notes: string };
+
+async function updateDeckRow(userId: string, deckId: string, patch: Record<string, unknown>): Promise<void> {
+  if (!backend) throw new Error('Not connected.');
+  const { data, error } = await backend
+    .from('locations')
+    .update(patch)
+    .eq('id', deckId)
+    .eq('user_id', userId)
+    .eq('type', 'deck')
+    .select('id');
+  if (error) throw deckWriteError(error.message);
+  if (!data?.length) throw new Error('That deck could not be found, or is no longer yours.');
+}
+
+export async function renameDeck(userId: string, deckId: string, name: string): Promise<void> {
+  await updateDeckRow(userId, deckId, { name: checkDeckName(name) });
+}
+
+/** Name, format, tags and notes in one write, so a save is all-or-nothing (as the web's updateDeckDetails). */
+export async function updateDeckDetails(userId: string, deckId: string, input: DeckDetailsInput): Promise<void> {
+  const name = checkDeckName(input.name);
+  const format = input.format.trim();
+  if (format.length > DECK_FORMAT_MAX) throw new Error('That format name is too long.');
+  if (input.notes.length > DECK_NOTES_MAX) throw new Error(`Those notes are too long (${DECK_NOTES_MAX} characters max).`);
+  await updateDeckRow(userId, deckId, {
+    name,
+    format: format === '' ? null : format,
+    notes: input.notes.trim() === '' ? null : input.notes,
+    tags: normalizeTags(input.tags),
+  });
+}
+
+/** Shares the decklist (never the sleeved copies) with accepted friends: `locations.is_public`, migration 35. */
+export async function setDeckPublic(userId: string, deckId: string, isPublic: boolean): Promise<void> {
+  await updateDeckRow(userId, deckId, { is_public: isPublic });
+}
+
+/** Non-destructive, like deleteLocation: locations.location_id is ON DELETE SET NULL, so sleeved cards go back to Unsorted. */
+export async function deleteDeck(userId: string, deckId: string): Promise<void> {
+  if (!backend) throw new Error('Not connected.');
+  const { data, error } = await backend.from('locations').delete().eq('id', deckId).eq('user_id', userId).eq('type', 'deck').select('id');
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('That deck could not be found, or is no longer yours.');
 }

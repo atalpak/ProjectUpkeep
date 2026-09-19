@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Condition, Finish } from '@upkeep/scan-core';
 import { groupDeck } from '@upkeep/domain';
-import { entryKey, fetchDeckCards, fetchDeckHeader, fetchSleevedStacks, fetchSpareCounts, fetchSpareStacks, type DeckCardEntry, type DeckHeader, type SleeveCandidate } from '../decks';
+import { deleteDeck, entryKey, fetchDeckCards, fetchDeckHeader, fetchSleevedStacks, fetchSpareCounts, fetchSpareStacks, setDeckPublic, updateDeckDetails, type DeckCardEntry, type DeckHeader, type SleeveCandidate } from '../decks';
 import { CollectionAuthError } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
-import { Button, Notice } from '../components/ui';
+import { Button, DismissingNotice, Notice } from '../components/ui';
+import { DeckDetailsEditor } from '../components/DeckDetailsEditor';
 import { CardDetails } from '../components/CardDetails';
 import { ManaCost } from '../components/ManaCost';
 import { ListRow } from '../components/ListRow';
@@ -22,10 +23,10 @@ import { makeStyles } from '../preferences';
  * gesture instead of the hand-rolled "‹ Back to decks" button the old
  * single-state-switch shell used.
  */
-export function DeckDetailScreen({ route }: NativeStackScreenProps<DecksStackParamList, 'DeckDetail'>) {
+export function DeckDetailScreen({ route, navigation }: NativeStackScreenProps<DecksStackParamList, 'DeckDetail'>) {
   const styles = useStyles();
   const { deckId } = route.params;
-  const { userId, pendingMove, moveBusy, beginMove } = useApp();
+  const { userId, pendingMove, moveBusy, beginMove, reloadLocations } = useApp();
   const [header, setHeader] = useState<DeckHeader | null>(null);
   const [cards, setCards] = useState<DeckCardEntry[]>([]);
   const [spare, setSpare] = useState<Map<string, number>>(new Map());
@@ -34,12 +35,50 @@ export function DeckDetailScreen({ route }: NativeStackScreenProps<DecksStackPar
   const [error, setError] = useState('');
   const [activePicker, setActivePicker] = useState<ActivePicker | null>(null);
   const [details, setDetails] = useState<{ name: string; cardId: string } | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [manageBusy, setManageBusy] = useState(false);
+  const [manageError, setManageError] = useState('');
+  const [notice, setNotice] = useState('');
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
-  async function load() {
+  async function saveDetails(input: { name: string; format: string; tags: string[]; notes: string }) {
+    await updateDeckDetails(userId!, deckId, input);
+    if (!alive.current) return;
+    setEditing(false); setNotice('Details saved.');
+    await Promise.all([load(true), reloadLocations()]);
+  }
+
+  async function toggleShared(next: boolean) {
+    if (!userId || manageBusy) return;
+    setManageBusy(true); setManageError('');
+    try {
+      await setDeckPublic(userId, deckId, next);
+      if (alive.current) setHeader(h => (h ? { ...h, isPublic: next } : h));
+    } catch (e) { if (alive.current) setManageError(errorMessage(e)); }
+    finally { if (alive.current) setManageBusy(false); }
+  }
+
+  function confirmDelete() {
+    if (!header) return;
+    Alert.alert(`Delete ${header.name}?`, 'The cards sleeved into it are not deleted. They go back to Unsorted and are free to use again. The deck and its list are gone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete deck', style: 'destructive', onPress: () => void (async () => {
+        if (!userId || manageBusy) return;
+        setManageBusy(true); setManageError('');
+        try {
+          await deleteDeck(userId, deckId);
+          await reloadLocations();
+          if (alive.current) navigation.goBack();
+        } catch (e) { if (alive.current) { setManageError(errorMessage(e)); setManageBusy(false); } }
+      })() },
+    ]);
+  }
+
+  async function load(silent = false) {
     if (!userId) return;
-    setLoading(true); setError(''); setAuthError(false);
+    if (!silent) setLoading(true);
+    setError(''); setAuthError(false);
     try {
       const [h, c, sp] = await Promise.all([fetchDeckHeader(userId, deckId), fetchDeckCards(userId, deckId), fetchSpareCounts(userId)]);
       if (!alive.current) return;
@@ -108,6 +147,25 @@ export function DeckDetailScreen({ route }: NativeStackScreenProps<DecksStackPar
             </Text>
           </View>
         </View>
+
+        {!!notice && <DismissingNotice onDone={() => setNotice('')}>{notice}</DismissingNotice>}
+        {!!header.notes && !editing && <Text style={styles.body}>{header.notes}</Text>}
+        {!!manageError && <Notice>{manageError}</Notice>}
+        {editing
+          ? <DeckDetailsEditor initial={{ name: header.name, format: header.format ?? '', tags: header.tags, notes: header.notes ?? '' }} onSave={saveDetails} onCancel={() => setEditing(false)} />
+          : (
+            <View style={styles.manage}>
+              <View style={styles.switchRow}>
+                <View style={styles.grow}>
+                  <Text style={styles.strong}>Share with friends</Text>
+                  <Text style={styles.body}>Friends can see this deck&apos;s list. They never see which copies you have sleeved into it.</Text>
+                </View>
+                <Switch value={header.isPublic} onValueChange={v => void toggleShared(v)} disabled={manageBusy} accessibilityLabel="Share with friends" />
+              </View>
+              <Button secondary label="Edit name, format, tags and notes" disabled={manageBusy} onPress={() => setEditing(true)} />
+              <Button secondary label="Delete deck" disabled={manageBusy} onPress={confirmDelete} />
+            </View>
+          )}
 
         {!cards.length && <Text style={styles.body}>This deck&apos;s list is empty.</Text>}
 
@@ -254,6 +312,10 @@ function SleevePicker({ userId, deckId, entry, mode, onMove, onClose, onMoved }:
 
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, paddingBottom: 40, gap: space.md },
+  manage: { gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  grow: { flex: 1 },
+  strong: { ...typeTokens.title, fontSize: 15, color: text.primary },
   body: { fontSize: 13, lineHeight: 21, color: text.secondary },
   label: { fontSize: 13, fontWeight: '700', color: text.primary, marginTop: space.sm },
   banner: { borderRadius: radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: border.hairline },

@@ -6,6 +6,8 @@ import type { TextEvidence } from '@upkeep/scan-core';
 interface VisionModule {
   readText(uri: string): Promise<TextEvidence>;
   compareArtwork(uri: string, references: string[]): Promise<{index: number; confident: boolean}>;
+  /** Added with the alternate-art work; an older native build lacks it. */
+  rankCardImage?(uri: string, references: string[]): Promise<{ distances: number[] }>;
 }
 const native = requireOptionalNativeModule<VisionModule>('UpkeepVision');
 export const visionAvailable = !!native;
@@ -17,6 +19,23 @@ export async function compareArtwork(uri: string, references: string[]) {
   if (!native) return null;
   const result = await native.compareArtwork(uri, references);
   return result.confident && result.index >= 0 && result.index < references.length ? result.index : null;
+}
+
+/** True when this build can compare a card photo with candidate pictures (`rankCardImage`). */
+export const cardImageRankingAvailable = !!native && typeof native.rankCardImage === 'function';
+
+/**
+ * How far the photo of a whole, straightened card is from each reference
+ * picture (local file URIs), in the references' order, lower = closer.
+ * A reference that could not be read comes back as `null`. Returns null when
+ * the build has no such function (older native build) or the photo could not
+ * be read at all, so callers fall back to asking the person.
+ */
+export async function rankCardImage(uri: string, references: string[]): Promise<(number | null)[] | null> {
+  if (!native?.rankCardImage) return null;
+  const { distances } = await native.rankCardImage(uri, references);
+  if (!Array.isArray(distances) || distances.length !== references.length) return null;
+  return distances.map(d => (Number.isFinite(d) && d >= 0 ? d : null));
 }
 
 /**
@@ -31,6 +50,10 @@ export type CardReadEvent = {
   printingLines: string[];
   /** Which path produced this read -- see the type's own comment. */
   source: 'outline' | 'guide';
+  /** file:// URI of the straightened card as a JPEG in the temp directory (only
+   *  the newest few are kept). Absent on a native build from before this field
+   *  existed, or if the write failed: callers must not assume it. */
+  imageUri?: string;
 };
 
 export type ScannerViewProps = ViewProps & {

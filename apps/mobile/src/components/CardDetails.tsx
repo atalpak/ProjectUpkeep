@@ -3,13 +3,14 @@ import { ActivityIndicator, FlatList, Image, Linking, Modal, Pressable, ScrollVi
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { CONDITIONS, ConfirmScan, LANGUAGES, type Condition, type Finish } from '@upkeep/scan-core';
+import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, needsPrintingConfirm, type Condition, type Finish } from '@upkeep/scan-core';
 import { useApp } from '../AppProvider';
 import { writer } from '../backend';
 import {
   FORMATS, addToWishList, fetchFriendActivity, fetchOwned, fetchPrintings, fetchScryfallExtras, fetchWantedQuantity, pickRepresentative, toPrinting,
   type CardPrinting, type FriendActivity, type Legality, type OwnedStack, type ScryfallExtras,
 } from '../cardDetails';
+import type { CardDetailsTarget } from '../cardDetailsHost';
 import { errorMessage } from '../errors';
 import { makeStyles } from '../preferences';
 import { accent, border, radius, space, state as stateColor, surface, text, type } from '../theme';
@@ -20,6 +21,21 @@ import { ManaCost } from './ManaCost';
 const CARD_ASPECT = 488 / 680;
 
 const money = (v: number | null) => (v === null ? null : `$${v.toFixed(2)}`);
+
+type PriceVariant = { finish: Finish; label: string; value: number };
+
+/** The variants that have a price, in display order. A price that exists for a finish the printing lacks still shows: Scryfall's data wins over our assumption. */
+function priceVariants(p: CardPrinting): PriceVariant[] {
+  const all: Array<[Finish, string, number | null]> = [['nonfoil', 'Nonfoil', p.priceUsd], ['foil', 'Foil', p.priceUsdFoil], ['etched', 'Etched', p.priceUsdEtched]];
+  return all.flatMap(([finish, label, value]) => (value === null ? [] : [{ finish, label, value }]));
+}
+
+/** The finish this copy is known to be, if it is: the one you own or are adding, or the only one the printing exists in. */
+function knownFinishOf(p: CardPrinting, ownedFinish: string | null | undefined, adding: boolean, formFinish: Finish): Finish | null {
+  if (adding) return formFinish;
+  if (ownedFinish && (FINISHES as readonly string[]).includes(ownedFinish)) return ownedFinish as Finish;
+  return p.finishes.length === 1 ? p.finishes[0]! : null;
+}
 
 /**
  * Details for one card, opened by tapping it in search results: the art, the
@@ -33,12 +49,14 @@ const money = (v: number | null) => (v === null ? null : `$${v.toFixed(2)}`);
  */
 const LEGALITY_LABELS: Record<Legality, string> = { legal: 'Legal', not_legal: 'Not legal', banned: 'Banned', restricted: 'Restricted' };
 
-export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
+export function CardDetails({ name, printingId, note, verify, ownedFinish, onClose }: {
   name: string | null;
   /** Open on this printing (e.g. the one you own) instead of the default. */
   printingId?: string | null;
   /** A line shown above the card, e.g. how a scan matched. */
   note?: string;
+  /** A scan that could not settle the printing: shows the "Which printing is this?" picker and holds back adding until one is confirmed. */
+  verify?: CardDetailsTarget['verify'];
   /** The finish of the copy this sheet was opened from, so a foil copy shows foil. */
   ownedFinish?: string | null;
   onClose(): void;
@@ -58,6 +76,8 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
   const [faceIndex, setFaceIndex] = useState(0);
   const [previewFoil, setPreviewFoil] = useState(false);
   const [friends, setFriends] = useState<FriendActivity | null>(null);
+  // Until the person confirms a printing the scan could not settle, nothing can be added.
+  const [confirmed, setConfirmed] = useState(false);
   const [extras, setExtras] = useState<{ state: 'idle' | 'loading' | 'error' | 'ready'; data?: ScryfallExtras }>({ state: 'idle' });
 
   const [adding, setAdding] = useState(false);
@@ -70,6 +90,14 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
   const confirm = useRef<ConfirmScan | null>(null);
 
   const selected = printings.find(p => p.id === selectedId) ?? null;
+  // The picker gate is "a scan asked to verify and nobody has confirmed", never "options resolved":
+  // the offered ids come from the offline catalog and may not exist in the live table
+  // (digital filter, the fetch limit), and a gate that needs them would fail open.
+  const offeredOptions = verify ? verify.optionIds.map(id => printings.find(p => p.id === id)).filter((p): p is CardPrinting => !!p) : [];
+  // A pin was decided against the offline catalog; it only stands if the live list has nothing that catalog missed.
+  const needsConfirm = needsPrintingConfirm({ verify, confirmed, liveIds: printings.map(p => p.id) });
+  // If none of the offered printings resolve, offer everything that did load.
+  const pickerOptions = offeredOptions.length > 0 && !verify?.pinned ? offeredOptions : printings;
 
   const refreshUserData = useCallback(async (cardName: string, ids: string[], selected: string | null) => {
     if (!app.userId) return;
@@ -86,18 +114,25 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
   useEffect(() => {
     if (!name) return;
     let alive = true;
-    setLoading(true); setLoadError(null); setPrintings([]); setSelectedId(null); setOwned([]); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setPreviewFoil(false); setFriends(null); setExtras({ state: 'idle' });
+    setLoading(true); setLoadError(null); setPrintings([]); setSelectedId(null); setOwned([]); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setPreviewFoil(false); setFriends(null); setConfirmed(false); setExtras({ state: 'idle' });
     void fetchPrintings(name).then(({ printings: list, error }) => {
       if (!alive) return;
       setLoading(false);
-      if (error || list.length === 0) { setLoadError(error ?? 'No printings found for this card.'); return; }
+      if (error || list.length === 0) {
+        setLoadError(verify ? 'Couldn’t load this card’s printings, so the printing can’t be confirmed. Close this and try again.' : (error ?? 'No printings found for this card.'));
+        return;
+      }
       setPrintings(list);
-      const start = list.find(p => p.id === printingId) ?? pickRepresentative(list) ?? list[0]!;
-      setSelectedId(start.id);
-      void refreshUserData(name, list.map(p => p.id), start.id);
+      // A scan that could not settle the printing pre-selects only its best guess. With no best guess nothing is
+      // selected, so the confirm button stays disabled until the person makes a real choice.
+      const start = verify
+        ? (list.find(p => p.id === (verify.bestId ?? printingId)) ?? null)
+        : (list.find(p => p.id === printingId) ?? pickRepresentative(list) ?? list[0]!);
+      setSelectedId(start?.id ?? null);
+      void refreshUserData(name, list.map(p => p.id), start?.id ?? null);
     });
     return () => { alive = false; };
-  }, [name, printingId, refreshUserData]);
+  }, [name, printingId, verify, refreshUserData]);
 
   function startAdding() {
     if (!selected) return;
@@ -174,11 +209,11 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
   const canPreviewFoil = !!selected && !isFoilFinish(ownedFinish) && !adding && selected.finishes.some(f => isFoilFinish(f));
 
   const imageWidth = Math.min(width - space.xxl * 2, 340);
-  const prices = selected && [
-    money(selected.priceUsd) && `${money(selected.priceUsd)} nonfoil`,
-    money(selected.priceUsdFoil) && `${money(selected.priceUsdFoil)} foil`,
-    money(selected.priceUsdEtched) && `${money(selected.priceUsdEtched)} etched`,
-  ].filter(Boolean).join('  ·  ');
+  const variants = selected ? priceVariants(selected) : [];
+  const knownFinish = selected ? knownFinishOf(selected, ownedFinish, adding, finish) : null;
+  // The headline is the variant matching the known finish; otherwise the plain
+  // one, since that is what most people mean by "the price of this card".
+  const headline = variants.find(v => v.finish === knownFinish) ?? variants.find(v => v.finish === 'nonfoil') ?? variants[0] ?? null;
 
   return (
     <Modal visible={!!name} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -190,9 +225,45 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
           </Pressable>
         </View>
 
-        {loading ? <ActivityIndicator color={text.secondary} style={styles.spinner} /> : loadError ? <Text style={styles.error}>{loadError}</Text> : selected && (
+        {loading ? <ActivityIndicator color={text.secondary} style={styles.spinner} /> : loadError ? <Text style={styles.error}>{loadError}</Text> : (selected || needsConfirm) && (
           <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled">
             {!!note && <Text style={styles.note}>{note}</Text>}
+            {needsConfirm && verify && (
+              <View style={styles.picker} accessibilityLabel="Which printing is this?">
+                <Text style={styles.pickerTitle}>Which printing is this?</Text>
+                <Text style={styles.muted}>The scan could not be sure. Tap the one that matches your card, then confirm.</Text>
+                <View style={styles.pickerRow}>
+                  {!!verify.photoUri && (
+                    <View style={styles.pickerCell}>
+                      <Image source={{ uri: verify.photoUri }} style={styles.pickerImage} resizeMode="cover" accessibilityLabel="Your scanned card" />
+                      <Text style={styles.pickerCaption}>Your card</Text>
+                    </View>
+                  )}
+                  <FlatList
+                    horizontal
+                    data={pickerOptions}
+                    keyExtractor={p => p.id}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.pickerList}
+                    renderItem={({ item }) => {
+                      const on = item.id === selectedId;
+                      return (
+                        <Pressable accessibilityRole="radio" accessibilityState={{ selected: on }} onPress={() => choosePrinting(item)} style={[styles.pickerCell, on && styles.pickerCellOn]}>
+                          {item.imageSmall
+                            ? <Image source={{ uri: item.imageSmall }} style={styles.pickerImage} resizeMode="cover" />
+                            : <View style={[styles.pickerImage, styles.pickerBlank]} />}
+                          <Text style={styles.pickerCaption} numberOfLines={1}>{item.setName}</Text>
+                          <Text style={styles.pickerCaption}>#{item.collectorNumber}{item.finishes.length === 1 ? ` · ${item.finishes[0]} only` : ''}</Text>
+                          {item.id === verify.bestId && <Text style={styles.pickerBest}>Best guess</Text>}
+                        </Pressable>
+                      );
+                    }}
+                  />
+                </View>
+                <Button label={selected ? `This is ${selected.setCode.toUpperCase()} #${selected.collectorNumber}` : 'Confirm'} onPress={() => setConfirmed(true)} disabled={!selected} />
+              </View>
+            )}
+            {selected && (<>
             <FoilArt uri={artUri} width={imageWidth} height={imageWidth / CARD_ASPECT} foil={foilShown} />
             {canPreviewFoil && (
               <Pressable accessibilityRole="switch" accessibilityState={{ checked: previewFoil }} onPress={() => setPreviewFoil(v => !v)} style={[styles.flip, previewFoil && styles.flipOn]}>
@@ -214,6 +285,28 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
                   <ManaCost cost={f.manaCost} size={18} />
                 </View>
                 {i === 0 && !!selected.flavorName && <Text style={styles.muted}>Printed as “{selected.flavorName}”</Text>}
+                {i === 0 && (
+                  <View style={styles.price} accessibilityLabel={headline ? `Price ${money(headline.value)}` : 'No price on record'}>
+                    {headline ? (
+                      <>
+                        <Text style={styles.priceValue}>{money(headline.value)}</Text>
+                        <View style={styles.priceChips}>
+                          {variants.map(v => (
+                            <View key={v.finish} style={[styles.priceChip, v.finish === headline.finish && styles.priceChipOn]}>
+                              <Text style={[styles.priceChipText, v.finish === headline.finish && styles.priceChipTextOn]}>{v.label} {money(v.value)}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <Text style={styles.priceNone}>No price on record</Text>
+                        <Text style={styles.muted}>Scryfall has no price for this printing.</Text>
+                      </>
+                    )}
+                    <Text style={styles.muted}>Scryfall estimate, for reference only.</Text>
+                  </View>
+                )}
                 {!!f.typeLine && <Text style={styles.typeLine}>{f.typeLine}</Text>}
                 {!!f.oracleText && <Text style={styles.oracle}>{f.oracleText}</Text>}
                 {!!(f.power && f.toughness) && <Text style={styles.stats}>{f.power}/{f.toughness}</Text>}
@@ -226,8 +319,8 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
 
             {!adding ? (
               <View style={styles.actions}>
-                <Button label="Add to collection" onPress={startAdding} disabled={busy || !app.userId} />
-                <Button secondary label={busy ? 'Working…' : 'Add to wish list'} onPress={() => void wishList()} disabled={busy || !app.userId} />
+                <Button label="Add to collection" onPress={startAdding} disabled={busy || !app.userId || needsConfirm} />
+                <Button secondary label={busy ? 'Working…' : 'Add to wish list'} onPress={() => void wishList()} disabled={busy || !app.userId || needsConfirm} />
               </View>
             ) : (
               <View style={styles.form}>
@@ -327,14 +420,13 @@ export function CardDetails({ name, printingId, note, ownedFinish, onClose }: {
               />
               <Text style={styles.line}>{selected.setName} · {selected.rarity}{selected.releasedAt ? ` · ${selected.releasedAt.slice(0, 4)}` : ''}</Text>
               {!!selected.artist && <Text style={styles.muted}>Illustrated by {selected.artist}</Text>}
-              <Text style={styles.line}>{prices || 'No price on record'}</Text>
-              <Text style={styles.muted}>Prices are a Scryfall estimate, for reference only.</Text>
               {!!selected.scryfallUri && (
                 <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(selected.scryfallUri!)} hitSlop={8}>
                   <Text style={styles.link}>View on Scryfall</Text>
                 </Pressable>
               )}
             </View>
+            </>)}
           </ScrollView>
         )}
       </View>
@@ -383,6 +475,24 @@ const useStyles = makeStyles(() => StyleSheet.create({
   legalBad: { color: stateColor.error },
   ruling: { gap: 2, marginTop: space.xs },
   flipOn: { backgroundColor: accent.soft, borderColor: accent.DEFAULT },
+  picker: { gap: space.sm, padding: space.lg, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: accent.DEFAULT },
+  pickerTitle: { ...type.title, fontSize: 18, lineHeight: 24, color: text.primary },
+  pickerRow: { flexDirection: 'row', gap: space.md, alignItems: 'flex-start' },
+  pickerList: { gap: space.sm },
+  pickerCell: { width: 96, gap: 2, padding: 4, borderRadius: radius.md, borderWidth: 2, borderColor: 'transparent' },
+  pickerCellOn: { borderColor: accent.DEFAULT, backgroundColor: accent.soft },
+  pickerImage: { width: 88, height: 88 / CARD_ASPECT, borderRadius: radius.sm, backgroundColor: surface.sunken },
+  pickerBlank: { borderWidth: 1, borderColor: border.hairline },
+  pickerCaption: { ...type.label, color: text.secondary },
+  pickerBest: { ...type.label, color: text.primary, fontWeight: '700' },
+  price: { gap: space.xs },
+  priceValue: { fontSize: 34, lineHeight: 40, fontFamily: type.title.fontFamily, fontWeight: '700', color: text.primary },
+  priceNone: { ...type.title, color: text.secondary },
+  priceChips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  priceChip: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.pill, borderWidth: 1, borderColor: border.hairline },
+  priceChipOn: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
+  priceChipText: { ...type.label, color: text.secondary },
+  priceChipTextOn: { color: text.onAccent },
   chips: { gap: space.sm },
   chip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline },
   chipOn: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },

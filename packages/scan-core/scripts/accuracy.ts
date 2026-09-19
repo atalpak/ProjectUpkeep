@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { CardIndex, QUICK_MIN_SCORE, QUICK_AMBIGUITY_MARGIN } from '../src';
-import { parseCases, scoreCases, sweep, tally, bandSummary, type Tally } from '../src/accuracy';
+import { parseCases, scoreCases, sweep, tally, bandSummary, verificationSummary, type Tally } from '../src/accuracy';
 
 /**
  * Offline scan-accuracy measurement, so QUICK_MIN_SCORE and
@@ -46,9 +46,10 @@ async function main() {
   const rows = sweep(scored);
   const shipped = tally(scored, current);
   const bands = bandSummary(scored);
+  const verification = verificationSummary(index, scored, current);
 
   if (asJson) {
-    console.log(JSON.stringify({ catalog: index.bundle.version, printings: index.bundle.printings.length, cases: cases.length, missing, shipped: { ...current, tally: shipped }, sweep: rows, bands }, null, 2));
+    console.log(JSON.stringify({ catalog: index.bundle.version, printings: index.bundle.printings.length, cases: cases.length, missing, shipped: { ...current, tally: shipped }, sweep: rows, bands, verification }, null, 2));
     return;
   }
 
@@ -67,6 +68,11 @@ async function main() {
   console.log('falseAccept = "no card" reads wrongly accepted.');
   console.log('\nscanner bands (top candidate, no abstaining):');
   for (const [band, b] of Object.entries(bands)) console.log(`  ${band.padEnd(9)} ${String(b.total).padStart(3)} reads, top exact ${b.topExact}, top right card ${b.topSameCard}`);
+  const v = verification;
+  const rate = v.accepted ? `${((100 * v.needsVerification) / v.accepted).toFixed(0)}%` : '-';
+  console.log(`\nprinting step, footer evidence only (the picture comparison is native and not run here), ${v.accepted} accepted reads:`);
+  for (const [c, r] of Object.entries(v.byConfidence)) console.log(`  ${c.padEnd(8)} ${String(r.reads).padStart(3)} reads, footer's best printing right ${r.topRight}`);
+  console.log(`  needs verification by footer alone (an exact footer still needs a confident picture or known-identical art, so the real rate is higher): ${v.needsVerification}/${v.accepted} = ${rate}; exact footer that was wrong: ${v.exactWrong}`);
 }
 
 main().catch(e => { console.error(e instanceof Error ? e.message : e); process.exit(1); });

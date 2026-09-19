@@ -11,11 +11,12 @@
  * re-accept on their next attempt to trade.
  */
 
-/**
- * ISO date of the current terms. Change this whenever docs/... terms text
- * changes in a way that matters; the value is compared verbatim.
- */
-export const CURRENT_TOS_VERSION = "2026-09-01";
+import { CURRENT_TOS_VERSION, acceptedCurrentTos } from "@upkeep/domain";
+
+// The version and the acceptance comparison are shared with mobile; see
+// packages/upkeep-domain/src/tos.ts for why they live there. Bumping the
+// version forces everyone to re-accept on their next attempt to trade.
+export { CURRENT_TOS_VERSION };
 
 /** What we store per user about their acceptance. */
 export type TosStatus = {
@@ -25,11 +26,7 @@ export type TosStatus = {
 
 /** True only when the user has accepted the version currently in force. */
 export function hasAcceptedTos(status: TosStatus | null | undefined): boolean {
-  return (
-    !!status &&
-    status.accepted_at !== null &&
-    status.version === CURRENT_TOS_VERSION
-  );
+  return !!status && acceptedCurrentTos(status.accepted_at, status.version);
 }
 
 /**

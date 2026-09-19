@@ -236,6 +236,49 @@
     "foil"
    ],
    "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000118",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "sld",
+   "collectorNumber": "1021",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en",
+   "releasedAt": "2021-03-01",
+   "rarity": "rare"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000119",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "sld",
+   "collectorNumber": "1022",
+   "finishes": [
+    "foil"
+   ],
+   "language": "en",
+   "releasedAt": "2021-03-01",
+   "rarity": "rare"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000120",
+   "oracleId": "00000000-0000-4000-8000-000000009003",
+   "name": "Serra Angel",
+   "aliases": [],
+   "setCode": "sld",
+   "collectorNumber": "500",
+   "finishes": [
+    "foil"
+   ],
+   "language": "en",
+   "releasedAt": "2022-06-01",
+   "rarity": "mythic"
   }
  ]
 }

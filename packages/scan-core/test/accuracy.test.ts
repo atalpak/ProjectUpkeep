@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { CardIndex, quickMatch, QUICK_MIN_SCORE, QUICK_AMBIGUITY_MARGIN, type Candidate } from '../src';
-import { parseCases, toEvidence, scoreCases, classify, tally, sweep, bandSummary } from '../src/accuracy';
+import { parseCases, toEvidence, scoreCases, classify, tally, sweep, bandSummary, verificationSummary } from '../src/accuracy';
 
 const load = (f: string) => JSON.parse(readFileSync(new URL(`../scripts/fixtures/${f}`, import.meta.url), 'utf8'));
 const index = new CardIndex(load('accuracy-sample-catalog.json'));
@@ -36,10 +36,12 @@ test('scoreCases: an id the catalog lacks is reported, not counted wrong', () =>
 
 test('classify: exact, right-card-wrong-printing, wrong card and abstained are told apart', () => {
   assert.equal(classify(byLabel('clean read, set+number on one line'), shipped).outcome, 'exact');
-  // Modern split footer: hints are not found, so it is a name-only tie and cannot be trusted with the printing.
+  // Modern split footer ("0718" over "FDN • EN"): read as one pool of tokens, so the printing is found.
   const split = classify(byLabel('modern footer split'), shipped);
-  assert.notEqual(split.outcome, 'exact');
+  assert.equal(split.outcome, 'exact');
   assert.equal(split.pinnedWrong, false);
+  // A name-only read still cannot be trusted with the printing.
+  assert.equal(byLabel('footer unreadable, name only').candidates[0]!.evidence, 'name');
   // Force a wrong card and a wrong printing by relabelling the expected id.
   const solRing = byLabel('Sol Ring, clean');
   const otherCard = { ...solRing, expectedOracleId: index.get(byLabel('Serra Angel, clean').case.expectedId!)!.oracleId, case: { ...solRing.case, expectedId: byLabel('Serra Angel, clean').case.expectedId } };
@@ -91,4 +93,15 @@ test('quickMatch: explicit limits override the defaults', () => {
 test('bandSummary: totals the labelled reads and leaves "no card" reads out', () => {
   const b = bandSummary(scored);
   assert.equal(b.confident.total + b.uncertain.total + b.none.total, cases.length - 3);
+});
+
+test('verificationSummary: every accepted read lands in one confidence bucket, and an exact footer is never wrong on the sample', () => {
+  const v = verificationSummary(index, scored, shipped);
+  const buckets = Object.values(v.byConfidence);
+  assert.equal(buckets.reduce((n, b) => n + b.reads, 0), v.accepted);
+  assert.equal(v.needsVerification, v.byConfidence.partial.reads + v.byConfidence.none.reads);
+  assert.equal(v.exactWrong, 0);
+  // The alt-art cases that the footer cannot settle exist, so the rate is a real number, not zero.
+  assert.ok(v.needsVerification > 0);
+  assert.ok(v.byConfidence.exact.reads > 0);
 });

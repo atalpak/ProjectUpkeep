@@ -3,7 +3,7 @@ import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, us
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { CONDITIONS } from '@upkeep/scan-core';
-import { filterCollection } from '@upkeep/domain';
+import { COLLECTION_SORTS, COLLECTION_SORT_LABELS, filterCollection, sortCollection, type CollectionSort } from '@upkeep/domain';
 import { CollectionAuthError, EMPTY_COLLECTION_FILTER, collectionFacetCount, fetchWholeCollection, type CollectionEntry, type CollectionFilter } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
@@ -45,12 +45,13 @@ function CollectionList({ userId }: { userId: string }) {
   const openSearch = useSearchOverlay().open;
   const focused = useIsFocused();
   const { width } = useWindowDimensions();
-  const { collectionView, setCollectionView } = usePreferences();
+  const { collectionView, setCollectionView, collectionSort, setCollectionSort } = usePreferences();
   // One motion listener shared by every foil tile, and only while the image view is showing.
   const { tilt: foilTilt } = useFoilTilt(focused && collectionView === 'grid');
   const [query, setQuery] = useState('');
   const [facets, setFacets] = useState<CollectionFilter>(EMPTY_COLLECTION_FILTER);
   const [showFilters, setShowFilters] = useState(false);
+  const [showSort, setShowSort] = useState(false);
   // The whole collection, loaded once and then searched and filtered right here:
   // typing narrows the list instantly, with no request per keystroke.
   const [all, setAll] = useState<CollectionEntry[]>([]);
@@ -92,7 +93,9 @@ function CollectionList({ userId }: { userId: string }) {
     if (lastLoaded.current === 0 || Date.now() - lastLoaded.current > 20_000) void load({ silent: lastLoaded.current !== 0 });
   }, [focused, load]);
 
-  const entries = useMemo(() => filterCollection(all, { ...facets, name: query }), [all, facets, query]);
+  // Filter first, sort what is left: the load is already name-ordered, so the
+  // default sort is a no-op re-order rather than a second pass over everything.
+  const entries = useMemo(() => sortCollection(filterCollection(all, { ...facets, name: query }), collectionSort), [all, facets, query, collectionSort]);
   const facetCount = collectionFacetCount(facets);
   const filtering = !!query.trim() || facetCount > 0;
   const tile = (width - space.xl * 2 - space.sm * (COLUMNS - 1)) / COLUMNS;
@@ -114,10 +117,19 @@ function CollectionList({ userId }: { userId: string }) {
           <Ionicons name="options-outline" size={20} color={text.primary} />
           {facetCount > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{facetCount}</Text></View>}
         </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Sort, ${COLLECTION_SORT_LABELS[collectionSort]}`} accessibilityState={{ expanded: showSort }} onPress={() => setShowSort(v => !v)} style={[styles.iconButton, (showSort || collectionSort !== 'name') && styles.iconButtonOn]}>
+          <Ionicons name="swap-vertical" size={20} color={text.primary} />
+        </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={collectionView === 'grid' ? 'Show as list' : 'Show card images'} onPress={() => setCollectionView(collectionView === 'grid' ? 'list' : 'grid')} style={styles.iconButton}>
           <Ionicons name={collectionView === 'grid' ? 'list-outline' : 'grid-outline'} size={20} color={text.primary} />
         </Pressable>
       </View>
+
+      {showSort && (
+        <View style={styles.sortPanel}>
+          <Choices values={[...COLLECTION_SORTS]} selected={collectionSort} labels={COLLECTION_SORT_LABELS} onSelect={v => { setCollectionSort(v as CollectionSort); setShowSort(false); }} />
+        </View>
+      )}
 
       {showFilters && (
         <ScrollView style={styles.filters} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
@@ -229,6 +241,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   badge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: accent.DEFAULT },
   badgeText: { ...typeTokens.label, color: text.onAccent },
   filters: { maxHeight: 340, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  sortPanel: { padding: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   filtersBody: { padding: space.lg, gap: space.sm },
   groupLabel: { ...typeTokens.label, color: text.secondary, marginTop: space.sm },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },

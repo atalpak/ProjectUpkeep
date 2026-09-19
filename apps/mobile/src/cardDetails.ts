@@ -143,20 +143,7 @@ export async function fetchWantedQuantity(userId: string, printingIds: string[])
 
 /** Adds one to the wish list for this printing; a repeat adds to the quantity,
  *  as on the web (one row per user and printing). */
-export async function addToWishList(userId: string, cardId: string): Promise<{ quantity: number }> {
-  if (!backend) throw new Error('Sign in to Upkeep before saving.');
-  const { data: existing, error: readError } = await backend.from('want_list').select('id,quantity').eq('user_id', userId).eq('card_id', cardId).maybeSingle();
-  if (readError) throw new Error(readError.message);
-  if (existing) {
-    const quantity = (existing.quantity as number) + 1;
-    const { error } = await backend.from('want_list').update({ quantity }).eq('id', existing.id as string).eq('user_id', userId);
-    if (error) throw new Error(error.message);
-    return { quantity };
-  }
-  const { error } = await backend.from('want_list').insert({ user_id: userId, card_id: cardId, quantity: 1 });
-  if (error) throw new Error(error.message);
-  return { quantity: 1 };
-}
+export { addToWishList } from './wishlist';
 
 // ---------------------------------------------------------------------------
 // Friends

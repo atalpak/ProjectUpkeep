@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { MAX_WANT_QUANTITY, MIN_WANT_QUANTITY } from '@upkeep/domain';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { fetchFriendSupplyCounts, fetchWantList, removeWant, type WantEntry } from '../cardDetails';
+import { setWantQuantity } from '../wishlist';
 import { CardDetails } from '../components/CardDetails';
 import { Button, EmptyState, Notice } from '../components/ui';
 import { errorMessage } from '../errors';
@@ -34,12 +36,20 @@ function WishlistList({ userId }: { userId: string }) {
   const alive = useRef(true);
   useEffect(() => () => { alive.current = false; }, []);
 
+  // Quantities the person has asked for that the server may not have yet: queued, and the one being written.
+  const wantedNext = useRef(new Map<string, number>());
+  const inFlight = useRef(new Map<string, number>());
+
   const load = useCallback(async () => {
     setError('');
     try {
       const list = await fetchWantList(userId);
       if (!alive.current) return;
-      setWants(list);
+      // A tap not yet written (or being written) must survive this reload, or it would visibly undo itself.
+      setWants(list.map(w => {
+        const pending = wantedNext.current.get(w.id) ?? inFlight.current.get(w.id);
+        return pending === undefined ? w : { ...w, quantity: pending };
+      }));
       setLoading(false);
       // Friends' supply is a nice-to-have: a failure just hides the counts.
       const counts = await fetchFriendSupplyCounts(userId, [...new Set(list.map(w => w.oracleId))]).catch(() => new Map<string, number>());
@@ -61,6 +71,46 @@ function WishlistList({ userId }: { userId: string }) {
         onPress: () => { void removeWant(userId, w.id).then(() => setWants(prev => prev.filter(x => x.id !== w.id)), e => setError(errorMessage(e))); },
       },
     ]);
+  }
+
+  // Optimistic: the number moves at once, so a burst of taps feels instant. The
+  // writes are serialised per row: only one is in flight, and taps made meanwhile
+  // just update the value wanted next, so the last tap is what lands last and
+  // responses can never arrive out of order. On failure the row is re-read from
+  // the server rather than restored from a value captured by an old render.
+  const writing = useRef(new Set<string>());
+
+  async function flushQuantity(id: string) {
+    if (writing.current.has(id)) return;
+    writing.current.add(id);
+    try {
+      for (;;) {
+        const value = wantedNext.current.get(id);
+        if (value === undefined) break;
+        wantedNext.current.delete(id);
+        inFlight.current.set(id, value);
+        await setWantQuantity(userId, id, value);
+        inFlight.current.delete(id);
+      }
+    } catch (e) {
+      // Drop what failed, but keep `writing` set until the reload lands so a tap
+      // made meanwhile queues instead of racing it; load() re-applies that tap.
+      inFlight.current.delete(id);
+      wantedNext.current.delete(id);
+      try { await load(); } finally { writing.current.delete(id); }
+      if (alive.current) setError(errorMessage(e));
+      if (wantedNext.current.has(id)) void flushQuantity(id);
+      return;
+    }
+    writing.current.delete(id);
+  }
+
+  function changeQuantity(w: WantEntry, delta: number) {
+    const next = Math.min(MAX_WANT_QUANTITY, Math.max(MIN_WANT_QUANTITY, w.quantity + delta));
+    if (next === w.quantity) return;
+    setWants(prev => prev.map(x => x.id === w.id ? { ...x, quantity: next } : x));
+    wantedNext.current.set(w.id, next);
+    void flushQuantity(w.id);
   }
 
   const total = wants.reduce((sum, w) => sum + w.quantity, 0);
@@ -90,10 +140,19 @@ function WishlistList({ userId }: { userId: string }) {
                 {item.imageSmall ? <Image source={{ uri: item.imageSmall }} style={styles.thumb} /> : <View style={[styles.thumb, styles.thumbEmpty]} />}
                 <View style={styles.grow}>
                   <Text style={styles.name}>{item.name}</Text>
-                  <Text style={styles.body}>{item.setCode.toUpperCase()} · #{item.collectorNumber} · Want {item.quantity}</Text>
+                  <Text style={styles.body}>{item.setCode.toUpperCase()} · #{item.collectorNumber}</Text>
                   {friends > 0 && <Text style={styles.friends}>{friends} friend{friends === 1 ? ' has' : 's have'} it for trade</Text>}
                 </View>
               </Pressable>
+              <View style={styles.stepper}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Want fewer ${item.name}`} accessibilityState={{ disabled: item.quantity <= MIN_WANT_QUANTITY }} disabled={item.quantity <= MIN_WANT_QUANTITY} onPress={() => changeQuantity(item, -1)} hitSlop={6} style={styles.stepButton}>
+                  <Ionicons name="remove" size={18} color={item.quantity <= MIN_WANT_QUANTITY ? text.secondary : text.primary} />
+                </Pressable>
+                <Text accessibilityLabel={`Want ${item.quantity}`} style={styles.stepValue}>{item.quantity}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Want more ${item.name}`} onPress={() => changeQuantity(item, 1)} hitSlop={6} style={styles.stepButton}>
+                  <Ionicons name="add" size={18} color={text.primary} />
+                </Pressable>
+              </View>
               <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} onPress={() => confirmRemove(item)} hitSlop={8} style={styles.remove}>
                 <Ionicons name="trash-outline" size={20} color={text.secondary} />
               </Pressable>
@@ -117,5 +176,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   thumbEmpty: {},
   name: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
   friends: { ...type.bodySm, color: text.primary },
+  stepper: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline },
+  stepButton: { width: 32, height: 36, alignItems: 'center', justifyContent: 'center' },
+  stepValue: { ...type.title, fontSize: 15, minWidth: 24, textAlign: 'center', color: text.primary },
   remove: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 }));

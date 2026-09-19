@@ -50,7 +50,7 @@
    "collectorNumber": "718"
   },
   {
-   "label": "modern footer split over two lines (number / set), hints not found",
+   "label": "modern footer split over two lines (number / set)",
    "expectedId": "00000000-0000-4000-8000-000000000106",
    "name": "Gigantosaurus",
    "printingLines": [
@@ -161,6 +161,110 @@
    "label": "half-read title of an absent card",
    "expectedId": null,
    "name": "Lightn"
+  },
+  {
+   "label": "alt-art: number line with rarity letter, set line with language",
+   "expectedId": "00000000-0000-4000-8000-000000000106",
+   "name": "Gigantosaurus",
+   "printingLines": [
+    "M 0718",
+    "FDN \u2022 EN"
+   ]
+  },
+  {
+   "label": "alt-art: old-style footer, number over print run then set",
+   "expectedId": "00000000-0000-4000-8000-000000000105",
+   "name": "Gigantosaurus",
+   "printingLines": [
+    "185/280 R",
+    "M19 \u2022 EN"
+   ]
+  },
+  {
+   "label": "alt-art: copyright and artist lines around the footer",
+   "expectedId": "00000000-0000-4000-8000-000000000106",
+   "name": "Gigantosaurus",
+   "printingLines": [
+    "Illus. Aaron Miller",
+    "0718 R",
+    "FDN \u2022 EN",
+    "\u2122 & \u00a9 2024 Wizards of the Coast"
+   ]
+  },
+  {
+   "label": "alt-art: set unreadable, number alone identifies it",
+   "expectedId": "00000000-0000-4000-8000-000000000106",
+   "name": "Gigantosaurus",
+   "printingLines": [
+    "0718"
+   ]
+  },
+  {
+   "label": "alt-art: set misread (FDM), number alone identifies it",
+   "expectedId": "00000000-0000-4000-8000-000000000106",
+   "name": "Gigantosaurus",
+   "printingLines": [
+    "0718 R",
+    "FDM \u2022 EN"
+   ]
+  },
+  {
+   "label": "alt-art: number unreadable, set alone identifies it",
+   "expectedId": "00000000-0000-4000-8000-000000000106",
+   "name": "Gigantosaurus",
+   "printingLines": [
+    "FDN \u2022 EN"
+   ]
+  },
+  {
+   "label": "alt-art: footer unreadable, name only, 4 printings (needs the picture)",
+   "expectedId": "00000000-0000-4000-8000-000000000106",
+   "name": "Gigantosaurus",
+   "printingLines": []
+  },
+  {
+   "label": "full-art Bolt, two adjacent Secret Lair numbers, clean",
+   "expectedId": "00000000-0000-4000-8000-000000000118",
+   "name": "Lightning Bolt",
+   "printingLines": [
+    "1021",
+    "SLD \u2022 EN"
+   ]
+  },
+  {
+   "label": "full-art Bolt, adjacent number misread (1027): set alone cannot separate them",
+   "expectedId": "00000000-0000-4000-8000-000000000119",
+   "name": "Lightning Bolt",
+   "printingLines": [
+    "1027",
+    "SLD \u2022 EN"
+   ]
+  },
+  {
+   "label": "full-art Bolt, number alone (set unreadable)",
+   "expectedId": "00000000-0000-4000-8000-000000000119",
+   "name": "Lightning Bolt",
+   "printingLines": [
+    "1022"
+   ]
+  },
+  {
+   "label": "same-name Serra Angel, Secret Lair, rarity M",
+   "expectedId": "00000000-0000-4000-8000-000000000120",
+   "name": "Serra Angel",
+   "printingLines": [
+    "M 0500",
+    "SLD \u2022 EN"
+   ]
+  },
+  {
+   "label": "Bolt, footer says number found in no printing",
+   "expectedId": "00000000-0000-4000-8000-000000000101",
+   "name": "Lightning Bolt",
+   "printingLines": [
+    "0999",
+    "M10 \u2022 EN"
+   ]
   }
  ]
 }

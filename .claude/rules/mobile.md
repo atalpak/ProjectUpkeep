@@ -49,7 +49,7 @@ apps/mobile/            Expo app.
                         (Mort avatar, title, menu button) · MenuSheet · ScanQuickBar
                         · SearchOverlay (slide-in card search: name or Scryfall syntax + a Filters panel, results grid; queries `cards` via src/cardSearch.ts) · CardDetails (page-sheet for one card, opened from a result: printings, flip for double-faced cards, what you own, which friends have it / want it, legality + rulings fetched from Scryfall's API on demand, foil copies (and a "Preview foil" toggle) get a subtle holographic overlay that follows phone tilt via expo-sensors DeviceMotion, or a horizontal finger drag (`FoilArt`; needs a native rebuild for the tilt, guarded so an older binary just lacks it), add to collection via ConfirmScan, add to wish list; data in src/cardDetails.ts; also opened from Collection, deck lists and the Wish List) · DashboardScreen (value, totals, needs-attention, deck status, recently added; data in src/dashboard.ts) · WishlistScreen · LocationsScreen / LocationDetailScreen (containers with card counts, create/edit/delete, the open-for-trade switch; data in src/locations.ts, decks excluded) · FriendsScreen / FriendProfileScreen (username search, requests, a friend's trade binder and wants; data in src/friends.ts, rules live in migration 9's policies) ·
                         ListRow · ui. The centre Scan button is tap = Scan,
-                        hold-and-drag = fan of Search / Scan (PanResponder in TabBar); keep the finger on the fan's Scan option ~0.35s and a camera box opens (quick scan: first read is matched with ScanPipeline and opens CardDetails via `src/cardDetailsHost.tsx`; lifting first cancels; iOS only, needs camera permission already granted).
+                        hold-and-drag = fan of Search / Scan (PanResponder in TabBar); keep the finger on the fan's Scan option ~0.35s and a camera box opens (quick scan: first read is matched with ScanPipeline, then the PRINTING is verified -- see "Quick scan and the printing" below -- and it opens CardDetails via `src/cardDetailsHost.tsx`; lifting first cancels; iOS only, needs camera permission already granted).
                         Search is an action (`src/searchOverlay.tsx`), not a route
                         anyone lands on, from the bar, the menu and the fan alike.
   src/mort/             Mort mascot: semantic reaction controller, MortStage,
@@ -105,11 +105,15 @@ packages/upkeep-vision/  Native module boundary (Expo module name `UpkeepVision`
                           `ios/UpkeepCardVision.swift`, the pure image maths
                           (rectangle scoring, contrast retry, perspective
                           correction, title/printing OCR);
-                        - two async functions, `readText(uri)` (photo OCR; iOS
-                          Vision, Android ML Kit) and `compareArtwork(uri,
+                        - async functions: `readText(uri)` (photo OCR; iOS
+                          Vision, Android ML Kit), `compareArtwork(uri,
                           refs)` (iOS-only feature-print ranking; Android
-                          returns "not confident"). `compareArtwork` is
-                          currently unused by any screen.
+                          returns "not confident") and `rankCardImage(uri,
+                          refs)` (whole-card feature-print distances, iOS only;
+                          used by quick scan, see below). `compareArtwork` is
+                          unused by any screen: it looks for a rectangle
+                          inside the photo, which is wrong for an
+                          already-straightened card.
                         `scripts/validate-detection.swift` is a dev tool: it
                         compiles the *shipped* UpkeepCardVision.swift against
                         still frames on a Mac, prints score/confidence/OCR and
@@ -210,8 +214,39 @@ is `null` unless `Platform.OS === 'ios'` (`scannerViewAvailable`), and Android h
 only the photo `readText` path, which nothing in the current screen calls.
 Callers must branch on `scannerViewAvailable`/`visionAvailable`.
 
-**Open items** (none of these are bugs to fix in passing): alternate-art
-printing accuracy (`apps/mobile/docs/SCANNER_ALTERNATE_ART_PLAN.md`, deferred);
+**Quick scan and the printing.** Quick scan is used mostly for rare and
+alternate-art cards, so the printing must be right, not just the card, and it
+must never land on a wrong printing silently. `onCardRead` now carries
+`imageUri`, a temp JPEG of the straightened card (optional: an older native build
+omits it; the native side keeps the newest 12 snapshots and never deletes one
+younger than 60s). After the name match, `src/printingVerify.ts` calls scan-core's
+`printingHints` (footer: number and set on separate lines, leading zeros, rarity
+letter, number alone if the set is unreadable) and `rankPrintings` (all
+same-card printings, an explicit `printingConfidence`: exact / unique / partial /
+none), downloads up to 24 candidate pictures to `Paths.cache/printing-art`
+(pruned to the newest 200 files), ranks them against the photo with native
+`rankCardImage` under a 7s timeout, and hands both to `decidePrinting`.
+
+The policy: **the picture alone never pins one of several printings**; it only
+pre-highlights the best guess. A pin among several needs an agreeing footer AND
+a confidently closest picture (an exact footer suffices on any compared subset;
+a partial footer also needs every printing compared), or an exact footer where
+every printing provably shares one image. One printing in the catalog pins.
+Everything else opens CardDetails with a "Which printing is this?" picker (the
+user's photo beside the candidates, best guess highlighted, nothing selected if
+there is no best guess) and Add is disabled until one real tap confirms. A pin is
+also re-checked in CardDetails against the live printings
+(`needsPrintingConfirm` / `pinStillValid`): if the live table has a printing the
+scan-time catalog did not know, the picker opens. No photo or no `rankCardImage`
+(old build) means the picker, never a silent guess. A foil-only or nonfoil-only
+printing needs no finish choice: the add form already has one option. Costs a
+second or two after capture. The main Scan tab (`ScanScreen`) does not use the
+picture step yet. `npm run accuracy -w @upkeep/scan-core` reports the footer's
+"needs verification" rate, on the illustrative sample only.
+
+**Open items** (none of these are bugs to fix in passing): the rest of the
+alternate-art plan (`apps/mobile/docs/SCANNER_ALTERNATE_ART_PLAN.md`: still-photo
+footer capture, catalog printing-type flags, a real-card test set);
 Android live scanning; the session list shows no prices (`Printing` has no price
 field); the sequential per-card commit (an impact map recommends caching the user
 id and prefetching merge targets before any batch RPC); no automated tests over
@@ -292,7 +327,8 @@ unchanged day skips a ~30MB re-publish for nothing) — see the sync script's
 
 ### Printing-picker search: hints vs. a filter
 
-`CardIndex.search` (`packages/scan-core/src/catalog.ts`) takes two different
+`printingHints` (in `packages/scan-core/src/printing.ts`) produces the `hints`
+below. `CardIndex.search` (`packages/scan-core/src/catalog.ts`) takes two different
 kinds of set-code/collector-number input, and they behave differently on
 purpose:
 

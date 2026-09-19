@@ -36,6 +36,13 @@ export type CollectionEntry = {
   location_type: string | null;
   card_colors: string[] | null;
   card_type_line: string | null;
+  // For sorting only (see sortCollection in @upkeep/domain). Prices arrive as
+  // numeric strings or numbers depending on the driver, hence the union.
+  created_at: string;
+  card_cmc: number | string | null;
+  card_price_usd: number | string | null;
+  card_price_usd_foil: number | string | null;
+  card_price_usd_etched: number | string | null;
 };
 
 const COLUMNS = [
@@ -45,6 +52,7 @@ const COLUMNS = [
   'condition', 'finish', 'language',
   'location_id', 'location_name', 'location_type',
   'card_colors', 'card_type_line',
+  'created_at', 'card_cmc', 'card_price_usd', 'card_price_usd_foil', 'card_price_usd_etched',
   // Not rendered — PostgREST allows filtering on a column outside the
   // select projection, so this is only here to keep the shape self-evident
   // when read alongside the .eq below. See that comment for why it's mandatory.

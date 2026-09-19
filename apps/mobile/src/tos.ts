@@ -1,25 +1,23 @@
+import { CURRENT_TOS_VERSION, acceptedCurrentTos } from '@upkeep/domain';
 import { backend } from './backend';
 
 // The trading-terms gate, mirrored from src/lib/social/tos.ts and the
 // acceptTos action in src/app/(app)/friends/actions.ts.
 //
-// This is a second copy on purpose: the web module lives under src/ (a Next
-// path alias the app cannot import) and is not in @upkeep/domain, and a
-// version string is small enough that the cost of keeping two in step is less
-// than the cost of moving it in a change that is not about terms. THE TWO
-// VERSIONS MUST MATCH -- bump both together, or one client will keep asking
-// people to re-accept what the other already recorded. The value is compared
-// verbatim, so a mismatch shows up as a gate that never clears.
+// The version string and the acceptance comparison come from @upkeep/domain,
+// shared with the web, so a bump is one edit and the two clients cannot disagree
+// about what counts as accepted. The status shape and the enforcement sentence
+// stay local: the sentence names this app's place to accept, not the web's.
 //
 // Acceptance is a self-attestation written to the caller's own profiles row
 // ("profiles: update own"); no RPC and no new policy is involved.
 
-export const CURRENT_TOS_VERSION = '2026-09-01';
+export { CURRENT_TOS_VERSION };
 
 export type TosStatus = { acceptedAt: string | null; version: string | null };
 
 export function hasAcceptedTos(status: TosStatus | null): boolean {
-  return !!status && status.acceptedAt !== null && status.version === CURRENT_TOS_VERSION;
+  return !!status && acceptedCurrentTos(status.acceptedAt, status.version);
 }
 
 /**

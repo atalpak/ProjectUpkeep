@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useColorScheme, type StyleProp } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+import { readCollectionSort, type CollectionSort } from '@upkeep/domain';
 import { PREFS_KEY } from './storage';
 import { applyScheme, type Scheme } from './theme';
 import { DEFAULT_SLOTS, PINNABLE, type NavSlots, type PageId } from './navigation';
@@ -12,12 +13,13 @@ export type CollectionView = 'list' | 'grid';
 // `welcomeSeen` lives with the other device prefs rather than under its own
 // key: it is the same kind of thing (a one-line choice about this phone), and
 // "Show the welcome again" in Settings just sets it back to false.
-type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView; welcomeSeen: boolean };
+type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView; collectionSort: CollectionSort; welcomeSeen: boolean };
 
 type PreferencesValue = Prefs & {
   scheme: Scheme;
   setMode(mode: ThemeMode): void;
   setCollectionView(view: CollectionView): void;
+  setCollectionSort(sort: CollectionSort): void;
   setWelcomeSeen(seen: boolean): void;
   /** Put `page` in slot `index`; if it already sits in another slot the two swap. */
   setSlot(index: number, page: PageId): void;
@@ -35,12 +37,12 @@ function readSlots(value: unknown): NavSlots {
 }
 
 function readPrefs(raw: string | null): Prefs {
-  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list', welcomeSeen: false };
+  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list', collectionSort: 'name', welcomeSeen: false };
   if (!raw) return fallback;
   try {
-    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown; welcomeSeen?: unknown };
+    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown; collectionSort?: unknown; welcomeSeen?: unknown };
     const mode: ThemeMode = parsed.mode === 'light' || parsed.mode === 'dark' ? parsed.mode : 'system';
-    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list', welcomeSeen: parsed.welcomeSeen === true };
+    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list', collectionSort: readCollectionSort(parsed.collectionSort), welcomeSeen: parsed.welcomeSeen === true };
   } catch { return fallback; }
 }
 
@@ -74,6 +76,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       scheme,
       setMode: mode => save({ ...prefs, mode }),
       setCollectionView: collectionView => save({ ...prefs, collectionView }),
+      setCollectionSort: collectionSort => save({ ...prefs, collectionSort }),
       setWelcomeSeen: welcomeSeen => save({ ...prefs, welcomeSeen }),
       setSlot: (index, page) => {
         const slots = [...prefs.slots] as NavSlots;
