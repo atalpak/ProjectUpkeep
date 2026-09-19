@@ -85,6 +85,8 @@ src/
     scryfall.ts             Scryfall → `cards` field mapping, incl. every price
                             column. Second-largest piece of logic in the app.
     scryfall-stream.ts      streams the bulk export instead of buffering 500MB
+    scryfall-download.ts    saves the bulk file to a temp file first, so a slow database
+                            cannot stall the open download; cleans up after each attempt
     scryfall-upsert.ts      batched upsert with adaptive batch halving
     auth/                   redirect (open-redirect guard) · invite · password
                             reauth · recovery
@@ -112,7 +114,7 @@ scripts/
   export-catalog.ts  publish-catalog.ts  create-catalog-bucket.ts
                             the mobile catalog pipeline (see mobile.md)
   verify-migrations.sh      migrations against a throwaway Postgres
-  *.test.ts                 49 unit-test files over the pure logic in src/lib
+  *.test.ts                 50 unit-test files over the pure logic in src/lib
 ```
 
 ## Data model in one paragraph
