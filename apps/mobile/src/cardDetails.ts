@@ -75,14 +75,8 @@ function facesOf(r: Row): CardFace[] {
 
 const num = (v: number | string | null): number | null => (v === null || v === undefined ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
-/** Every non-digital printing of a card by exact name, newest first. Sorted
- *  here, not in SQL: cards.released_at has no index and an ordered query can
- *  time out (see cardSearch.ts). */
-export async function fetchPrintings(name: string): Promise<{ printings: CardPrinting[]; error: string | null }> {
-  if (!backend) return { printings: [], error: 'Card details need an internet connection and an account.' };
-  const { data, error } = await backend.from('cards').select(COLUMNS).eq('name', name).eq('digital', false).limit(500).returns<Row[]>();
-  if (error) return { printings: [], error: error.message };
-  const printings = (data ?? []).map((r): CardPrinting => ({
+function toCardPrinting(r: Row): CardPrinting {
+  return {
     id: r.scryfall_id, oracleId: r.oracle_id, name: r.name, flavorName: r.flavor_name, setCode: r.set_code, setName: r.set_name ?? r.set_code.toUpperCase(),
     collectorNumber: r.collector_number, rarity: r.rarity, releasedAt: r.released_at, setType: r.set_type, image: r.image_uri, imageSmall: r.image_uri_small,
     finishes: (r.available_finishes ?? []).filter((f): f is Finish => (FINISHES as readonly string[]).includes(f)),
@@ -90,9 +84,31 @@ export async function fetchPrintings(name: string): Promise<{ printings: CardPri
     power: r.power, toughness: r.toughness, loyalty: r.loyalty, artist: r.artist, layout: r.layout,
     faces: facesOf(r),
     priceUsd: num(r.price_usd), priceUsdFoil: num(r.price_usd_foil), priceUsdEtched: num(r.price_usd_etched), scryfallUri: r.scryfall_uri,
-  }));
+  };
+}
+
+/** Every non-digital printing of a card by exact name, newest first. Sorted
+ *  here, not in SQL: cards.released_at has no index and an ordered query can
+ *  time out (see cardSearch.ts). */
+export async function fetchPrintings(name: string): Promise<{ printings: CardPrinting[]; error: string | null }> {
+  if (!backend) return { printings: [], error: 'Card details need an internet connection and an account.' };
+  const { data, error } = await backend.from('cards').select(COLUMNS).eq('name', name).eq('digital', false).limit(500).returns<Row[]>();
+  if (error) return { printings: [], error: error.message };
+  const printings = (data ?? []).map(toCardPrinting);
   printings.sort((a, b) => (b.releasedAt ?? '').localeCompare(a.releasedAt ?? ''));
   return { printings, error: null };
+}
+
+/**
+ * One printing by id: a single primary-key row, far lighter than the whole
+ * list a name like "Lightning Bolt" returns. Lets the sheet show the best-guess
+ * printing and its price while the full list is still on its way. Null on any
+ * failure or a missing row; the caller falls back to waiting for the list.
+ */
+export async function fetchPrinting(id: string): Promise<CardPrinting | null> {
+  if (!backend) return null;
+  const { data, error } = await backend.from('cards').select(COLUMNS).eq('scryfall_id', id).eq('digital', false).maybeSingle<Row>();
+  return error || !data ? null : toCardPrinting(data);
 }
 
 // Same ranking the web wish list uses (src/app/(app)/wants/actions.ts) so a

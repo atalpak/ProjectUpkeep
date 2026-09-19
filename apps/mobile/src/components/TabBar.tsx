@@ -4,11 +4,10 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
-import { ScanPipeline, quickMatch } from '@upkeep/scan-core';
-import { UpkeepScannerView, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
+import { ScanPipeline, artCandidates, bestGuessPrinting, printingHints, quickMatch, rankPrintings } from '@upkeep/scan-core';
+import { UpkeepScannerView, cardImageRankingAvailable, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
 import { useApp } from '../AppProvider';
 import { useOpenCardDetails } from '../cardDetailsHost';
-import { verifyPrinting } from '../printingVerify';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles, usePreferences } from '../preferences';
 import { PAGES, type PageId } from '../navigation';
@@ -126,12 +125,6 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
   // Set once a quick scan resolved a card, so the finger lifting afterwards
   // does not also fire the fan's own "open Scan".
   const doneRef = useRef(false);
-  // A read is being checked against pictures. A newer read is ignored until it
-  // finishes, and lifting the finger bumps the token so a late result is dropped.
-  const verifying = useRef(false);
-  const verifyToken = useRef(0);
-  // A verify finishing after unmount or sign-out must not open a sheet on a dead screen.
-  useEffect(() => () => { verifyToken.current++; }, []);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fanOpen, setFanOpen] = useState(false);
   const [hover, setHover] = useState<FanOption | null>(null);
@@ -180,8 +173,6 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
 
   function stopQuick() {
     pendingRead.current = null;
-    verifyToken.current++;
-    verifying.current = false;
     setWarm(false);
     if (!quickRef.current) return;
     quickRef.current = false;
@@ -195,7 +186,6 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
   }
 
   function handleRead({ lines, printingLines, imageUri }: CardReadEvent) {
-    if (verifying.current) return;
     const candidates = env.current.pipeline.matchEvidence({ lines, printingLines }).candidates;
     const match = quickMatch(candidates);
     if ('reason' in match) {
@@ -203,33 +193,19 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
       setQuickHint(match.reason === 'ambiguous' ? 'Not sure which card that is. Take it away and try again.' : 'Couldn’t read that clearly. Take it away and try again.');
       return;
     }
-    // The name settled the card, not the printing. Rare and alternate-art
-    // cards are the point of quick scan, so which printing this is gets checked
-    // against the card's picture (a second or two) rather than guessed. See
-    // printingVerify.ts; an old build with no photo falls back to asking.
-    const token = ++verifyToken.current;
-    verifying.current = true;
-    setQuickHint('Checking the printing…');
-    void verifyPrinting(env.current.index, match.printing, printingLines, imageUri).then(
-      ({ decision, photoUri }) => ({ decision, photoUri }),
-      () => null,
-    ).then(verified => {
-      if (token !== verifyToken.current) return;
-      verifying.current = false;
-      if (!verified) {
-        setQuickHint('Couldn’t check the printing. Take the card away and try again.');
-        return;
-      }
-      const { decision, photoUri } = verified;
-      doneRef.current = true;
-      stopQuick();
-      closeFan();
-      const name = match.printing.name;
-      const knownIds = env.current.index.printingsOf(match.printing.oracleId).map(p => p.id);
-      // A pinned printing still travels as `verify`: CardDetails checks it against the live list and opens the picker if the catalog was stale.
-      if (decision.kind === 'pinned') env.current.openDetails({ name, printingId: decision.printing.id, verify: { optionIds: [decision.printing.id], bestId: decision.printing.id, photoUri, pinned: true, knownIds } });
-      else env.current.openDetails({ name, printingId: decision.best, verify: { optionIds: decision.options.map(p => p.id), bestId: decision.best, photoUri, knownIds } });
-    });
+    // The name settled the card. Open the details page NOW on the best guess
+    // for the printing (footer match, else the normal default): nothing here
+    // waits on a download or a picture comparison. The comparison runs in the
+    // background inside the sheet and may refine the selection later; see
+    // printingVerify.ts and CardDetails. The catalog is local, so ranking is instant.
+    const index = env.current.index;
+    const ranking = rankPrintings(index.printingsOf(match.printing.oracleId), printingHints(printingLines, index.setCodes));
+    const guess = bestGuessPrinting(ranking);
+    const artPool = imageUri && cardImageRankingAvailable ? artCandidates(ranking) : null;
+    doneRef.current = true;
+    stopQuick();
+    closeFan();
+    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined });
   }
 
   function openFan() {

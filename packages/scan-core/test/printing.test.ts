@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, decidePrinting, usableArt, withTimeout, pinStillValid, needsPrintingConfirm, ART_CONFIDENCE_RATIO, PICKER_OPTIONS, type CatalogBundle, type Printing } from '../src';
+import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, bestGuessPrinting, artCandidates, artSwitchTarget, artSwitchNow, usableArt, withTimeout, ART_CONFIDENCE_RATIO, type CatalogBundle, type Printing } from '../src';
 
 const oracle = '00000000-0000-4000-8000-00000000aaaa';
 const mk = (n: number, setCode: string, collectorNumber: string, extra: Partial<Printing> = {}): Printing => ({
@@ -101,147 +101,32 @@ test('artShortlist: only printings with a picture, best footer fit first, capped
 
 const art = (pairs: Array<[Printing, number]>) => ({ ids: pairs.map(([p]) => p.id), distances: pairs.map(([, d]) => d) });
 
-test('decidePrinting: a card with one printing needs no verification', () => {
-  const d = decidePrinting(rankPrintings([fdn], {}), null);
-  assert.deepEqual(d, { kind: 'pinned', printing: fdn });
+test('bestGuessPrinting: exact, partial and unique name one; nothing else guesses', () => {
+  assert.equal(bestGuessPrinting(rankPrintings(all, { setCode: 'FDN', collectorNumber: '718' }))?.id, fdn.id);
+  assert.equal(bestGuessPrinting(rankPrintings(all, { collectorNumber: '76' }))?.id, slz.id, 'a lone matching number is a partial guess');
+  assert.equal(bestGuessPrinting(rankPrintings([fdn], {}))?.id, fdn.id);
+  assert.equal(bestGuessPrinting(rankPrintings(all, {})), null, 'no footer: the caller uses its default');
+  assert.equal(bestGuessPrinting(rankPrintings(all, { rarity: 'rare' })), null, 'rarity alone is not a guess');
 });
 
-test('decidePrinting: exact footer that the picture also prefers is pinned', () => {
-  const ranking = rankPrintings(all, { setCode: 'FDN', collectorNumber: '718' });
-  const d = decidePrinting(ranking, art([[fdn, 0.1], [m19, 0.6], [slz, 0.7], [promo, 0.65]]));
-  assert.deepEqual(d, { kind: 'pinned', printing: fdn });
+test('artCandidates: skipped when the footer settled it, or the picture could not cover every printing', () => {
+  assert.equal(artCandidates(rankPrintings([fdn], {})), null, 'one printing');
+  assert.equal(artCandidates(rankPrintings(all, { setCode: 'FDN', collectorNumber: '718' })), null, 'exact footer');
+  assert.equal(artCandidates(rankPrintings(all, {}))!.length, all.length);
+  assert.equal(artCandidates(rankPrintings([...all, mk(7, 'bbb', '1', { imageUri: undefined })], {})), null, 'a printing with no picture');
+  const many = Array.from({ length: 30 }, (_, i) => mk(10 + i, `x${i}`, String(i)));
+  assert.equal(artCandidates(rankPrintings(many, {})), null, 'more than the cap can never be fully compared');
+  assert.equal(artCandidates(rankPrintings(all, { collectorNumber: '76' }))!.length, all.length, 'a partial footer still checks');
 });
 
-test('decidePrinting: exact footer with pictures the comparison cannot separate asks, unless the artwork is known identical', () => {
-  const ranking = rankPrintings(all, { setCode: 'm19', collectorNumber: '185' });
-  const tied = art([[m19, 0.10], [promo, 0.10], [fdn, 0.7], [slz, 0.7]]);
-  // Different pictures on file: a tie is not proof they match, so ask.
-  const asked = decidePrinting(ranking, tied);
-  assert.equal(asked.kind, 'choose');
-  if (asked.kind === 'choose') { assert.equal(asked.reason, 'unsure'); assert.equal(asked.best, m19.id); }
-  // Same image address for every printing: the footer is the only separator and it is exact.
-  const same = all.map(p => ({ ...p, imageUri: 'https://img.example/shared.jpg' }));
-  const sameRanking = rankPrintings(same, { setCode: 'm19', collectorNumber: '185' });
-  assert.equal(decidePrinting(sameRanking, tied).kind, 'pinned');
-  assert.equal(decidePrinting(sameRanking, null).kind, 'pinned', 'no picture needed when the artwork is identical');
-  // ...but a partial footer never pins on that basis.
-  assert.equal(decidePrinting(rankPrintings(same, { collectorNumber: '185' }), null).kind, 'choose');
-});
-
-test('decidePrinting: partial coverage never pins on the picture alone', () => {
-  const none = rankPrintings(all, {});
-  // Only two of four were compared (failed downloads); a clear winner among them proves nothing.
-  const d = decidePrinting(none, art([[fdn, 0.1], [m19, 0.6]]));
-  assert.equal(d.kind, 'choose');
-  // A -1 (uncomparable) result is treated as unusable, so it cannot count as coverage.
-  assert.equal(decidePrinting(none, { ids: all.map(p => p.id), distances: [0.1, 0.6, 0.7, -1] }).kind, 'choose');
-});
-
-test('decidePrinting: one survivor of many is not a winner', () => {
-  const d = decidePrinting(rankPrintings(all, {}), art([[fdn, 0.1]]));
-  assert.equal(d.kind, 'choose');
-  // Even a partial footer naming the survivor does not pin it.
-  assert.equal(decidePrinting(rankPrintings(all, { collectorNumber: '718' }), art([[fdn, 0.1]])).kind, 'choose');
-});
-
-test('decidePrinting: partial coverage pins only with an exact footer that agrees with the picture', () => {
-  const partialArt = art([[fdn, 0.1], [m19, 0.6]]);
-  assert.deepEqual(decidePrinting(rankPrintings(all, { setCode: 'FDN', collectorNumber: '718' }), partialArt), { kind: 'pinned', printing: fdn });
-  // Exact footer naming a different printing than the picture: ask.
-  assert.equal(decidePrinting(rankPrintings(all, { setCode: 'm19', collectorNumber: '185' }), partialArt).kind, 'choose');
-});
-
-test('decidePrinting: more printings than the shortlist cap never pin from the picture alone', () => {
-  const many = Array.from({ length: 30 }, (_, i) => mk(10 + i, 'xx' + i, String(i + 1)));
-  const noFooter = rankPrintings(many, {});
-  const shortlist = artShortlist(noFooter.ranked);
-  assert.equal(shortlist.length, 24);
-  const winner = art(shortlist.map((p, i): [Printing, number] => [p, i === 0 ? 0.1 : 0.8]));
-  assert.equal(decidePrinting(noFooter, winner).kind, 'choose');
-  // With an exact footer that agrees with the confident winner it may pin.
-  const exact = rankPrintings(many, { setCode: 'xx3', collectorNumber: '4' });
-  const list = artShortlist(exact.ranked);
-  const agree = art(list.map((p, i): [Printing, number] => [p, i === 0 ? 0.1 : 0.8]));
-  assert.equal(decidePrinting(exact, agree).kind, 'pinned');
-});
-
-test('decidePrinting: a printing with no picture on file keeps the picture from pinning', () => {
-  const bare = mk(7, 'bbb', '1', { imageUri: undefined });
-  const withBare = [...all, bare];
-  const shortlisted = artShortlist(rankPrintings(withBare, {}).ranked);
-  const d = decidePrinting(rankPrintings(withBare, {}), art(shortlisted.map((p, i): [Printing, number] => [p, i === 0 ? 0.1 : 0.8])));
-  assert.equal(d.kind, 'choose');
-});
-
-test('decidePrinting: footer and a confident picture disagree, so the person is asked, picture winner highlighted', () => {
-  const ranking = rankPrintings(all, { setCode: 'm19', collectorNumber: '185' });
-  const d = decidePrinting(ranking, art([[fdn, 0.1], [m19, 0.6], [slz, 0.7], [promo, 0.65]]));
-  assert.equal(d.kind, 'choose');
-  if (d.kind === 'choose') {
-    assert.equal(d.reason, 'disagree');
-    assert.equal(d.best, fdn.id);
-    assert.equal(d.options[0]!.id, fdn.id);
-    assert.ok(d.options.some(p => p.id === m19.id), 'the footer\'s printing stays on offer');
-  }
-});
-
-test('decidePrinting: an exact footer whose own picture is clearly not among the closest is not trusted', () => {
-  const ranking = rankPrintings(all, { setCode: 'slz', collectorNumber: '76' });
-  // Not confident (two close leaders) but the footer's printing is far behind them.
-  const d = decidePrinting(ranking, art([[fdn, 0.10], [promo, 0.105], [slz, 0.9], [m19, 0.9]]));
-  assert.equal(d.kind, 'choose');
-});
-
-test('decidePrinting: with no footer, even a clearly closest picture only highlights; it never pins', () => {
-  const none = rankPrintings(all, {});
-  const clear = decidePrinting(none, art([[fdn, 0.1], [m19, 0.6], [slz, 0.7], [promo, 0.65]]));
-  assert.equal(clear.kind, 'choose');
-  if (clear.kind === 'choose') { assert.equal(clear.best, fdn.id); assert.equal(clear.options[0]!.id, fdn.id); }
-  // A near-perfect distance changes nothing: art alone is never a pin among several.
-  assert.equal(decidePrinting(none, art([[fdn, 0.0001], [m19, 5], [slz, 5], [promo, 5]])).kind, 'choose');
-  const unsure = decidePrinting(none, art([[fdn, 0.30], [m19, 0.31], [slz, 0.7], [promo, 0.65]]));
-  assert.equal(unsure.kind, 'choose');
-  if (unsure.kind === 'choose') assert.equal(unsure.reason, 'unsure');
-});
-
-test('decidePrinting: partial footer agreeing with a confident picture over every printing pins; disagreeing asks', () => {
-  const partial = rankPrintings(all, { collectorNumber: '718' });
-  assert.equal(decidePrinting(partial, art([[fdn, 0.1], [m19, 0.6], [slz, 0.7], [promo, 0.65]])).kind, 'pinned');
-  const wrong = decidePrinting(partial, art([[slz, 0.1], [m19, 0.6], [fdn, 0.7], [promo, 0.65]]));
-  assert.equal(wrong.kind, 'choose');
-});
-
-test('decidePrinting: with no picture (old native build, failed download) several printings always ask, never guess', () => {
-  const exact = decidePrinting(rankPrintings(all, { setCode: 'FDN', collectorNumber: '718' }), null);
-  assert.equal(exact.kind, 'choose');
-  if (exact.kind === 'choose') { assert.equal(exact.reason, 'no-art'); assert.equal(exact.best, fdn.id); }
-  const blank = decidePrinting(rankPrintings(all, {}), null);
-  assert.equal(blank.kind, 'choose');
-  if (blank.kind === 'choose') assert.equal(blank.best, null);
-  // Unusable numbers count as no picture too.
-  assert.equal(decidePrinting(rankPrintings(all, {}), { ids: [fdn.id], distances: [NaN] }).kind, 'choose');
-});
-
-test('decidePrinting: the picker is capped and best guess leads', () => {
-  const many = Array.from({ length: 20 }, (_, i) => mk(10 + i, 'xx' + i, String(i + 1)));
-  const d = decidePrinting(rankPrintings(many, { setCode: 'xx7', collectorNumber: '8' }), null);
-  assert.equal(d.kind, 'choose');
-  if (d.kind === 'choose') { assert.equal(d.options.length, PICKER_OPTIONS); assert.equal(d.options[0]!.setCode, 'xx7'); }
-});
-
-test('decidePrinting: a partial footer agreeing with a picture that did not cover every printing still asks', () => {
-  const partial = rankPrintings(all, { collectorNumber: '718' });
-  assert.equal(decidePrinting(partial, art([[fdn, 0.1], [m19, 0.6]])).kind, 'choose');
-  // Exact footer + agreeing confident picture pins even on a subset: two independent signals.
-  assert.equal(decidePrinting(rankPrintings(all, { setCode: 'fdn', collectorNumber: '718' }), art([[fdn, 0.1], [m19, 0.6]])).kind, 'pinned');
-});
-
-test('decidePrinting: whatever the picture says, several printings and no footer never pin', () => {
-  const none = rankPrintings(all, {});
-  for (const winner of all) {
-    const pairs = all.map((p): [Printing, number] => [p, p.id === winner.id ? 0.01 : 9]);
-    assert.equal(decidePrinting(none, art(pairs)).kind, 'choose', `winner ${winner.setCode}`);
-  }
+test('artSwitchTarget: only a confident winner over every printing may switch the selection', () => {
+  assert.equal(artSwitchTarget(all, art([[fdn, 0.1], [m19, 0.6], [slz, 0.7], [promo, 0.65]]))?.id, fdn.id);
+  assert.equal(artSwitchTarget(all, art([[fdn, 0.1], [m19, 0.6]])), null, 'a subset proves nothing about the rest');
+  assert.equal(artSwitchTarget(all, art([[fdn, 0.30], [m19, 0.31], [slz, 0.7], [promo, 0.65]])), null, 'not clearly closer');
+  assert.equal(artSwitchTarget(all, art([[fdn, 0.2], [m19, 0.2], [slz, 0.2], [promo, 0.2]])), null, 'identical pictures never win');
+  assert.equal(artSwitchTarget(all, { ids: all.map(p => p.id), distances: [0.1, 0.6, 0.7, NaN] }), null, 'junk distances');
+  assert.equal(artSwitchTarget(all, null), null);
+  assert.equal(artSwitchTarget([fdn], art([[fdn, 0.1]])), null, 'nothing to switch between');
 });
 
 test('usableArt: drops -1, NaN, negative, missing and non-number distances, keeps ids aligned', () => {
@@ -263,23 +148,17 @@ test('withTimeout: resolves with the work, falls back when late or failing, and 
   assert.ok(Date.now() - started < 1000);
 });
 
-test('pinStillValid: a stale catalog cannot vouch for a pin the live table has more printings for', () => {
-  assert.equal(pinStillValid('a', ['a'], ['a']), true);
-  assert.equal(pinStillValid('a', ['a'], ['a', 'b']), false, 'a unique pin with a newer live printing must ask');
-  assert.equal(pinStillValid('a', ['a', 'b'], ['a']), true, 'the live list knowing less is fine');
-  assert.equal(pinStillValid('a', ['a', 'b'], ['b']), false, 'the pinned printing must exist live');
-  assert.equal(pinStillValid('a', ['a', 'b'], ['a', 'b', 'c']), false);
-  assert.equal(pinStillValid(null, ['a'], ['a']), false);
-  assert.equal(pinStillValid('a', ['a'], []), false);
-});
-
-test('needsPrintingConfirm: only a verified scan with no surviving pin and no confirmation asks', () => {
-  const pinned = { pinned: true, bestId: 'a', knownIds: ['a'] };
-  assert.equal(needsPrintingConfirm({ verify: undefined, confirmed: false, liveIds: ['a', 'b'] }), false, 'not a scan');
-  assert.equal(needsPrintingConfirm({ verify: pinned, confirmed: false, liveIds: ['a'] }), false);
-  assert.equal(needsPrintingConfirm({ verify: pinned, confirmed: false, liveIds: ['a', 'b'] }), true, 'stale catalog');
-  assert.equal(needsPrintingConfirm({ verify: pinned, confirmed: false, liveIds: [] }), true, 'nothing loaded must fail closed');
-  assert.equal(needsPrintingConfirm({ verify: pinned, confirmed: true, liveIds: ['a', 'b'] }), false, 'the person confirmed');
-  assert.equal(needsPrintingConfirm({ verify: { bestId: 'a', knownIds: ['a', 'b'] }, confirmed: false, liveIds: ['a', 'b'] }), true, 'not pinned');
-  assert.equal(needsPrintingConfirm({ verify: { bestId: null, knownIds: ['a'], pinned: true }, confirmed: false, liveIds: ['a'] }), true);
+test('artSwitchNow: a stale card, a made choice or an open form all leave the selection alone', () => {
+  const a = art([[fdn, 0.1], [m19, 0.6], [slz, 0.7], [promo, 0.65]]);
+  const base = { name: fdn.name, artName: fdn.name, all, art: a, userPicked: false, adding: false };
+  assert.equal(artSwitchNow(base)?.id, fdn.id);
+  assert.equal(artSwitchNow({ ...base, name: null }), null, 'sheet closed');
+  assert.equal(artSwitchNow({ ...base, name: 'Other Card' }), null, 'sheet reopened on another card: stale list and art');
+  assert.equal(artSwitchNow({ ...base, artName: 'Other Card' }), null, 'art computed for the previous card');
+  assert.equal(artSwitchNow({ ...base, artName: null }), null);
+  assert.equal(artSwitchNow({ ...base, all: [...all, { ...promo, id: 'zzz', name: 'Other Card' }] }), null, 'list holds another card');
+  assert.equal(artSwitchNow({ ...base, userPicked: true }), null, 'the person chose');
+  assert.equal(artSwitchNow({ ...base, adding: true }), null, 'add form open');
+  assert.equal(artSwitchNow({ ...base, art: art([[fdn, 0.3], [m19, 0.31], [slz, 0.7], [promo, 0.65]]) }), null, 'not confident');
+  assert.equal(artSwitchNow({ ...base, all: [], art: null }), null);
 });

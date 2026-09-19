@@ -36,10 +36,10 @@ is the live list.
 
 ## Scanner
 
-- Alternate-art accuracy: **quick scan** now reads the footer properly, compares
-  the card's picture with each candidate printing's and asks "Which printing is
-  this?" rather than guessing (plan steps 2 and 4; needs a native rebuild and is
-  unverified on a device). Still open: the main Scan tab does not use the picture
+- Alternate-art accuracy: **quick scan** now reads the footer properly, opens on a
+  footer-based best-guess printing at once and compares the card's picture with each
+  candidate's in the background, switching only when confident (plan steps 2 and 4;
+  the 2026-09-19 owner decision dropped the "Which printing is this?" picker; unverified on a device). Still open: the main Scan tab does not use the picture
   step; a sharper still-photo capture for the footer (step 3); printing-type flags
   in the catalog (step 5, needs a migration); the 20-30 real-card test set (step 6),
   which is what turns the accuracy script's sample numbers into evidence.

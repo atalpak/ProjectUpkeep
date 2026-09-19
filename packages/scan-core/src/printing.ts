@@ -7,17 +7,19 @@ import type { Printing } from './types';
  * Why this exists (see apps/mobile/docs/SCANNER_ALTERNATE_ART_PLAN.md): the
  * name identifies the card, but a rare or alternate-art card has many
  * printings that share one name, and picking among them arbitrarily is how a
- * full-art promo used to open as its plain reprint. Three independent pieces
- * of evidence can separate them, and none is trusted alone:
+ * full-art promo used to open as its plain reprint. Two independent pieces
+ * of evidence can separate them, and the person can always overrule both:
  *
- *   1. the footer text (collector number, set code, rarity letter),
+ *   1. the footer text (collector number, set code, rarity letter) -- instant,
+ *      it decides which printing quick scan opens on;
  *   2. the card's picture against each candidate's picture (native, see
- *      packages/upkeep-vision `rankCardImage`),
- *   3. the person, who taps the right one when 1 and 2 cannot agree.
+ *      packages/upkeep-vision `rankCardImage`) -- slow, so it runs in the
+ *      background AFTER the details page is open and may only switch the
+ *      selection when it is confident and has compared every printing.
  *
- * `decidePrinting` is the policy that combines them. Its one rule: a printing
- * is only pinned on positive agreement of independent evidence; otherwise the
- * caller must ask. The picture alone never pins one of several printings.
+ * Owner decision 2026-09-19: quick scan no longer asks "which printing?" or
+ * waits for the picture. Speed and a page that opens at once won over never
+ * guessing; the printing selector on the details page is the correction path.
  */
 
 export interface PrintingHints {
@@ -171,22 +173,6 @@ export function artVerdict(art: ArtResult): { bestId: string; confident: boolean
   return { bestId: art.ids[best]!, confident };
 }
 
-export type ChooseReason =
-  /** No usable picture comparison (old build, download failed, no images). */
-  | 'no-art'
-  /** The footer and the picture point at different printings. */
-  | 'disagree'
-  /** Neither the footer nor the picture settled it. */
-  | 'unsure';
-
-export type PrintingDecision =
-  | { kind: 'pinned'; printing: Printing }
-  /** `options` is best guess first; `best` is pre-highlighted but needs one tap to confirm. */
-  | { kind: 'choose'; options: Printing[]; best: string | null; reason: ChooseReason };
-
-/** How many candidates the "which printing?" picker shows; the details page lists the rest. */
-export const PICKER_OPTIONS = 8;
-
 /**
  * True only when every printing of the card was actually compared. A picture
  * "winner" among a subset (downloads that failed, printings with no image, a
@@ -200,61 +186,69 @@ export function artCoversAll(all: Printing[], art: ArtResult | null): boolean {
 }
 
 /**
- * Whether every printing is known to carry the very same picture (the same
- * image address). Nothing else in the catalog says so, so this is only ever
- * true on positive evidence; when it is not knowable, the answer is no.
+ * The printing quick scan opens on, decided from the footer alone and at once.
+ * An exact or partial footer match, or the card's only printing, names one;
+ * otherwise null, and the caller uses its normal default (the newest ordinary
+ * printing). Nothing waits on this: it is a best guess the person can change,
+ * and the background picture check may refine it.
  */
-export function sharesArtwork(all: Printing[]): boolean {
-  const first = all[0]?.imageUri;
-  return !!first && all.every(p => p.imageUri === first);
+export function bestGuessPrinting(ranking: PrintingRanking): Printing | null {
+  const { ranked, printingConfidence } = ranking;
+  if (printingConfidence === 'exact' || printingConfidence === 'partial' || printingConfidence === 'unique') return ranked[0]?.printing ?? null;
+  return null;
 }
 
 /**
- * Combines footer evidence with the picture comparison. The owner's rule is
- * that a wrong printing must never be landed silently, and the picture ALONE
- * never pins one of several printings: it may only pre-highlight the best guess
- * in the picker. A pin among several needs two independent things to agree:
- *
- *  - one printing exists: pinned;
- *  - the footer names a printing AND the picture is clearly closest to that same
- *    one: pinned when the footer is exact, or when it is partial and every
- *    printing was compared (a lone matching number is a weak claim, so it needs
- *    the whole field checked as well);
- *  - an exact footer names one and every printing is known to share identical
- *    artwork: pinned, since then no picture could be wrong;
- *  - anything else, including a confident picture with no footer or one the
- *    footer contradicts: ask, with the best guess highlighted.
+ * The printings worth downloading pictures for in the background, or null when
+ * the comparison cannot pay off. It is skipped when the footer already named
+ * the printing (exact) or there is only one, and when the picture could never
+ * cover every printing (more than the cap, or one with no picture on file):
+ * `artSwitchTarget` would refuse the result anyway, so the downloads would be
+ * wasted work on the person's data plan.
  */
-export function decidePrinting(ranking: PrintingRanking, art: ArtResult | null): PrintingDecision {
+export function artCandidates(ranking: PrintingRanking, max = MAX_ART_CANDIDATES): Printing[] | null {
   const { ranked, printingConfidence } = ranking;
-  if (ranked.length === 0) throw new Error('decidePrinting needs at least one printing');
-  const all = ranked.map(r => r.printing);
-  if (printingConfidence === 'unique') return { kind: 'pinned', printing: ranked[0]!.printing };
+  if (printingConfidence === 'unique' || printingConfidence === 'exact') return null;
+  if (ranked.length < 2 || ranked.length > max || ranked.some(r => !r.printing.imageUri)) return null;
+  return artShortlist(ranked, max);
+}
 
-  const footer = printingConfidence === 'exact' || printingConfidence === 'partial' ? ranked[0]!.printing : null;
-  const exactFooter = printingConfidence === 'exact' ? footer : null;
-  const verdict = art ? artVerdict(art) : null;
-  const covered = artCoversAll(all, art);
-  const choose = (best: string | null, reason: ChooseReason): PrintingDecision => {
-    // The best guess leads, then the picture's order where there is one, else the footer's.
-    const rank = art ? new Map(art.ids.map((id, i) => [id, art.distances[i]!])) : new Map<string, number>();
-    const rest = all.filter(p => p.id !== best).sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
-    const lead = best ? all.filter(p => p.id === best) : [];
-    return { kind: 'choose', options: [...lead, ...rest].slice(0, PICKER_OPTIONS), best, reason };
-  };
-  // Identical pictures make the footer the only separator; it must be exact.
-  if (exactFooter && sharesArtwork(all)) return { kind: 'pinned', printing: exactFooter };
+/**
+ * The printing the picture may quietly switch the selection to, or null to leave
+ * it alone. Only a confident winner counts, and only when EVERY printing of the
+ * card was compared: a winner among a subset says nothing about the printing
+ * that was left out. Identical pictures are never confident (see `artVerdict`),
+ * so a card whose printings share one image is never switched.
+ */
+export function artSwitchTarget(all: Printing[], art: ArtResult | null): Printing | null {
+  if (!art || all.length < 2 || !artCoversAll(all, art)) return null;
+  const verdict = artVerdict(art);
+  if (!verdict?.confident) return null;
+  return all.find(p => p.id === verdict.bestId) ?? null;
+}
 
-  if (!art || !verdict) return choose(footer?.id ?? null, 'no-art');
-
-  if (verdict.confident) {
-    const best = all.find(p => p.id === verdict.bestId);
-    if (!best) return choose(footer?.id ?? null, 'no-art');
-    if (footer && footer.id !== best.id) return choose(best.id, 'disagree');
-    if (footer && (exactFooter || covered)) return { kind: 'pinned', printing: best };
-    return choose(best.id, 'unsure');
-  }
-  return choose(footer?.id ?? verdict.bestId, 'unsure');
+/**
+ * Whether the background picture match may move the selection right now, and to
+ * what. The picture result arrives seconds after the sheet opened, so by then
+ * the sheet may have closed, been reopened on another card, or the person may
+ * have chosen a printing or opened the add form. Each of those means "leave it".
+ * `artName` and the printings' own names must both equal `name`: a result or
+ * list that belongs to the previously opened card must never move this one.
+ */
+export function artSwitchNow(input: {
+  /** The card the sheet is open on; null when closed. */
+  name: string | null;
+  /** The card name the picture result was computed for. */
+  artName: string | null;
+  all: Printing[];
+  art: ArtResult | null;
+  userPicked: boolean;
+  adding: boolean;
+}): Printing | null {
+  const { name, artName, all, art, userPicked, adding } = input;
+  if (!name || userPicked || adding || artName !== name) return null;
+  if (all.length === 0 || all.some(p => p.name !== name)) return null;
+  return artSwitchTarget(all, art);
 }
 
 /**
@@ -284,33 +278,4 @@ export function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promi
     const timer = setTimeout(() => finish(fallback), ms);
     work.then(finish, () => finish(fallback));
   });
-}
-
-/**
- * Whether a printing pinned at scan time may still be trusted once CardDetails
- * has the live list. The scan decided against the offline catalog, which can be
- * stale: if the live table has a printing the catalog never knew about, the
- * scan's "there is only one" or "nothing else fits" was made without it, and
- * the person must choose. The pinned printing must also exist live.
- */
-export function pinStillValid(pinnedId: string | null, knownIds: readonly string[], liveIds: readonly string[]): boolean {
-  if (!pinnedId || !liveIds.includes(pinnedId)) return false;
-  const known = new Set(knownIds);
-  return liveIds.every(id => known.has(id));
-}
-
-/**
- * Whether CardDetails must show the printing picker and hold back adding. A scan
- * that asked to be verified needs it until the person confirms, unless its pin
- * survived `pinStillValid`. A sheet opened with no verification never does.
- */
-export function needsPrintingConfirm(input: {
-  verify: { pinned?: boolean; bestId: string | null; knownIds: readonly string[] } | null | undefined;
-  confirmed: boolean;
-  liveIds: readonly string[];
-}): boolean {
-  const { verify, confirmed, liveIds } = input;
-  if (!verify || confirmed) return false;
-  const pinnedFound = !!verify.pinned && pinStillValid(verify.bestId, verify.knownIds, liveIds);
-  return !pinnedFound;
 }
