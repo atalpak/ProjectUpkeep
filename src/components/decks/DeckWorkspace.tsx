@@ -134,6 +134,9 @@ export function DeckWorkspace({
   }, [price]);
 
   const [sleeveState, sleeve, sleeving] = useActionState(sleeveCard, EMPTY_DECK_STATE);
+  // Lifted to the workspace, like sleeve: the row menu closes on submit, so an
+  // error shown inside it would vanish with it. The banner below outlives the menu.
+  const [unsleeveState, unsleeve] = useActionState(unsleeveCard, EMPTY_DECK_STATE);
   const [commanderState, commanderAction, commanderPending] = useActionState(
     setCommander,
     EMPTY_DECK_STATE,
@@ -302,6 +305,7 @@ export function DeckWorkspace({
 
       <Banner kind="error">{sleeveState.error}</Banner>
       <Banner kind="success">{sleeveState.notice}</Banner>
+      <Banner kind="error">{unsleeveState.error}</Banner>
       <Banner kind="error">{commanderState.error}</Banner>
       <Banner kind="success">{commanderState.notice}</Banner>
 
@@ -318,6 +322,7 @@ export function DeckWorkspace({
             deckId={deckId}
             commanderEntryId={commanderEntryId}
             commanderAction={commanderAction}
+            unsleeve={unsleeve}
             commanderPending={commanderPending}
             sleeve={sleeve}
             sleeving={sleeving}
@@ -337,6 +342,7 @@ export function DeckWorkspace({
           deckId={deckId}
           commanderEntryId={commanderEntryId}
           commanderAction={commanderAction}
+          unsleeve={unsleeve}
           commanderPending={commanderPending}
           sleeve={sleeve}
           sleeving={sleeving}
@@ -354,6 +360,7 @@ export function DeckWorkspace({
               deckId={deckId}
               commanderEntryId={commanderEntryId}
               commanderAction={commanderAction}
+              unsleeve={unsleeve}
               commanderPending={commanderPending}
               sleeve={sleeve}
               sleeving={sleeving}
@@ -412,6 +419,7 @@ function ListSection({
   deckId,
   commanderEntryId,
   commanderAction,
+  unsleeve,
   commanderPending,
   sleeve,
   sleeving,
@@ -424,6 +432,7 @@ function ListSection({
   deckId: string;
   commanderEntryId: string | null;
   commanderAction: (formData: FormData) => void;
+  unsleeve: (formData: FormData) => void;
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
@@ -456,6 +465,7 @@ function ListSection({
               deckId={deckId}
               isCommander={entry.id === commanderEntryId}
               commanderAction={commanderAction}
+              unsleeve={unsleeve}
               commanderPending={commanderPending}
               sleeve={sleeve}
               sleeving={sleeving}
@@ -497,6 +507,7 @@ function ListRow({
   deckId,
   isCommander,
   commanderAction,
+  unsleeve,
   commanderPending,
   sleeve,
   sleeving,
@@ -508,6 +519,7 @@ function ListRow({
   deckId: string;
   isCommander: boolean;
   commanderAction: (formData: FormData) => void;
+  unsleeve: (formData: FormData) => void;
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
@@ -591,6 +603,7 @@ function ListRow({
           state={state}
           isCommander={isCommander}
           commanderAction={commanderAction}
+          unsleeve={unsleeve}
           commanderPending={commanderPending}
           sleeve={sleeve}
           sleeving={sleeving}
@@ -626,6 +639,7 @@ function RowActions({
   state,
   isCommander,
   commanderAction,
+  unsleeve,
   commanderPending,
   sleeve,
   sleeving,
@@ -635,6 +649,7 @@ function RowActions({
   state: EntryState;
   isCommander: boolean;
   commanderAction: (formData: FormData) => void;
+  unsleeve: (formData: FormData) => void;
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
@@ -796,7 +811,7 @@ function RowActions({
               ) : null}
 
               {state.sleeved > 0 ? (
-                <form action={unsleeveCard} onSubmit={close}>
+                <form action={unsleeve} onSubmit={close}>
                   <input type="hidden" name="deck_id" value={deckId} />
                   <input type="hidden" name="card_id" value={entry.card_id} />
                   <input type="hidden" name="quantity" value={state.sleeved} />
@@ -862,6 +877,7 @@ function Gallery({
   deckId,
   commanderEntryId,
   commanderAction,
+  unsleeve,
   commanderPending,
   sleeve,
   sleeving,
@@ -874,6 +890,7 @@ function Gallery({
   deckId: string;
   commanderEntryId: string | null;
   commanderAction: (formData: FormData) => void;
+  unsleeve: (formData: FormData) => void;
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
@@ -906,6 +923,7 @@ function Gallery({
                   deckId={deckId}
                   isCommander={entry.id === commanderEntryId}
                   commanderAction={commanderAction}
+                  unsleeve={unsleeve}
                   commanderPending={commanderPending}
                   sleeve={sleeve}
                   sleeving={sleeving}
@@ -927,6 +945,7 @@ function GalleryCard({
   deckId,
   isCommander,
   commanderAction,
+  unsleeve,
   commanderPending,
   sleeve,
   sleeving,
@@ -938,6 +957,7 @@ function GalleryCard({
   deckId: string;
   isCommander: boolean;
   commanderAction: (formData: FormData) => void;
+  unsleeve: (formData: FormData) => void;
   commanderPending: boolean;
   sleeve: (formData: FormData) => void;
   sleeving: boolean;
@@ -1033,6 +1053,7 @@ function GalleryCard({
           state={state}
           isCommander={isCommander}
           commanderAction={commanderAction}
+          unsleeve={unsleeve}
           commanderPending={commanderPending}
           sleeve={sleeve}
           sleeving={sleeving}
@@ -1173,6 +1194,9 @@ function DeckBulkBar({
  * empty for good; the buttons are here for anyone who hits the gap first.
  */
 function Stranded({ deckId, rows }: { deckId: string; rows: CardInstanceWithCard[] }) {
+  // Its own state, not the workspace's: this panel is not inside a menu that
+  // closes on submit, so the error can sit right where the button is.
+  const [unsleeveState, unsleeveAction] = useActionState(unsleeveCard, EMPTY_DECK_STATE);
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-semibold">Not on the list yet</h2>
@@ -1180,6 +1204,7 @@ function Stranded({ deckId, rows }: { deckId: string; rows: CardInstanceWithCard
         These are sleeved in the deck but were filed before the list caught up. Add them, or
         take them back to your collection.
       </p>
+      <Banner kind="error">{unsleeveState.error}</Banner>
 
       <Panel className="divide-y divide-border p-0">
         {rows.map((row) => (
@@ -1201,7 +1226,7 @@ function Stranded({ deckId, rows }: { deckId: string; rows: CardInstanceWithCard
               </Button>
             </form>
 
-            <form action={unsleeveCard}>
+            <form action={unsleeveAction}>
               <input type="hidden" name="deck_id" value={deckId} />
               <input type="hidden" name="card_id" value={row.card_id} />
               <input type="hidden" name="quantity" value={row.quantity} />

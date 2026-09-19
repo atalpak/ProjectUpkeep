@@ -2110,6 +2110,228 @@ begin
     'a refused stale-destination call must conserve the total copies owned, had ' || v_total_before || ', now ' || v_total_after;
 end $$;
 
+-- (8) Unsorted as a destination. location_id = null is a real, expected state
+-- (CLAUDE.md's data model), so p_destination_location_id = null is a real
+-- destination -- and every case above passes a non-null one, so neither of the
+-- two null paths below had ever run. Each stack here uses its own
+-- (printing, condition) pair so no earlier fixture can be mistaken for a match.
+--
+--   8a  merge into an existing Unsorted stack: the merge lookup's
+--       `location_id is not distinct from p_destination_location_id` must match
+--       a NULL location. Written as `=` that comparison is never true for NULL,
+--       the lookup finds nothing, and a perfectly valid decided merge is
+--       refused with no_data_found.
+--   8b  no existing Unsorted stack: the insert branch must write a row whose
+--       location_id is NULL, not fail on it and not invent a location.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('f2000000-0000-0000-0000-000000000008', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'f1000000-0000-0000-0000-000000000001',
+   'HP', 'nonfoil', 'en', 4),
+  ('f2000000-0000-0000-0000-000000000009', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', null,
+   'HP', 'nonfoil', 'en', 2),
+  ('f2000000-0000-0000-0000-00000000000a', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'f1000000-0000-0000-0000-000000000001',
+   'DMG', 'nonfoil', 'en', 3);
+
+do $$
+declare
+  r_result       record;
+  v_total_before int;
+  v_total_after  int;
+  v_rows         int;
+  v_src_qty      int;
+  v_dst_qty      int;
+  v_dst_location uuid;
+begin
+  -- 8a: move 3 of the box's 4 into the Unsorted stack already holding 2.
+  select coalesce(sum(quantity), 0) into v_total_before from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002' and condition = 'HP';
+  assert v_total_before = 6, 'fixture precondition: 6 HP copies expected, got ' || v_total_before;
+
+  select * into r_result from public.apply_stack_move(
+    'f4000000-0000-0000-0000-000000000007'::uuid,
+    'f2000000-0000-0000-0000-000000000008'::uuid, -- source, in the box
+    3,
+    null,                                          -- destination: Unsorted
+    'f2000000-0000-0000-0000-000000000009'::uuid   -- decided target, itself Unsorted
+  );
+  assert r_result.result_instance_id = 'f2000000-0000-0000-0000-000000000009'
+     and r_result.result_quantity = 5 and r_result.replayed = false,
+    'a merge into an Unsorted stack should land the existing row at 2+3=5, got instance ' ||
+    r_result.result_instance_id || ' quantity ' || r_result.result_quantity;
+
+  select quantity into v_src_qty from public.card_instances where id = 'f2000000-0000-0000-0000-000000000008';
+  select quantity, location_id into v_dst_qty, v_dst_location from public.card_instances
+   where id = 'f2000000-0000-0000-0000-000000000009';
+  assert v_src_qty = 1, 'the source must keep the un-moved remainder, saw ' || v_src_qty;
+  assert v_dst_qty = 5 and v_dst_location is null,
+    'the Unsorted target must gain the moved quantity and stay Unsorted, saw quantity ' || v_dst_qty;
+
+  -- No second Unsorted row may appear: the merge must fold into the target,
+  -- not fall through to a fresh insert.
+  select count(*) into v_rows from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002' and condition = 'HP'
+     and location_id is null;
+  assert v_rows = 1, 'a merge into Unsorted must not add a second Unsorted row, saw ' || v_rows;
+
+  select coalesce(sum(quantity), 0) into v_total_after from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002' and condition = 'HP';
+  assert v_total_after = v_total_before,
+    'a move into Unsorted must conserve the total copies owned, had ' || v_total_before || ', now ' || v_total_after;
+
+  -- 8b: move 2 of the box's 3 DMG copies to Unsorted, where no DMG stack exists.
+  select coalesce(sum(quantity), 0) into v_total_before from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002' and condition = 'DMG';
+  assert v_total_before = 3, 'fixture precondition: 3 DMG copies expected, got ' || v_total_before;
+
+  select * into r_result from public.apply_stack_move(
+    'f4000000-0000-0000-0000-000000000008'::uuid,
+    'f2000000-0000-0000-0000-00000000000a'::uuid,
+    2,
+    null,
+    null
+  );
+  assert r_result.result_quantity = 2 and r_result.replayed = false,
+    'insert into Unsorted should create a fresh row holding the moved quantity, got ' || r_result.result_quantity;
+
+  select quantity, location_id into v_dst_qty, v_dst_location from public.card_instances
+   where id = r_result.result_instance_id;
+  assert v_dst_qty = 2 and v_dst_location is null,
+    'the fresh row must be Unsorted (location_id null), saw quantity ' || v_dst_qty || ' location ' || coalesce(v_dst_location::text, '<null>');
+
+  select quantity into v_src_qty from public.card_instances where id = 'f2000000-0000-0000-0000-00000000000a';
+  assert v_src_qty = 1, 'the source must keep the un-moved remainder, saw ' || v_src_qty;
+
+  select coalesce(sum(quantity), 0) into v_total_after from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002' and condition = 'DMG';
+  assert v_total_after = v_total_before,
+    'an insert into Unsorted must conserve the total copies owned, had ' || v_total_before || ', now ' || v_total_after;
+end $$;
+
+-- (9) Whole-stack moves (p_quantity = the source's quantity). Every case above
+-- moves part of a stack, so the `delete` arm of the source side had never run.
+-- The delete exists so a full-stack move never leaves a phantom zero-quantity
+-- row behind; the assertions below pin that, and that the destination side
+-- still receives every copy.
+--
+--   9a  whole stack into a decided merge target: the source row is gone, the
+--       target holds the sum, and no second destination row appeared.
+--   9b  whole stack, no target: this is what the function actually does -- the
+--       source row is deleted and a NEW row (a different id) is inserted at the
+--       destination, carrying the source's attributes and notes. The row is
+--       not re-pointed in place, so the source id does not survive the move.
+--       That is worth pinning: anything holding the old instance id across a
+--       whole-stack move to an empty location is holding a dead reference.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity, notes) values
+  ('f2000000-0000-0000-0000-00000000000b', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000001',
+   'HP', 'nonfoil', 'en', 3, null),
+  ('f2000000-0000-0000-0000-00000000000c', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000006',
+   'HP', 'nonfoil', 'en', 2, null),
+  ('f2000000-0000-0000-0000-00000000000d', 'f0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000003', 'f1000000-0000-0000-0000-000000000001',
+   'DMG', 'nonfoil', 'en', 4, 'water damaged');
+
+do $$
+declare
+  r_result       record;
+  v_total_before int;
+  v_total_after  int;
+  v_rows         int;
+  v_dst_qty      int;
+  v_new_location uuid;
+  v_new_notes    text;
+  v_new_cond     text;
+begin
+  -- 9a: all 3 HP copies in the box go onto the merge box's stack of 2.
+  select coalesce(sum(quantity), 0) into v_total_before from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003' and condition = 'HP';
+  assert v_total_before = 5, 'fixture precondition: 5 HP copies expected, got ' || v_total_before;
+
+  select * into r_result from public.apply_stack_move(
+    'f4000000-0000-0000-0000-000000000009'::uuid,
+    'f2000000-0000-0000-0000-00000000000b'::uuid,
+    3,                                              -- the entire source stack
+    'f1000000-0000-0000-0000-000000000006'::uuid,
+    'f2000000-0000-0000-0000-00000000000c'::uuid
+  );
+  assert r_result.result_instance_id = 'f2000000-0000-0000-0000-00000000000c'
+     and r_result.result_quantity = 5 and r_result.replayed = false,
+    'a whole-stack merge should land the target at 2+3=5, got instance ' ||
+    r_result.result_instance_id || ' quantity ' || r_result.result_quantity;
+
+  -- The source row must be gone entirely, not left at quantity 0.
+  select count(*) into v_rows from public.card_instances
+   where id = 'f2000000-0000-0000-0000-00000000000b';
+  assert v_rows = 0, 'a whole-stack move must delete the source row, not leave it behind, saw ' || v_rows || ' rows';
+
+  select count(*) into v_rows from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003' and condition = 'HP';
+  assert v_rows = 1, 'a whole-stack merge must leave exactly one HP row, saw ' || v_rows;
+
+  select quantity into v_dst_qty from public.card_instances where id = 'f2000000-0000-0000-0000-00000000000c';
+  assert v_dst_qty = 5, 'the merge target must hold every moved copy, saw ' || v_dst_qty;
+
+  select coalesce(sum(quantity), 0) into v_total_after from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003' and condition = 'HP';
+  assert v_total_after = v_total_before,
+    'a whole-stack merge must conserve the total copies owned, had ' || v_total_before || ', now ' || v_total_after;
+
+  -- 9b: all 4 DMG copies go to the binder, which holds no matching stack
+  -- (it does hold an LP stack of the same card from case 5, a different key).
+  select coalesce(sum(quantity), 0) into v_total_before from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003' and condition = 'DMG';
+  assert v_total_before = 4, 'fixture precondition: 4 DMG copies expected, got ' || v_total_before;
+
+  select * into r_result from public.apply_stack_move(
+    'f4000000-0000-0000-0000-00000000000a'::uuid,
+    'f2000000-0000-0000-0000-00000000000d'::uuid,
+    4,
+    'f1000000-0000-0000-0000-000000000005'::uuid,
+    null
+  );
+  assert r_result.result_quantity = 4 and r_result.replayed = false,
+    'a whole-stack move with no target should insert the full quantity, got ' || r_result.result_quantity;
+
+  -- The observed behaviour: delete + insert, so the source id does not survive.
+  select count(*) into v_rows from public.card_instances
+   where id = 'f2000000-0000-0000-0000-00000000000d';
+  assert v_rows = 0, 'the source row must be deleted by a whole-stack move, saw ' || v_rows || ' rows';
+  assert r_result.result_instance_id <> 'f2000000-0000-0000-0000-00000000000d',
+    'a whole-stack move with no target inserts a new row rather than re-pointing the source';
+
+  select quantity, location_id, notes, condition into v_dst_qty, v_new_location, v_new_notes, v_new_cond
+    from public.card_instances where id = r_result.result_instance_id;
+  assert v_dst_qty = 4 and v_new_location = 'f1000000-0000-0000-0000-000000000005'
+     and v_new_notes = 'water damaged' and v_new_cond = 'DMG',
+    'the fresh row must carry the whole stack, destination, notes and condition, saw quantity ' || v_dst_qty ||
+    ' notes ' || coalesce(v_new_notes, '<null>');
+
+  select count(*) into v_rows from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003' and condition = 'DMG';
+  assert v_rows = 1, 'a whole-stack move must leave exactly one DMG row, saw ' || v_rows;
+
+  select coalesce(sum(quantity), 0) into v_total_after from public.card_instances
+   where owner_user_id = 'f0000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003' and condition = 'DMG';
+  assert v_total_after = v_total_before,
+    'a whole-stack move must conserve the total copies owned, had ' || v_total_before || ', now ' || v_total_after;
+end $$;
+
 reset role;
 
 rollback;

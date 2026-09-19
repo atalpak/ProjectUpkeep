@@ -493,8 +493,8 @@ absent.
   (`supabase/migrations/00000000000038_atomic_stack_move.sql`) is the atomic
   function both `apps/mobile/src/decks.ts`'s sleeve/unsleeve helpers (driven from
   `SleevePicker` in `apps/mobile/src/screens/DeckDetailScreen.tsx`, with the
-  pending-move persistence and retry in `AppProvider`'s `beginMove`) and, eventually, a rewritten
-  web deck action would go through — see that migration's header for the full
+  pending-move persistence and retry in `AppProvider`'s `beginMove`) and the web deck actions
+  (`src/app/(app)/decks/actions.ts`, for their destructive branches) go through — see that migration's header for the full
   shape (ledger-first idempotency, a locked and re-verified source row, the
   same insert-or-merge destination logic as migration 36) and
   `packages/scan-core/src/move.ts` for the client-side retry wrapper

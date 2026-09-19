@@ -1,4 +1,9 @@
-import { decideStacking, type StackableRow } from '@upkeep/domain';
+import {
+  decideStacking,
+  isStaleDestinationTargetError,
+  isStaleSourceError,
+  type StackableRow,
+} from '@upkeep/domain';
 import type { Condition, Finish } from './types';
 
 /**
@@ -45,29 +50,13 @@ export interface StackMoveResult {
   replayed: boolean;
 }
 
-/**
- * Distinguishes "the source copy no longer matches what was decided" from any
- * other failure — matching migration 38's message text the same way
- * writer.ts's isStaleTargetError matches migration 36's. A stale source means
- * the picked instance moved, was edited, dropped below the requested
- * quantity, or stopped being this account's between the decision and the
- * call.
- */
-export function isStaleSourceError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('no longer matches what was decided');
-}
-
-/**
- * Distinguishes a stale DESTINATION target — the merge candidate moved, was
- * edited, or stopped being this account's — from a stale source. Both are
- * "no_data_found" at the database level; the message text is what a client
- * can branch on, same as apply_stack_addition's single stale-target case.
- */
-export function isStaleDestinationTargetError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('no longer matches the decided target');
-}
+// The two staleness predicates moved to @upkeep/domain so the web deck actions
+// can share them without importing scan-core; re-exported here so mobile's
+// imports and behaviour are unchanged. They match migration 38's message
+// text — stale SOURCE (the picked instance moved, was edited, dropped below
+// the requested quantity, or stopped being this account's) versus stale
+// DESTINATION target (the merge candidate changed).
+export { isStaleSourceError, isStaleDestinationTargetError };
 
 export interface MoveStore {
   /**
