@@ -6,11 +6,15 @@ is the live list.
 
 ## Pages that are still placeholders
 
-- **Dashboard** — built (value, totals, needs-attention, deck status, recently added). Missing: trade rows once Trades exists, and the "expiring offers" line.
-- **Trades** — proposals in both directions, accept/decline.
+Only **Find** ("where is my card?") is left; it is deliberately out of the menu
+for now. Everything else in `BUILT` (`src/navigation.ts`) has a real screen.
+
+Built since this list was first written, with what each still lacks:
+
+- **Dashboard** — value, totals, needs-attention (including trades waiting on you), deck status, recently added. Missing: the "expiring offers" line.
+- **Trades** — proposals in both directions, build and counter-offer, accept, or close.
 - **Notifications** — friend requests, trade activity.
-- **Import** — paste or CSV, collection and deck.
-- **Find** ("where is my card?") — deliberately left out of the menu for now.
+- **Import** — paste a list or a CSV into the **collection** only. Missing: importing into a deck, and picking a file rather than pasting.
 
 ## Decks
 
@@ -104,15 +108,12 @@ is the live list.
 
 ## Scanner tuning on the phone
 
-- Recalibrate the sharpness thresholds (`BurstTracker.minimumSharpness` and the
-  early-window fraction) for the 4K straightened crop; they were estimated on
-  smaller images and are not yet measured on a device.
 - If the phone runs hot in quick scan, straighten and score only every Nth
   sample frame instead of every one.
 
 ## App shell and polish
 
-- Settings: change password, delete account, notification preferences.
+- Settings: change password and notification preferences (delete account is built).
 - Search: filter results by what you own, and a "recent searches" list.
 - Dark mode: audit every screen for contrast on real hardware.
 - Automated tests over the screens (none exist; only the shared logic in

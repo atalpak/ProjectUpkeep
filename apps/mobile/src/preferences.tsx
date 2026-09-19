@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useColorScheme, type StyleProp } from 'react-native';
+import { useColorScheme, type ImageStyle, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { readCollectionSort, type CollectionSort } from '@upkeep/domain';
 import { PREFS_KEY } from './storage';
@@ -108,7 +108,7 @@ export function usePreferences(): PreferencesValue {
  * exactly once with the right colours. Calling the returned hook also
  * subscribes the component to scheme changes.
  */
-export function makeStyles<T extends Record<string, StyleProp<any>>>(factory: () => T): () => T {
+export function makeStyles<T extends Record<string, StyleProp<ViewStyle | TextStyle | ImageStyle>>>(factory: () => T): () => T {
   const cache: Partial<Record<Scheme, T>> = {};
   return function useStyles() {
     const { scheme } = usePreferences();

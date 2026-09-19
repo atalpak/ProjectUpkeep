@@ -25,6 +25,9 @@ jobs:
       # it is framework-free (no RN/Expo deps of its own) and the web app now
       # imports it directly (src/lib/collection/stacking.ts), so it needs to
       # be installed here too.
+      # Note: root `npm run lint` also lints apps/** and packages/** (the Expo
+      # block in eslint.config.mjs). That block is not type-aware on purpose,
+      # so it needs none of the skipped workspaces installed — keep it that way.
       - run: npm ci --workspace=packages/upkeep-domain --include-workspace-root=true
       - run: npm run lint
       - run: npm run typecheck
@@ -67,7 +70,12 @@ jobs:
       - run: npm test -w @upkeep/domain
       - run: npm run typecheck -w @upkeep/scan-core
       - run: npm test -w @upkeep/scan-core
+      # `strict` is set in apps/mobile/tsconfig.json itself, so this one step is
+      # the strict typecheck.
       - run: npm run typecheck -w @upkeep/scanner-app
+      # Same root eslint.config.mjs as the app job; it carries a separate
+      # Expo/RN block for apps/** and packages/**. Needs the full install above.
+      - run: npx eslint apps packages
 
   migrations:
     runs-on: ubuntu-latest

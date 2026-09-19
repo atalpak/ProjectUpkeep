@@ -34,9 +34,9 @@ const RESET_REDIRECT = `${WEB_URL}/auth/confirm?next=/auth/reset/new`;
 export const PRIVACY_URL = `${WEB_URL}/privacy`;
 export const TERMS_URL = `${WEB_URL}/terms`;
 
-// Flat rather than a union on `ok`: no strictNullChecks in this workspace, so
-// a union would not narrow. `error` is set iff `ok` is false.
-export type AuthResult = { ok: boolean; notice?: string; error?: string };
+// A union on `ok` so a failure always carries its message: this workspace is
+// `strict`, so callers narrow with `if (!result.ok)` and `result.error` is a string.
+export type AuthResult = { ok: true; notice?: string } | { ok: false; error: string };
 
 export async function signInWithPassword(email: string, password: string): Promise<AuthResult> {
   if (!backend) return { ok: false, error: 'This build is not connected to Upkeep.' };
@@ -66,7 +66,7 @@ export async function signUpWithPassword(input: {
     return { ok: false, error: 'Fill in every field.' };
   }
   const nameCheck = validateUsername(username);
-  // `in` narrows the shared union even though this workspace is not strictNullChecks.
+  // `in` narrows the shared union.
   if ('error' in nameCheck) return { ok: false, error: nameCheck.error };
   const pwCheck = validateNewPassword(input.password, input.confirm);
   if ('error' in pwCheck) return { ok: false, error: pwCheck.error };

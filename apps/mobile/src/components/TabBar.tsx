@@ -13,7 +13,7 @@ import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles, usePreferences } from '../preferences';
 import { PAGES, type PageId } from '../navigation';
 import { useSearchOverlay } from '../searchOverlay';
-import { accent, border, brand, radius, space, surface, text, type } from '../theme';
+import { accent, border, brand, radius, surface, text, type } from '../theme';
 
 const BAR_HEIGHT = 50;
 // How far the Scan button rises above the bar. The bar's own container is
