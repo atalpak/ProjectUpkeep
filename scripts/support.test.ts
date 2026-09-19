@@ -1,11 +1,10 @@
 /**
  * The support address constant.
  *
- * It is a deliberate placeholder (see src/lib/support.ts) that has to be
- * swapped for a real inbox before signup opens up. This guards the swap: a
- * value that is not a plausible single email address — whitespace, a missing
- * `@`, a comment left in — fails here rather than shipping as a dead
- * `mailto:` link on the privacy and terms pages.
+ * This guards any future change of inbox (see src/lib/support.ts): a value
+ * that is not a plausible single email address — whitespace, a missing `@`, a
+ * comment left in — fails here rather than shipping as a dead `mailto:` link
+ * on the privacy page.
  *
  * Run with: npx tsx --test scripts/support.test.ts
  */
