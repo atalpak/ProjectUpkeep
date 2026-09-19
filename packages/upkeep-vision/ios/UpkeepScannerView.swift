@@ -18,9 +18,13 @@ import Vision
  * Expo and AVFoundation so the offline validation script can run the exact
  * same detection and OCR against still frames.
  *
- * The flow for one card: throttled frame → `bestCard` → stability tracker →
- * two consecutive steady frames locks it → straighten with the detected quad
- * → OCR title and printing bands → `onCardRead`. It then refuses to read
+ * The flow for one card: frame → best rectangle that passes the full-card gate
+ * (`bestFullCard`) → outline tracker (one stable outline, no bouncing) → two
+ * consecutive steady detections lock it → straighten with the detected quad →
+ * OCR title and printing bands → `onCardRead`. Quick scan (`fastDetection`)
+ * detects on every frame the device can keep up with and also refuses a blurry
+ * crop, so the lock lands within a few frames of the card being held still.
+ * It then refuses to read
  * again until that card has left (`framesUntilRelease` empty detections) or a
  * different card has clearly replaced it (`swapDistance`), which is what stops
  * one card held in frame from being added over and over.
@@ -33,19 +37,32 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
   private static let detectionInterval: TimeInterval = 0.2
   private static let contrastRetryInterval: TimeInterval = 0.75
-  /// Quick-scan mode: look for the card twice as often, and retry with extra
-  /// contrast sooner. The two-steady-frames rule is unchanged, so this makes
-  /// the lock arrive sooner without accepting a card that is still moving.
-  private static let fastDetectionInterval: TimeInterval = 0.1
+  /// Quick-scan mode: no throttle. Vision runs synchronously inside the frame
+  /// delegate on a serial queue with `alwaysDiscardsLateVideoFrames`, so a slow
+  /// detection just makes the camera drop frames rather than queue them up;
+  /// the loop is its own busy flag. The two-steady-detections rule is
+  /// unchanged, so the lock arrives sooner without accepting a moving card.
   private static let fastContrastRetryInterval: TimeInterval = 0.35
-  /// ~0.8s of empty frames before the same physical card may be read again.
-  private static let framesUntilRelease = 4
-  private static let framesUntilOutlineHidden = 3
+  /// Quick scan: two steady detections only count as consecutive if they are
+  /// this close in time (a few frames). Without it, a gap where the card was
+  /// out of the gate could pair two unrelated frames.
+  private static let fastMaxPairGap: TimeInterval = 0.25
+  /// Quick scan: variance of the Laplacian (UpkeepCardVision.sharpness) below
+  /// which the straightened crop is treated as motion blur or missed focus and
+  /// the read waits for the next frame. Estimated, not measured on a phone;
+  /// tune it from real cards.
+  private static let minimumSharpness = 40.0
+  /// A flat card (black-bordered, plain art) can score low while perfectly
+  /// sharp. After this many refused frames in a row the read goes ahead, so
+  /// the sharpness check can delay a scan but never prevent one.
+  private static let maxBlurSkips = 8
+  /// ~0.8s without a full card before the same physical card may be read again.
+  /// Time, not a frame count: quick scan detects every frame, so four frames
+  /// would be a tenth of a second.
+  private static let releaseAfter: TimeInterval = 0.8
   /// A steady card whose centre has jumped this far (normalized) is a
   /// different physical card swapped in without a gap, not the same one.
   private static let swapDistance: CGFloat = 0.15
-  /// Vision's rectangle confidence, via CardObservation.isUsable in Flutter.
-  private static let minimumConfidence: VNConfidence = 0.70
   private static let outlineGold = UIColor(red: 0xC9 / 255, green: 0xA3 / 255, blue: 0x4A / 255, alpha: 1)
   private static let outlineGreen = UIColor(red: 0x7F / 255, green: 0xA3 / 255, blue: 0x5A / 255, alpha: 1)
 
@@ -69,17 +86,19 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private var imageSize: CGSize = .zero
 
   // Everything below is touched only on frameQueue.
-  private var lastDetectionAt = Date.distantPast
-  private var lastContrastRetry = Date.distantPast
+  private var lastDetectionAt: TimeInterval = 0
+  private var lastContrastRetry: TimeInterval = 0
   private var previousCorners: [CGPoint]?
+  private var previousCornersAt: TimeInterval = 0
   private var steadyFrames = 0
+  private var blurSkips = 0
+  private var tracker = OutlineTracker()
+  private var lastFullCardAt: TimeInterval = 0
   /// Read on frameQueue; set from JS (a plain Bool, so a torn read is harmless).
   public var fastDetection = false
-  private var missedFrames = 0
   private var awaitingRelease = false
   private var lastReadCentre: CGPoint?
   private var guideCaptureRequested = false
-  private var smoothedQuad: [CGPoint]?
   private var outlineShown = false
 
   public var active = false {
@@ -246,43 +265,54 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       return
     }
 
-    let now = Date()
-    guard now.timeIntervalSince(lastDetectionAt) >= (fastDetection ? Self.fastDetectionInterval : Self.detectionInterval) else { return }
+    let now = CACurrentMediaTime()
+    let fast = fastDetection
+    if !fast {
+      guard now - lastDetectionAt >= Self.detectionInterval else { return }
+    }
     lastDetectionAt = now
 
-    let retry = now.timeIntervalSince(lastContrastRetry) >= (fastDetection ? Self.fastContrastRetryInterval : Self.contrastRetryInterval)
+    let retry = now - lastContrastRetry >= (fast ? Self.fastContrastRetryInterval : Self.contrastRetryInterval)
     if retry { lastContrastRetry = now }
-    let card = UpkeepCardVision.bestCard(in: CIImage(cvPixelBuffer: buffer), orientation: .right, allowContrastRetry: retry)
+    let size = geometry().image
+    let card = UpkeepCardVision.bestFullCard(in: CIImage(cvPixelBuffer: buffer), orientation: .right,
+                                             imageSize: size, allowContrastRetry: retry)
     let corners = card.map(UpkeepCardVision.corners)
 
-    if card == nil {
-      missedFrames += 1
-      if awaitingRelease && missedFrames >= Self.framesUntilRelease { release() }
-    } else {
-      missedFrames = 0
+    if card != nil {
+      lastFullCardAt = now
+    } else if awaitingRelease && now - lastFullCardAt >= Self.releaseAfter {
+      release()
     }
 
-    let steady = assessStability(corners)
-    updateOutline(corners)
+    tracker.observe(corners, at: now)
+    let steady = assessStability(corners, at: now, maxGap: fast ? Self.fastMaxPairGap : .infinity)
+    updateOutline(tracker.shown)
 
-    guard let card, let corners, steady, card.confidence >= Self.minimumConfidence else { return }
+    // Only the card the outline is following may be read, so what is read is
+    // always what the player sees outlined.
+    guard let card, let corners, steady, tracker.follows(corners) else { return }
     let centre = CGPoint(x: card.boundingBox.midX, y: card.boundingBox.midY)
     if awaitingRelease {
       guard let previous = lastReadCentre,
             hypot(previous.x - centre.x, previous.y - centre.y) > Self.swapDistance else { return }
       release()
     }
-    lock(corners: corners, centre: centre, buffer: buffer)
+    lock(corners: corners, centre: centre, buffer: buffer, checkSharpness: fast)
   }
 
-  private func assessStability(_ corners: [CGPoint]?) -> Bool {
+  private func assessStability(_ corners: [CGPoint]?, at now: TimeInterval, maxGap: TimeInterval) -> Bool {
     guard let corners else {
       previousCorners = nil
       steadyFrames = 0
+      blurSkips = 0
       return false
     }
-    defer { previousCorners = corners }
-    guard let previous = previousCorners, previous.count == corners.count else {
+    defer {
+      previousCorners = corners
+      previousCornersAt = now
+    }
+    guard let previous = previousCorners, previous.count == corners.count, now - previousCornersAt <= maxGap else {
       steadyFrames = 1
       return false
     }
@@ -297,11 +327,11 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private func resetTracking() {
     previousCorners = nil
     steadyFrames = 0
-    missedFrames = 0
+    blurSkips = 0
+    tracker.reset()
     awaitingRelease = false
     guideCaptureRequested = false
     lastReadCentre = nil
-    smoothedQuad = nil
     setOutline(hidden: true, locked: false)
   }
 
@@ -316,7 +346,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
 
   // MARK: - Reading one card
 
-  private func lock(corners: [CGPoint], centre: CGPoint, buffer: CVPixelBuffer) {
+  private func lock(corners: [CGPoint], centre: CGPoint, buffer: CVPixelBuffer, checkSharpness: Bool) {
     // The pixel buffer is recycled the moment this delegate call returns, so
     // the straighten has to happen here, synchronously, before handing an
     // independent CGImage to the OCR queue.
@@ -325,6 +355,14 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     // would leave a card whose crop failed permanently un-readable (green
     // outline, no result) until it left the frame.
     guard let card = UpkeepCardVision.straighten(image, corners: corners, context: imageContext) else { return }
+    // Quick scan reads the very frame it locked on, so a blurred one is
+    // refused and the next frame gets its turn -- reading blur would cost a
+    // whole wrong-card round trip. Bounded by maxBlurSkips (see there).
+    if checkSharpness, UpkeepCardVision.sharpness(of: card) < Self.minimumSharpness, blurSkips < Self.maxBlurSkips {
+      blurSkips += 1
+      return
+    }
+    blurSkips = 0
     awaitingRelease = true
     lastReadCentre = centre
     setOutline(locked: true)
@@ -406,33 +444,19 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     return (viewSize, imageSize)
   }
 
-  private func updateOutline(_ corners: [CGPoint]?) {
+  /// Paints the tracker's quad, or hides the outline when it has none. The
+  /// tracker has already applied hysteresis, grace and smoothing, so this only
+  /// projects and draws.
+  private func updateOutline(_ quad: [CGPoint]?) {
     let (view, image) = geometry()
     guard view.width > 0, view.height > 0, image.width > 0, image.height > 0 else { return }
-
-    guard let corners else {
-      if missedFrames >= Self.framesUntilOutlineHidden {
-        smoothedQuad = nil
-        setOutline(hidden: true)
-      }
+    guard let quad else {
+      setOutline(hidden: true)
       return
     }
-    let projected = corners.map { UpkeepCardVision.project($0, image: image, view: view) }
-    // Raw corners shake by a few pixels between detections. Smooth only the
-    // painted line, never the lock decision, so the outline glides without
-    // making the scan slower.
-    let quad: [CGPoint]
-    if let previous = smoothedQuad, previous.count == projected.count {
-      quad = zip(previous, projected).map { previous, next in
-        CGPoint(x: previous.x + (next.x - previous.x) * 0.35, y: previous.y + (next.y - previous.y) * 0.35)
-      }
-    } else {
-      quad = projected
-    }
-    smoothedQuad = quad
-
+    let projected = quad.map { UpkeepCardVision.project($0, image: image, view: view) }
     let path = UIBezierPath()
-    for (index, point) in quad.enumerated() {
+    for (index, point) in projected.enumerated() {
       index == 0 ? path.move(to: point) : path.addLine(to: point)
     }
     path.close()
@@ -447,13 +471,14 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   }
 
   private func setOutline(hidden: Bool? = nil, locked: Bool? = nil) {
-    if let hidden {
-      let changed = outlineShown == hidden
+    // Detection now runs every frame in quick scan, so only touch the layers
+    // when visibility actually changes.
+    if let hidden, outlineShown == hidden {
       outlineShown = !hidden
       DispatchQueue.main.async {
         self.outlineLayer.isHidden = hidden
         self.guideLayer.isHidden = !hidden
-        if changed { self.onOutlineChange(["found": !hidden]) }
+        self.onOutlineChange(["found": !hidden])
       }
     }
     if let locked {

@@ -34,6 +34,13 @@ enum UpkeepCardVision {
   }
 
   static func detectRectangle(in image: CIImage, orientation: CGImagePropertyOrientation) -> VNRectangleObservation? {
+    detectRectangles(in: image, orientation: orientation).max { liveCardScore($0) < liveCardScore($1) }
+  }
+
+  /// Every card-shaped rectangle Vision reports, unranked. The live scanner
+  /// needs the whole list (not just the top-scoring one) so it can choose the
+  /// best one that also passes the full-card gate.
+  static func detectRectangles(in image: CIImage, orientation: CGImagePropertyOrientation) -> [VNRectangleObservation] {
     let request = VNDetectRectanglesRequest()
     request.maximumObservations = 8
     // Strict enough that card art, a phone screen or a table detail is never
@@ -45,9 +52,147 @@ enum UpkeepCardVision {
     do {
       try VNImageRequestHandler(ciImage: image, orientation: orientation, options: [:]).perform([request])
     } catch {
-      return nil
+      return []
     }
-    return (request.results ?? []).max { liveCardScore($0) < liveCardScore($1) }
+    return request.results ?? []
+  }
+
+  // MARK: - The full-card gate
+
+  /// A real card is 63 x 88 mm.
+  static let cardAspect: CGFloat = 63.0 / 88.0
+  /// ±12% of `cardAspect`, on short side / long side so a card held sideways
+  /// passes too. Wide enough for perspective from a hand-held phone, narrow
+  /// enough to reject a phone screen, a deck box or a playmat edge.
+  static let aspectTolerance: CGFloat = 0.12
+  /// Every corner must sit at least this far (normalized) from every frame
+  /// edge. A corner at the edge means the card is cut off, and reading it
+  /// would read a partial card.
+  static let edgeMargin: CGFloat = 0.02
+  /// Fraction of the frame the card must cover. Below this the title is too
+  /// small for OCR to read reliably anyway.
+  static let minimumArea: CGFloat = 0.10
+  /// Vision's rectangle confidence, via CardObservation.isUsable in Flutter.
+  static let minimumConfidence: VNConfidence = 0.70
+
+  /// The single rule for "there is a whole card in view", used both to draw
+  /// the outline and to lock a read. Sharing it is the point: an outline the
+  /// scanner would refuse to read is exactly the bouncing, inaccurate-looking
+  /// outline the owner reported. `corners` are Vision-normalized (TL, TR, BR,
+  /// BL) and `imageSize` is the size AFTER orientation, because aspect must be
+  /// judged in pixels, not in the stretched normalized square.
+  static func isFullCard(corners: [CGPoint], confidence: VNConfidence, imageSize: CGSize,
+                         minimumConfidence: VNConfidence = UpkeepCardVision.minimumConfidence) -> Bool {
+    guard corners.count == 4, imageSize.width > 0, imageSize.height > 0,
+          confidence >= minimumConfidence,
+          isInsideWithMargin(corners, margin: edgeMargin),
+          isConvex(corners),
+          area(of: corners) >= minimumArea,
+          let ratio = aspectRatio(corners: corners, imageSize: imageSize),
+          isCardAspect(ratio) else { return false }
+    return true
+  }
+
+  static func pickFullCard(_ observations: [VNRectangleObservation], imageSize: CGSize,
+                           minimumConfidence: VNConfidence = UpkeepCardVision.minimumConfidence) -> VNRectangleObservation? {
+    observations
+      .filter { isFullCard(corners: corners(of: $0), confidence: $0.confidence, imageSize: imageSize, minimumConfidence: minimumConfidence) }
+      .max { liveCardScore($0) < liveCardScore($1) }
+  }
+
+  /// The best rectangle in the frame that passes the full-card gate, or nil.
+  /// The contrast retry runs when nothing PASSING was found, not merely when
+  /// nothing was found: a card whose outer edge is lost against a dark table
+  /// often still yields a smaller inner rectangle that the gate rejects.
+  static func bestFullCard(in image: CIImage, orientation: CGImagePropertyOrientation, imageSize: CGSize,
+                           allowContrastRetry: Bool) -> VNRectangleObservation? {
+    if let found = pickFullCard(detectRectangles(in: image, orientation: orientation), imageSize: imageSize) { return found }
+    guard allowContrastRetry, let enhanced = contrastEnhanced(image) else { return nil }
+    return pickFullCard(detectRectangles(in: enhanced, orientation: orientation), imageSize: imageSize)
+  }
+
+  /// Short side over long side of the quad, measured in pixels: 0.716 for a
+  /// card seen square-on, whichever way it is turned. Opposite edges are
+  /// averaged so mild perspective does not tip it.
+  static func aspectRatio(corners: [CGPoint], imageSize: CGSize) -> CGFloat? {
+    guard corners.count == 4 else { return nil }
+    let p = corners.map { CGPoint(x: $0.x * imageSize.width, y: $0.y * imageSize.height) }
+    func length(_ a: CGPoint, _ b: CGPoint) -> CGFloat { hypot(a.x - b.x, a.y - b.y) }
+    let across = (length(p[0], p[1]) + length(p[3], p[2])) / 2
+    let down = (length(p[0], p[3]) + length(p[1], p[2])) / 2
+    guard across > 0, down > 0 else { return nil }
+    return min(across, down) / max(across, down)
+  }
+
+  static func isCardAspect(_ ratio: CGFloat) -> Bool {
+    abs(ratio - cardAspect) / cardAspect <= aspectTolerance
+  }
+
+  static func isInsideWithMargin(_ corners: [CGPoint], margin: CGFloat) -> Bool {
+    corners.allSatisfy { $0.x >= margin && $0.x <= 1 - margin && $0.y >= margin && $0.y <= 1 - margin }
+  }
+
+  /// Every turn goes the same way. Vision can return a bow-tie or a dented
+  /// quad for a busy background; none of those is a card.
+  static func isConvex(_ corners: [CGPoint]) -> Bool {
+    guard corners.count >= 3 else { return false }
+    var sign: CGFloat = 0
+    for index in corners.indices {
+      let a = corners[index]
+      let b = corners[(index + 1) % corners.count]
+      let c = corners[(index + 2) % corners.count]
+      let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+      if abs(cross) < 1e-9 { return false }
+      if sign == 0 { sign = cross > 0 ? 1 : -1 } else if (cross > 0) != (sign > 0) { return false }
+    }
+    return true
+  }
+
+  /// Shoelace area in normalized units, i.e. the fraction of the frame covered.
+  static func area(of corners: [CGPoint]) -> CGFloat {
+    var twice: CGFloat = 0
+    for index in corners.indices {
+      let a = corners[index]
+      let b = corners[(index + 1) % corners.count]
+      twice += a.x * b.y - b.x * a.y
+    }
+    return abs(twice) / 2
+  }
+
+  // MARK: - Sharpness
+
+  /// Variance of the 4-neighbour Laplacian over a fixed-width greyscale copy of
+  /// the image. High = crisp edges, low = motion blur or missed focus. The
+  /// fixed width makes the number comparable between a small and a large card
+  /// crop, and keeps the cost to ~90k pixels of plain arithmetic.
+  static func sharpness(of image: CGImage, width: Int = 256) -> Double {
+    guard image.width > 0, image.height > 0 else { return 0 }
+    let height = max(8, Int((Double(width) * Double(image.height) / Double(image.width)).rounded()))
+    var pixels = [UInt8](repeating: 0, count: width * height)
+    let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+      guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                    bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+                                    bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+      context.interpolationQuality = .medium
+      context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+      return true
+    }
+    guard drawn else { return 0 }
+    var sum = 0.0
+    var sumSquares = 0.0
+    var count = 0.0
+    for y in 1..<(height - 1) {
+      for x in 1..<(width - 1) {
+        let i = y * width + x
+        let laplacian = 4 * Double(pixels[i]) - Double(pixels[i - 1]) - Double(pixels[i + 1])
+          - Double(pixels[i - width]) - Double(pixels[i + width])
+        sum += laplacian
+        sumSquares += laplacian * laplacian
+        count += 1
+      }
+    }
+    let mean = sum / count
+    return sumSquares / count - mean * mean
   }
 
   static func liveCardScore(_ card: VNRectangleObservation) -> CGFloat {
@@ -99,6 +244,19 @@ enum UpkeepCardVision {
 
   static func isSteady(movement: CGFloat) -> Bool { 1 - movement / 0.07 >= 0.65 }
 
+  /// Painted-line smoothing that does not trail. Tiny movement is detection
+  /// jitter and is damped hard (alpha 0.35); real movement is followed closely,
+  /// reaching a straight snap (alpha 1) at 0.02 mean corner movement. A fixed
+  /// 0.35 made the outline lag a moving card by several frames.
+  static func smoothed(previous: [CGPoint], next: [CGPoint]) -> [CGPoint] {
+    guard previous.count == next.count else { return next }
+    let moved = movement(from: previous, to: next)
+    let alpha = min(1, max(0.35, moved / 0.02))
+    return zip(previous, next).map {
+      CGPoint(x: $0.x + ($1.x - $0.x) * alpha, y: $0.y + ($1.y - $0.y) * alpha)
+    }
+  }
+
   /// Flattens the detected quadrilateral into an upright card image. `image`
   /// must already be oriented; `corners` are Vision-normalized.
   static func straighten(_ image: CIImage, corners: [CGPoint], context: CIContext) -> CGImage? {
@@ -127,6 +285,75 @@ enum UpkeepCardVision {
     )
     return context.createCGImage(image, from: rect)
   }
+}
+
+/**
+ * Decides which single quad the outline shows. Detection flips between
+ * rectangles from frame to frame (the card, its art frame, a second card), and
+ * drawing each flip is the "bouncing" outline. This tracks one candidate: a
+ * quad near the current one just moves it; a quad elsewhere must appear on
+ * `switchAfter` consecutive detections before it replaces it (a first-ever
+ * card is held to the same rule, so a one-frame false positive never paints);
+ * and a missed detection keeps the old outline for `grace` seconds instead of
+ * hiding it at once. Pure state, no clock of its own, so it can be unit-checked.
+ */
+struct OutlineTracker {
+  /// Mean corner distance (normalized) under which two quads are the same card.
+  static let sameCardMovement: CGFloat = 0.12
+  static let switchAfter = 2
+  static let grace: TimeInterval = 0.25
+
+  /// The smoothed quad to paint, or nil for no outline.
+  private(set) var shown: [CGPoint]?
+  private var accepted: [CGPoint]?
+  private var acceptedAt: TimeInterval = 0
+  private var challenger: [CGPoint]?
+  private var challengerCount = 0
+
+  /// Feed one detection (nil = no full card this frame); returns what to paint.
+  @discardableResult
+  mutating func observe(_ candidate: [CGPoint]?, at now: TimeInterval) -> [CGPoint]? {
+    if accepted != nil, now - acceptedAt > Self.grace {
+      accepted = nil
+      shown = nil
+    }
+    guard let candidate else {
+      challenger = nil
+      challengerCount = 0
+      return shown
+    }
+    if let accepted, UpkeepCardVision.movement(from: accepted, to: candidate) <= Self.sameCardMovement {
+      shown = UpkeepCardVision.smoothed(previous: shown ?? candidate, next: candidate)
+      self.accepted = candidate
+      acceptedAt = now
+      challenger = nil
+      challengerCount = 0
+      return shown
+    }
+    if let challenger, UpkeepCardVision.movement(from: challenger, to: candidate) <= Self.sameCardMovement {
+      challengerCount += 1
+    } else {
+      challenger = candidate
+      challengerCount = 1
+    }
+    if challengerCount >= Self.switchAfter {
+      accepted = candidate
+      acceptedAt = now
+      shown = candidate
+      challenger = nil
+      challengerCount = 0
+    }
+    return shown
+  }
+
+  /// True when `candidate` is the card the outline is currently following, so
+  /// a lock only ever reads the card the player can see outlined.
+  func follows(_ candidate: [CGPoint]) -> Bool {
+    guard let accepted else { return false }
+    return UpkeepCardVision.movement(from: accepted, to: candidate) <= Self.sameCardMovement
+  }
+
+  mutating func reset() { self = OutlineTracker() }
 }
 
 /**
