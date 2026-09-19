@@ -220,8 +220,7 @@ where Vision finds no edge. Two modes, same file:
   alternates "Try more light" / "Tilt the card to reduce glare" while retrying continues.
   In `__DEV__` each rejection logs reason, title and top candidate score. The title is
   read from the top ~23% of the straightened card only (`titleRegion`), and an
-  unreadable name is `""`, not another line. Quick scan no longer passes the "may not
-  be the printing scanned" note to `openDetails`.
+  unreadable name is `""`, not another line.
 - *Live coaching* (quick scan): `onScanStatus` sends `{ status }` only when it
   changes: `searching | far | partial | moving | blurry | reading`. Derived from the
   same pipeline: a card-like rectangle refused for area is `far`, one touching the
@@ -291,18 +290,34 @@ collection and wish list are enabled normally.
    zeros, rarity letter, number alone if the set is unreadable) and `rankPrintings`
    feed `bestGuessPrinting`: an exact or partial footer match, or the card's only
    printing. With no guess the sheet uses its normal default (`pickRepresentative`).
-   Nothing waits on a download or comparison before the sheet opens. When no footer
-   evidence named a printing the sheet says so (`note`: "may not be the printing you
-   scanned") instead of opening on the default as if recognised. The default is
+   Nothing waits on a download or comparison before the sheet opens; the sheet shows
+   no note about how sure the guess is. The default is
    `regularFirst` (scan-core `printing.ts`, shared by `rankPrintings`, `CardIndex.search`
    ties and `pickRepresentative`): plain collector number, nonfoil-available, newest
    release, then lowest number, so a card's regular print beats its foil-only showcase
    printings and a promo-numbered ("91p") one. The footer OCR also gets a second,
    footer-only pass (bottom 14% of the card, upscaled and sharpened, no language
    correction) when the first produced no plausible set and number.
-2. *Fast paint* (`CardDetails`): the opened-on printing is fetched alone
-   (`fetchPrinting`, one primary-key row) and shown with its price while the full
-   printing list (`fetchPrintings`, up to hundreds of heavy rows) fills in.
+2. *Fast paint* (`CardDetails`, data in `src/cardDetails.ts`): the sheet paints from what
+   is already in hand, in this order: a cached row or list, else the caller's `seed`
+   (`CardSeed`: name, set, number, picture, prices; the Collection passes one), else
+   nothing (a spinner). The opened-on printing is then fetched alone (`fetchPrinting`,
+   one primary-key row; it is selected even when nothing is in hand, which is what
+   quick scan and the Wishlist/Dashboard/deck/location/friend callers rely on) while
+   the full printing list (`fetchPrintings`, light columns, up to hundreds of rows)
+   fills in. A seed row has no finishes, so Add to collection stays off until the real
+   row lands, and its printings line omits what it does not know.
+   *Caches and limits:* rows and lists sit in `LruCache`s (50 each, scan-core
+   `async-utils`) that expire after 10 minutes (`CACHE_TTL_MS`, age counted from
+   `set`) so a daily price sync shows up in a long session. Every request runs under
+   an 8s deadline (`REQUEST_TIMEOUT_MS`, `rejectAfter`) and a failure shows a plain
+   line with "Try again", never a raw error. Owned copies have three states: a failed
+   fetch shows "Couldn't check your copies", not "You don't own this card yet".
+   The Collection's one shared foil-tilt listener (`useFoilTilt`) is paused while the
+   screen is unfocused or the details sheet is open, and its list keeps a small
+   `windowSize`, so many foil tiles cannot starve the JS thread (the details-sheet
+   freeze); `removeClippedSubviews` is deliberately off on that
+   multi-column list (it can blank rows).
 3. *Background picture check* (`src/printingVerify.ts`, started only after the list
    has loaded): `onCardRead` carries `imageUri`, a temp JPEG of the straightened card
    (optional; the native side keeps the newest 12 and never deletes one younger than

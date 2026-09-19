@@ -74,6 +74,8 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [owned, setOwned] = useState<OwnedStack[]>([]);
+  // 'error' is unknown, not empty: a failed fetch must never read as "you don't own this card".
+  const [ownedState, setOwnedState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [wanted, setWanted] = useState(0);
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,6 +130,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     ]);
     if (seq !== userSeq.current) return;
     setOwned(o.stacks);
+    setOwnedState(o.error ? 'error' : 'ready');
     setWanted(w);
     setFriends(f);
   }, []);
@@ -142,23 +145,27 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
       // Closing must not leave the last card's results behind for the next open.
       userSeq.current++;
       userPicked.current = false;
-      setPrintings([]); setListState('loading'); setArt(null); setArtNote(null); setDetailFailed(false);
+      setPrintings([]); setOwnedState('loading'); setListState('loading'); setArt(null); setArtNote(null); setDetailFailed(false);
       return;
     }
     userPicked.current = false;
     const cachedList = cachedPrintings(name);
     const cachedRow = printingId ? cachedPrinting(printingId) : undefined;
     const seedP = seedRef.current && seedRef.current.id === printingId ? seedToPrinting(seedRef.current) : null;
-    let initial: CardPrinting[] = [];
-    if (cachedList) initial = cachedRow ? cachedList.map(p => (p.id === cachedRow.id ? cachedRow : p)) : cachedList;
-    else if (cachedRow) initial = [cachedRow];
-    else if (seedP) initial = [seedP];
+    let initial: CardPrinting[] = cachedList ?? [];
+    if (cachedRow) initial = initial.map(p => (p.id === cachedRow.id ? cachedRow : p));
+    // The opened-on printing, when the list in hand lacks it (or there is no list): a full cached row
+    // beats the seed. Without this a cached list would open on some other printing.
+    const known = cachedRow ?? seedP;
+    if (known && !initial.some(p => p.id === known.id)) initial = [known, ...initial];
     const start = initial.find(p => p.id === printingId) ?? (cachedList ? pickRepresentative(initial) : null) ?? initial[0] ?? null;
-    select(start?.id ?? null);
+    // Nothing in hand for the requested printing: select it anyway. The by-id effect below then
+    // fetches that single row, so the sheet paints without waiting for the whole printing list.
+    select(start?.id ?? printingId ?? null);
     setPrintings(initial); setLoading(initial.length === 0); setLoadError(null); setListState(cachedList ? 'ready' : 'loading'); setDetailFailed(false);
-    setOwned([]); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setPreviewFoil(false); setFriends(null); setArt(null); setArtNote(null); setExtras({ state: 'idle' });
+    setOwned([]); setOwnedState(userIdRef.current ? 'loading' : 'ready'); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setPreviewFoil(false); setFriends(null); setArt(null); setArtNote(null); setExtras({ state: 'idle' });
     // Owned copies need only the name, so they start now, in parallel with the printing fetches.
-    if (start) void refreshUserData(name, initial.map(p => p.id), start.id);
+    void refreshUserData(name, initial.map(p => p.id), start?.id ?? printingId ?? null);
   }, [name, printingId, refreshUserData, select]);
 
   // The full printing list. Skipped when a recent open already cached it.
@@ -281,7 +288,6 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     try {
       await addToWishList(app.userId, selected.id);
       setStatus({ kind: 'ok', text: `Added ${selected.name} to your wish list.` });
-      onChanged?.();
       if (name) void refreshUserData(name, printings.map(p => p.id), selected.id);
     } catch (e) { setStatus({ kind: 'error', text: errorMessage(e) }); } finally { setBusy(false); }
   }
@@ -433,7 +439,13 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
 
             <View style={styles.block}>
               <Text style={styles.sectionTitle}>In your collection</Text>
-              {owned.length === 0
+              {ownedState === 'loading' ? <Text style={styles.muted}>Checking your collection…</Text>
+                : ownedState === 'error' ? (
+                  <Pressable accessibilityRole="button" accessibilityLabel="Try again" onPress={() => { if (name) { setOwnedState('loading'); void refreshUserData(name, printings.map(p => p.id), selectedRef.current); } }} hitSlop={8}>
+                    <Text style={styles.muted}>Couldn’t check your copies. <Text style={styles.link}>Try again</Text></Text>
+                  </Pressable>
+                )
+                : owned.length === 0
                 ? <Text style={styles.muted}>You don’t own this card yet.</Text>
                 : owned.map(s => (
                   <Text key={s.id} style={styles.line}>{s.quantity} × {s.setCode.toUpperCase()} #{s.collectorNumber} · {s.condition} · {s.finish} · {s.locationName ?? 'Unsorted'}</Text>
@@ -509,7 +521,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
                   </Pressable>
                 )}
               />
-              <Text style={styles.line}>{selected.setName} · {selected.rarity}{selected.releasedAt ? ` · ${selected.releasedAt.slice(0, 4)}` : ''}</Text>
+              <Text style={styles.line}>{[selected.setName, selected.rarity, selected.releasedAt?.slice(0, 4)].filter(Boolean).join(' · ')}</Text>
               {!!selected.artist && <Text style={styles.muted}>Illustrated by {selected.artist}</Text>}
               {!!selected.scryfallUri && (
                 <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(selected.scryfallUri!)} hitSlop={8}>

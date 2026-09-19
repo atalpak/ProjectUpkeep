@@ -1,4 +1,4 @@
-import { FINISHES, LruCache, TimeoutError, regularFirst, rejectAfter, type Finish, type Printing } from '@upkeep/scan-core';
+import { FINISHES, LruCache, regularFirst, rejectAfter, type Finish, type Printing } from '@upkeep/scan-core';
 import { backend } from './backend';
 
 // Data for the card details sheet: every printing of a card (public Scryfall
@@ -58,7 +58,6 @@ export const LOAD_FAILED = 'Couldn’t load — check your connection and try ag
 async function bounded<T>(work: PromiseLike<T>): Promise<T> {
   return rejectAfter(work, REQUEST_TIMEOUT_MS);
 }
-export const isTimeout = (e: unknown) => e instanceof TimeoutError;
 
 type Row = {
   scryfall_id: string; oracle_id: string; name: string; flavor_name: string | null; set_code: string; set_name: string | null;
@@ -133,8 +132,11 @@ export function seedToPrinting(s: CardSeed): CardPrinting {
 
 // Recent results, so reopening a card (or the one you just closed) paints with
 // no network at all. Public Scryfall data only -- nothing user-specific is cached.
-const listCache = new LruCache<string, CardPrinting[]>(50);
-const rowCache = new LruCache<string, CardPrinting>(50);
+// Entries expire after CACHE_TTL_MS because they carry prices, which the daily
+// sync changes: without it a long-lived app session would show yesterday's price.
+export const CACHE_TTL_MS = 10 * 60_000;
+const listCache = new LruCache<string, CardPrinting[]>(50, CACHE_TTL_MS);
+const rowCache = new LruCache<string, CardPrinting>(50, CACHE_TTL_MS);
 
 /** Instant, network-free lookups for the sheet's first paint. */
 export const cachedPrintings = (name: string): CardPrinting[] | undefined => listCache.get(name);

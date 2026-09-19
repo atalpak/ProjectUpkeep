@@ -32,6 +32,23 @@ test('LruCache set on an existing key refreshes it without growing', () => {
   assert.equal(c.get('b'), undefined);
 });
 
+test('LruCache drops an entry older than its ttl, and reading does not extend it', () => {
+  let t = 1000;
+  const c = new LruCache<string, number>(5, 100, () => t);
+  c.set('a', 1);
+  t = 1099;
+  assert.equal(c.get('a'), 1); // a read inside the window
+  t = 1100;
+  assert.equal(c.get('a'), undefined); // age counts from set, so the read did not renew it
+  assert.equal(c.size, 0);
+  c.set('a', 2);
+  assert.equal(c.get('a'), 2); // a fresh set starts a new window
+});
+
+test('LruCache rejects a nonsense ttl', () => {
+  assert.throws(() => new LruCache(1, 0));
+});
+
 test('LruCache rejects a nonsense capacity', () => {
   assert.throws(() => new LruCache(0));
 });

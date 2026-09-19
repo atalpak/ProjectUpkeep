@@ -4,8 +4,6 @@ import type { Printing } from '@upkeep/scan-core';
 export type CardDetailsTarget = {
   name: string;
   printingId?: string | null;
-  /** Retired: the sheet no longer renders a note (owner, 2026-09-19). Kept optional so a caller that still passes one compiles. */
-  note?: string;
   /**
    * Set by quick scan when the printing is worth checking against the card's
    * picture. The sheet opens at once on `printingId`; it then compares `photoUri`

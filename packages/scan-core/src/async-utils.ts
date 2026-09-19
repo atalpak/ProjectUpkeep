@@ -23,22 +23,34 @@ export function rejectAfter<T>(work: PromiseLike<T>, ms: number): Promise<T> {
   });
 }
 
-/** A Map that forgets its least recently used entry beyond `capacity`. */
+/**
+ * A Map that forgets its least recently used entry beyond `capacity`, and, when
+ * `ttlMs` is given, any entry older than that. Age counts from `set`, not from
+ * the last `get`: a card opened every few minutes must still pick up the daily
+ * price sync, so reading an entry never extends its life. `now` is injectable
+ * so the tests need no real waiting.
+ */
 export class LruCache<K, V> {
-  private readonly map = new Map<K, V>();
-  constructor(private readonly capacity: number) {
+  private readonly map = new Map<K, { value: V; at: number }>();
+  constructor(
+    private readonly capacity: number,
+    private readonly ttlMs?: number,
+    private readonly now: () => number = Date.now,
+  ) {
     if (!Number.isInteger(capacity) || capacity < 1) throw new Error('LruCache capacity must be a positive integer');
+    if (ttlMs !== undefined && !(ttlMs > 0)) throw new Error('LruCache ttlMs must be positive');
   }
   get(key: K): V | undefined {
-    if (!this.map.has(key)) return undefined;
-    const v = this.map.get(key) as V;
+    const e = this.map.get(key);
+    if (!e) return undefined;
     this.map.delete(key);
-    this.map.set(key, v); // re-insert: now the most recent
-    return v;
+    if (this.ttlMs !== undefined && this.now() - e.at >= this.ttlMs) return undefined; // expired: dropped
+    this.map.set(key, e); // re-insert: now the most recent
+    return e.value;
   }
   set(key: K, value: V): void {
     this.map.delete(key);
-    this.map.set(key, value);
+    this.map.set(key, { value, at: this.now() });
     if (this.map.size > this.capacity) this.map.delete(this.map.keys().next().value as K);
   }
   delete(key: K): void { this.map.delete(key); }

@@ -234,7 +234,6 @@ function CollectionList({ userId }: { userId: string }) {
         windowSize={5}
         maxToRenderPerBatch={8}
         initialNumToRender={12}
-        removeClippedSubviews
         ListHeaderComponent={header}
         contentContainerStyle={styles.content}
         ListEmptyComponent={
