@@ -10,9 +10,11 @@
  *   - Cheap when nothing changed. Scryfall stamps each export with its own
  *     updated_at; if that matches our last successful run we record a `skipped`
  *     run and exit without downloading ~500MB. Pass --force to override.
- *   - Streamed, never buffered. The export is far too large to hold in memory
- *     on a free-tier runner, so it is parsed as a stream and upserted in
- *     batches.
+ *   - Downloaded first, then streamed from disk, never buffered. The export is
+ *     far too large to hold in memory on a free-tier runner, so it is parsed as
+ *     a stream and upserted in batches. It lands in a temp file before any
+ *     upsert starts, so a slow database cannot stall the open download until the
+ *     remote closes it (see src/lib/scryfall-download.ts).
  *   - Observable. Every run writes a row to public.scryfall_sync_runs with its
  *     status, row count, and any error.
  *   - Reports whether it actually upserted anything via $GITHUB_OUTPUT
@@ -28,7 +30,8 @@
  */
 
 import { appendFile } from "node:fs/promises";
-import { Readable, pipeline } from "node:stream";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream";
 import { createGunzip } from "node:zlib";
 
 import { config as loadEnv } from "dotenv";
@@ -40,6 +43,7 @@ import {
   type CardRow,
   type ScryfallBulkEntry,
 } from "../src/lib/scryfall";
+import { parseContentLength, withDownloadedFile } from "../src/lib/scryfall-download";
 import { streamCardRows } from "../src/lib/scryfall-stream";
 import { createChunkedWriter } from "../src/lib/scryfall-upsert";
 import { withRetry } from "./sync-retry";
@@ -195,7 +199,7 @@ async function main() {
   openRun = { db, runId, upserted: () => upserted, closed: false };
 
   try {
-    // ---- 4. Stream, map, batch-upsert -------------------------------------
+    // ---- 4. Download to disk, then stream, map, batch-upsert --------------
     // Retried only for a dropped connection; see scripts/sync-retry.ts for why
     // a database error is deliberately not. The budget keeps the retries inside
     // the workflow's 45-minute timeout, which also has to cover npm ci and the
@@ -226,30 +230,54 @@ async function main() {
 
   async function runPass(attempt: number) {
     log(`downloading ${entry!.jsonl_download_uri} (attempt ${attempt})`);
-    const download = await fetch(entry!.jsonl_download_uri, {
-      headers: scryfallHeaders(contact),
-    });
-    if (!download.ok || !download.body) {
-      throw new Error(`Bulk download returned ${download.status} ${download.statusText}`);
-    }
 
+    // Download in full first, then upsert from disk. Streaming the two together
+    // let a slow database stall the open download until the remote hung up
+    // (run 35351338797); see src/lib/scryfall-download.ts. A fresh temp file per
+    // attempt, removed when the pass ends either way, so a retry never sees a
+    // partial one. A failure while downloading is an ordinary network error to
+    // withRetry, exactly as before.
+    await withDownloadedFile(
+      async () => {
+        const download = await fetch(entry!.jsonl_download_uri, {
+          headers: scryfallHeaders(contact),
+        });
+        if (!download.ok || !download.body) {
+          throw new Error(`Bulk download returned ${download.status} ${download.statusText}`);
+        }
+        return {
+          body: download.body,
+          expectedBytes: parseContentLength(download.headers.get("content-length")),
+        };
+      },
+      async (file, info) => {
+        log(
+          `downloaded ${(info.bytes / 1_000_000).toFixed(0)}MB in ` +
+            `${(info.ms / 1000).toFixed(1)}s; upserting from disk`,
+        );
+        await upsertFromFile(file);
+      },
+      {
+        onCleanupError: (error, dir) =>
+          log(`could not remove temp download ${dir}: ${describe(error)}`),
+      },
+    );
+  }
+
+  async function upsertFromFile(file: string) {
     // The export is served as application/gzip with no content-encoding header,
-    // so fetch hands back the compressed bytes as-is. Decompress here, on the
-    // transport side, and let streamCardRows deal only in plain JSON Lines.
+    // so the file holds the compressed bytes as-is. Decompress here and let
+    // streamCardRows deal only in plain JSON Lines.
     //
     // Not `.pipe()`: that does not forward a source error to the destination,
-    // so a dropped connection was emitted on the body stream with nobody
-    // listening, and crashed the process past the try/catch that records the
-    // failure. pipeline() destroys the gunzip stream *with* the error, and
+    // so an error on the file stream would be emitted with nobody listening,
+    // and crash the process past the try/catch that records the failure.
+    // pipeline() destroys the gunzip stream *with* the error, and
     // streamCardRows' own pipeline is already listening on it, so the failure
     // arrives as an ordinary rejection. The callback has nothing to add — the
     // error has already travelled that way — but pipeline() requires one.
     const cards = createGunzip();
-    pipeline(
-      Readable.fromWeb(download.body as Parameters<typeof Readable.fromWeb>[0]),
-      cards,
-      () => {},
-    );
+    pipeline(createReadStream(file), cards, () => {});
 
     // A statement timeout used to fail the whole run — see scryfall-upsert.ts.
     // Now it halves the chunk, keeps the smaller size, and carries on.
