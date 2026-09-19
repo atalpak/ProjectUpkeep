@@ -68,6 +68,10 @@ jobs:
       - run: npm run typecheck -w @upkeep/scan-core
       - run: npm test -w @upkeep/scan-core
       - run: npm run typecheck -w @upkeep/scanner-app
+      # The app's pure-logic tests: data modules with the Supabase client and
+      # Expo file/secure-store swapped for in-memory fakes (apps/mobile/test/
+      # helpers). Screens and components are still untested.
+      - run: npm test -w @upkeep/scanner-app
 
   migrations:
     runs-on: ubuntu-latest
