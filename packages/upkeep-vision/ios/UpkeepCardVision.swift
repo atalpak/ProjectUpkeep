@@ -71,10 +71,14 @@ enum UpkeepCardVision {
   static let edgeMargin: CGFloat = 0.02
   /// Fraction of the frame the card must cover. Below this the title is too
   /// small for OCR to read reliably anyway.
-  /// Raised from 0.10 with the bigger quick-scan box: a card that small in the
-  /// frame is too far away for the footer to be legible, and the settle wait
-  /// below would only be spent on a read that cannot succeed.
-  static let minimumArea: CGFloat = 0.18
+  /// The normal Scan tab's floor: it reads the title band only, which is
+  /// legible from further away.
+  static let minimumArea: CGFloat = 0.10
+  /// Quick scan's floor, raised with its bigger box: it verifies the footer, and
+  /// a card this small in the frame is too far away for that to be legible, so
+  /// the settle wait would only be spent on a read that cannot succeed. Per
+  /// mode on purpose -- applying it to the normal tab shrank its working range.
+  static let quickMinimumArea: CGFloat = 0.18
   /// Vision's rectangle confidence, via CardObservation.isUsable in Flutter.
   static let minimumConfidence: VNConfidence = 0.70
 
@@ -85,7 +89,8 @@ enum UpkeepCardVision {
   /// BL) and `imageSize` is the size AFTER orientation, because aspect must be
   /// judged in pixels, not in the stretched normalized square.
   static func isFullCard(corners: [CGPoint], confidence: VNConfidence, imageSize: CGSize,
-                         minimumConfidence: VNConfidence = UpkeepCardVision.minimumConfidence) -> Bool {
+                         minimumConfidence: VNConfidence = UpkeepCardVision.minimumConfidence,
+                         minimumArea: CGFloat = UpkeepCardVision.minimumArea) -> Bool {
     guard corners.count == 4, imageSize.width > 0, imageSize.height > 0,
           confidence >= minimumConfidence,
           isInsideWithMargin(corners, margin: edgeMargin),
@@ -97,9 +102,11 @@ enum UpkeepCardVision {
   }
 
   static func pickFullCard(_ observations: [VNRectangleObservation], imageSize: CGSize,
-                           minimumConfidence: VNConfidence = UpkeepCardVision.minimumConfidence) -> VNRectangleObservation? {
+                           minimumConfidence: VNConfidence = UpkeepCardVision.minimumConfidence,
+                           minimumArea: CGFloat = UpkeepCardVision.minimumArea) -> VNRectangleObservation? {
     observations
-      .filter { isFullCard(corners: corners(of: $0), confidence: $0.confidence, imageSize: imageSize, minimumConfidence: minimumConfidence) }
+      .filter { isFullCard(corners: corners(of: $0), confidence: $0.confidence, imageSize: imageSize,
+                           minimumConfidence: minimumConfidence, minimumArea: minimumArea) }
       .max { liveCardScore($0) < liveCardScore($1) }
   }
 
@@ -108,8 +115,10 @@ enum UpkeepCardVision {
   /// nothing was found: a card whose outer edge is lost against a dark table
   /// often still yields a smaller inner rectangle that the gate rejects.
   static func bestFullCard(in image: CIImage, orientation: CGImagePropertyOrientation, imageSize: CGSize,
-                           allowContrastRetry: Bool) -> VNRectangleObservation? {
-    findFullCard(in: image, orientation: orientation, imageSize: imageSize, allowContrastRetry: allowContrastRetry).card
+                           allowContrastRetry: Bool,
+                           minimumArea: CGFloat = UpkeepCardVision.minimumArea) -> VNRectangleObservation? {
+    findFullCard(in: image, orientation: orientation, imageSize: imageSize, allowContrastRetry: allowContrastRetry,
+                 minimumArea: minimumArea).card
   }
 
   /// `bestFullCard`, also reporting whether the expensive contrast pass actually
@@ -117,10 +126,13 @@ enum UpkeepCardVision {
   /// spent: charging it on every frame that merely *offered* one meant a frame
   /// where the plain pass succeeded used up the retry a later dark frame needed.
   static func findFullCard(in image: CIImage, orientation: CGImagePropertyOrientation, imageSize: CGSize,
-                           allowContrastRetry: Bool) -> (card: VNRectangleObservation?, retryRan: Bool) {
-    if let found = pickFullCard(detectRectangles(in: image, orientation: orientation), imageSize: imageSize) { return (found, false) }
+                           allowContrastRetry: Bool,
+                           minimumArea: CGFloat = UpkeepCardVision.minimumArea) -> (card: VNRectangleObservation?, retryRan: Bool) {
+    if let found = pickFullCard(detectRectangles(in: image, orientation: orientation), imageSize: imageSize,
+                                minimumArea: minimumArea) { return (found, false) }
     guard allowContrastRetry, let enhanced = contrastEnhanced(image) else { return (nil, false) }
-    return (pickFullCard(detectRectangles(in: enhanced, orientation: orientation), imageSize: imageSize), true)
+    return (pickFullCard(detectRectangles(in: enhanced, orientation: orientation), imageSize: imageSize,
+                         minimumArea: minimumArea), true)
   }
 
   /// Short side over long side of the quad, measured in pixels: 0.716 for a
@@ -380,38 +392,57 @@ struct OutlineTracker {
 /**
  * Quick scan's "hold still" rule, for detections on every frame. A card must be
  * a valid full card whose corners stay within `tolerance` (mean, normalized) of
- * where the settle window began, for `duration` seconds of elapsed time. Judging
- * against the window's start rather than the previous frame is deliberate: at
- * 30fps a slowly sliding card moves almost nothing per frame yet drifts a long
- * way, and a two-detections rule (the old one) is satisfied within ~60ms, which
- * is why a card laid on a table was read before it had even come to rest. Any
- * missing detection, or a gap over `maxGap`, restarts the wait. Pure state, no
- * clock of its own.
+ * a running average of where it has been, for `duration` seconds of elapsed
+ * time. Judging against an average rather than the previous frame is
+ * deliberate: at 30fps a card sliding fast moves little per frame yet leaves
+ * its own average behind, and a two-detections rule (the old one) is satisfied
+ * within ~60ms, which is why a card laid on a table was read before it had come
+ * to rest. Against an average rather than a fixed starting point so that Vision
+ * jitter and a slow drift do not restart the wait forever.
+ *
+ * Fallback: a hand never holds perfectly still, and quick scan has no manual
+ * capture, so after `fallbackAfter` of continuous full-card detection the
+ * tolerance relaxes to `relaxedTolerance`. It is still far tighter than a card
+ * in motion (which trails its own average by ~0.06 at a brisk 0.02/frame), and
+ * the sharpness check in the scanner view still refuses a blurred frame. Any
+ * missing detection, or a gap over `maxGap`, restarts everything. Pure state,
+ * no clock of its own.
  */
 struct SettleTracker {
   static let duration: TimeInterval = 0.3
   static let tolerance: CGFloat = 0.015
+  static let relaxedTolerance: CGFloat = 0.03
+  static let fallbackAfter: TimeInterval = 1.5
   static let maxGap: TimeInterval = 0.25
+  /// Weight of the newest frame in the running average.
+  static let averageWeight: CGFloat = 0.25
 
-  private var anchor: [CGPoint]?
-  private var anchorAt: TimeInterval = 0
+  private var average: [CGPoint]?
+  private var windowStart: TimeInterval = 0
+  private var presentSince: TimeInterval = 0
   private var lastAt: TimeInterval = 0
 
   /// Feed one detection (nil = no full card); true once the card has settled.
   mutating func observe(_ corners: [CGPoint]?, at now: TimeInterval) -> Bool {
     guard let corners else {
-      anchor = nil
+      average = nil
       return false
     }
-    if let current = anchor, now - lastAt <= Self.maxGap,
-       UpkeepCardVision.movement(from: current, to: corners) <= Self.tolerance {
-      // still inside the window
+    if average == nil || now - lastAt > Self.maxGap {
+      presentSince = now
+      average = nil
+    }
+    let tolerance = now - presentSince >= Self.fallbackAfter ? Self.relaxedTolerance : Self.tolerance
+    if let current = average, current.count == corners.count,
+       UpkeepCardVision.movement(from: current, to: corners) <= tolerance {
+      let w = Self.averageWeight
+      average = zip(current, corners).map { CGPoint(x: $0.x * (1 - w) + $1.x * w, y: $0.y * (1 - w) + $1.y * w) }
     } else {
-      anchor = corners
-      anchorAt = now
+      average = corners
+      windowStart = now
     }
     lastAt = now
-    return now - anchorAt >= Self.duration
+    return now - windowStart >= Self.duration
   }
 
   mutating func reset() { self = SettleTracker() }

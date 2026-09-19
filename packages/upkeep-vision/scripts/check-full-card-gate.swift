@@ -27,8 +27,9 @@ func quad(cx: CGFloat = 0.5, cy: CGFloat = 0.5, w: CGFloat = 700, aspect: CGFloa
   return [CGPoint(x: cx - hx, y: cy + hy), CGPoint(x: cx + hx, y: cy + hy),
           CGPoint(x: cx + hx, y: cy - hy), CGPoint(x: cx - hx, y: cy - hy)]
 }
-func gate(_ q: [CGPoint], confidence: Float = 0.9) -> Bool {
-  UpkeepCardVision.isFullCard(corners: q, confidence: confidence, imageSize: frame)
+func gate(_ q: [CGPoint], confidence: Float = 0.9, quick: Bool = false) -> Bool {
+  UpkeepCardVision.isFullCard(corners: q, confidence: confidence, imageSize: frame,
+                              minimumArea: quick ? UpkeepCardVision.quickMinimumArea : UpkeepCardVision.minimumArea)
 }
 
 expect(gate(quad()), "centred card passes")
@@ -36,8 +37,9 @@ expect(!gate(quad(), confidence: 0.5), "low confidence fails")
 expect(!gate(quad(cx: 0.05)), "corner near the left edge fails")
 expect(!gate(quad(cy: 0.97)), "corner near the top edge fails")
 expect(!gate(quad(w: 300)), "tiny card (below minimum area) fails")
-expect(!gate(quad(w: 480)), "card covering ~0.15 of the frame fails the 0.18 minimum")
-expect(gate(quad(w: 560)), "card covering ~0.22 of the frame passes")
+expect(!gate(quad(w: 480), quick: true), "quick scan: card covering ~0.15 of the frame fails the 0.18 minimum")
+expect(gate(quad(w: 480)), "normal tab: the same ~0.15 card passes its 0.10 minimum")
+expect(gate(quad(w: 560), quick: true), "quick scan: card covering ~0.22 of the frame passes")
 expect(!gate(quad(aspect: 1.0)), "square-ish quad fails")
 expect(!gate(quad(aspect: 0.55)), "too tall quad fails")
 expect(gate(quad(aspect: 0.716 * 1.10)), "aspect +10% passes")
@@ -92,8 +94,30 @@ expect(settled, "steady for 0.3s with jitter settles")
 expect(!settle.observe(quad(cx: 0.55), at: 0.40), "a jump restarts the wait")
 var creeping = SettleTracker()
 var creepSettled = false
-for i in 0..<30 { creepSettled = creeping.observe(quad(cx: 0.4 + Double(i) * 0.003), at: Double(i) * 0.033) }
-expect(!creepSettled, "a card sliding slowly (small per frame, large overall) never settles")
+for i in 0..<30 { creepSettled = creeping.observe(quad(cx: 0.4 + Double(i) * 0.02), at: Double(i) * 0.033) }
+expect(!creepSettled, "a card sliding briskly (small per frame, large overall) does not settle")
+// Fallback: a hand that sways past the tight tolerance still locks eventually.
+var sway = SettleTracker()
+var swaySettledAt: Double?
+for i in 0..<120 {
+  let t = Double(i) * 0.033
+  let x = 0.5 + 0.02 * sin(t * 2 * .pi * 2)
+  if sway.observe(quad(cx: CGFloat(x)), at: t), swaySettledAt == nil { swaySettledAt = t }
+}
+print("sway settled at \(swaySettledAt.map { String($0) } ?? "never")")
+expect((swaySettledAt ?? 0) >= SettleTracker.fallbackAfter, "a swaying card does not settle before the fallback")
+expect(swaySettledAt != nil, "a swaying card settles once the fallback relaxes the tolerance")
+var fastMover = SettleTracker()
+var fastSettled = false
+for i in 0..<150 {
+  let x = 0.2 + (Double(i) * 0.02).truncatingRemainder(dividingBy: 0.6)
+  if fastMover.observe(quad(cx: CGFloat(x)), at: Double(i) * 0.033) { fastSettled = true }
+}
+expect(!fastSettled, "a card moving fast never settles, fallback included")
+var drift = SettleTracker()
+var driftSettled = false
+for i in 0..<30 { driftSettled = drift.observe(quad(cx: 0.4 + Double(i) * 0.0005), at: Double(i) * 0.033) }
+expect(driftSettled, "a very slow drift settles (measured against a moving average)")
 var gap = SettleTracker()
 _ = gap.observe(quad(), at: 0.0)
 expect(!gap.observe(quad(), at: 0.5), "a detection gap restarts the wait")

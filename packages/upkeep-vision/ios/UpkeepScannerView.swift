@@ -107,6 +107,13 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     }
   }
   private var awaitingRelease = false
+  /// Bumped whenever a locked card stops being "the card": released, swapped,
+  /// or the scanner stopped. A quick-scan read waiting out its green hold
+  /// delivers only if this is unchanged, so a card that left (or was replaced)
+  /// during the hold cannot report a stale read. Written on frameQueue, read on
+  /// main, hence the lock.
+  private var generation = 0
+  private let generationLock = NSLock()
   private var lastReadCentre: CGPoint?
   private var guideCaptureRequested = false
   private var outlineShown = false
@@ -285,7 +292,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     let retry = now - lastContrastRetry >= (fast ? Self.fastContrastRetryInterval : Self.contrastRetryInterval)
     let size = geometry().image
     let found = UpkeepCardVision.findFullCard(in: CIImage(cvPixelBuffer: buffer), orientation: .right,
-                                              imageSize: size, allowContrastRetry: retry)
+                                              imageSize: size, allowContrastRetry: retry,
+                                              minimumArea: fast ? UpkeepCardVision.quickMinimumArea : UpkeepCardVision.minimumArea)
     // Only a retry that actually ran uses up the allowance.
     if found.retryRan { lastContrastRetry = now }
     let card = found.card
@@ -345,7 +353,17 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     return steadyFrames >= 2
   }
 
+  private func bumpGeneration() {
+    generationLock.lock(); generation += 1; generationLock.unlock()
+  }
+
+  private func currentGeneration() -> Int {
+    generationLock.lock(); defer { generationLock.unlock() }
+    return generation
+  }
+
   private func resetTracking() {
+    bumpGeneration()
     previousCorners = nil
     settle.reset()
     steadyFrames = 0
@@ -358,6 +376,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   }
 
   private func release() {
+    bumpGeneration()
     awaitingRelease = false
     lastReadCentre = nil
     previousCorners = nil
@@ -390,13 +409,14 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     awaitingRelease = true
     lastReadCentre = centre
     var deliverAfter: TimeInterval = 0
+    let token = currentGeneration()
     if fast {
       // The one outline quick scan ever draws: green, on the locked quad.
       updateOutline(corners)
       deliverAfter = CACurrentMediaTime() + Self.greenHold
     }
     setOutline(locked: true)
-    readQueue.async { self.read(card, source: "outline", deliverAfter: deliverAfter) }
+    readQueue.async { self.read(card, source: "outline", deliverAfter: deliverAfter, generation: token) }
   }
 
   private func captureGuideArea(_ buffer: CVPixelBuffer) {
@@ -405,7 +425,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     readQueue.async { self.read(card, source: "guide") }
   }
 
-  private func read(_ card: CGImage, source: String, deliverAfter: TimeInterval = 0) {
+  private func read(_ card: CGImage, source: String, deliverAfter: TimeInterval = 0, generation token: Int? = nil) {
     let evidence = UpkeepCardText.read(card)
     var payload: [String: Any] = [
       "title": evidence.title,
@@ -422,6 +442,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       // A read finishing after the tab blurred or the view left the screen
       // must not stage a card behind the user's back.
       guard self.window != nil, self.active else { return }
+      // Only quick scan's held reads carry a token; the normal tab's read has
+      // no hold in which the card could change.
+      if deliverAfter > 0, let token, token != self.currentGeneration() { return }
       self.onCardRead(payload)
       // A read JS rejects leaves the card in frame; the green outline must not
       // linger as if it were still being tracked.

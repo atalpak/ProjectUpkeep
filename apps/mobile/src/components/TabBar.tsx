@@ -4,6 +4,7 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScanPipeline, artCandidates, bestGuessPrinting, printingHints, quickMatch, rankPrintings } from '@upkeep/scan-core';
 import { UpkeepScannerView, cardImageRankingAvailable, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
 import { useApp } from '../AppProvider';
@@ -101,6 +102,15 @@ const DWELL_MS = 200;
 const QUICK_W = 320;
 const QUICK_H = 440;
 const QUICK_MARGIN = 24;
+// Screen kept clear of the box besides the top safe area: the bar and the gap
+// above it. Bounds the height on a short phone or in landscape, where the
+// width-scaled 440 would run under the status bar.
+const QUICK_VERTICAL_RESERVE = 150;
+// A read that arrived while the box was still hidden waits this long after the
+// reveal before it is acted on, so the person sees the box (and the hint) for a
+// beat instead of the camera vanishing the instant it appears. Matches the
+// native green hold.
+const REVEAL_BEAT_MS = 350;
 type FanOption = 'search' | 'scan';
 
 /**
@@ -113,9 +123,10 @@ type FanOption = 'search' | 'scan';
 function ScanButton({ width, selected, onPress, onSearch }: { width: number; selected: boolean; onPress(): void; onSearch(): void }) {
   const styles = useStyles();
   const reducedMotion = useReducedMotion();
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const safeTop = useSafeAreaInsets().top;
   const quickW = Math.min(QUICK_W, screenWidth - 2 * QUICK_MARGIN);
-  const quickH = Math.round((quickW * QUICK_H) / QUICK_W);
+  const quickH = Math.round(Math.min((quickW * QUICK_H) / QUICK_W, screenHeight - safeTop - QUICK_VERTICAL_RESERVE));
   const app = useApp();
   const openDetails = useOpenCardDetails();
   const [permission] = useCameraPermissions();
@@ -128,6 +139,7 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
   // option, so it is already producing frames when the box is revealed.
   const [warm, setWarm] = useState(false);
   const pendingRead = useRef<CardReadEvent | null>(null);
+  const beat = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [quickHint, setQuickHint] = useState('');
   const [fanNote, setFanNote] = useState('');
   const quickRef = useRef(false);
@@ -175,13 +187,16 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
     else Animated.spring(quickAnim, { toValue: 1, useNativeDriver: true, friction: 9, tension: 220 }).start();
     // A card that was read while the camera was still hidden is not lost:
     // the native side reads each physical card once, so it will not repeat it.
+    // Its green confirmation happened out of sight, so hold it for a beat after
+    // the reveal; stopQuick cancels the beat if the finger lifts first.
     const early = pendingRead.current;
     pendingRead.current = null;
-    if (early) handleRead(early);
+    if (early) beat.current = setTimeout(() => { beat.current = null; handleRead(early); }, REVEAL_BEAT_MS);
   }
 
   function stopQuick() {
     pendingRead.current = null;
+    if (beat.current) { clearTimeout(beat.current); beat.current = null; }
     setWarm(false);
     if (!quickRef.current) return;
     quickRef.current = false;

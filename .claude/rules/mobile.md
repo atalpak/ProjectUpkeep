@@ -162,7 +162,7 @@ owns its own `AVCaptureSession`.
 **Native side** (`packages/upkeep-vision/ios/UpkeepScannerView.swift`). Each
 frame goes through Apple Vision rectangle detection and the **full-card gate**
 (`UpkeepCardVision.findFullCard`: confidence, corners inside the frame, convex,
-area >= 0.18 of the frame, card aspect; with a contrast-enhanced retry that is
+area >= 0.10 of the frame on the normal tab and 0.18 in quick scan (`quickMinimumArea`, per mode), card aspect; with a contrast-enhanced retry that is
 rate-limited and only charged when it actually ran). `OutlineTracker` keeps one
 stable quad (hysteresis, per-mode grace). A locked card is straightened by its
 detected quad, OCR'd (title band + printing band), and emitted once as
@@ -181,14 +181,19 @@ where Vision finds no edge. Two modes, same file:
 - *Quick scan* (`fastDetection`, the fan's Scan option): detection on every
   frame, **no outline and no corner marks while searching**. The card must pass
   the gate and stay within `SettleTracker.tolerance` (0.015 mean corner
-  movement, measured from where the window began, not frame to frame) for
-  `SettleTracker.duration` (0.3s) of elapsed time, then a sharpness check
+  movement, measured from a running average, not frame to frame) for
+  `SettleTracker.duration` (0.3s) of elapsed time. Fallback: after 1.5s of
+  continuous detection the tolerance relaxes to 0.03, because there is no
+  manual capture and a hand never holds still. Then a sharpness check
   (`minimumSharpness` 40, at most 8 refusals in a row). Only then is a **green
   outline drawn at the locked quad**, held until `greenHold` (0.35s) after the
   lock (OCR time counts towards it, so JS gets `onCardRead` no sooner), after
   which the outline is hidden and JS opens the details. The hold is native, so
   the camera view stays mounted and active until the read is delivered; lifting
-  the finger first cancels it (the delivery is dropped once `active` is false).
+  the finger first cancels it (the delivery is dropped once `active` is false,
+  or if a generation token bumped by release/stop shows the card left or was
+  swapped during the hold). A read that arrives while the box is still hidden
+  is held in TabBar and acted on 350ms after the reveal.
 
 Thresholds are constants at the top of the Swift files; they are ported from the
 Flutter original or estimated, and the quick-scan ones (settle, sharpness) are
