@@ -121,6 +121,10 @@ jobs:
           mkdir -p "$TMP"
           cp packages/upkeep-vision/scripts/validate-detection.swift "$TMP/main.swift"
           swiftc -typecheck packages/upkeep-vision/ios/UpkeepCardVision.swift "$TMP/main.swift"
+      # The app's pure-logic tests: data modules with the Supabase client and
+      # Expo file/secure-store swapped for in-memory fakes (apps/mobile/test/
+      # helpers). Screens and components are still untested.
+      - run: npm test -w @upkeep/scanner-app
 
   migrations:
     runs-on: ubuntu-latest
