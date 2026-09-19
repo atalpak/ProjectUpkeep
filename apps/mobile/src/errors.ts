@@ -1,3 +1,5 @@
+import { captureError } from './crashReporting';
+
 // Extracted from App.tsx's monolith so every screen (not just the scan flow)
 // can turn a raw error into the same user-facing copy. Mirrors
 // src/app/(app)/collection/actions.ts's friendlyDbError on the web side —
@@ -25,9 +27,9 @@ export const errorMessage = (e: unknown) =>
   friendlyDbMessage(e instanceof Error ? e.message : (e && typeof e === 'object' && 'message' in e ? String(e.message) : 'Something went wrong. Please retry.'));
 
 /**
- * The ONE place a caught-and-swallowed error is reported. Today it only
- * writes a console warning; when the owner picks a crash vendor (Sentry or
- * otherwise) it plugs in here and nowhere else, so no call site changes.
+ * The ONE place a caught-and-swallowed error is reported: a console warning,
+ * plus Sentry via src/crashReporting.ts when EXPO_PUBLIC_SENTRY_DSN is set
+ * (otherwise that call is a no-op). A different vendor would plug in here too.
  * `context` says where it happened ("catalog.load", "screen:scan") -- short,
  * stable, and never containing user data.
  *
@@ -36,4 +38,5 @@ export const errorMessage = (e: unknown) =>
  */
 export function reportError(error: unknown, context: string): void {
   console.warn(`[${context}]`, error instanceof Error ? error.message : String(error));
+  captureError(error, context);
 }

@@ -43,6 +43,10 @@ import { Button, DismissingNotice, Notice } from './src/components/ui';
 import { PAGES, type DecksStackParamList, type FriendsStackParamList, type LocationsStackParamList, type PageId, type TradesStackParamList, type TabParamList } from './src/navigation';
 import { accent as accentColor, border, brand, space, surface, text as textColor, type as typeTokens } from './src/theme';
 import { makeStyles } from './src/preferences';
+import { initCrashReporting } from './src/crashReporting';
+
+// Before anything renders, so a crash during startup is still caught. No-op without a DSN.
+initCrashReporting();
 
 /**
  * Thin shell: SafeAreaProvider → fonts → AppProvider → NavigationContainer →

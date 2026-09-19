@@ -47,15 +47,22 @@ export type QuickMatch =
   | { ok: true; printing: Candidate['printing']; exactPrinting: boolean }
   | { ok: false; reason: 'none' | 'weak' | 'ambiguous' };
 
-export function quickMatch(candidates: Candidate[]): QuickMatch {
+/**
+ * The two cutoffs are a parameter only so `scripts/accuracy.ts` can sweep them
+ * against labelled reads; the app never passes it, so shipped behaviour is the
+ * constants above and nothing else.
+ */
+export interface QuickLimits { minScore: number; ambiguityMargin: number }
+
+export function quickMatch(candidates: Candidate[], limits: QuickLimits = { minScore: QUICK_MIN_SCORE, ambiguityMargin: QUICK_AMBIGUITY_MARGIN }): QuickMatch {
   if (!candidates.length) return { ok: false, reason: 'none' };
   const top = candidates[0]!;
-  if (top.score < QUICK_MIN_SCORE) return { ok: false, reason: 'weak' };
+  if (top.score < limits.minScore) return { ok: false, reason: 'weak' };
   // An exact printing (set + number read and matched) or a perfect name is
   // not something a neighbour can out-argue.
   const exactPrinting = top.evidence === 'printing';
   if (top.score < 1 && !exactPrinting) {
-    const rival = candidates.find(c => c.printing.oracleId !== top.printing.oracleId && c.score >= top.score - QUICK_AMBIGUITY_MARGIN);
+    const rival = candidates.find(c => c.printing.oracleId !== top.printing.oracleId && c.score >= top.score - limits.ambiguityMargin);
     if (rival) return { ok: false, reason: 'ambiguous' };
   }
   return { ok: true, printing: top.printing, exactPrinting };

@@ -41,6 +41,12 @@ is the live list.
 - Quick scan (hold Scan, slide to the Scan option): tune the "how sure" cutoff
   (`QUICK_MIN_SCORE` in `packages/scan-core/src/band.ts`) against real cards, and
   check the lock-on speed in poor light.
+- Accuracy benchmark (offline, no phone): `npm run accuracy -w @upkeep/scan-core`
+  runs the shipped matching over labelled OCR reads and sweeps `QUICK_MIN_SCORE` /
+  `QUICK_AMBIGUITY_MARGIN`, reporting exact / right-card-wrong-printing / wrong card /
+  abstained. Real use: `-- --catalog catalog.json --reads reads.json` (a missing catalog
+  skips cleanly). The bundled sample in `scripts/fixtures/` is illustrative only; the
+  cutoff stays untuned until reads are captured from a device.
 - Haptics on the fan-out button (needs a native package, so a rebuild).
 - Android live scanner (iOS only today).
 
