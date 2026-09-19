@@ -6,7 +6,7 @@ import { CardIndex, validateDraft, type Condition, type ConfirmedScan, type Fini
 import { backend, moveWriter } from './backend';
 import { demoBundle, installBundledCatalog, loadCatalog, refreshCatalog, type CatalogProgress } from './catalog';
 import { checkForUpdate, dismissUpdate, type LatestCatalog, type UpdateCheck } from './catalogUpdates';
-import { errorMessage } from './errors';
+import { errorMessage, reportError } from './errors';
 import { pendingKey, pendingMoveKey } from './storage';
 
 export type Review = { printing: Printing; operationId: string; submitted?: ConfirmedScan };
@@ -195,7 +195,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const pending = JSON.parse(raw) as PendingMove;
         setPendingMove(pending);
         setMessage(m => m || 'An unfinished sleeve/unsleeve was recovered. Retry to verify whether it went through.');
-      } catch {
+      } catch (e) {
+        reportError(e, 'appProvider.pendingMove');
         // A malformed pending-move record cannot be retried meaningfully;
         // drop it rather than surfacing a retry button that can never work.
         if (!cancelled) void SecureStore.deleteItemAsync(pendingMoveKey(userId));

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { CONDITIONS } from '@upkeep/scan-core';
 import { filterCollection } from '@upkeep/domain';
 import { CollectionAuthError, EMPTY_COLLECTION_FILTER, collectionFacetCount, fetchWholeCollection, type CollectionEntry, type CollectionFilter } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
-import { Button, Choices, Notice } from '../components/ui';
+import { Button, Choices, EmptyState, Notice } from '../components/ui';
+import { useSearchOverlay } from '../searchOverlay';
 import { CardDetails } from '../components/CardDetails';
 import { FoilOverlay, useFoilTilt } from '../components/FoilArt';
 import { border, radius, space, surface, text, type as typeTokens, accent } from '../theme';
@@ -40,6 +41,8 @@ function metaLine(e: CollectionEntry): string {
 function CollectionList({ userId }: { userId: string }) {
   const styles = useStyles();
   const app = useApp();
+  const navigation = useNavigation<{ navigate(page: 'Scan'): void }>();
+  const openSearch = useSearchOverlay().open;
   const focused = useIsFocused();
   const { width } = useWindowDimensions();
   const { collectionView, setCollectionView } = usePreferences();
@@ -181,7 +184,12 @@ function CollectionList({ userId }: { userId: string }) {
             {!loading && !!error && <><Notice>{error}</Notice><Button secondary label="Retry" onPress={() => void load()} /></>}
             {!loading && !authError && !error && (filtering
               ? <><Text style={styles.body}>Nothing in your collection matches.</Text><Button secondary label="Clear search and filters" onPress={clearAll} /></>
-              : <Text style={styles.body}>You don&apos;t own any cards yet. Scan one to get started.</Text>)}
+              : (
+                <EmptyState title="Your collection starts here" body="Scan a card with your camera, or look one up and add it by hand.">
+                  <Button label="Scan a card" onPress={() => navigation.navigate('Scan')} />
+                  <Button secondary label="Search for a card" onPress={openSearch} />
+                </EmptyState>
+              ))}
           </View>
         }
         ListFooterComponent={loadingRest && all.length > 0 ? <Text style={styles.body}>Loading the rest of your collection…</Text> : null}

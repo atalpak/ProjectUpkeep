@@ -6,7 +6,7 @@ import { createDeck, fetchDeckTiles, type DeckTile } from '../decks';
 import { CollectionAuthError } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
-import { Button, Notice } from '../components/ui';
+import { Button, EmptyState, Notice } from '../components/ui';
 import { MANA_COLORS } from '../components/ManaCost';
 import type { DecksStackParamList } from '../navigation';
 import { border, brand, fontFamily, radius, space, state as stateColor, surface, text, type as typeTokens, accent } from '../theme';
@@ -99,7 +99,11 @@ export function DecksScreen({ navigation }: NativeStackScreenProps<DecksStackPar
             )}
 
           {!decks.length
-            ? <Text style={styles.body}>No decks yet. A deck is a real place a card can be: start one, then sleeve cards into it from your collection.</Text>
+            ? (
+              <EmptyState title="No decks yet" body="A deck is a real place a card can be. Start one, then sleeve cards into it from your collection.">
+                {!creating && <Button label="Start a deck" onPress={() => setCreating(true)} />}
+              </EmptyState>
+            )
             : (
               <>
                 <Text style={styles.count}>{decks.length} deck{decks.length === 1 ? '' : 's'}</Text>

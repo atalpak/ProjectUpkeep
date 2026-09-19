@@ -13,8 +13,8 @@ the *behavioural reference* for the live scanner) as npm workspaces. It has
 grown from a scan-and-confirm shell into an app with a slim header, a menu of
 every page and a five-slot nav bar (Scan fixed in the centre, the other four
 chosen in Settings; default Collection, Decks, Locations, Wish list) with sign-in, but it is still not a full port of the web app:
-Trades, Notifications and
-Import are menu entries that show a placeholder (`BUILT` in `src/navigation.ts`), and deck-*list* editing is web-only.
+Trades, Notifications and paste-only
+Import (collection, not decks) are built; deck-*list* editing is web-only. Pages not yet built show a placeholder (`BUILT` in `src/navigation.ts`).
 The docs in `apps/mobile/docs/` are historical apart from the "Current state"
 sections at the top of `ARCHITECTURE.md` and `HANDOFF.md`; this file is the
 current description, and where they disagree this file wins.
@@ -404,5 +404,5 @@ sleeve/unsleeve via the global banner) for an explicit retry/verify tap, and
 sign-out clears both the persisted session and that account's pending-scan and
 pending-move keys (`AppProvider`'s `onAuthStateChange` handler). The live
 scanner's staged session list is never persisted at all — see "The live scanner". `signInWithPassword`
-is the only auth path in this phase — no password reset, OAuth, deep links, or
-registration yet.
+is the only auth path in this phase — OAuth and deep links do not exist. Sign-up, and password reset
+(finished on the web page) and in-app account deletion are in `src/auth.ts`. The invite code is not enforced on mobile sign-up.

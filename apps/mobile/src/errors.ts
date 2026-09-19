@@ -23,3 +23,17 @@ export function friendlyDbMessage(message: string): string {
 
 export const errorMessage = (e: unknown) =>
   friendlyDbMessage(e instanceof Error ? e.message : (e && typeof e === 'object' && 'message' in e ? String(e.message) : 'Something went wrong. Please retry.'));
+
+/**
+ * The ONE place a caught-and-swallowed error is reported. Today it only
+ * writes a console warning; when the owner picks a crash vendor (Sentry or
+ * otherwise) it plugs in here and nowhere else, so no call site changes.
+ * `context` says where it happened ("catalog.load", "screen:scan") -- short,
+ * stable, and never containing user data.
+ *
+ * Use it where a catch would otherwise hide a real failure. Do not use it for
+ * expected outcomes (offline, "not found") that the caller already handles.
+ */
+export function reportError(error: unknown, context: string): void {
+  console.warn(`[${context}]`, error instanceof Error ? error.message : String(error));
+}

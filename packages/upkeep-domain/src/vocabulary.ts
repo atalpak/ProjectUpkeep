@@ -29,3 +29,29 @@ export const LANGUAGE_CODES = [
   "zhs", "zht", "he", "la", "grc", "ar", "sa", "ph",
 ] as const;
 export type LanguageCode = (typeof LANGUAGE_CODES)[number];
+
+/**
+ * Display names for the codes above. Lives beside them (rather than only in
+ * the web app's `LANGUAGES` select list) because the import vocabulary parser
+ * matches a spreadsheet's "Japanese" back to `ja`. Typed as a full Record so a
+ * code added to `LANGUAGE_CODES` without a label is a compile error.
+ */
+export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
+  en: "English",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  it: "Italian",
+  pt: "Portuguese",
+  ja: "Japanese",
+  ko: "Korean",
+  ru: "Russian",
+  zhs: "Chinese (Simplified)",
+  zht: "Chinese (Traditional)",
+  he: "Hebrew",
+  la: "Latin",
+  grc: "Ancient Greek",
+  ar: "Arabic",
+  sa: "Sanskrit",
+  ph: "Phyrexian",
+};

@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CardDetails } from '../components/CardDetails';
 import { Button, Notice } from '../components/ui';
 import { errorMessage } from '../errors';
 import { fetchFriendTradables, fetchFriendWants, removeFriendship, type FriendCard } from '../friends';
-import type { FriendsStackParamList } from '../navigation';
+import type { FriendsStackParamList, TabParamList } from '../navigation';
 import { makeStyles } from '../preferences';
 import { border, radius, space, surface, text, type } from '../theme';
 
@@ -13,6 +14,8 @@ import { border, radius, space, surface, text, type } from '../theme';
 export function FriendProfileScreen({ route, navigation }: NativeStackScreenProps<FriendsStackParamList, 'FriendProfile'>) {
   const styles = useStyles();
   const { friendId, username, friendshipId } = route.params;
+  // Trades is a sibling tab, so the builder is reached through the tab navigator.
+  const tabs = useNavigation<NavigationProp<TabParamList>>();
   const [tradables, setTradables] = useState<FriendCard[]>([]);
   const [wants, setWants] = useState<FriendCard[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +61,7 @@ export function FriendProfileScreen({ route, navigation }: NativeStackScreenProp
           {list(wants, `${username}’s wish list is empty.`)}
         </>
       )}
+      <Button label="Propose a trade" onPress={() => tabs.navigate('Trades', { screen: 'TradeBuilder', params: { friendId, username } })} />
       <Button secondary label="Remove friend" onPress={unfriend} />
       <CardDetails name={details?.name ?? null} printingId={details?.cardId} ownedFinish={details?.finish} onClose={() => setDetails(null)} />
     </ScrollView>

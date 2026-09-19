@@ -2,6 +2,7 @@ import { Asset } from 'expo-asset';
 import { File, Paths } from 'expo-file-system';
 import { fetch } from 'expo/fetch';
 import { CardIndex, type CatalogBundle } from '@upkeep/scan-core';
+import { reportError } from './errors';
 
 // Synthetic records keep demo mode deterministic. These must NEVER reach Supabase.
 const oracle = '00000000-0000-4000-8000-000000000001';
@@ -16,10 +17,23 @@ export const demoBundle: CatalogBundle = {
 // Two slots preserve the last usable bundle even if the app dies halfway through a write.
 const slot = (n: number) => new File(Paths.document, `upkeep-catalog-${n}.json`);
 let activeSlot = 0;
+/** Dev-only: the ~40 MB bundle is parsed on the JS thread and its cost on a real phone was unmeasured. */
+function timeParse(what: string, started: number) {
+  if (__DEV__) console.log(`[catalog] ${what}: parse took ${Date.now() - started} ms`);
+}
 export function loadCatalog(): CardIndex {
   const slots = [0,1].sort((a,b) => (slot(b).modificationTime ?? 0)-(slot(a).modificationTime ?? 0));
   for (const n of slots) {
-    try { const index = new CardIndex(JSON.parse(slot(n).textSync())); activeSlot = n; return index; } catch { /* try the previous bundle */ }
+    try {
+      const started = Date.now();
+      const index = new CardIndex(JSON.parse(slot(n).textSync()));
+      timeParse('load', started);
+      activeSlot = n;
+      return index;
+    } catch (e) {
+      // Falls back to the other slot, but a corrupt bundle is a real failure worth a trail.
+      reportError(e, 'catalog.load');
+    }
   }
   return new CardIndex(demoBundle);
 }
@@ -73,7 +87,9 @@ export async function refreshCatalog(onProgress?: (progress: CatalogProgress) =>
     // say so first and give React a beat to paint it.
     onProgress?.({ phase: 'preparing' });
     await new Promise(resolve => setTimeout(resolve, 60));
+    const parseStarted = Date.now();
     const index = new CardIndex(JSON.parse(text));
+    timeParse('download', parseStarted);
     const nextSlot = 1-activeSlot;
     slot(nextSlot).write(text);
     activeSlot = nextSlot;
@@ -112,14 +128,16 @@ export async function installBundledCatalog(): Promise<CardIndex | null> {
     await asset.downloadAsync();
     const uri = asset.localUri ?? asset.uri;
     const text = await new File(uri).text();
+    const parseStarted = Date.now();
     const index = new CardIndex(JSON.parse(text));
+    timeParse('bundled', parseStarted);
     const nextSlot = 1 - activeSlot;
     slot(nextSlot).write(text);
     activeSlot = nextSlot;
     return index;
   } catch (e) {
     // Not shown to the user (they get the download ask instead), but leave a trail for whoever builds the app.
-    console.warn('[catalog] bundled snapshot could not be installed:', e instanceof Error ? e.message : String(e));
+    reportError(e, 'catalog.installBundled');
     return null;
   }
 }

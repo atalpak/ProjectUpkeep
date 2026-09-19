@@ -11,4 +11,4 @@ export const pendingMoveKey = (userId: string) => `upkeep.pending-move.${userId}
 // Device-level preferences (not per account): appearance and the nav-bar
 // layout. One JSON blob under one key -- SecureStore is fine for a few dozen
 // bytes and it is already the app's only key-value store.
-export const PREFS_KEY = 'upkeep.prefs.v1';
+export const PREFS_KEY = 'upkeep.prefs.v1'; // also holds `welcomeSeen` (first-run walkthrough)

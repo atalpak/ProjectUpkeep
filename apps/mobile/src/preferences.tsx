@@ -9,12 +9,16 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 
 export type CollectionView = 'list' | 'grid';
 
-type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView };
+// `welcomeSeen` lives with the other device prefs rather than under its own
+// key: it is the same kind of thing (a one-line choice about this phone), and
+// "Show the welcome again" in Settings just sets it back to false.
+type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView; welcomeSeen: boolean };
 
 type PreferencesValue = Prefs & {
   scheme: Scheme;
   setMode(mode: ThemeMode): void;
   setCollectionView(view: CollectionView): void;
+  setWelcomeSeen(seen: boolean): void;
   /** Put `page` in slot `index`; if it already sits in another slot the two swap. */
   setSlot(index: number, page: PageId): void;
   resetSlots(): void;
@@ -31,12 +35,12 @@ function readSlots(value: unknown): NavSlots {
 }
 
 function readPrefs(raw: string | null): Prefs {
-  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list' };
+  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list', welcomeSeen: false };
   if (!raw) return fallback;
   try {
-    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown };
+    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown; welcomeSeen?: unknown };
     const mode: ThemeMode = parsed.mode === 'light' || parsed.mode === 'dark' ? parsed.mode : 'system';
-    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list' };
+    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list', welcomeSeen: parsed.welcomeSeen === true };
   } catch { return fallback; }
 }
 
@@ -70,6 +74,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       scheme,
       setMode: mode => save({ ...prefs, mode }),
       setCollectionView: collectionView => save({ ...prefs, collectionView }),
+      setWelcomeSeen: welcomeSeen => save({ ...prefs, welcomeSeen }),
       setSlot: (index, page) => {
         const slots = [...prefs.slots] as NavSlots;
         const from = slots.indexOf(page);

@@ -2,6 +2,7 @@
 // — kept in their own module so App.tsx, the tab bar, the menu, Settings and
 // every screen reference the same shape rather than each re-declaring it.
 import type { Ionicons } from '@expo/vector-icons';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 
 export type DecksStackParamList = {
   DeckList: undefined;
@@ -19,6 +20,13 @@ export type FriendsStackParamList = {
   FriendProfile: { friendId: string; username: string; friendshipId: string };
 };
 
+export type TradesStackParamList = {
+  TradeList: undefined;
+  TradeDetail: { tradeId: string };
+  /** `counterOf` set = replacing an offer you received; the builder opens pre-filled. */
+  TradeBuilder: { friendId: string; username: string; counterOf?: string };
+};
+
 /**
  * Every top-level page is a screen of one tab navigator. The tab BAR shows
  * only five of them (Scan fixed in the middle, four the user picks); the rest
@@ -34,7 +42,7 @@ export type TabParamList = {
   Search: undefined;
   Wishlist: undefined;
   Friends: undefined;
-  Trades: undefined;
+  Trades: NavigatorScreenParams<TradesStackParamList> | undefined;
   Notifications: undefined;
   Import: undefined;
   Settings: undefined;
@@ -83,4 +91,4 @@ export type NavSlots = [PageId, PageId, PageId, PageId];
 export const DEFAULT_SLOTS: NavSlots = ['Collection', 'Decks', 'Locations', 'Wishlist'];
 
 /** Pages that already have a real screen; the rest render a "coming soon". */
-export const BUILT: ReadonlySet<PageId> = new Set<PageId>(['Scan', 'Dashboard', 'Collection', 'Decks', 'Search', 'Wishlist', 'Locations', 'Friends', 'Settings']);
+export const BUILT: ReadonlySet<PageId> = new Set<PageId>(['Scan', 'Dashboard', 'Collection', 'Decks', 'Search', 'Wishlist', 'Locations', 'Friends', 'Trades', 'Notifications', 'Import', 'Settings']);

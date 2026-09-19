@@ -3,7 +3,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { ParsedRow } from "@/lib/import/parse";
 import { nameVariants } from "@/lib/import/name-variants";
-import { choosePrinting, type MatchedCard } from "@/lib/import/select";
+import { choosePrinting, type MatchedCard, type ResolvedRow } from "@/lib/import/select";
 
 /**
  * Matching parsed rows to printings in our `cards` table.
@@ -27,14 +27,7 @@ import { choosePrinting, type MatchedCard } from "@/lib/import/select";
 
 export type { MatchedCard } from "@/lib/import/select";
 
-export type ResolvedRow = ParsedRow & {
-  /** The printing we will file, or null when nothing matched. */
-  card: MatchedCard | null;
-  /** Why the row could not be matched. Set only when `card` is null. */
-  reason: string | null;
-  /** A match we made, but with a caveat worth showing before committing. */
-  warning: string | null;
-};
+export type { ResolvedRow } from "@/lib/import/select";
 
 const BASE_CARD_COLUMNS =
   "scryfall_id, name, flavor_name, set_code, set_name, collector_number, image_uri_small, " +

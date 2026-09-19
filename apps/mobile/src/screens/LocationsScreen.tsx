@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { ColorSwatches } from '../components/ColorSwatches';
-import { Button, Choices, Notice } from '../components/ui';
+import { Button, Choices, EmptyState, Notice } from '../components/ui';
 import { errorMessage } from '../errors';
 import { createLocation, fetchLocations, LOCATION_COLOR_HEX, LOCATION_TYPE_LABELS, LOCATION_TYPES, type LocationColor, type LocationKind, type LocationRow } from '../locations';
 import type { LocationsStackParamList } from '../navigation';
@@ -121,7 +121,11 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
             </View>
             <Text style={styles.chevron}>›</Text>
           </Pressable>
-          {top.length === 0 && <Text style={styles.sub}>No binders or boxes yet. Make one to start filing cards.</Text>}
+          {top.length === 0 && !loading && !error && (
+            <EmptyState title="No binders or boxes yet" body="A location is wherever a card physically sits. Make one to start filing cards, and it will show up here.">
+              {!creating && <Button label="New location" onPress={() => setCreating(true)} />}
+            </EmptyState>
+          )}
           {top.map(t => (
             <View key={t.id} style={styles.group}>
               <Row row={t} />

@@ -5,9 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { fetchFriendSupplyCounts, fetchWantList, removeWant, type WantEntry } from '../cardDetails';
 import { CardDetails } from '../components/CardDetails';
-import { Button, Notice } from '../components/ui';
+import { Button, EmptyState, Notice } from '../components/ui';
 import { errorMessage } from '../errors';
 import { makeStyles } from '../preferences';
+import { useSearchOverlay } from '../searchOverlay';
 import { border, radius, space, surface, text, type } from '../theme';
 
 /**
@@ -24,6 +25,7 @@ export function WishlistScreen() {
 function WishlistList({ userId }: { userId: string }) {
   const styles = useStyles();
   const focused = useIsFocused();
+  const openSearch = useSearchOverlay().open;
   const [wants, setWants] = useState<WantEntry[]>([]);
   const [supply, setSupply] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -73,7 +75,11 @@ function WishlistList({ userId }: { userId: string }) {
             {!!error && (<><Notice>{error}</Notice><Button secondary label="Retry" onPress={() => void load()} /></>)}
             {!loading && !error && wants.length > 0 && <Text style={styles.heading}>{total} card{total === 1 ? '' : 's'} across {wants.length} entr{wants.length === 1 ? 'y' : 'ies'}</Text>}
             {loading && <Text style={styles.body}>Loading your wish list…</Text>}
-            {!loading && !error && wants.length === 0 && <Text style={styles.body}>Your wish list is empty. Find a card in Search and tap “Add to wish list”.</Text>}
+            {!loading && !error && wants.length === 0 && (
+              <EmptyState title="Your wish list is empty" body="Find a card you're after and tap “Add to wish list”. Upkeep will tell you which friends have it.">
+                <Button label="Search for a card" onPress={openSearch} />
+              </EmptyState>
+            )}
           </>
         }
         renderItem={({ item }) => {

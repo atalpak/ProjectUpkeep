@@ -5,7 +5,7 @@
  * routed through theme.ts tokens rather than Tailwind classes.
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, Easing, Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { accent, border, radius, space, surface, text as textColor, type } from '../theme';
 import { makeStyles } from '../preferences';
 
@@ -84,7 +84,28 @@ export function DismissingNotice({ children, onDone, style, holdMs = 5000 }: { c
   );
 }
 
+/**
+ * A friendly empty page: Mort, a headline, one line of why, and the next step
+ * as children (buttons). Only offer next steps that exist in the app today.
+ */
+export function EmptyState({ title, body, children }: { title: string; body: string; children?: React.ReactNode }) {
+  const styles = useStyles();
+  return (
+    <View style={styles.emptyWrap}>
+      <Image source={require('../mort/assets/mort_file.png')} style={styles.emptyMort} accessibilityIgnoresInvertColors />
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyBody}>{body}</Text>
+      {children ? <View style={styles.emptyActions}>{children}</View> : null}
+    </View>
+  );
+}
+
 const useStyles = makeStyles(() => StyleSheet.create({
+  emptyWrap: { alignItems: 'center', gap: space.sm, paddingVertical: space.xl },
+  emptyMort: { width: 96, height: 96, resizeMode: 'contain' },
+  emptyTitle: { ...type.title, color: textColor.primary, textAlign: 'center' },
+  emptyBody: { ...type.bodySm, color: textColor.secondary, textAlign: 'center' },
+  emptyActions: { alignSelf: 'stretch', gap: space.sm, marginTop: space.sm },
   button: { padding: space.lg, backgroundColor: accent.DEFAULT, borderRadius: radius.md, alignItems: 'center' },
   buttonSecondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: border.strong },
   buttonText: { fontFamily: type.title.fontFamily, fontSize: 15, fontWeight: '700', color: textColor.onAccent },

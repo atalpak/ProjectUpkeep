@@ -1,3 +1,4 @@
+import { reportError } from './errors';
 import { backend } from './backend';
 import { CollectionAuthError } from './collection';
 import { fetchDeckTiles, type DeckTile } from './decks';
@@ -88,7 +89,7 @@ export async function fetchDashboard(userId: string): Promise<DashboardData> {
       .order('acquired_at', { ascending: false })
       .limit(8),
     fetchDeckTiles(userId),
-    fetchWantList(userId).catch(() => []),
+    fetchWantList(userId).catch(e => { reportError(e, 'dashboard.wants'); return []; }),
     backend.from('trades').select('recipient_id,expires_at,status').eq('status', 'proposed').eq('recipient_id', userId).limit(200),
   ]);
   if (recentRes.error) throw new Error(recentRes.error.message);
@@ -110,7 +111,7 @@ export async function fetchDashboard(userId: string): Promise<DashboardData> {
   }
 
   // Which wished-for cards a friend could fill. Best-effort: a failure just hides the section.
-  const supply = await fetchFriendSupplyCounts(userId, [...new Set(wants.map(w => w.oracleId))]).catch(() => new Map<string, number>());
+  const supply = await fetchFriendSupplyCounts(userId, [...new Set(wants.map(w => w.oracleId))]).catch(e => { reportError(e, 'dashboard.friendSupply'); return new Map<string, number>(); });
   const seen = new Set<string>();
   const wishMatches = wants.flatMap(w => {
     const friends = supply.get(w.oracleId) ?? 0;

@@ -11,8 +11,10 @@ import { accent, border, fontFamily, radius, scrim, space, surface, text, type }
  * Right-hand slide-in menu listing every page. Stays mounted through the
  * closing animation (`mounted`) and unmounts once it finishes.
  */
-export function MenuSheet({ visible, current, onSelect, onClose }: {
+export function MenuSheet({ visible, current, onSelect, onClose, unread = 0 }: {
   visible: boolean; current: PageId; onSelect(page: PageId): void; onClose(): void;
+  /** Unread notifications, shown as a count on the Notifications entry. */
+  unread?: number;
 }) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
@@ -66,6 +68,7 @@ export function MenuSheet({ visible, current, onSelect, onClose }: {
                   <Ionicons name={selected ? page.filled : page.outline} size={22} color={text.primary} />
                   <Text style={[styles.itemLabel, selected && styles.itemLabelSelected]}>{page.title}</Text>
                   {!BUILT.has(id) && <Text style={styles.soon}>Soon</Text>}
+                  {id === 'Notifications' && unread > 0 && <View style={styles.count}><Text style={styles.countText}>{unread > 99 ? '99+' : unread}</Text></View>}
                 </Pressable>
               );
             })}
@@ -86,6 +89,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -space.sm },
   list: { gap: 2 },
   item: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 48, paddingHorizontal: space.md, borderRadius: radius.md },
+  count: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: radius.pill, backgroundColor: accent.DEFAULT, alignItems: 'center', justifyContent: 'center' },
+  countText: { fontSize: 12, lineHeight: 16, fontWeight: '700', color: text.onAccent },
   itemSelected: { backgroundColor: accent.soft },
   itemLabel: { flex: 1, ...type.body, color: text.primary },
   itemLabelSelected: { fontFamily: fontFamily.bodySemiBold },

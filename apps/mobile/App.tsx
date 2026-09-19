@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StatusBar, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { DefaultTheme, NavigationContainer, createNavigationContainerRef, type NavigationState, type PartialState } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -9,12 +9,11 @@ import { Cinzel_600SemiBold } from '@expo-google-fonts/cinzel/600SemiBold';
 import { PlusJakartaSans_400Regular } from '@expo-google-fonts/plus-jakarta-sans/400Regular';
 import { PlusJakartaSans_600SemiBold } from '@expo-google-fonts/plus-jakarta-sans/600SemiBold';
 import { AppProvider, useApp } from './src/AppProvider';
-import { backend } from './src/backend';
-import { errorMessage } from './src/errors';
 import { ScanScreen } from './src/screens/ScanScreen';
 import { CollectionScreen } from './src/screens/CollectionScreen';
 import { DecksScreen } from './src/screens/DecksScreen';
 import { DeckDetailScreen } from './src/screens/DeckDetailScreen';
+import { AuthScreen } from './src/screens/AuthScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { LocationsScreen } from './src/screens/LocationsScreen';
 import { LocationDetailScreen } from './src/screens/LocationDetailScreen';
@@ -22,18 +21,26 @@ import { FriendsScreen } from './src/screens/FriendsScreen';
 import { FriendProfileScreen } from './src/screens/FriendProfileScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { WishlistScreen } from './src/screens/WishlistScreen';
+import { ImportScreen } from './src/screens/ImportScreen';
 import { PlaceholderScreen } from './src/screens/PlaceholderScreen';
+import { TradesScreen } from './src/screens/TradesScreen';
+import { TradeDetailScreen } from './src/screens/TradeDetailScreen';
+import { TradeBuilderScreen } from './src/screens/TradeBuilderScreen';
+import { NotificationsScreen } from './src/screens/NotificationsScreen';
+import { useUnreadCount } from './src/hooks/useUnreadCount';
 import { AppHeader } from './src/components/AppHeader';
 import { MenuSheet } from './src/components/MenuSheet';
 import { SearchOverlay } from './src/components/SearchOverlay';
 import { CatalogDownloadModal } from './src/components/CatalogDownloadModal';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { WelcomeWalkthrough } from './src/components/WelcomeWalkthrough';
 import { CardDetails } from './src/components/CardDetails';
 import { CardDetailsContext, type CardDetailsTarget } from './src/cardDetailsHost';
 import { SearchOverlayContext } from './src/searchOverlay';
 import { PreferencesProvider, usePreferences } from './src/preferences';
 import { TabBar, ScreenFade } from './src/components/TabBar';
 import { Button, DismissingNotice, Notice } from './src/components/ui';
-import { PAGES, type DecksStackParamList, type FriendsStackParamList, type LocationsStackParamList, type PageId, type TabParamList } from './src/navigation';
+import { PAGES, type DecksStackParamList, type FriendsStackParamList, type LocationsStackParamList, type PageId, type TradesStackParamList, type TabParamList } from './src/navigation';
 import { accent as accentColor, border, brand, space, surface, text as textColor, type as typeTokens } from './src/theme';
 import { makeStyles } from './src/preferences';
 
@@ -66,7 +73,11 @@ export default function App() {
           <ThemedNavigation
             onStateChange={state => setPage((state?.routes[state.index ?? 0]?.name as PageId | undefined) ?? 'Dashboard')}
           >
-            <RootShell fontsLoaded={fonts} page={page} onNavigatorMounted={() => setPage('Dashboard')} />
+            {/* Inside the providers so the fallback can be themed; a crash anywhere
+                below shows "Something went wrong" instead of a white screen. */}
+            <ErrorBoundary context="app.shell">
+              <RootShell fontsLoaded={fonts} page={page} onNavigatorMounted={() => setPage('Dashboard')} />
+            </ErrorBoundary>
           </ThemedNavigation>
         </AppProvider>
       </PreferencesProvider>
@@ -128,7 +139,10 @@ function FriendsNavigator() {
 // Cross-fades each tab's content on focus change (see TabBar.tsx's
 // ScreenFade) -- one small wrapper per tab rather than baking the fade into
 // every screen component individually.
-function ScanTab() { return <ScreenFade><ScanScreen /></ScreenFade>; }
+// Its own boundary: a scanner crash (native view, OCR) keeps the header, tab
+// bar and every other page alive. ScanScreen's unmount cleanup clears
+// `scannerLive`, so the chrome comes back with the fallback.
+function ScanTab() { return <ScreenFade><ErrorBoundary context="screen:scan" title="The scanner ran into a problem"><ScanScreen /></ErrorBoundary></ScreenFade>; }
 function CollectionTab() { return <ScreenFade><CollectionScreen /></ScreenFade>; }
 function DecksTab() { return <ScreenFade><DecksNavigator /></ScreenFade>; }
 function SettingsTab() { return <ScreenFade><SettingsScreen /></ScreenFade>; }
@@ -138,10 +152,22 @@ function DashboardTab() { return <ScreenFade><DashboardScreen /></ScreenFade>; }
 function LocationsTab() { return <ScreenFade><LocationsNavigator /></ScreenFade>; }
 const SearchTab = placeholder('Search');
 function WishlistTab() { return <ScreenFade><WishlistScreen /></ScreenFade>; }
+const TradesStack = createNativeStackNavigator<TradesStackParamList>();
+
+function TradesNavigator() {
+  return (
+    <TradesStack.Navigator id="TradesStack" screenOptions={{ headerShown: false }}>
+      <TradesStack.Screen name="TradeList" component={TradesScreen} />
+      <TradesStack.Screen name="TradeDetail" component={TradeDetailScreen} options={{ headerShown: true, title: 'Trade', headerBackTitle: 'Trades', headerShadowVisible: false }} />
+      <TradesStack.Screen name="TradeBuilder" component={TradeBuilderScreen} options={{ headerShown: true, title: 'New offer', headerBackTitle: 'Trades', headerShadowVisible: false }} />
+    </TradesStack.Navigator>
+  );
+}
+
 function FriendsTab() { return <ScreenFade><FriendsNavigator /></ScreenFade>; }
-const TradesTab = placeholder('Trades');
-const NotificationsTab = placeholder('Notifications');
-const ImportTab = placeholder('Import');
+function TradesTab() { return <ScreenFade><TradesNavigator /></ScreenFade>; }
+function NotificationsTab() { return <ScreenFade><NotificationsScreen /></ScreenFade>; }
+function ImportTab() { return <ScreenFade><ImportScreen /></ScreenFade>; }
 
 function SignedInTabs({ onMounted }: { onMounted(): void }) {
   const app = useApp();
@@ -192,13 +218,14 @@ function RootShell({ fontsLoaded, page, onNavigatorMounted }: { fontsLoaded: boo
   const app = useApp();
   const titleStyle = fontsLoaded ? styles.title : styles.titleFallback;
   const signedIn = app.backendAvailable && !!app.userId;
-  const { scheme } = usePreferences();
+  const { scheme, welcomeSeen, setWelcomeSeen } = usePreferences();
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchApi = React.useMemo(() => ({ open: () => setSearchOpen(true) }), []);
   const [cardTarget, setCardTarget] = useState<CardDetailsTarget | null>(null);
   const cardApi = React.useMemo(() => ({ open: (t: CardDetailsTarget) => setCardTarget(t) }), []);
   const scanFocused = page === 'Scan';
+  const unread = useUnreadCount(signedIn ? app.userId : null, page);
 
   // ONE stable tree. Rendering SignedInTabs in two different branches gave it
   // two different tree positions, so React unmounted and remounted the whole
@@ -216,7 +243,7 @@ function RootShell({ fontsLoaded, page, onNavigatorMounted }: { fontsLoaded: boo
     <CardDetailsContext.Provider value={cardApi}>
     <SafeAreaView style={fullBleed ? styles.fullBleed : styles.safe} edges={fullBleed ? [] : ['top', 'left', 'right']}>
       <StatusBar barStyle={fullBleed || scheme === 'dark' ? 'light-content' : 'dark-content'} />
-      {!fullBleed && signedIn && <AppHeader title={PAGES[page].title} fontsLoaded={fontsLoaded} onMenu={() => setMenuOpen(true)} />}
+      {!fullBleed && signedIn && <AppHeader title={PAGES[page].title} fontsLoaded={fontsLoaded} onMenu={() => setMenuOpen(true)} unread={unread} />}
       {!fullBleed && !signedIn && (
         <View style={styles.header}>
           <Text style={styles.eyebrow}>PROJECT UPKEEP</Text>
@@ -232,18 +259,21 @@ function RootShell({ fontsLoaded, page, onNavigatorMounted }: { fontsLoaded: boo
         {!app.backendAvailable ? (
           <DemoOnly />
         ) : !app.userId ? (
-          <SignInForm />
+          <AuthScreen />
         ) : (
           <SignedInTabs onMounted={onNavigatorMounted} />
         )}
       </View>
       {signedIn && <CatalogDownloadModal />}
+      {/* Held back while the catalog ask is up: two iOS modals cannot present at once. */}
+      {signedIn && <WelcomeWalkthrough visible={!welcomeSeen && !app.catalogBusy && !app.catalogUpdate} onDone={() => setWelcomeSeen(true)} />}
       {signedIn && <CardDetails name={cardTarget?.name ?? null} printingId={cardTarget?.printingId} note={cardTarget?.note} onClose={() => setCardTarget(null)} />}
       {signedIn && <SearchOverlay visible={searchOpen} onClose={() => setSearchOpen(false)} />}
       {signedIn && (
         <MenuSheet
           visible={menuOpen}
           current={page}
+          unread={unread}
           onClose={() => setMenuOpen(false)}
           onSelect={id => { setMenuOpen(false); if (id === 'Search') setSearchOpen(true); else if (navigationRef.isReady()) navigationRef.navigate(id); }}
         />
@@ -257,33 +287,6 @@ function RootShell({ fontsLoaded, page, onNavigatorMounted }: { fontsLoaded: boo
 /** No backend configured: today's demo shape, unchanged -- Scan alone, no tabs. */
 function DemoOnly() {
   return <ScanScreen />;
-}
-
-function SignInForm() {
-  const styles = useStyles();
-  const app = useApp();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
-
-  async function signIn() {
-    if (!backend || authBusy) return;
-    setAuthBusy(true); app.setMessage('');
-    try {
-      const { error } = await backend.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) throw error;
-      setPassword('');
-    } catch (e) { app.setMessage(errorMessage(e)); } finally { setAuthBusy(false); }
-  }
-
-  return (
-    <View style={styles.account}>
-      <Text style={styles.section}>Your Upkeep account</Text>
-      <TextInput accessibilityLabel="Email" style={styles.input} value={email} onChangeText={setEmail} placeholder="Email" autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
-      <TextInput accessibilityLabel="Password" style={styles.input} value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry autoComplete="current-password" />
-      <Button label={authBusy ? 'Signing in…' : 'Sign in'} disabled={authBusy} onPress={() => void signIn()} />
-    </View>
-  );
 }
 
 /**
@@ -317,7 +320,4 @@ const useStyles = makeStyles(() => StyleSheet.create({
   titleFallback: { fontSize: typeTokens.display.fontSize, fontWeight: '600', color: textColor.primary },
   banners: { paddingHorizontal: space.xxl, gap: space.sm },
   content: { flex: 1 },
-  section: { ...typeTokens.title, color: textColor.primary },
-  account: { padding: space.xxl, gap: space.md },
-  input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: 10, padding: 14, color: textColor.primary, fontSize: 16 },
 }));
