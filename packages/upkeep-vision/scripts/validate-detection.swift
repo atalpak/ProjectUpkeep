@@ -15,6 +15,11 @@
 // the OCR title and printing lines from the straightened crop, and writes a
 // debug PNG with the quad drawn where the live outline would be.
 //
+// It calls the ungated `bestCard`, not the live scanner's `findFullCard`, so a
+// frame that prints a rectangle here may still be refused by the full-card gate
+// (area >= 0.18, aspect, margins) in the app. The gate itself is exercised by
+// check-full-card-gate.swift.
+//
 // Caveat worth remembering when reading the output: the owner's frames are
 // portrait screenshots that already contain the app's own chrome, so they are
 // upright (orientation .up, not the live camera's .right) and the bottom

@@ -72,9 +72,37 @@ public class UpkeepVisionModule: Module {
       return ["index": distances[0].0, "confident": distances[0].1 < distances[1].1 * 0.90]
     }.runOnQueue(worker)
 
+    // The whole card against each candidate printing's whole picture, no
+    // rectangle detection: the photo is already a straightened card, and
+    // `compareArtwork` above would look for a rectangle INSIDE it (the art
+    // box) and compare that against full cards. Returns one feature-print
+    // distance per reference, in order (lower is closer), or -1 for a
+    // reference that could not be read. Deciding what counts as a clear
+    // winner belongs to the caller (scan-core `artVerdict`).
+    AsyncFunction("rankCardImage") { (uri: String, references: [String]) -> [String: Any] in
+      guard !references.isEmpty && references.count <= 40 else { return ["distances": [Double]()] }
+      let capture = VNGenerateImageFeaturePrintRequest()
+      try VNImageRequestHandler(url: try self.localURL(uri), options: [:]).perform([capture])
+      guard let feature = capture.results?.first as? VNFeaturePrintObservation else { return ["distances": [Double]()] }
+      var distances: [Double] = []
+      for ref in references {
+        let request = VNGenerateImageFeaturePrintRequest()
+        var distance: Float = 0
+        guard let refURL = try? self.localURL(ref),
+              (try? VNImageRequestHandler(url: refURL, options: [:]).perform([request])) != nil,
+              let other = request.results?.first as? VNFeaturePrintObservation,
+              (try? feature.computeDistance(&distance, to: other)) != nil,
+              distance.isFinite else { distances.append(-1); continue }
+        distances.append(Double(distance))
+      }
+      return ["distances": distances]
+    }.runOnQueue(worker)
+
     View(UpkeepScannerView.self) {
-      Events("onCardRead", "onCardLost", "onOutlineChange", "onScannerError")
+      Events("onCardRead", "onCardLost", "onOutlineChange", "onScannerError", "onScanStatus")
       Prop("active") { (view: UpkeepScannerView, active: Bool) in view.active = active }
+      Prop("fastDetection") { (view: UpkeepScannerView, fast: Bool) in view.fastDetection = fast }
+      Prop("retryToken") { (view: UpkeepScannerView, token: Int) in view.retryToken = token }
       AsyncFunction("captureNow") { (view: UpkeepScannerView) in view.captureNow() }
     }
   }

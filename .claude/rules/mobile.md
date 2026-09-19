@@ -10,9 +10,11 @@ description: The Expo/React Native app (four-tab shell, live iOS scanner, stage-
 Merged into this repo from a separate scanner prototype (`MTGCardScanner`, a
 Flutter app that still exists at `/Users/anthonytalpak/MTGCardScanner` and is
 the *behavioural reference* for the live scanner) as npm workspaces. It has
-grown from a scan-and-confirm shell into a four-tab app (Scan, Collection,
-Decks, Account) with sign-in, but it is still not a full port of the web app:
-no friends, trades, wants or notifications, and deck-*list* editing is web-only.
+grown from a scan-and-confirm shell into an app with a slim header, a menu of
+every page and a five-slot nav bar (Scan fixed in the centre, the other four
+chosen in Settings; default Collection, Decks, Locations, Wish list) with sign-in, but it is still not a full port of the web app:
+Trades, Notifications and paste-only
+Import (collection, not decks) are built; deck-*list* editing is web-only. Pages not yet built show a placeholder (`BUILT` in `src/navigation.ts`).
 The docs in `apps/mobile/docs/` are historical apart from the "Current state"
 sections at the top of `ARCHITECTURE.md` and `HANDOFF.md`; this file is the
 current description, and where they disagree this file wins.
@@ -35,17 +37,32 @@ apps/mobile/            Expo app.
   src/AppProvider.tsx   App-wide state: session/userId, the CardIndex + demo flag,
                         first-launch catalog download, locations, pending
                         sleeve/unsleeve, `scannerLive`, camera-stop registration
-  src/navigation.ts     Route param types (TabParamList, DecksStackParamList)
+  src/navigation.ts     Route param types + the PAGES registry, menu order, default
+                        nav slots, and which pages are BUILT (the rest are placeholders)
+  src/preferences.tsx   Device prefs (theme mode, nav slots) in SecureStore, the
+                        live dark/light scheme, and `makeStyles`
   src/screens/          ScanScreen · ScanSessionSummary · CollectionScreen ·
-                        DecksScreen · DeckDetailScreen (owns SleevePicker) ·
-                        AccountScreen
-  src/components/       TabBar (custom, + ScreenFade) · ScanQuickBar · ListRow · ui
+                        DecksScreen (commander-art tiles like the web deck list, plus "Start a deck"; data in src/decks.ts `fetchDeckTiles`) · DeckDetailScreen (commander-art banner, list grouped by type via `groupDeck` in @upkeep/domain, per-card sleeved/available/missing state, owns SleevePicker; `ManaCost` draws mana symbols) ·
+                        SettingsScreen (appearance, nav bar, account, catalog) ·
+                        PlaceholderScreen (pages not built yet)
+  src/components/       TabBar (5 slots, raised Scan, + ScreenFade) · AppHeader
+                        (Mort avatar, title, menu button) · MenuSheet · ScanQuickBar
+                        · SearchOverlay (slide-in card search: name or Scryfall syntax + a Filters panel, results grid; queries `cards` via src/cardSearch.ts) · CardDetails (page-sheet for one card, opened from a result: printings, flip for double-faced cards, what you own, which friends have it / want it, legality + rulings fetched from Scryfall's API on demand, foil copies (and a "Preview foil" toggle) get a subtle holographic overlay (a soft pastel gradient plus a faint white sheen band, via expo-linear-gradient; tunables at the top of `FoilArt.tsx`) that follows phone tilt via expo-sensors DeviceMotion, or a horizontal finger drag (`FoilArt`; needs a native rebuild for the tilt and the gradient, both guarded: an older binary lacks the tilt, and gets thin low-opacity slices and no sheen), add to collection via ConfirmScan, add to wish list; data in src/cardDetails.ts; also opened from Collection, deck lists and the Wish List) · DashboardScreen (value, totals, needs-attention, deck status, recently added; data in src/dashboard.ts) · WishlistScreen · LocationsScreen / LocationDetailScreen (containers with card counts, create/edit/delete, the open-for-trade switch; data in src/locations.ts, decks excluded) · FriendsScreen / FriendProfileScreen (username search, requests, a friend's trade binder and wants; data in src/friends.ts, rules live in migration 9's policies) ·
+                        ListRow · ui. The centre Scan button is tap = Scan,
+                        hold-and-drag = fan of Search / Scan (PanResponder in TabBar); keep the finger on the fan's Scan option ~0.35s and a camera box opens (quick scan: first read is matched with ScanPipeline and CardDetails opens at once on a best-guess printing, refined in the background -- see "Quick scan and the printing" below -- through `src/cardDetailsHost.tsx`; lifting first cancels; iOS only, needs camera permission already granted).
+                        Search is an action (`src/searchOverlay.tsx`), not a route
+                        anyone lands on, from the bar, the menu and the fan alike.
   src/mort/             Mort mascot: semantic reaction controller, MortStage,
                         and the real PNG poses in assets/. Web has a mirror in
                         src/components/mort/ and public/mort/.
   src/hooks/            useReducedMotion (web has its own in src/hooks/)
   src/theme.ts          Design tokens. Nothing else should hardcode a colour,
-                        size, radius or duration.
+                        size, radius or duration. surface/border/text/accent/state
+                        are LIVE objects switched by `applyScheme` (dark mode):
+                        never `StyleSheet.create` them at module level -- use
+                        `makeStyles(() => StyleSheet.create({...}))` and call the
+                        returned hook in each component. Camera-overlay UI uses
+                        fixed `brand.*` colours, not the scheme-aware tokens.
   src/backend.ts        Supabase client (anon key), the collection + move writers,
                         SecureStore auth storage
   src/catalog.ts        Offline catalog cache (two alternating disk slots)
@@ -73,7 +90,7 @@ packages/scan-core/      Pure TS: catalog parsing/search, scan pipeline, draft
 packages/upkeep-domain/  Pure TS, no RN/Expo imports AND no web-framework
                         imports either — this is the one package both
                         `src/lib/**` (the Next.js app) and `packages/scan-core`
-                        import from. Currently the stacking-decision policy
+                        import from. Currently the card-search filter model + Scryfall-syntax parser (`card-search.ts`; the web app still has its own older copy) and the stacking-decision policy
                         (`decideStacking`, `STACKING_ENABLED`) and the
                         condition/finish/language-code vocabulary. See its own
                         header comments and CLAUDE.md's "two reversible bets"
@@ -88,11 +105,15 @@ packages/upkeep-vision/  Native module boundary (Expo module name `UpkeepVision`
                           `ios/UpkeepCardVision.swift`, the pure image maths
                           (rectangle scoring, contrast retry, perspective
                           correction, title/printing OCR);
-                        - two async functions, `readText(uri)` (photo OCR; iOS
-                          Vision, Android ML Kit) and `compareArtwork(uri,
+                        - async functions: `readText(uri)` (photo OCR; iOS
+                          Vision, Android ML Kit), `compareArtwork(uri,
                           refs)` (iOS-only feature-print ranking; Android
-                          returns "not confident"). `compareArtwork` is
-                          currently unused by any screen.
+                          returns "not confident") and `rankCardImage(uri,
+                          refs)` (whole-card feature-print distances, iOS only;
+                          used by quick scan, see below). `compareArtwork` is
+                          unused by any screen: it looks for a rectangle
+                          inside the photo, which is wrong for an
+                          already-straightened card.
                         `scripts/validate-detection.swift` is a dev tool: it
                         compiles the *shipped* UpkeepCardVision.swift against
                         still frames on a Mac, prints score/confidence/OCR and
@@ -138,20 +159,85 @@ loop into a native live scanner, ported from the Flutter original's
 hand frames to native code, so the camera moved into `UpkeepScannerView`, which
 owns its own `AVCaptureSession`.
 
-**Native side** (`packages/upkeep-vision/ios/UpkeepScannerView.swift`). A
-throttled frame (every 0.2s) goes through Apple Vision rectangle detection
-(`UpkeepCardVision.bestCard`, with a contrast-enhanced retry), the outline is
-drawn natively in gold, and a card must be steady for two consecutive frames
-before it locks. A locked card is straightened by its detected quad, OCR'd (title
-band + printing band), and emitted once as `onCardRead` (`{ title, lines,
-printingLines, source }`; `source` is `outline` for an automatic lock, `guide`
-for a manual capture). **One read per physical card:** the view will not read
-again until the card has left (four empty detections, ~0.8s) or a clearly
-different card has replaced it (centre jump > 0.15). Other events:
-`onCardLost`, `onOutlineChange`, `onScannerError`. `captureNow()` (ref handle)
-reads the corner-marked guide area — the fallback for full-art cards where
-Vision finds no edge. Thresholds are constants at the top of the Swift files;
-tune them with `validate-detection.swift`, not by guessing on a phone.
+**Native side** (`packages/upkeep-vision/ios/UpkeepScannerView.swift`). Each
+frame goes through Apple Vision rectangle detection and the **full-card gate**
+(`UpkeepCardVision.findFullCard`: confidence, corners inside the frame, convex,
+area >= 0.10 of the frame on the normal tab and 0.18 in quick scan (`quickMinimumArea`, per mode), card aspect; with a contrast-enhanced retry that is
+rate-limited and only charged when it actually ran). `OutlineTracker` keeps one
+stable quad (hysteresis, per-mode grace). A locked card is straightened by its
+detected quad, OCR'd (title band + printing band), and emitted once as
+`onCardRead` (`{ title, lines, printingLines, imageUri, source }`; `source` is
+`outline` for an automatic lock, `guide` for a manual capture). **One read per
+physical card:** the view will not read again until no full card has been seen
+for 0.8s or a clearly different card has replaced it (centre jump > 0.15). Other
+events: `onCardLost`, `onOutlineChange`, `onScannerError`. `captureNow()` (ref
+handle) reads the corner-marked guide area — the fallback for full-art cards
+where Vision finds no edge. Two modes, same file:
+
+- *Normal Scan tab*: detection throttled to every 0.2s, a gold outline follows
+  the card (`OutlineTracker.normalGrace` 0.5s so one missed detection does not
+  hide it), and two consecutive steady detections (`isSteady`, tuned for 0.2s
+  spacing) lock it. Gold corner marks show while there is no outline.
+- *Quick scan* (`fastDetection`, the fan's Scan option): built for a card held in
+  the HAND, so it does not ask for stillness. Detection runs on every frame (on a
+  copy scaled to 1920 px on its long side, `detectionLongSide`), with **no outline
+  and no corner marks while searching**. `BurstTracker` counts a streak of
+  detections each moving less than `looseMovement` (0.05 mean corner movement from
+  the previous one; more is a card being swept through and restarts the streak and
+  the frames collected). From the 3rd detection (`minimumStreak`) every frame is a
+  sample: straightened from the **full-resolution buffer** and scored by sharpness
+  (`minimumSharpness` 40). The first sample at or over 40 is read at once;
+  otherwise the sharpest is read at `earlyWindow` 0.7s if it reached half the
+  threshold, and at `fallbackAfter` 1.2s whatever it scored, so sharpness delays a
+  scan but cannot prevent one. One missed detection does not restart anything, a gap
+  over 0.25s does. Then a **green outline** at the card's current quad, held until
+  `greenHold` (0.35s) after the lock (OCR time counts towards it), after which the
+  outline is hidden and JS opens the details. The hold is native, so the camera view
+  stays mounted until the read is delivered; lifting the finger first cancels it
+  (the delivery is dropped once `active` is false, or if a generation token bumped
+  by release/stop shows the card left or was swapped during the hold). A read that
+  arrives while the box is still hidden is held in TabBar and acted on 350ms after
+  the reveal. The session is 1080p in every mode
+  (`preferredPreset`). A 4K preset plus zoom was tried and backed out 2026-09-19 after
+  phone testing; `detectionLongSide` is now a no-op guard on buffers over 1920.
+- *Focus, zoom and retry* (quick scan; owner report 2026-09-19: "Couldn't read that
+  clearly" every time, suspected focus). `configureDevice` (continuous autofocus, near
+  range, smooth AF off, exposure, zoom) is re-applied after every preset change and
+  after the session starts, because a preset switch swaps the active format and had been
+  discarding the one-time setup. While a card is tracked the focus and exposure points
+  follow its centre (`CameraFocus.devicePoint`: Vision's oriented space to the
+  sensor's landscape space; moved only past 0.08 and at most every 0.5s, since each
+  change restarts the search) and return to the centre when it leaves. Zoom is
+  off: `quickZoomCap` is 1.0 (`CameraFocus.zoom` still computes a factor if it is raised). `FocusGate` skips a burst frame while
+  `isAdjustingFocus`, for at most 0.6s per burst. A 1.2s fallback whose best frame is
+  under half the sharpness threshold is not read: `BurstTracker.offer(allowBlurryFallback:)`
+  returns `.retry` and restarts the burst, up to `maxBlurryRestarts` (2) per hold.
+  A read JS rejects no longer needs the card taken away: TabBar bumps the `retryToken`
+  prop and native clears the read-once gate 0.4s later (`retryHeldCard`, only if that
+  card is still the held one). JS counts retries per hold. The person is never told what the
+  scanner read or why it failed (owner, 2026-09-19: it showed body text as a "title"):
+  the first `QUICK_RETRY_CAP` (4) retries are silent, then `quickRejectionHint(attempt)`
+  alternates "Try more light" / "Tilt the card to reduce glare" while retrying continues.
+  In `__DEV__` each rejection logs reason, title and top candidate score. The title is
+  read from the top ~23% of the straightened card only (`titleRegion`), and an
+  unreadable name is `""`, not another line.
+- *Live coaching* (quick scan): `onScanStatus` sends `{ status }` only when it
+  changes: `searching | far | partial | moving | blurry | reading`. Derived from the
+  same pipeline: a card-like rectangle refused for area is `far`, one touching the
+  frame edge `partial` (`findFullCard`'s `miss`, `NearMiss`), a swept card `moving`,
+  a sample under the sharpness threshold `blurry`, a lock `reading`. `ScanStatusTracker`
+  holds a fall back to `searching` for 0.3s; JS (`paceStatus` in scan-core, used by
+  `TabBar`) keeps each message up for at least 400ms, prefers the more actionable
+  one inside a hold, and never delays `reading`. The line sits at the TOP of the
+  camera box. A build without the event never sends one and the static "Hold a card
+  up to the camera" stays.
+
+Thresholds are constants at the top of the Swift files; they are ported from the
+Flutter original or estimated, and the quick-scan ones (burst, sharpness) are
+NOT yet measured on a phone. `packages/upkeep-vision/scripts/check-full-card-gate.swift`
+runs the gate, tracker, burst and status logic offline (usage in its header);
+`validate-detection.swift` still calls the ungated `bestCard` on stills, so it
+reports the best rectangle and OCR, not whether the full-card gate would pass.
 
 **JS side** (`apps/mobile/src/screens/ScanScreen.tsx`). `onCardRead` feeds the
 text to `ScanPipeline.matchEvidence` (`packages/scan-core/src/pipeline.ts`,
@@ -193,8 +279,70 @@ is `null` unless `Platform.OS === 'ios'` (`scannerViewAvailable`), and Android h
 only the photo `readText` path, which nothing in the current screen calls.
 Callers must branch on `scannerViewAvailable`/`visionAvailable`.
 
-**Open items** (none of these are bugs to fix in passing): alternate-art
-printing accuracy (`apps/mobile/docs/SCANNER_ALTERNATE_ART_PLAN.md`, deferred);
+**Quick scan and the printing.** Owner decision 2026-09-19, reversing the
+earlier "never land on a printing silently" rule: quick scan must be fast, so it
+opens CardDetails **immediately** and never asks "Which printing is this?".
+The printing selector on the details page is the correction path; Add to
+collection and wish list are enabled normally.
+
+1. *Instant best guess* (`TabBar.handleRead`, all local): after the name match,
+   scan-core's `printingHints` (footer: number and set on separate lines, leading
+   zeros, rarity letter, number alone if the set is unreadable) and `rankPrintings`
+   feed `bestGuessPrinting`: an exact or partial footer match, or the card's only
+   printing. With no guess the sheet uses its normal default (`pickRepresentative`).
+   Nothing waits on a download or comparison before the sheet opens; the sheet shows
+   no note about how sure the guess is. The default is
+   `regularFirst` (scan-core `printing.ts`, shared by `rankPrintings`, `CardIndex.search`
+   ties and `pickRepresentative`): plain collector number, nonfoil-available, newest
+   release, then lowest number, so a card's regular print beats its foil-only showcase
+   printings and a promo-numbered ("91p") one. The footer OCR also gets a second,
+   footer-only pass (bottom 14% of the card, upscaled and sharpened, no language
+   correction) when the first produced no plausible set and number.
+2. *Fast paint* (`CardDetails`, data in `src/cardDetails.ts`): the sheet paints from what
+   is already in hand, in this order: a cached row or list, else the caller's `seed`
+   (`CardSeed`: name, set, number, picture, prices; the Collection passes one), else
+   nothing (a spinner). The opened-on printing is then fetched alone (`fetchPrinting`,
+   one primary-key row; it is selected even when nothing is in hand, which is what
+   quick scan and the Wishlist/Dashboard/deck/location/friend callers rely on) while
+   the full printing list (`fetchPrintings`, light columns, up to hundreds of rows)
+   fills in. A seed row has no finishes, so Add to collection stays off until the real
+   row lands, and its printings line omits what it does not know.
+   *Caches and limits:* rows and lists sit in `LruCache`s (50 each, scan-core
+   `async-utils`) that expire after 10 minutes (`CACHE_TTL_MS`, age counted from
+   `set`) so a daily price sync shows up in a long session. Every request runs under
+   an 8s deadline (`REQUEST_TIMEOUT_MS`, `rejectAfter`) and a failure shows a plain
+   line with "Try again", never a raw error. Owned copies have three states: a failed
+   fetch shows "Couldn't check your copies", not "You don't own this card yet".
+   The Collection's one shared foil-tilt listener (`useFoilTilt`) is paused while the
+   screen is unfocused or the details sheet is open, and its list keeps a small
+   `windowSize`, so many foil tiles cannot starve the JS thread (the details-sheet
+   freeze); `removeClippedSubviews` is deliberately off on that
+   multi-column list (it can blank rows).
+3. *Background picture check* (`src/printingVerify.ts`, started only after the list
+   has loaded): `onCardRead` carries `imageUri`, a temp JPEG of the straightened card
+   (optional; the native side keeps the newest 12 and never deletes one younger than
+   60s). `artCandidates` returns the printings to compare, or null when the footer
+   was exact, there is one printing, there are more than 24, or one has no picture
+   (a winner among a subset proves nothing, so the downloads would be wasted).
+   Pictures go to `Paths.cache/printing-art` (newest 200 kept, temp-file-then-move,
+   10s timeout, abandoned when the sheet closes) and are ranked with native
+   `rankCardImage`. `artSwitchTarget` (pure, tested) then allows a switch only if the
+   winner is decisive (best distance under 0.75 of the runner-up's,
+   `ART_CONFIDENCE_RATIO`; under 0.5, `ART_OVERRIDE_FOOTER_RATIO`, when the footer
+   named the printing) AND every printing of the LIVE list was compared. CardDetails
+   applies it only if the person has not picked a printing, opened the add form or
+   used the wish list button, drops it if the sheet closed or the card changed, and
+   shows a dismissable "Matched to SET #num by artwork" line. Any failure (old
+   build, no photo, download, timeout) changes nothing.
+
+Never override a manual choice. A foil-only or nonfoil-only printing needs no finish
+choice: the add form already has one option. The main Scan tab (`ScanScreen`) does
+not use the picture step. `npm run accuracy -w @upkeep/scan-core` reports the
+footer's "needs verification" rate, on the illustrative sample only.
+
+**Open items** (none of these are bugs to fix in passing): the rest of the
+alternate-art plan (`apps/mobile/docs/SCANNER_ALTERNATE_ART_PLAN.md`: still-photo
+footer capture, catalog printing-type flags, a real-card test set);
 Android live scanning; the session list shows no prices (`Printing` has no price
 field); the sequential per-card commit (an impact map recommends caching the user
 id and prefetching merge targets before any batch RPC); no automated tests over
@@ -244,12 +392,23 @@ unchanged day skips a ~30MB re-publish for nothing) — see the sync script's
 
 ### On the device: download, demo, and the size cap
 
-- **Auto-download on first launch.** `AppProvider`'s mount effect calls
-  `loadCatalog()` (`apps/mobile/src/catalog.ts`); if what loaded is the 3-card
-  `demo-only` bundle *and* a backend is configured, it calls `syncCatalog()` ->
-  `refreshCatalog()` straight away. There is no manual "refresh" button any more,
-  so nothing else would ever fetch the real catalog. The URL is
-  `EXPO_PUBLIC_CATALOG_URL` (https only).
+- **A snapshot ships inside the app.** `npm run catalog:snapshot` (run it before
+  a native build; `scripts/catalog-snapshot.sh`) exports + builds the catalog
+  into `apps/mobile/assets/catalog-snapshot.db` (git-ignored, ~40 MB). On first
+  launch `AppProvider` calls `installBundledCatalog` (`src/catalog.ts`), which
+  unpacks it into the same two-slot store a download uses, so scanning works
+  with no download. The `require` is optional: a build without the file still
+  bundles and falls back to asking the user to download
+  (`CatalogDownloadModal` in `App.tsx`: a yes/no ask that says why, a progress
+  bar via `refreshCatalog`'s `onProgress`, and it closes itself when done;
+  "Not now" lasts the session).
+- **Updates.** The publish step writes a fixed `v1/latest.json` pointer
+  (`{version, generatedAt, bytes, url}`) *after* each hashed catalog upload; the
+  app derives its address from `EXPO_PUBLIC_CATALOG_URL` and checks it at most
+  once a day (`src/catalogUpdates.ts`), offering "New cards are available.
+  Update?" in the same window. "Later" is remembered per version; Settings has
+  "Check for updates". Nothing downloads without the user saying yes. The
+  pointer only exists after the next publish that follows this change.
 - **`demo` is derived, not a setting:** `index.bundle.version === 'demo-only'`.
   In demo mode saves are simulated and never reach the database (the demo
   records are synthetic and must never reach Supabase). A configured install
@@ -264,7 +423,8 @@ unchanged day skips a ~30MB re-publish for nothing) — see the sync script's
 
 ### Printing-picker search: hints vs. a filter
 
-`CardIndex.search` (`packages/scan-core/src/catalog.ts`) takes two different
+`printingHints` (in `packages/scan-core/src/printing.ts`) produces the `hints`
+below. `CardIndex.search` (`packages/scan-core/src/catalog.ts`) takes two different
 kinds of set-code/collector-number input, and they behave differently on
 purpose:
 
@@ -376,5 +536,5 @@ sleeve/unsleeve via the global banner) for an explicit retry/verify tap, and
 sign-out clears both the persisted session and that account's pending-scan and
 pending-move keys (`AppProvider`'s `onAuthStateChange` handler). The live
 scanner's staged session list is never persisted at all — see "The live scanner". `signInWithPassword`
-is the only auth path in this phase — no password reset, OAuth, deep links, or
-registration yet.
+is the only auth path in this phase — OAuth and deep links do not exist. Sign-up, and password reset
+(finished on the web page) and in-app account deletion are in `src/auth.ts`. The invite code is not enforced on mobile sign-up.

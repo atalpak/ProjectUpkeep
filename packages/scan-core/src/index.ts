@@ -6,3 +6,7 @@ export * from './writer';
 export * from './move';
 export * from './build-row';
 export * from './band';
+export * from './printing';
+export * from './scan-status';
+export * from './quick-hint';
+export * from './async-utils';

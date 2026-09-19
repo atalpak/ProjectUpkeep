@@ -36,8 +36,8 @@ Verified against the tree on 2026-09-18. Keep it that way — a stale map sends
 agents hunting in the wrong place, which is how the previous one failed.
 
 ```
-apps/mobile/                Expo app — four tabs (Scan / Collection / Decks / Account) and an
-                            iOS live scanner. See .claude/rules/mobile.md
+apps/mobile/                Expo app — slim header + menu, a 5-slot user-customizable nav bar
+                            (Scan fixed in the centre), Settings, and an iOS live scanner. See .claude/rules/mobile.md
   App.tsx                    thin shell: providers → navigator → RootShell
   src/                       AppProvider (state) · screens/ · components/ · mort/ (mascot)
                             hooks/ · theme.ts · backend.ts · catalog.ts · decks.ts …

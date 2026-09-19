@@ -15,11 +15,12 @@ import { errorMessage } from '../errors';
 import { pendingKey } from '../storage';
 import { useMort } from '../mort/controller';
 import { MortStage } from '../mort/MortStage';
-import { Button, Notice } from '../components/ui';
+import { Button, DismissingNotice } from '../components/ui';
 import { ScanQuickBar } from '../components/ScanQuickBar';
 import { ScanSessionSummary } from './ScanSessionSummary';
 import type { TabParamList } from '../navigation';
 import { accent, brand, radius, space, state as stateColor, surface, text, type as typeTokens } from '../theme';
+import { makeStyles } from '../preferences';
 
 /**
  * One row of the staged (not-yet-written) scan session. Groups by stack key
@@ -78,6 +79,7 @@ const FOIL_PURPLE_ON = '#8C79B8';
  * a search form.
  */
 export function ScanScreen() {
+  const styles = useStyles();
   const app = useApp();
   const mort = useMort();
   const isFocused = useIsFocused();
@@ -391,6 +393,9 @@ export function ScanScreen() {
     const batch = stagedRef.current;
     const total = batch.length;
     let succeeded = 0;
+    // The summary below replaces app.message, so the real reason a row failed
+    // has to be carried into it -- otherwise the user only sees "0 of 1".
+    let firstError = '';
     for (const item of batch) {
       try {
         await commitOne(item);
@@ -398,7 +403,8 @@ export function ScanScreen() {
         updateStaged(prev => prev.filter(s => s.id !== item.id));
       } catch (e) {
         updateStaged(prev => prev.map(s => s.id === item.id ? { ...s, attempted: true } : s));
-        app.setMessage(errorMessage(e));
+        if (!firstError) firstError = errorMessage(e);
+        console.warn('[scanner] save failed for', item.printing.name, item.printing.setCode, item.printing.collectorNumber, '->', firstError);
       }
     }
     setCommitting(false);
@@ -410,7 +416,7 @@ export function ScanScreen() {
         : `Added ${succeeded} card${succeeded === 1 ? '' : 's'} to your collection.`);
       setSessionReviewOpen(false);
     } else {
-      app.setMessage(`Added ${succeeded} of ${total} cards. ${total - succeeded} left to retry.`);
+      app.setMessage(`Added ${succeeded} of ${total} cards. ${total - succeeded} left to retry.${firstError ? ` Reason: ${firstError}` : ''}`);
     }
   }
 
@@ -522,7 +528,7 @@ export function ScanScreen() {
           App.tsx), so a message has to surface here or nowhere. */}
       {!!app.message && (
         <Pressable style={[styles.banner, { top: insets.top + 104 }]} onPress={() => app.setMessage('')}>
-          <Notice style={styles.bannerText}>{app.message}</Notice>
+          <DismissingNotice style={styles.bannerText} onDone={() => app.setMessage('')}>{app.message}</DismissingNotice>
         </Pressable>
       )}
 
@@ -608,9 +614,10 @@ function LiveViewPresence({ onGone }: { onGone(): void }) {
 }
 
 function IconButton({ label, name, onPress }: { label: string; name: keyof typeof Ionicons.glyphMap; onPress(): void }) {
+  const styles = useStyles();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} style={styles.iconButton} onPress={onPress}>
-      <Ionicons name={name} size={24} color={text.inverse} />
+      <Ionicons name={name} size={24} color={brand.parchment} />
     </Pressable>
   );
 }
@@ -618,6 +625,7 @@ function IconButton({ label, name, onPress }: { label: string; name: keyof typeo
 function ModeGlyph({ label, icon, selected, onPress }: {
   label: string; icon: keyof typeof MaterialIcons.glyphMap; selected: boolean; onPress(): void;
 }) {
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="radio"
@@ -626,7 +634,7 @@ function ModeGlyph({ label, icon, selected, onPress }: {
       style={[styles.modeGlyph, selected && styles.modeGlyphSelected]}
       onPress={onPress}
     >
-      <MaterialIcons name={icon} size={24} color={selected ? accent.DEFAULT : text.inverse} />
+      <MaterialIcons name={icon} size={24} color={selected ? accent.DEFAULT : brand.parchment} />
     </Pressable>
   );
 }
@@ -641,6 +649,7 @@ function ResultSheet({ sheet, stale, row, bottomInset, onOpenPicker, onToggleFoi
   sheet: SheetState; stale: boolean; row: StagedCard | null; bottomInset: number;
   onOpenPicker(): void; onToggleFoil(): void; onAddAnother(): void; onAdd(): void;
 }) {
+  const styles = useStyles();
   const padding = { paddingBottom: space.md + bottomInset };
   if (sheet.kind === 'reading') {
     return (
@@ -716,12 +725,13 @@ function ResultSheet({ sheet, stale, row, bottomInset, onOpenPicker, onToggleFoi
 function PrintingPicker({ candidates, selectedId, onChoose, onCancel }: {
   candidates: Candidate[]; selectedId: string; onChoose(printing: Printing): void; onCancel(): void;
 }) {
+  const styles = useStyles();
   return (
     <View style={styles.picker}>
       <View style={styles.pickerHeader}>
         <Text style={styles.pickerTitle}>Choose the printing</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Close the printing list" style={styles.iconButton} onPress={onCancel}>
-          <Ionicons name="close" size={22} color={text.inverse} />
+          <Ionicons name="close" size={22} color={brand.parchment} />
         </Pressable>
       </View>
       <ScrollView>
@@ -750,6 +760,7 @@ function PrintingPicker({ candidates, selectedId, onChoose, onCancel }: {
 }
 
 function PermissionState({ deniedForever, disabled, onRequest }: { deniedForever: boolean; disabled: boolean; onRequest(): void }) {
+  const styles = useStyles();
   return (
     <View style={styles.panel}>
       <MortStage size="M" />
@@ -776,6 +787,7 @@ function PermissionState({ deniedForever, disabled, onRequest }: { deniedForever
  * (`app.disabled` includes `!!review`) with nothing able to clear it.
  */
 function RecoveryPanel() {
+  const styles = useStyles();
   const app = useApp();
   const [retrying, setRetrying] = useState(false);
   const confirm = useMemo(() => writer ? new ConfirmScan(writer) : null, []);
@@ -809,8 +821,8 @@ function RecoveryPanel() {
 const SHEET_DARK = 'rgba(37,39,38,0.97)';
 const BAR_DARK = 'rgba(31,31,31,0.82)';
 
-const styles = StyleSheet.create({
-  full: { flex: 1, backgroundColor: surface.inverse },
+const useStyles = makeStyles(() => StyleSheet.create({
+  full: { flex: 1, backgroundColor: brand.ink },
   grow: { flex: 1 },
   panel: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.md, backgroundColor: surface.canvas },
   panelTitle: { color: text.primary, fontSize: 21, textAlign: 'center', fontWeight: '600' },
@@ -818,7 +830,7 @@ const styles = StyleSheet.create({
 
   topBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: BAR_DARK },
   topRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, gap: space.xs },
-  topTitle: { flex: 1, textAlign: 'center', color: text.inverse, fontSize: 18, fontWeight: '700' },
+  topTitle: { flex: 1, textAlign: 'center', color: brand.parchment, fontSize: 18, fontWeight: '700' },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   badgeWrap: { width: 44, height: 44 },
   badge: { position: 'absolute', top: 0, right: 0, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: radius.pill, backgroundColor: stateColor.error, alignItems: 'center', justifyContent: 'center' },
@@ -862,4 +874,4 @@ const styles = StyleSheet.create({
   pickerThumb: { width: 36, height: 52, borderRadius: radius.sm },
   pickerName: { color: brand.parchment, fontSize: 14, fontWeight: '700' },
   pickerCaption: { color: brand.bone, fontSize: 11 },
-});
+}));

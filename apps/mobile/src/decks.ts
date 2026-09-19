@@ -61,15 +61,22 @@ export type DeckHeader = {
   id: string;
   name: string;
   format: string | null;
+  tags: string[];
+  notes: string | null;
+  /** Visible to accepted friends. */
+  isPublic: boolean;
+  commanderCardId: string | null;
   commanderName: string | null;
   commanderImageUriSmall: string | null;
+  /** The commander's illustration alone, for the banner. */
+  commanderArt: string | null;
 };
 
 export async function fetchDeckHeader(userId: string, deckId: string): Promise<DeckHeader> {
   if (!backend) throw new Error('Not connected.');
   const { data, error } = await backend
     .from('locations')
-    .select('id,name,format,commander_card_id')
+    .select('id,name,format,tags,notes,is_public,commander_card_id')
     // Same reasoning as fetchDecks: `id` alone resolves "the deck with this
     // id", which RLS would happily hand back for a friend's public deck too.
     // `user_id` is what actually makes this "my deck, not any deck".
@@ -84,6 +91,7 @@ export async function fetchDeckHeader(userId: string, deckId: string): Promise<D
 
   let commanderName: string | null = null;
   let commanderImageUriSmall: string | null = null;
+  let commanderArt: string | null = null;
   if (data.commander_card_id) {
     // src/lib/collection/queries.ts resolves a deck's commander display the
     // same way: commander_card_id -> cards.name / image_uri_small, batched
@@ -93,14 +101,18 @@ export async function fetchDeckHeader(userId: string, deckId: string): Promise<D
     // owner check already happened on the `locations` row above).
     const { data: commander } = await backend
       .from('cards')
-      .select('name,image_uri_small')
+      .select('name,image_uri_small,image_uri')
       .eq('scryfall_id', data.commander_card_id)
       .maybeSingle();
     commanderName = commander?.name ?? null;
     commanderImageUriSmall = commander?.image_uri_small ?? null;
+    commanderArt = artCropUrl(commander?.image_uri ?? null);
   }
 
-  return { id: data.id, name: data.name, format: data.format, commanderName, commanderImageUriSmall };
+  return {
+    id: data.id, name: data.name, format: data.format, tags: (data.tags as string[] | null) ?? [], notes: (data.notes as string | null) ?? null, isPublic: !!data.is_public,
+    commanderCardId: (data.commander_card_id as string | null) ?? null, commanderName, commanderImageUriSmall, commanderArt,
+  };
 }
 
 export type DeckCardEntry = {
@@ -387,4 +399,258 @@ export async function fetchSleevedStacks(
       collectorNumber: row.cards?.collector_number ?? '',
     }))
     .sort((a, b) => a.quantity - b.quantity);
+}
+
+// ---------------------------------------------------------------------------
+// The deck list as tiles: commander art, colour identity, and how much of each
+// list is physically sleeved. Mirrors the web app's getDecks()
+// (src/lib/collection/queries.ts) in four reads for all decks at once, not
+// one per deck.
+// ---------------------------------------------------------------------------
+
+export type DeckTile = {
+  id: string;
+  name: string;
+  format: string | null;
+  /** Visible to accepted friends. */
+  isPublic: boolean;
+  /** Cards the decklist asks for (sum of deck_cards.quantity). */
+  cardCount: number;
+  /** Distinct card names on the list. */
+  uniqueCount: number;
+  /** Copies physically sleeved in, per list entry and capped at what the entry asks for. */
+  sleevedCount: number;
+  commanderName: string | null;
+  /** The commander's illustration alone, for the tile background. */
+  commanderArt: string | null;
+  /** The commander's colour identity (W U B R G), empty with no commander. */
+  commanderColors: string[];
+};
+
+/** Scryfall's own way to get the illustration crop of a card image: swap one path segment. */
+export function artCropUrl(imageUri: string | null): string | null {
+  return imageUri ? imageUri.replace(/\/(?:small|normal|large)\/front\//, '/art_crop/front/') : null;
+}
+
+const MAX_TILE_ROWS = 20_000;
+
+export async function fetchDeckTiles(userId: string): Promise<DeckTile[]> {
+  if (!backend) throw new Error('Not connected.');
+  const [decksRes, listRes, sleevedRes] = await Promise.all([
+    backend
+      .from('locations')
+      .select('id,name,format,is_public,commander_card_id')
+      // Mandatory: a friend's public deck's `locations` row is readable through
+      // RLS (migration 35), so ownership has to be asked for explicitly.
+      .eq('user_id', userId)
+      .eq('type', 'deck')
+      .order('name')
+      .limit(1000),
+    backend
+      .from('deck_cards')
+      .select('deck_id,quantity,cards(name,oracle_id),locations!inner(user_id)')
+      // !inner + this filter: a friend's public deck_cards rows are readable too.
+      .eq('locations.user_id', userId)
+      .limit(MAX_TILE_ROWS),
+    backend
+      .from('collection_entries')
+      .select('location_id,quantity,card_oracle_id,card_name')
+      .eq('owner_user_id', userId)
+      .eq('location_type', 'deck')
+      .limit(MAX_TILE_ROWS),
+  ]);
+  for (const res of [decksRes, listRes, sleevedRes]) {
+    if (res.error) {
+      if (res.error.code === '42501' || res.error.code === 'PGRST301') throw new CollectionAuthError(res.error.message);
+      throw new Error(res.error.message);
+    }
+  }
+
+  // What is physically in each deck, by card identity.
+  const sleevedByDeck = new Map<string, Map<string, number>>();
+  for (const r of (sleevedRes.data ?? []) as unknown as { location_id: string | null; quantity: number; card_oracle_id: string | null; card_name: string }[]) {
+    if (!r.location_id) continue;
+    const key = cardKey(r.card_oracle_id, r.card_name);
+    const forDeck = sleevedByDeck.get(r.location_id) ?? new Map<string, number>();
+    forDeck.set(key, (forDeck.get(key) ?? 0) + r.quantity);
+    sleevedByDeck.set(r.location_id, forDeck);
+  }
+
+  const total = new Map<string, number>();
+  const names = new Map<string, Set<string>>();
+  const sleeved = new Map<string, number>();
+  for (const r of (listRes.data ?? []) as unknown as { deck_id: string; quantity: number; cards: { name: string; oracle_id: string | null } | null }[]) {
+    total.set(r.deck_id, (total.get(r.deck_id) ?? 0) + r.quantity);
+    if (r.cards?.name) {
+      const set = names.get(r.deck_id) ?? new Set<string>();
+      set.add(r.cards.name.toLowerCase());
+      names.set(r.deck_id, set);
+    }
+    const inBox = sleevedByDeck.get(r.deck_id)?.get(cardKey(r.cards?.oracle_id ?? null, r.cards?.name ?? '')) ?? 0;
+    sleeved.set(r.deck_id, (sleeved.get(r.deck_id) ?? 0) + Math.min(inBox, r.quantity));
+  }
+
+  const decks = (decksRes.data ?? []) as unknown as { id: string; name: string; format: string | null; is_public: boolean | null; commander_card_id: string | null }[];
+  // Commanders in one lookup, not one per deck.
+  const commanderIds = [...new Set(decks.map(d => d.commander_card_id).filter((v): v is string => !!v))];
+  const commanders = new Map<string, { name: string; art: string | null; colors: string[] }>();
+  if (commanderIds.length > 0) {
+    const { data, error } = await backend.from('cards').select('scryfall_id,name,flavor_name,image_uri,color_identity').in('scryfall_id', commanderIds);
+    if (error) throw new Error(error.message);
+    for (const c of (data ?? []) as unknown as { scryfall_id: string; name: string; flavor_name: string | null; image_uri: string | null; color_identity: string[] | null }[]) {
+      commanders.set(c.scryfall_id, { name: c.flavor_name ? `${c.name} (${c.flavor_name})` : c.name, art: artCropUrl(c.image_uri), colors: c.color_identity ?? [] });
+    }
+  }
+
+  return decks.map(d => {
+    const commander = d.commander_card_id ? commanders.get(d.commander_card_id) : undefined;
+    return {
+      id: d.id, name: d.name, format: d.format, isPublic: !!d.is_public,
+      cardCount: total.get(d.id) ?? 0, uniqueCount: names.get(d.id)?.size ?? 0, sleevedCount: sleeved.get(d.id) ?? 0,
+      commanderName: commander?.name ?? null, commanderArt: commander?.art ?? null, commanderColors: commander?.colors ?? [],
+    };
+  });
+}
+
+/** Starts an empty deck (a `locations` row of type deck), as the web app's "Start a deck" does. */
+export async function createDeck(userId: string, name: string): Promise<void> {
+  if (!backend) throw new Error('Not connected.');
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Give the deck a name.');
+  if (trimmed.length > 80) throw new Error('That name is too long.');
+  const { error } = await backend.from('locations').insert({ user_id: userId, name: trimmed, type: 'deck' });
+  if (error) throw new Error(error.message.includes('duplicate key') ? 'You already have a deck called that.' : error.message);
+}
+
+/**
+ * How many copies of each card (by card identity, not printing) sit OUTSIDE
+ * every deck: the spares a list entry could still be sleeved from. Copies
+ * already in a deck are committed there, which is what the web app's
+ * availability means too.
+ */
+export async function fetchSpareCounts(userId: string): Promise<Map<string, number>> {
+  if (!backend) throw new Error('Not connected.');
+  const { data, error } = await backend
+    .from('collection_entries')
+    .select('card_oracle_id,card_name,quantity')
+    .eq('owner_user_id', userId)
+    .or('location_type.is.null,location_type.neq.deck')
+    .limit(MAX_TILE_ROWS);
+  if (error) {
+    if (error.code === '42501' || error.code === 'PGRST301') throw new CollectionAuthError(error.message);
+    throw new Error(error.message);
+  }
+  const spare = new Map<string, number>();
+  for (const r of (data ?? []) as unknown as { card_oracle_id: string | null; card_name: string; quantity: number }[]) {
+    const key = cardKey(r.card_oracle_id, r.card_name);
+    spare.set(key, (spare.get(key) ?? 0) + r.quantity);
+  }
+  return spare;
+}
+
+/** The identity a list entry is matched on ("any printing counts"), exported so screens can look a spare count up. */
+export function entryKey(entry: { oracleId: string | null; name: string }): string {
+  return cardKey(entry.oracleId, entry.name);
+}
+
+// ---------------------------------------------------------------------------
+// Deck management: rename, details, sharing, delete.
+//
+// Every write below mirrors src/app/(app)/decks/actions.ts (renameDeck,
+// updateDeckDetails, setDeckPublic, deleteDeck) column for column, with two
+// differences on purpose. Web leans on RLS's own-row update policy alone; here
+// each write also carries .eq('user_id', userId), because migration 35 made a
+// friend's public deck row readable and constraint 3 says "mine" is something
+// the query states, not something RLS implies. And each write asks for the
+// row back, so "nothing matched" (a deck deleted on another device) surfaces
+// as a sentence instead of a silent success. Nothing here touches deck_cards:
+// list editing stays web-only.
+//
+// The validation below is a small local copy of updateDeckDetails' rules. The
+// web keeps them inline in a server action, so there is nothing importable to
+// share yet; the limits (80 / 40 / 20 tags of 40 / 5000) come from that action
+// and migration 21's CHECK constraints.
+// ---------------------------------------------------------------------------
+
+export const DECK_NAME_MAX = 80;
+export const DECK_FORMAT_MAX = 40;
+export const DECK_NOTES_MAX = 5000;
+export const DECK_TAG_MAX = 40;
+export const DECK_TAGS_MAX = 20;
+
+/** Suggestions only, as on the web (src/lib/types.ts): a format or tag can be anything. */
+export const DECK_FORMATS = ['Commander', 'Modern', 'Standard', 'Pioneer', 'Legacy', 'Vintage', 'Pauper', 'Historic', 'Brawl', 'Limited', 'Other'] as const;
+export const DECK_ARCHETYPES = ['Aggro', 'Midrange', 'Control', 'Combo', 'Tempo', 'Ramp', 'Aggro-Control', 'Prison', 'Stax', 'Tribal', 'Toolbox', 'Voltron'] as const;
+
+function deckWriteError(message: string): Error {
+  return new Error(message.includes('duplicate key') ? 'You already have a deck called that.' : message);
+}
+
+function checkDeckName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Give the deck a name.');
+  if (trimmed.length > DECK_NAME_MAX) throw new Error('That name is too long.');
+  return trimmed;
+}
+
+/** Trim, clamp each tag, drop blanks and case-insensitive duplicates, cap the count -- as the web does. */
+export function normalizeTags(raw: string[]): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const part of raw) {
+    const tag = part.trim().slice(0, DECK_TAG_MAX);
+    if (!tag) continue;
+    const key = tag.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+    if (tags.length >= DECK_TAGS_MAX) break;
+  }
+  return tags;
+}
+
+export type DeckDetailsInput = { name: string; format: string; tags: string[]; notes: string };
+
+async function updateDeckRow(userId: string, deckId: string, patch: Record<string, unknown>): Promise<void> {
+  if (!backend) throw new Error('Not connected.');
+  const { data, error } = await backend
+    .from('locations')
+    .update(patch)
+    .eq('id', deckId)
+    .eq('user_id', userId)
+    .eq('type', 'deck')
+    .select('id');
+  if (error) throw deckWriteError(error.message);
+  if (!data?.length) throw new Error('That deck could not be found, or is no longer yours.');
+}
+
+export async function renameDeck(userId: string, deckId: string, name: string): Promise<void> {
+  await updateDeckRow(userId, deckId, { name: checkDeckName(name) });
+}
+
+/** Name, format, tags and notes in one write, so a save is all-or-nothing (as the web's updateDeckDetails). */
+export async function updateDeckDetails(userId: string, deckId: string, input: DeckDetailsInput): Promise<void> {
+  const name = checkDeckName(input.name);
+  const format = input.format.trim();
+  if (format.length > DECK_FORMAT_MAX) throw new Error('That format name is too long.');
+  if (input.notes.length > DECK_NOTES_MAX) throw new Error(`Those notes are too long (${DECK_NOTES_MAX} characters max).`);
+  await updateDeckRow(userId, deckId, {
+    name,
+    format: format === '' ? null : format,
+    notes: input.notes.trim() === '' ? null : input.notes,
+    tags: normalizeTags(input.tags),
+  });
+}
+
+/** Shares the decklist (never the sleeved copies) with accepted friends: `locations.is_public`, migration 35. */
+export async function setDeckPublic(userId: string, deckId: string, isPublic: boolean): Promise<void> {
+  await updateDeckRow(userId, deckId, { is_public: isPublic });
+}
+
+/** Non-destructive, like deleteLocation: locations.location_id is ON DELETE SET NULL, so sleeved cards go back to Unsorted. */
+export async function deleteDeck(userId: string, deckId: string): Promise<void> {
+  if (!backend) throw new Error('Not connected.');
+  const { data, error } = await backend.from('locations').delete().eq('id', deckId).eq('user_id', userId).eq('type', 'deck').select('id');
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('That deck could not be found, or is no longer yours.');
 }

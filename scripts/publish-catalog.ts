@@ -71,6 +71,28 @@ async function main(bundlePath: string) {
   const { data } = db.storage.from(BUCKET).getPublicUrl(path);
   console.log(`[publish-catalog] uploaded ${bytes.length.toLocaleString()} bytes to ${BUCKET}/${path}`);
   console.log(`[publish-catalog] public URL: ${data.publicUrl}`);
+
+  // The pointer the mobile app checks for updates. Written only AFTER the
+  // catalog itself is up, so it can never name a file that is not there yet.
+  // Unlike the catalog it lives at a FIXED path and is overwritten each time,
+  // which is the whole point: the app cannot know the newest hashed name, but
+  // it can always ask this one address for it. Kept short-cached so a fresh
+  // publish reaches phones within minutes rather than after the CDN default.
+  const parsed = JSON.parse(bytes.toString("utf8")) as { version?: unknown; generatedAt?: unknown };
+  if (typeof parsed.version !== "string" || typeof parsed.generatedAt !== "string") {
+    throw new Error("Bundle has no version/generatedAt; refusing to publish a latest.json for it.");
+  }
+  const latest = {
+    version: parsed.version,
+    generatedAt: parsed.generatedAt,
+    bytes: bytes.length,
+    url: data.publicUrl,
+  };
+  const { error: latestError } = await db.storage
+    .from(BUCKET)
+    .upload("v1/latest.json", JSON.stringify(latest), { contentType: "application/json", upsert: true, cacheControl: "300" });
+  if (latestError) throw new Error(`Upload of "${BUCKET}/v1/latest.json" failed: ${latestError.message}`);
+  console.log(`[publish-catalog] latest.json now points at ${parsed.version}`);
 }
 
 const [bundlePath] = process.argv.slice(2);

@@ -4,10 +4,11 @@
     "slug": "upkeep-scan",
     "version": "0.1.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "dev.projectupkeep.scanner",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "buildNumber": "1"
     },
     "android": {
       "package": "dev.projectupkeep.scanner"
@@ -21,7 +22,11 @@
         }
       ],
       "expo-secure-store",
-      "expo-font"
-    ]
+      "expo-font",
+      "@sentry/react-native"
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }

@@ -1,6 +1,6 @@
 # Scanner accuracy for alternate-art cards — plan (deferred)
 
-Written 2026-09-18. **Status: not started; deferred by the owner.** Nothing here is implemented.
+Written 2026-09-18. **Status update 2026-09-19:** steps 2 and 4 are implemented for *quick scan* only (footer parsing and printing ranking in `packages/scan-core/src/printing.ts`, picture comparison via native `rankCardImage`, the picker that first shipped was removed 2026-09-19: quick scan now opens at once on a best guess and refines it from the picture in the background, see `.claude/rules/mobile.md`); not yet run on a device. Steps 1 (logging real OCR), 3 (sharper capture), 5 (catalog flags) and 6 (real test set) are not done. The rest of this file is the original plan.
 
 ## The problem
 Alternate-art printings (full art, extended art, borderless, showcase, promos) often scan as the wrong

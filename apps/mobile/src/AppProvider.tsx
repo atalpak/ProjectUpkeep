@@ -4,8 +4,9 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { CardIndex, validateDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type StackMoveDraft } from '@upkeep/scan-core';
 import { backend, moveWriter } from './backend';
-import { demoBundle, loadCatalog, refreshCatalog } from './catalog';
-import { errorMessage } from './errors';
+import { demoBundle, installBundledCatalog, loadCatalog, refreshCatalog, type CatalogProgress } from './catalog';
+import { checkForUpdate, dismissUpdate, type LatestCatalog, type UpdateCheck } from './catalogUpdates';
+import { errorMessage, reportError } from './errors';
 import { pendingKey, pendingMoveKey } from './storage';
 
 export type Review = { printing: Printing; operationId: string; submitted?: ConfirmedScan };
@@ -46,7 +47,19 @@ type AppContextValue = {
   setIndex(index: CardIndex): void;
   demo: boolean;
   catalogBusy: boolean;
-  syncCatalog(): Promise<void>;
+  /** Progress of the running card-database download, or null when none is running. */
+  catalogProgress: CatalogProgress | null;
+  /** The last download's failure, until the next attempt or `clearCatalogError`. */
+  catalogError: string;
+  clearCatalogError(): void;
+  /** A newer card database than the one on the phone, when one is waiting to be offered. */
+  catalogUpdate: LatestCatalog | null;
+  /** Asks the server whether a newer database exists (`force` ignores the once-a-day limit). */
+  checkForCatalogUpdate(force?: boolean): Promise<UpdateCheck>;
+  /** "Later": stop offering this version. */
+  dismissCatalogUpdate(): void;
+  /** Downloads the card database (the window in RootShell shows the progress). Resolves true on success. */
+  syncCatalog(): Promise<boolean>;
   message: string;
   setMessage(message: string | ((prev: string) => string)): void;
   busy: boolean;
@@ -84,6 +97,8 @@ type AppContextValue = {
    */
   scannerLive: boolean;
   setScannerLive(live: boolean): void;
+  /** Re-reads the destination list after a location is created, renamed or deleted. */
+  reloadLocations(): Promise<void>;
   signOut(): Promise<void>;
 };
 
@@ -109,6 +124,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastUsedDraft, setLastUsedDraft] = useState<LastUsedDraft | null>(null);
   const [recovering, setRecovering] = useState(false);
   const [catalogBusy, setCatalogBusy] = useState(false);
+  const [catalogProgress, setCatalogProgress] = useState<CatalogProgress | null>(null);
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogUpdate, setCatalogUpdate] = useState<LatestCatalog | null>(null);
+  const updateChecked = useRef(false);
   const [scannerLive, setScannerLive] = useState(false);
   const currentUser = useRef<string | null>(null);
   const alive = useRef(true);
@@ -121,12 +140,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     alive.current = true;
     const loaded = loadCatalog();
     setIndex(loaded);
-    // Nothing else ever calls syncCatalog now that the manual "Refresh offline
-    // catalog" button is gone, so a fresh install would run on the 3-card demo
-    // bundle forever -- matching nothing real, and (since `demo` below is
-    // derived from this same version string) silently faking every save.
-    // Fetch the real catalog on first launch whenever a backend is configured.
-    if (loaded.bundle.version === 'demo-only' && backend) void syncCatalog();
+    // First launch (still on the 3-card demo bundle): unpack the snapshot that
+    // ships inside the app, so scanning works with no download. A build without
+    // a snapshot, or one that cannot be read, stays on demo, and the signed-in
+    // user is asked to download instead (CatalogDownloadModal in App.tsx).
+    if (loaded.bundle.version === 'demo-only' && backend) {
+      setCatalogBusy(true); setCatalogProgress({ phase: 'preparing' });
+      void installBundledCatalog().then(installed => { if (installed && alive.current) setIndex(installed); })
+        .finally(() => { if (alive.current) { setCatalogBusy(false); setCatalogProgress(null); } });
+    }
     const sub = AppState.addEventListener('change', state => {
       setActive(state === 'active');
       if (state !== 'active') { cameraStop.current?.(); backend?.auth.stopAutoRefresh(); }
@@ -173,7 +195,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const pending = JSON.parse(raw) as PendingMove;
         setPendingMove(pending);
         setMessage(m => m || 'An unfinished sleeve/unsleeve was recovered. Retry to verify whether it went through.');
-      } catch {
+      } catch (e) {
+        reportError(e, 'appProvider.pendingMove');
         // A malformed pending-move record cannot be retried meaningfully;
         // drop it rather than surfacing a retry button that can never work.
         if (!cancelled) void SecureStore.deleteItemAsync(pendingMoveKey(userId));
@@ -187,15 +210,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     setRecovering(true);
     void (async () => {
-      // locations.user_id is the owner column (see supabase/migrations/00000000000004_locations.sql —
-      // card_instances uses owner_user_id, locations does not). Filtering explicitly, rather than
-      // relying on RLS alone, matters here for the same reason it does in src/lib/collection/queries.ts:
-      // migration 9 makes a friend's tradable locations legitimately readable, so an unscoped select
-      // would mix a friend's binder into this list.
-      const { data, error } = await backend.from('locations').select('id,name,type').eq('user_id', userId).order('name').limit(1000);
+      const { error } = await loadLocations(userId);
       if (cancelled) return;
       if (error) setMessage('Locations could not load. Unsorted remains available.');
-      else setLocations((data ?? []).filter(l => l.type !== 'deck'));
       try {
         const pending = await SecureStore.getItemAsync(pendingKey(userId));
         if (cancelled || !pending) return;
@@ -212,10 +229,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [userId, index]);
 
-  async function syncCatalog() {
-    setCatalogBusy(true); setMessage('');
-    try { setIndex(await refreshCatalog()); setMessage('Card database ready.'); }
-    catch (e) { setMessage(errorMessage(e)); } finally { setCatalogBusy(false); }
+  // locations.user_id is the owner column (see supabase/migrations/00000000000004_locations.sql --
+  // card_instances uses owner_user_id, locations does not). Filtering explicitly, rather than
+  // relying on RLS alone, matters here for the same reason it does in src/lib/collection/queries.ts:
+  // migration 9 makes a friend's tradable locations legitimately readable, so an unscoped select
+  // would mix a friend's binder into this list. Decks are left out: they have their own tab.
+  async function loadLocations(forUser: string) {
+    if (!backend) return { error: null };
+    const { data, error } = await backend.from('locations').select('id,name,type').eq('user_id', forUser).order('name').limit(1000);
+    if (!error) setLocations((data ?? []).filter(l => l.type !== 'deck'));
+    return { error };
+  }
+  async function reloadLocations() { if (userId) await loadLocations(userId); }
+
+  async function checkForCatalogUpdate(force = false): Promise<UpdateCheck> {
+    const result = await checkForUpdate(index.bundle, force);
+    if (result.status === 'available') setCatalogUpdate(result.latest);
+    return result;
+  }
+  function dismissCatalogUpdate() {
+    if (catalogUpdate) void dismissUpdate(catalogUpdate.version);
+    setCatalogUpdate(null);
+  }
+
+  // Once per launch, for a signed-in user who already has the real database:
+  // quietly ask whether a newer one exists (itself limited to once a day).
+  useEffect(() => {
+    if (!backend || !userId || demo || catalogBusy || updateChecked.current) return;
+    updateChecked.current = true;
+    void checkForCatalogUpdate();
+  }, [userId, demo, catalogBusy]);
+
+  async function syncCatalog(): Promise<boolean> {
+    if (catalogBusy) return false;
+    setCatalogBusy(true); setCatalogError(''); setCatalogProgress({ phase: 'downloading', received: 0, total: null });
+    try { setIndex(await refreshCatalog(setCatalogProgress, catalogUpdate?.url)); setCatalogUpdate(null); return true; }
+    catch (e) { setCatalogError(errorMessage(e)); return false; }
+    finally { setCatalogBusy(false); setCatalogProgress(null); }
   }
 
   /**
@@ -262,11 +312,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppContextValue>(() => ({
     backendAvailable: !!backend,
-    userId, active, index, setIndex, demo, catalogBusy, syncCatalog,
+    userId, active, index, setIndex, demo, catalogBusy, catalogProgress, catalogError, clearCatalogError: () => setCatalogError(''), catalogUpdate, checkForCatalogUpdate, dismissCatalogUpdate, syncCatalog,
     message, setMessage, busy, setBusy, recovering, disabled,
     review, setReview, locations, lastUsedDraft, setLastUsedDraft, recent, addRecent,
-    pendingMove, moveBusy, beginMove, retryPendingMove, registerCameraStop, scannerLive, setScannerLive, signOut,
-  }), [userId, active, index, demo, catalogBusy, message, busy, recovering, disabled, review, locations, lastUsedDraft, recent, pendingMove, moveBusy, scannerLive]);
+    pendingMove, moveBusy, beginMove, retryPendingMove, registerCameraStop, scannerLive, setScannerLive, signOut, reloadLocations,
+  }), [userId, active, index, demo, catalogBusy, catalogProgress, catalogError, catalogUpdate, message, busy, recovering, disabled, review, locations, lastUsedDraft, recent, pendingMove, moveBusy, scannerLive]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

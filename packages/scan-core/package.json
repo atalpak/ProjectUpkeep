@@ -8,6 +8,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "bench": "node --import tsx scripts/benchmark.ts",
+    "accuracy": "node --import tsx scripts/accuracy.ts",
     "catalog:build": "node --import tsx scripts/build-catalog.ts"
   },
   "dependencies": {

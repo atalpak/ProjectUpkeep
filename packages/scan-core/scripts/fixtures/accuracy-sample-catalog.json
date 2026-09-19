@@ -1,0 +1,284 @@
+{
+ "schemaVersion": 1,
+ "version": "illustrative-sample",
+ "generatedAt": "2026-09-19T00:00:00.000Z",
+ "printings": [
+  {
+   "id": "00000000-0000-4000-8000-000000000100",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "lea",
+   "collectorNumber": "161",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000101",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "m10",
+   "collectorNumber": "146",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000102",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "sta",
+   "collectorNumber": "42",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000103",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "2xm",
+   "collectorNumber": "117",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000104",
+   "oracleId": "00000000-0000-4000-8000-000000009001",
+   "name": "Lightning Helix",
+   "aliases": [],
+   "setCode": "rav",
+   "collectorNumber": "213",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000105",
+   "oracleId": "00000000-0000-4000-8000-000000009002",
+   "name": "Gigantosaurus",
+   "aliases": [],
+   "setCode": "m19",
+   "collectorNumber": "185",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000106",
+   "oracleId": "00000000-0000-4000-8000-000000009002",
+   "name": "Gigantosaurus",
+   "aliases": [],
+   "setCode": "fdn",
+   "collectorNumber": "718",
+   "finishes": [
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000107",
+   "oracleId": "00000000-0000-4000-8000-000000009002",
+   "name": "Gigantosaurus",
+   "aliases": [],
+   "setCode": "slz",
+   "collectorNumber": "76",
+   "finishes": [
+    "nonfoil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000108",
+   "oracleId": "00000000-0000-4000-8000-000000009002",
+   "name": "Gigantosaurus",
+   "aliases": [],
+   "setCode": "pm19",
+   "collectorNumber": "185s",
+   "finishes": [
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000109",
+   "oracleId": "00000000-0000-4000-8000-000000009003",
+   "name": "Serra Angel",
+   "aliases": [],
+   "setCode": "m20",
+   "collectorNumber": "39",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000110",
+   "oracleId": "00000000-0000-4000-8000-000000009003",
+   "name": "Serra Angel",
+   "aliases": [],
+   "setCode": "dom",
+   "collectorNumber": "33",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000111",
+   "oracleId": "00000000-0000-4000-8000-000000009004",
+   "name": "Sol Ring",
+   "aliases": [],
+   "setCode": "c21",
+   "collectorNumber": "263",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000112",
+   "oracleId": "00000000-0000-4000-8000-000000009004",
+   "name": "Sol Ring",
+   "aliases": [],
+   "setCode": "ltc",
+   "collectorNumber": "284",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000113",
+   "oracleId": "00000000-0000-4000-8000-000000009004",
+   "name": "Sol Ring",
+   "aliases": [],
+   "setCode": "cmm",
+   "collectorNumber": "400",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000114",
+   "oracleId": "00000000-0000-4000-8000-000000009005",
+   "name": "Delver of Secrets // Insectile Aberration",
+   "aliases": [
+    "Delver of Secrets",
+    "Insectile Aberration"
+   ],
+   "setCode": "isd",
+   "collectorNumber": "51",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000115",
+   "oracleId": "00000000-0000-4000-8000-000000009006",
+   "name": "Giant Growth",
+   "aliases": [],
+   "setCode": "m19",
+   "collectorNumber": "176",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000116",
+   "oracleId": "00000000-0000-4000-8000-000000009007",
+   "name": "Giant Badger",
+   "aliases": [],
+   "setCode": "ody",
+   "collectorNumber": "241",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000117",
+   "oracleId": "00000000-0000-4000-8000-000000009008",
+   "name": "Angelic Lord",
+   "aliases": [],
+   "setCode": "tst",
+   "collectorNumber": "1",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000118",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "sld",
+   "collectorNumber": "1021",
+   "finishes": [
+    "nonfoil",
+    "foil"
+   ],
+   "language": "en",
+   "releasedAt": "2021-03-01",
+   "rarity": "rare"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000119",
+   "oracleId": "00000000-0000-4000-8000-000000009000",
+   "name": "Lightning Bolt",
+   "aliases": [],
+   "setCode": "sld",
+   "collectorNumber": "1022",
+   "finishes": [
+    "foil"
+   ],
+   "language": "en",
+   "releasedAt": "2021-03-01",
+   "rarity": "rare"
+  },
+  {
+   "id": "00000000-0000-4000-8000-000000000120",
+   "oracleId": "00000000-0000-4000-8000-000000009003",
+   "name": "Serra Angel",
+   "aliases": [],
+   "setCode": "sld",
+   "collectorNumber": "500",
+   "finishes": [
+    "foil"
+   ],
+   "language": "en",
+   "releasedAt": "2022-06-01",
+   "rarity": "mythic"
+  }
+ ]
+}

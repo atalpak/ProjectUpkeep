@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LANGUAGES, type Finish } from '@upkeep/scan-core';
 import { Choices } from './ui';
 import { accent, border, radius, space, surface, text as textColor } from '../theme';
+import { makeStyles } from '../preferences';
 
 /**
  * The scanner's quick options — modeled on ManaBox's own quick-controls row:
@@ -29,6 +30,7 @@ export function ScanQuickBar({
   quantity: number;
   onChangeQuantity(quantity: number): void;
 }) {
+  const styles = useStyles();
   const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
 
   return (
@@ -80,7 +82,7 @@ export function ScanQuickBar({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles(() => StyleSheet.create({
   bar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.sm, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, borderRadius: radius.md, padding: space.sm },
   languagePicker: { marginBottom: space.sm, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, borderRadius: radius.md, padding: space.sm },
   chip: { paddingVertical: 8, paddingHorizontal: 11, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised },
@@ -91,4 +93,4 @@ const styles = StyleSheet.create({
   stepperButton: { width: 30, height: 30, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, alignItems: 'center', justifyContent: 'center' },
   stepperText: { fontSize: 16, fontWeight: '700', color: textColor.primary },
   stepperValue: { fontSize: 14, fontWeight: '700', color: textColor.primary, minWidth: 20, textAlign: 'center' },
-});
+}));

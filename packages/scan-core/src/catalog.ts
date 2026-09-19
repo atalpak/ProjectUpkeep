@@ -1,4 +1,5 @@
 import { FINISHES, type Candidate, type CatalogBundle, type Printing } from './types';
+import { canonicalNumber, regularFirst } from './printing';
 
 export function normalizeName(value: string): string {
   return value.normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en').replace(/[^\p{L}\p{N}]/gu, '');
@@ -35,10 +36,15 @@ export class CardIndex {
   private names = new Map<string, Set<string>>();
   private postings = new Map<string, Set<string>>();
   private byId = new Map<string, Printing>();
+  private byOracle = new Map<string, Printing[]>();
+  private sets = new Set<string>();
   constructor(value: unknown) {
     this.bundle = parseCatalog(value);
     for (const p of this.bundle.printings) {
       this.byId.set(p.id, p);
+      this.sets.add(p.setCode.toLowerCase());
+      if (!this.byOracle.has(p.oracleId)) this.byOracle.set(p.oracleId, []);
+      this.byOracle.get(p.oracleId)!.push(p);
       for (const alias of [p.name, ...p.aliases]) {
         const key = normalizeName(alias);
         if (!key) continue;
@@ -54,6 +60,10 @@ export class CardIndex {
     }
   }
   get(id: string) { return this.byId.get(id); }
+  /** Every printing of one card, in catalog order. Callers rank them (`rankPrintings`). */
+  printingsOf(oracleId: string): Printing[] { return this.byOracle.get(oracleId) ?? []; }
+  /** Lower-case set codes present in the catalog: lets footer OCR reject a token that is not a set. */
+  get setCodes(): ReadonlySet<string> { return this.sets; }
 
   /**
    * Ranks every printing whose name plausibly matches `text`, then narrows
@@ -96,7 +106,7 @@ export class CardIndex {
       if (!results.has(id) || results.get(id)!.score < score) results.set(id, candidate);
     }
     return [...results.values()].sort((a,b) => Number(b.evidence === 'printing') - Number(a.evidence === 'printing') ||
-      b.score - a.score || a.printing.name.localeCompare(b.printing.name) || a.printing.id.localeCompare(b.printing.id));
+      b.score - a.score || a.printing.name.localeCompare(b.printing.name) || regularFirst(a.printing, b.printing));
   }
 
   search(text: string, hints: { setCode?: string; collectorNumber?: string } = {}, filter: { setCode?: string; collectorNumber?: string } = {}, limit = 50): Candidate[] {
@@ -112,13 +122,4 @@ export class CardIndex {
     const all = this.rank(text, hints, filter);
     return { results: all.slice(0, Math.max(1, Math.min(200, limit))), total: all.length };
   }
-}
-function canonicalNumber(value: string) { return value.split('/')[0]!.trim().toLowerCase().replace(/^0+(?=\d)/, ''); }
-
-export function printingHints(lines: string[]): {setCode?: string; collectorNumber?: string} {
-  for (const line of lines) {
-    const match = line.toUpperCase().match(/\b([A-Z0-9]{2,6})\s+(\d{1,5}[A-Z★]?)(?:\s*\/\s*\d+)?\b/);
-    if (match && /[A-Z]/.test(match[1]!)) return { setCode: match[1], collectorNumber: match[2] };
-  }
-  return {};
 }

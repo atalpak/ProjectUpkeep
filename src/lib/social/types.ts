@@ -103,16 +103,9 @@ export type TradeDetail = Trade & {
   >;
 };
 
-export const NOTIFICATION_TYPES = [
-  "trade_proposed",
-  "trade_accepted",
-  "trade_declined",
-  "trade_cancelled",
-  "trade_countered",
-  "friend_request",
-  "friend_accepted",
-] as const;
-export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+/** Moved to `@upkeep/domain` with the notification wording that switches on it. */
+import { NOTIFICATION_TYPES, type NotificationType } from "@upkeep/domain";
+export { NOTIFICATION_TYPES, type NotificationType };
 
 export type Notification = {
   id: string;

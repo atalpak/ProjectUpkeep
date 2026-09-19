@@ -1,0 +1,25 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" },
+      "distribution": "internal",
+      "ios": { "simulator": false }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": { "SENTRY_DISABLE_AUTO_UPLOAD": "true" }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
