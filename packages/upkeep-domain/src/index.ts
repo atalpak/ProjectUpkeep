@@ -18,3 +18,4 @@ export * from "./collection-sort";
 export * from "./password";
 export * from "./tos";
 export * from "./want-quantity";
+export * from "./stack-move-errors";

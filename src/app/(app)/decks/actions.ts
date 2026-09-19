@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
+import { isStaleDestinationTargetError, isStaleSourceError } from "@upkeep/domain";
 import { decideStacking } from "@/lib/collection/stacking";
 import { planSplit, takeableFrom } from "@/lib/collection/availability";
 import type { DeckState } from "@/app/(app)/decks/deck-state";
@@ -33,7 +34,65 @@ function revalidate(deckId?: string) {
   revalidatePath("/collection");
   revalidatePath("/decks");
   revalidatePath("/dashboard");
+  // Unsleeving now collapses the returned copies into an existing Unsorted
+  // stack (see unsleeveCopies), which changes what a location page lists.
+  revalidatePath("/locations");
   if (deckId) revalidatePath(`/decks/${deckId}`);
+}
+
+/**
+ * Moves `quantity` copies out of one stack through `public.apply_stack_move`
+ * (migration 38), the only place a decrement and its matching increment/insert
+ * are one transaction. Returns an error message, or null on success.
+ *
+ * Why this exists: the earlier shape did the decrement, then the merge or
+ * insert, as separate statements — and if the second failed, the copies the
+ * first had taken were simply gone. This function guards each stack move
+ * against that; a loop over several stacks is still a loop, so a failure on
+ * the third stack leaves the first two moved. Each stack is conserved, the
+ * whole operation is not atomic.
+ *
+ * Only the branches that change a stack's quantity come through here. A whole
+ * stack moving with nothing to merge into stays a plain `update location_id`
+ * at the call site, because that keeps the row's id, acquired_at and
+ * created_at, which the function's delete-and-insert would reset.
+ *
+ * A fresh operation id per call is its idempotency key, as in
+ * collection/actions.ts. There is deliberately no automatic retry here (mobile
+ * has one): a re-submit re-reads and re-decides, which is the honest response
+ * to a stale stack.
+ */
+async function applyMove(
+  supabase: SupabaseClient,
+  move: {
+    sourceInstanceId: string;
+    quantity: number;
+    destinationLocationId: string | null;
+    /** null means "insert a fresh row"; otherwise merge into exactly this stack. */
+    targetInstanceId: string | null;
+  },
+): Promise<string | null> {
+  const { error } = await supabase.rpc("apply_stack_move", {
+    p_operation_id: crypto.randomUUID(),
+    p_source_instance_id: move.sourceInstanceId,
+    p_quantity: move.quantity,
+    p_destination_location_id: move.destinationLocationId,
+    p_destination_target_instance_id: move.targetInstanceId,
+  });
+  if (!error) return null;
+  return friendlyMoveError(error.message);
+}
+
+/**
+ * Both stale refusals (the picked stack, or the stack it was going to merge
+ * into, changed after the page rendered) mean the same thing to a person, so
+ * they share one message. The wording matches collection/actions.ts.
+ */
+function friendlyMoveError(message: string): string {
+  if (isStaleSourceError(message) || isStaleDestinationTargetError(message)) {
+    return "That stack changed since this page loaded. Refresh and try again.";
+  }
+  return message;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,60 +344,18 @@ export async function addToDeck(_prev: DeckState, formData: FormData): Promise<D
     if (error) return fail(error.message);
   } else {
     // Either we are splitting, or an identical stack is already in the deck.
-    if (plan.action === "split") {
-      const { error } = await supabase
-        .from("card_instances")
-        .update({ quantity: plan.leave })
-        .eq("id", stack.id);
-      if (error) return fail(error.message);
-    } else {
-      const { error } = await supabase.from("card_instances").delete().eq("id", stack.id);
-      if (error) return fail(error.message);
-    }
-
-    if (decision.action === "merge") {
-      const { error } = await supabase
-        .from("card_instances")
-        .update({ quantity: decision.newQuantity })
-        .eq("id", decision.instanceId);
-      if (error) return fail(error.message);
-    } else {
-      const { error } = await supabase.from("card_instances").insert({
-        owner_user_id: user.id,
-        card_id: stack.card_id,
-        location_id: deckId,
-        condition: stack.condition,
-        finish: stack.finish,
-        language: stack.language,
-        quantity: taking,
-        notes: stack.notes,
-      });
-      if (error) return fail(error.message);
-    }
+    // Decision stays here; the write is one atomic call.
+    const moveError = await applyMove(supabase, {
+      sourceInstanceId: stack.id,
+      quantity: taking,
+      destinationLocationId: deckId,
+      targetInstanceId: decision.action === "merge" ? decision.instanceId : null,
+    });
+    if (moveError) return fail(moveError);
   }
 
   revalidate(deckId);
   return ok(`Added ${taking} ${taking === 1 ? "copy" : "copies"}.`);
-}
-
-/**
- * Takes cards back out of a deck.
- *
- * Sends them to Unsorted rather than to wherever they came from: the collection
- * does not record where a card was before, and inventing a destination would be
- * a guess about a physical action the user has to perform anyway.
- */
-export async function removeFromDeck(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
-
-  const instanceId = String(formData.get("instance_id") ?? "").trim();
-  const deckId = String(formData.get("deck_id") ?? "").trim();
-  if (!instanceId) return;
-
-  const supabase = await createClient();
-  await supabase.from("card_instances").update({ location_id: null }).eq("id", instanceId);
-
-  revalidate(deckId);
 }
 
 // ---------------------------------------------------------------------------
@@ -655,7 +672,14 @@ export async function setDeckCardPrinting(formData: FormData): Promise<void> {
 
   // Reset the entry to unsleeved: pull any copies in the deck box for this
   // card back out to Unsorted before the printing moves.
-  await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+  // If that fails, stop: re-pointing the entry now would strand the copies in
+  // the deck under a printing the list no longer references. Nothing is
+  // changed, so the switch can simply be tried again.
+  const unsleeveError = await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+  if (unsleeveError) {
+    revalidate(deckId);
+    return;
+  }
 
   // deck_cards is unique on (deck_id, card_id): if the chosen printing is
   // already its own line on this deck, fold this entry's quantity into it
@@ -822,39 +846,13 @@ async function sleeveCopies(
         .eq("id", source.id);
       if (moveError) return { sleeved: taking - remaining, error: moveError.message };
     } else {
-      if (take === source.quantity) {
-        const { error: dropError } = await supabase
-          .from("card_instances")
-          .delete()
-          .eq("id", source.id);
-        if (dropError) return { sleeved: taking - remaining, error: dropError.message };
-      } else {
-        const { error: splitError } = await supabase
-          .from("card_instances")
-          .update({ quantity: source.quantity - take })
-          .eq("id", source.id);
-        if (splitError) return { sleeved: taking - remaining, error: splitError.message };
-      }
-
-      if (decision.action === "merge") {
-        const { error: mergeError } = await supabase
-          .from("card_instances")
-          .update({ quantity: decision.newQuantity })
-          .eq("id", decision.instanceId);
-        if (mergeError) return { sleeved: taking - remaining, error: mergeError.message };
-      } else {
-        const { error: insertError } = await supabase.from("card_instances").insert({
-          owner_user_id: userId,
-          card_id: source.card_id,
-          location_id: deckId,
-          condition: source.condition,
-          finish: source.finish,
-          language: source.language,
-          quantity: take,
-          notes: source.notes,
-        });
-        if (insertError) return { sleeved: taking - remaining, error: insertError.message };
-      }
+      const moveError = await applyMove(supabase, {
+        sourceInstanceId: source.id,
+        quantity: take,
+        destinationLocationId: deckId,
+        targetInstanceId: decision.action === "merge" ? decision.instanceId : null,
+      });
+      if (moveError) return { sleeved: taking - remaining, error: moveError };
     }
 
     remaining -= take;
@@ -905,24 +903,29 @@ async function unsleeveCopies(
   deckId: string,
   cardId: string,
   wanted?: number,
-): Promise<void> {
+): Promise<string | null> {
   const { data: listed } = await supabase
     .from("cards")
     .select("oracle_id, name")
     .eq("scryfall_id", cardId)
     .maybeSingle();
-  if (!listed) return;
+  if (!listed) return null;
   const target = listed as { oracle_id: string | null; name: string };
 
   const { data: inDeck } = await supabase
     .from("card_instances")
-    .select("id, quantity, cards ( oracle_id, name )")
+    .select("id, card_id, condition, finish, language, quantity, notes, cards ( oracle_id, name )")
     .eq("owner_user_id", userId) // hard constraint 3
     .eq("location_id", deckId);
 
   const matching = ((inDeck ?? []) as unknown as Array<{
     id: string;
+    card_id: string;
+    condition: string;
+    finish: string;
+    language: string;
     quantity: number;
+    notes: string | null;
     cards: { oracle_id: string | null; name: string } | null;
   }>)
     .filter((row) =>
@@ -942,44 +945,57 @@ async function unsleeveCopies(
     if (remaining <= 0) break;
     const take = Math.min(remaining, row.quantity);
 
-    if (take === row.quantity) {
-      await supabase.from("card_instances").update({ location_id: null }).eq("id", row.id);
-    } else {
-      // Only part of this stack comes out: leave the rest sleeved.
-      await supabase
+    // Is there already an identical stack in Unsorted to fold these into? Sleeving
+    // asks the same question of the deck; asking it here is what stops repeated
+    // unsleeves from piling up one Unsorted row per trip.
+    const { data: alreadyThere, error: lookupError } = await supabase
+      .from("card_instances")
+      .select("id, quantity, notes")
+      .eq("owner_user_id", userId) // hard constraint 3: RLS also exposes friends' tradable rows
+      .eq("card_id", row.card_id)
+      .eq("condition", row.condition)
+      .eq("finish", row.finish)
+      .eq("language", row.language)
+      .is("location_id", null);
+    if (lookupError) return lookupError.message;
+
+    const decision = decideStacking(
+      {
+        card_id: row.card_id,
+        condition: row.condition,
+        finish: row.finish,
+        language: row.language,
+        location_id: null,
+        notes: row.notes,
+        quantity: take,
+      } as Parameters<typeof decideStacking>[0],
+      alreadyThere ?? [],
+    );
+
+    if (take === row.quantity && decision.action === "insert") {
+      // Whole stack, nothing to merge into: move the row itself, which keeps its
+      // id and acquisition date.
+      const { error } = await supabase
         .from("card_instances")
-        .update({ quantity: row.quantity - take })
+        .update({ location_id: null })
         .eq("id", row.id);
-
-      const { data: full } = await supabase
-        .from("card_instances")
-        .select("card_id, condition, finish, language, notes")
-        .eq("id", row.id)
-        .maybeSingle();
-
-      if (full) {
-        const source = full as {
-          card_id: string;
-          condition: string;
-          finish: string;
-          language: string;
-          notes: string | null;
-        };
-        await supabase.from("card_instances").insert({
-          owner_user_id: userId,
-          card_id: source.card_id,
-          location_id: null,
-          condition: source.condition,
-          finish: source.finish,
-          language: source.language,
-          quantity: take,
-          notes: source.notes,
-        });
-      }
+      if (error) return error.message;
+    } else {
+      // A partial take, or an identical Unsorted stack exists. The RPC takes the
+      // stack key from the row it locks, so nothing else is read here.
+      const moveError = await applyMove(supabase, {
+        sourceInstanceId: row.id,
+        quantity: take,
+        destinationLocationId: null,
+        targetInstanceId: decision.action === "merge" ? decision.instanceId : null,
+      });
+      if (moveError) return moveError;
     }
 
     remaining -= take;
   }
+
+  return null;
 }
 
 /**
@@ -988,19 +1004,22 @@ async function unsleeveCopies(
  * The list entry stays. Unsleeving is "I took these out of the box", not "I no
  * longer want this card in the deck" — the entry simply becomes Available again.
  */
-export async function unsleeveCard(formData: FormData): Promise<void> {
+export async function unsleeveCard(_prev: DeckState, formData: FormData): Promise<DeckState> {
   const user = await getCurrentUser();
-  if (!user) return;
+  if (!user) return fail("You need to be signed in.");
 
   const deckId = String(formData.get("deck_id") ?? "").trim();
   const cardId = String(formData.get("card_id") ?? "").trim();
   const wanted = Number.parseInt(String(formData.get("quantity") ?? "1"), 10);
-  if (!deckId || !cardId) return;
+  if (!deckId || !cardId) return fail("Which card?");
 
   const supabase = await createClient();
-  await unsleeveCopies(supabase, user.id, deckId, cardId, wanted);
+  const error = await unsleeveCopies(supabase, user.id, deckId, cardId, wanted);
 
+  // Revalidate on failure too: an earlier stack in the loop may already have moved.
   revalidate(deckId);
+  if (error) return fail(error);
+  return ok("Returned to your collection.");
 }
 
 // ---------------------------------------------------------------------------
@@ -1177,7 +1196,13 @@ export async function bulkUnsleeveEntries(
   const entries = await loadSelectedEntries(supabase, deckId, entryIds);
 
   for (const entry of entries) {
-    await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+    const error = await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+    if (error) {
+      // Stop at the first failure. Entries before it are already returned; each
+      // stack is conserved, but this is not one atomic operation.
+      revalidate(deckId);
+      return fail(error);
+    }
   }
 
   revalidate(deckId);
