@@ -1,25 +1,63 @@
 import nextCoreWebVitals from "eslint-config-next/core-web-vitals";
 import nextTypescript from "eslint-config-next/typescript";
+import tseslint from "typescript-eslint";
+import reactHooks from "eslint-plugin-react-hooks";
 
 /**
  * eslint-config-next 16 ships native flat configs, so these are spread in
  * directly rather than wrapped in FlatCompat (which cannot serialise the
  * plugin graph and throws).
+ *
+ * Two worlds, one file. The Next presets know nothing about React Native
+ * (their `@next/next` rules are about <img>/<Link>/pages), so they are fenced
+ * off from the Expo workspace and packages; the workspace gets its own small
+ * block below instead of inheriting rules that cannot apply.
  */
+const MOBILE_GLOBS = ["apps/**", "packages/**"];
+
+// Config objects that only carry `ignores` are *global* ignores; adding
+// `ignores` to them would turn them into per-file ones, so leave those alone.
+const fenceOffMobile = (configs) =>
+  configs.map((c) =>
+    Object.keys(c).every((k) => k === "ignores" || k === "name")
+      ? c
+      : { ...c, ignores: [...(c.ignores ?? []), ...MOBILE_GLOBS] },
+  );
+
 const eslintConfig = [
   {
-    // apps/** are the Expo/React Native workspace (see .claude/rules/mobile.md)
-    // — a different toolchain (eslint-config-next does not understand RN/Expo
-    // globals) with its own lint setup, not this one's job to cover.
-    // packages/** includes both the RN-facing packages (scan-core, vision) and
-    // @upkeep/domain, which the web app now imports (src/lib/collection/stacking.ts)
-    // — it stays excluded here anyway because it has its own tsconfig/test setup,
-    // the same as scan-core; see the mobile CI job for where it gets
-    // typechecked and tested (it has no eslint config of its own).
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "supabase/**", "apps/**", "packages/**"],
+    // ios/android are generated native projects (Pods, Gradle output).
+    ignores: [
+      ".next/**", "node_modules/**", "next-env.d.ts", "supabase/**",
+      "apps/**/node_modules/**", "apps/mobile/ios/**", "apps/mobile/android/**",
+      "packages/**/node_modules/**", "packages/upkeep-vision/ios/**", "packages/upkeep-vision/android/**",
+    ],
   },
-  ...nextCoreWebVitals,
-  ...nextTypescript,
+  ...fenceOffMobile([...nextCoreWebVitals, ...nextTypescript]),
+  // Expo/RN workspace and packages: TypeScript recommended + the hooks rules.
+  // Deliberately no type-aware rules — `tsc --strict` already runs in CI, and
+  // type-aware linting would need a parserOptions.project per workspace.
+  ...tseslint.configs.recommended.map((c) => ({ ...c, files: c.files ?? ["**/*.{ts,tsx,mts,cts}"] })).map((c) => ({
+    ...c,
+    files: (c.files ?? []).flatMap((f) => MOBILE_GLOBS.map((g) => `${g}/${f}`)),
+  })),
+  {
+    files: MOBILE_GLOBS.map((g) => `${g}/**/*.{ts,tsx}`),
+    plugins: { "react-hooks": reactHooks },
+    languageOptions: { globals: { __DEV__: "readonly" } },
+    rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+    },
+  },
+  {
+    // Metro resolves static assets (images, fonts, JSON) only through a literal
+    // `require('./x.png')`; there is no ES-import form that yields a bundler
+    // asset id. So this rule cannot apply to the app. It stays on for the
+    // framework-free packages, which have no such need.
+    files: ["apps/**/*.{ts,tsx}"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
 ];
 
 export default eslintConfig;

@@ -32,7 +32,7 @@ Prices are a display-only Scryfall estimate. These are decisions, not gaps.
 
 ## Directory map
 
-Verified against the tree on 2026-09-18. Keep it that way — a stale map sends
+Verified against the tree on 2026-09-19. Keep it that way — a stale map sends
 agents hunting in the wrong place, which is how the previous one failed.
 
 ```
@@ -48,6 +48,8 @@ packages/
                             and scan-core
   scan-core/                 pure TS: catalog search, scan pipeline, draft validation,
                             the collection writer, and its own scripts/ + test/
+                            (scripts/ holds accuracy.ts, the offline matching
+                            benchmark, and its fixtures/)
   upkeep-vision/             native module boundary — iOS live scanner view + Vision OCR
                             (Swift), Android photo OCR only (Kotlin); scripts/ holds the
                             offline detection validator
@@ -55,9 +57,12 @@ src/
   proxy.ts                  session refresh + private-route gate (see below)
   app/
     (app)/                  signed-in pages; the route group provides the nav shell
+                            error.tsx (boundary for anything thrown under it) ·
+                            feedback-actions.ts (in-app feedback server action) ·
+                            social-state.ts (form state shared by the social pages)
       collection/           collection view · add/ · import/
       locations/            containers
-      decks/                decks-as-locations · [id]/ · check/ · import/
+      decks/                decks-as-locations · [id]/ (· test/ playtest) · check/ · import/
       find/                 "where is my card?"
       dashboard/            stats and anything awaiting a decision
       search/  trades/          card search · trade actions
@@ -112,6 +117,8 @@ scripts/
   export-catalog.ts  publish-catalog.ts  create-catalog-bucket.ts
                             the mobile catalog pipeline (see mobile.md)
   verify-migrations.sh      migrations against a throwaway Postgres
+  catalog-snapshot.sh       exports + builds the catalog into the mobile app before
+                            a native build (`npm run catalog:snapshot`)
   *.test.ts                 49 unit-test files over the pure logic in src/lib
 ```
 

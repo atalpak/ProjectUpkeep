@@ -1,6 +1,6 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { border, radius, space, surface, text } from '../theme';
+import { border, radius, surface, text } from '../theme';
 import { makeStyles } from '../preferences';
 
 /**
