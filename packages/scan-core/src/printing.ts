@@ -1,3 +1,4 @@
+import type { LanguageCode } from '@upkeep/domain';
 import type { Printing } from './types';
 
 /**
@@ -27,10 +28,30 @@ export interface PrintingHints {
   collectorNumber?: string;
   /** Full Scryfall rarity word, from the single footer letter (C/U/R/M/S). */
   rarity?: string;
+  /**
+   * The language token printed beside the set code ("SOC • JA"), mapped to
+   * our vocabulary. Backlog item 8 step 4: a footer that names the printed
+   * language is real evidence of what language the physical copy actually
+   * is in, independent of whatever the scanner's own language setting says.
+   */
+  language?: LanguageCode;
 }
 
 /** Language codes that sit next to the set code ("SOC • EN") and must not be mistaken for one. */
 const LANGUAGE_TOKENS = new Set(['EN', 'DE', 'FR', 'ES', 'IT', 'PT', 'JA', 'JP', 'KO', 'RU', 'ZH', 'ZHS', 'ZHT', 'PH', 'HE', 'LA', 'GR', 'AR', 'SA']);
+/**
+ * Footer token -> our language vocabulary. "JP" is Scryfall/footer shorthand
+ * for Japanese alongside "JA"; both map to `ja`. A bare "ZH" is genuinely
+ * ambiguous between Simplified and Traditional Chinese -- Scryfall's own
+ * split codes (zhs/zht) are what a footer normally prints, so bare "ZH" is
+ * rare, but when it appears alone we guess `zhs` (the more common case
+ * across printed sets) rather than leave it unresolved; the person can
+ * correct it on the confirm sheet either way.
+ */
+const FOOTER_LANGUAGE_MAP: Record<string, LanguageCode> = {
+  EN: 'en', DE: 'de', FR: 'fr', ES: 'es', IT: 'it', PT: 'pt', JA: 'ja', JP: 'ja', KO: 'ko', RU: 'ru',
+  ZH: 'zhs', ZHS: 'zhs', ZHT: 'zht', PH: 'ph', HE: 'he', LA: 'la', GR: 'grc', AR: 'ar', SA: 'sa',
+};
 const RARITY_LETTERS: Record<string, string> = { C: 'common', U: 'uncommon', R: 'rare', M: 'mythic', S: 'special' };
 /** Lines that carry numbers and letters but are never the printing: copyright and artist credit. */
 const NOT_A_PRINTING_LINE = /©|™|®|\(C\)|WIZARDS|COAST|ILLUS|\bLLC\b/;
@@ -54,6 +75,7 @@ export function printingHints(lines: string[], knownSets?: ReadonlySet<string>):
   let number: { value: string; score: number } | null = null;
   let set: { value: string; score: number } | null = null;
   let rarity: string | undefined;
+  let language: LanguageCode | undefined;
 
   for (const raw of lines) {
     const upper = raw.toUpperCase();
@@ -73,6 +95,9 @@ export function printingHints(lines: string[], knownSets?: ReadonlySet<string>):
 
     for (const [i, token] of tokens.entries()) {
       if (token.length === 1 && RARITY_LETTERS[token]) { rarity ??= RARITY_LETTERS[token]; continue; }
+      // Captured before the exclusion below still runs -- the token must still
+      // be rejected as a set candidate exactly as it was before this existed.
+      if (LANGUAGE_TOKENS.has(token)) language ??= FOOTER_LANGUAGE_MAP[token];
       if (!/^[A-Z0-9]{2,5}$/.test(token) || !/[A-Z]/.test(token) || LANGUAGE_TOKENS.has(token)) continue;
       // A run of digits with a stray letter is a number ("718S"), not a set.
       if (/^\d+[A-Z★]?$/.test(token)) continue;
@@ -87,6 +112,7 @@ export function printingHints(lines: string[], knownSets?: ReadonlySet<string>):
   if (set) out.setCode = set.value;
   if (number) out.collectorNumber = number.value;
   if (rarity) out.rarity = rarity;
+  if (language) out.language = language;
   return out;
 }
 

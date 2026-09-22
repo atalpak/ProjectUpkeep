@@ -22,7 +22,7 @@ architect** (structural; architect impact map, then owner sign-off, then impleme
 | 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Done (2026-09-22) | `ScanSessionSummary.tsx` |
 | 6 | Change the printing of a card you own in the collection | Med–Hard | High | Done (2026-09-22) | `apply_stack_reprint` + `CollectionTable` row menu + `CardDetails.tsx` |
 | 7 | Import all Scryfall data, including oracle tags (otags) | Hard | Med–High | Needs architect | sync + schema + search |
-| 8 | Other card languages (Japanese, Phyrexian): own, show and scan them (not Japanese-name lookup) | Med | Med | Ready for owner sign-off (architect done) | display pass, trade snapshot migration, scan-core footer fallback |
+| 8 | Other card languages (Japanese, Phyrexian): own, show and scan them (not Japanese-name lookup) | Med | Med | Built, needs owner check on a device (all 4 steps landed across #74/#75/this PR; scanner behaviour unverified on a phone) | display pass, trade snapshot migration, scan-core footer fallback |
 | 9 | Public leaderboard: all dev items and bugs, up and down votes, doubles as the backlog | Hard | Low until there are users | Needs architect | new tables, web + mobile |
 
 Notes behind the ranking:
@@ -206,8 +206,28 @@ Notes behind the ranking:
     `create or replace function` — the trigger itself did not need to be
     recreated) now also fills `new.language` from the source instance when it
     is not already set. Verified against local Postgres (`npm run test:db`,
-    all 40 migrations + `schema_test.sql` clean). Steps 3–4 (the footer-first
-    scan fallback, the footer language token) are not started.
+    all 40 migrations + `schema_test.sql` clean).
+  - **Steps 3–4 done (2026-09-22):** `CardIndex` gained a `byFooter(setCode,
+    collectorNumber)` lookup (backlog item 8 step 3) — a set+number index
+    built alongside the existing name index, returning every printing at that
+    exact spot with no name needed at all (more than one when languages of
+    the same printing share a footer, which is the point). `ScanPipeline.
+    matchEvidence` falls back to it only when name matching found nothing or
+    scored under 0.78 (the same bar `scan()` already used for a second pass,
+    not a new threshold), and only when the footer named a set+number the
+    catalog recognizes — purely additive, never downgrades or replaces a
+    confident name match. `printingHints` now also captures the footer's
+    language token (step 4) into a new `PrintingHints.language`, threaded
+    through `ScanResult.languageHint` to `ScanScreen.tsx`'s draft-building at
+    both call sites, with precedence `quickLanguage ?? languageHint ??
+    lastUsedDraft.language ?? default` — an explicit person setting always
+    wins, the footer only beats the stale last-used fallback. New tests in
+    `packages/scan-core/test/core.test.ts` and `printing.test.ts`, including
+    an explicit "must not override a strong existing name match" case.
+    Reviewed with extra scrutiny given this touches the live scan-matching
+    pipeline — no findings. **Unverified on a physical device** (no camera in
+    this environment); only the pure logic is tested and typechecked. Item 8
+    is now fully shipped across #74/#75/this PR.
 - **9 (leaderboard):** test demand first (one line in the feedback box, then a public
   page or GitHub Discussions). Build the feedback admin inbox (`is_admin()`, never
   built) first. If built later: signed-in only, owner-created items only, advisory

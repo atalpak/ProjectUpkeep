@@ -38,6 +38,71 @@ test('a typed filter excludes non-matching printings rather than only re-ranking
   // zeros, a "/100" print-run suffix).
   assert.equal(index.search('Lightning Bolt', {}, { collectorNumber: '0146/999' })[0]?.printing.id, a);
 });
+// ---------------------------------------------------------------------------
+// CardIndex.byFooter / ScanPipeline footer-first fallback
+// (backlog item 8, "other card languages", steps 3-4)
+// ---------------------------------------------------------------------------
+const jpId = '66666666-6666-4666-8666-666666666666';
+const enId = '77777777-7777-4777-8777-777777777777';
+const otherId = '88888888-8888-4888-8888-888888888888';
+// Two languages of the SAME printing: identical set code + collector number,
+// which is the whole reason a footer-only lookup can return more than one
+// result. The Japanese printing's own catalog `name` (its printed-language
+// name, not "Lightning Bolt") stands in for the real case this fallback
+// exists for -- the catalog's aliases do not cover a foreign name, so text
+// search can never find it, but the footer's set+number can.
+const footerBundle: CatalogBundle = { schemaVersion: 1, version: 'footer-test', generatedAt: '2026-09-21T00:00:00Z', printings: [
+  { id: enId, oracleId: oracle, name: 'Lightning Bolt', aliases: [], setCode: 'soc', collectorNumber: '236', language: 'en', finishes: ['nonfoil'] },
+  { id: jpId, oracleId: oracle, name: '稲妻', aliases: [], setCode: 'soc', collectorNumber: '236', language: 'ja', finishes: ['nonfoil'] },
+  { id: otherId, oracleId: oracle, name: 'Lightning Bolt', aliases: [], setCode: 'soc', collectorNumber: '999', language: 'en', finishes: ['nonfoil'] },
+]};
+
+test('CardIndex.byFooter: looks a printing up by set+number alone, with no name at all', () => {
+  const index = new CardIndex(footerBundle);
+  const found = index.byFooter('SOC', '0236');
+  assert.deepEqual(found.map(p => p.id).sort(), [enId, jpId].sort());
+});
+test('CardIndex.byFooter: a set+number the catalog does not have returns nothing, never throws', () => {
+  const index = new CardIndex(footerBundle);
+  assert.deepEqual(index.byFooter('soc', '404'), []);
+  assert.deepEqual(index.byFooter('zzz', '236'), []);
+});
+test('ScanPipeline.matchEvidence: footer fallback fires only when name matching found nothing/weak, and surfaces every language at that spot', () => {
+  const pipeline = new ScanPipeline(new CardIndex(footerBundle), { readText: async () => ({ lines: [] }) });
+  // No name text at all (a full-art card with the name off-frame): the footer alone finds both languages.
+  const blank = pipeline.matchEvidence({ lines: [], printingLines: ['0236', 'SOC • JA'] });
+  assert.deepEqual(blank.candidates.map(c => c.printing.id).sort(), [enId, jpId].sort());
+  assert.ok(blank.candidates.every(c => c.evidence === 'printing'));
+  assert.equal(blank.method, 'ocr');
+  assert.equal(blank.languageHint, 'ja');
+  // A name too garbled to match anything, but a clean footer: same fallback.
+  const garbled = pipeline.matchEvidence({ lines: ['Xqqzzz Not Readable'], printingLines: ['0236', 'SOC • EN'] });
+  assert.deepEqual(garbled.candidates.map(c => c.printing.id).sort(), [enId, jpId].sort());
+  // A set+number the catalog does not have: no throw, no fallback candidates, no match.
+  const none = pipeline.matchEvidence({ lines: [], printingLines: ['0404', 'SOC • EN'] });
+  assert.deepEqual(none.candidates, []);
+  assert.equal(none.method, 'none');
+});
+test('ScanPipeline.matchEvidence: a strong existing name match is never touched by the footer fallback', () => {
+  const pipeline = new ScanPipeline(new CardIndex(footerBundle), { readText: async () => ({ lines: [] }) });
+  // Exact name match with NO footer lines at all: nothing for the fallback to consult,
+  // and the top score already clears 0.78, so it would not run even if it had evidence.
+  const exact = pipeline.matchEvidence({ lines: ['Lightning Bolt'] });
+  assert.equal(exact.candidates[0]!.score, 1);
+  assert.ok(exact.candidates[0]!.score >= 0.78, 'above the bar: the fallback never even runs');
+  // Name search already finds "Lightning Bolt" (enId) at full confidence, and the
+  // footer names that SAME spot (SOC #236) -- the Japanese printing (jpId) sits at
+  // the identical set+number and, per the two tests above, IS reachable through the
+  // footer fallback when it runs. Here the top match already clears 0.78, so the
+  // fallback must never run at all, and jpId (whose own `name` never matches
+  // "Lightning Bolt") must not appear.
+  const withFooter = pipeline.matchEvidence({ lines: ['Lightning Bolt'], printingLines: ['0236', 'SOC • EN'] });
+  // enId and otherId both share the name "Lightning Bolt" -- otherId is a
+  // legitimate name match (a different printing of the same card), just not
+  // the footer-confirmed one. jpId is the one that only the fallback could add.
+  assert.deepEqual(withFooter.candidates.map(c => c.printing.id).sort(), [enId, otherId].sort());
+  assert.ok(!withFooter.candidates.some(c => c.printing.id === jpId), 'the footer fallback never ran: jpId is unreachable by name alone');
+});
 test('searchWithTotal reports the true match count ahead of truncation', () => {
   const index = new CardIndex(bundle);
   const { results, total } = index.searchWithTotal('Lightning Bolt', {}, {}, 1);
