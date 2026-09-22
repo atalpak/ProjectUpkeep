@@ -1,7 +1,7 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
-import { createCollectionWriter, createMoveWriter, type CollectionStore, type StackAdditionInput, type StackAdditionResult, type MoveStore, type StackMoveInput, type StackMoveResult } from '@upkeep/scan-core';
+import { createCollectionWriter, createMoveWriter, createReprintWriter, type CollectionStore, type StackAdditionInput, type StackAdditionResult, type MoveStore, type StackMoveInput, type StackMoveResult, type ReprintStore, type StackReprintInput, type StackReprintResult } from '@upkeep/scan-core';
 
 // Persisted auth (phase 1b) needs a storage object with getItem/setItem/removeItem.
 // expo-secure-store is already a dependency and already used for the pending-scan
@@ -146,3 +146,52 @@ const moveStore: MoveStore = {
 };
 
 export const moveWriter = backend ? createMoveWriter(moveStore) : null;
+
+/**
+ * Mobile parity for backlog item 6 ("change printing of an owned copy"),
+ * applied atomically through migration 39's apply_stack_reprint — see
+ * packages/scan-core/src/reprint.ts for why this needs its own retry shape
+ * rather than reusing moveWriter's, and src/app/(app)/collection/actions.ts's
+ * reprintCardInstance for the web reference this mirrors.
+ */
+const reprintStore: ReprintStore = {
+  // Explicit owner filter, not just RLS — same reasoning as `store.
+  // findCandidates` and `moveStore.findDestinationCandidates` above: RLS
+  // alone would also return a friend's tradable-binder rows sharing this
+  // post-reprint stack key (migration 9), which would merge a reprint into a
+  // stack that was never this account's.
+  async findCandidates({ cardId, condition, finish, language, locationId }) {
+    const owner = await currentUserId();
+    if (!owner) throw new Error('Sign in to change a copy in your collection.');
+    let query = backend!.from('card_instances')
+      .select('id,quantity,notes')
+      .eq('owner_user_id', owner)
+      .eq('card_id', cardId)
+      .eq('condition', condition)
+      .eq('finish', finish)
+      .eq('language', language);
+    query = locationId === null ? query.is('location_id', null) : query.eq('location_id', locationId);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
+  },
+
+  async applyStackReprint(input: StackReprintInput): Promise<StackReprintResult> {
+    const { data, error } = await backend!.rpc('apply_stack_reprint', {
+      p_operation_id: input.operationId,
+      p_instance_id: input.sourceInstanceId,
+      p_new_card_id: input.newCardId,
+      p_finish: input.finish,
+      p_target_instance_id: input.targetInstanceId,
+      p_quantity: input.quantity,
+    });
+    if (error) throw error;
+    // apply_stack_reprint RETURNS TABLE (...), same PostgREST array-of-one
+    // shape as apply_stack_addition and apply_stack_move.
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('apply_stack_reprint returned no result.');
+    return { instanceId: row.result_instance_id, quantity: row.result_quantity, replayed: row.replayed };
+  },
+};
+
+export const reprintWriter = backend ? createReprintWriter(reprintStore) : null;

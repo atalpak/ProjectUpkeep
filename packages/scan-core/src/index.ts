@@ -4,6 +4,7 @@ export * from './pipeline';
 export * from './collection';
 export * from './writer';
 export * from './move';
+export * from './reprint';
 export * from './build-row';
 export * from './band';
 export * from './printing';

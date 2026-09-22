@@ -20,7 +20,7 @@ architect** (structural; architect impact map, then owner sign-off, then impleme
 | 3 | Photos in every printing selector | Easy–Med | Med–High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
 | 4 | Flip button on double-faced cards (swap image and name, revert on leaving the page) | Easy–Med | Med | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
 | 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Ready (after 3) | `ScanSessionSummary.tsx` |
-| 6 | Change the printing of a card you own in the collection | Med–Hard | High | Part 2 done (migration 39, decision helper, server action, "Change printing…" row UI) — mobile parity next | `apply_stack_reprint` + `CollectionTable` row menu |
+| 6 | Change the printing of a card you own in the collection | Med–Hard | High | Done (2026-09-22) | `apply_stack_reprint` + `CollectionTable` row menu + `CardDetails.tsx` |
 | 7 | Import all Scryfall data, including oracle tags (otags) | Hard | Med–High | Needs architect | sync + schema + search |
 | 8 | Other card languages (Japanese, Phyrexian): own, show and scan them (not Japanese-name lookup) | Med | Med | Ready for owner sign-off (architect done) | display pass, trade snapshot migration, scan-core footer fallback |
 | 9 | Public leaderboard: all dev items and bugs, up and down votes, doubles as the backlog | Hard | Low until there are users | Needs architect | new tables, web + mobile |
@@ -126,7 +126,21 @@ Notes behind the ranking:
     value changes from X to Y" line). Verified against the live dev database: a
     9-card Foundations Mountain stack reprinted in place to Secret Lair Drop #1481
     (value line and result both correct) and back, id preserved, no accidental
-    merge. Still to do: mobile parity.
+    merge.
+  - **Part 3 done (2026-09-22):** `packages/scan-core/src/reprint.ts`
+    (`createReprintWriter`, the retry-once-on-stale-destination /
+    retry-once-on-stale-source wrapper around `apply_stack_reprint`, mirroring
+    `move.ts`'s asymmetric shape) with its own tests appended to
+    `packages/scan-core/test/core.test.ts`; `reprintStore`/`reprintWriter` in
+    `apps/mobile/src/backend.ts`; `OwnedStack` in `apps/mobile/src/cardDetails.ts`
+    extended with `cardId`, `language`, `locationId`, `locationType` and `notes`
+    (the full stack key `decideReprint` needs, plus the sleeved-in-a-deck flag);
+    and a "Change printing…" action per owned-stack row in
+    `apps/mobile/src/components/CardDetails.tsx` (`OwnedStackRow` /
+    `ReprintPanel`) — the finish-reconciliation picker, the "estimated value
+    changes from X to Y" line and the sleeved-deck note all mirror the web
+    `RowReprint` panel, built on the sheet's own already-loaded printings list
+    rather than a second fetch. Item 6 is now fully shipped, web and mobile.
 - **7 (Scryfall data and otags):** official `oracle_tags` bulk file, two tables keyed
   on tag UUID, separate `sync-oracle-tags.ts`; card fields = full_art, border_color,
   promo, promo_types, frame_effects, frame, textless, variation, edhrec_rank,
