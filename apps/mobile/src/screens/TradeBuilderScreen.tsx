@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { mirrorTradeForCounter } from '@upkeep/domain';
+import { LANGUAGE_LABELS, mirrorTradeForCounter, type LanguageCode } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { TradingTerms } from '../components/TradingTerms';
 import { Button, Choices, Notice } from '../components/ui';
@@ -115,7 +115,7 @@ export function TradeBuilderScreen({ route, navigation }: NativeStackScreenProps
               {name => (
                 <View style={styles.grow}>
                   <Text style={styles.name}>{name}</Text>
-                  <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber}{c.finish && c.finish !== 'nonfoil' ? ` · ${c.finish}` : ''} · {c.quantity} available</Text>
+                  <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber}{c.finish && c.finish !== 'nonfoil' ? ` · ${c.finish}` : ''}{c.language && c.language !== 'en' ? ` · ${LANGUAGE_LABELS[c.language as LanguageCode] ?? c.language}` : ''} · {c.quantity} available</Text>
                 </View>
               )}
             </FlipThumb>

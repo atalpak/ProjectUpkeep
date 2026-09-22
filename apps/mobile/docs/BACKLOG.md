@@ -19,8 +19,8 @@ architect** (structural; architect impact map, then owner sign-off, then impleme
 | 2 | Sub-menus / popovers render outside the window | Easy | High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile, find every menu |
 | 3 | Photos in every printing selector | Easy–Med | Med–High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
 | 4 | Flip button on double-faced cards (swap image and name, revert on leaving the page) | Easy–Med | Med | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
-| 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Ready (after 3) | `ScanSessionSummary.tsx` |
-| 6 | Change the printing of a card you own in the collection | Med–Hard | High | Doing — migration 39 + tests written, server action and UI next | `apply_stack_reprint` + `CollectionTable` row menu |
+| 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Done (2026-09-22) | `ScanSessionSummary.tsx` |
+| 6 | Change the printing of a card you own in the collection | Med–Hard | High | Done (2026-09-22) | `apply_stack_reprint` + `CollectionTable` row menu + `CardDetails.tsx` |
 | 7 | Import all Scryfall data, including oracle tags (otags) | Hard | Med–High | Needs architect | sync + schema + search |
 | 8 | Other card languages (Japanese, Phyrexian): own, show and scan them (not Japanese-name lookup) | Med | Med | Ready for owner sign-off (architect done) | display pass, trade snapshot migration, scan-core footer fallback |
 | 9 | Public leaderboard: all dev items and bugs, up and down votes, doubles as the backlog | Hard | Low until there are users | Needs architect | new tables, web + mobile |
@@ -33,6 +33,17 @@ Notes behind the ranking:
   and the in-app "new cards" check do not update, and `latest.json` never publishes.
 - **5 before 6:** the session list is unsaved data, so it needs no database change.
   It also mitigates the wrong-printing scan problem while 6 is designed.
+  **Done (2026-09-22):** `EditSheet` in `ScanSessionSummary.tsx` gained a "Change
+  printing…" step, its own `PrintingChangeSheet` (search by set code / collector
+  number, seeded on the row's own card name, narrowed to genuinely the same card
+  with `isSameCard`) and `reconcileFinish` (both from `@upkeep/domain`, already
+  shipped for item 6's web half) to force a finish pick rather than silently keep
+  one the new printing was never made in. `changeStagedPrinting` in
+  `ScanScreen.tsx` swaps `printing`/`card_id`/`finish` and re-runs
+  `validateDraft`, the same as every other staged-row edit — nothing is written
+  to the database; the row stays local until "Add to collection". No migration,
+  no new package logic (both helpers already existed for the web reprint
+  feature).
 - **6** changes a stack's key (the printing), so it must merge safely into an existing
   stack, like `apply_stack_move`. Nothing may write around `apply_stack_addition` /
   `apply_stack_move` for a stacked write.
@@ -116,8 +127,31 @@ Notes behind the ranking:
     different details. Both ordering cases were **confirmed red** with the destination
     incremented first (the whole-stack case inflated a 6-card list to 10, the partial
     case to 7) before being allowed to pass — a green run on a test never seen red is
-    not evidence. Still to do: the shared decision helper + `scripts/reprint.test.ts`,
-    the server action, the "Change printing…" menu item, then mobile.
+    not evidence.
+  - **Part 2 done (2026-09-22):** `packages/upkeep-domain/src/reprint.ts`
+    (`decideReprint`, `reconcileFinish`, `isSameCard`) and `scripts/reprint.test.ts`;
+    `reprintCardInstance` in `src/app/(app)/collection/actions.ts`; the "Change
+    printing…" row menu item and `RowReprint` panel in `CollectionTable.tsx`, built
+    on the existing `PrintingPicker.tsx`. `/api/cards/printings` now also returns
+    `oracle_id` (the same-card gate) and the three price columns (the "estimated
+    value changes from X to Y" line). Verified against the live dev database: a
+    9-card Foundations Mountain stack reprinted in place to Secret Lair Drop #1481
+    (value line and result both correct) and back, id preserved, no accidental
+    merge.
+  - **Part 3 done (2026-09-22):** `packages/scan-core/src/reprint.ts`
+    (`createReprintWriter`, the retry-once-on-stale-destination /
+    retry-once-on-stale-source wrapper around `apply_stack_reprint`, mirroring
+    `move.ts`'s asymmetric shape) with its own tests appended to
+    `packages/scan-core/test/core.test.ts`; `reprintStore`/`reprintWriter` in
+    `apps/mobile/src/backend.ts`; `OwnedStack` in `apps/mobile/src/cardDetails.ts`
+    extended with `cardId`, `language`, `locationId`, `locationType` and `notes`
+    (the full stack key `decideReprint` needs, plus the sleeved-in-a-deck flag);
+    and a "Change printing…" action per owned-stack row in
+    `apps/mobile/src/components/CardDetails.tsx` (`OwnedStackRow` /
+    `ReprintPanel`) — the finish-reconciliation picker, the "estimated value
+    changes from X to Y" line and the sleeved-deck note all mirror the web
+    `RowReprint` panel, built on the sheet's own already-loaded printings list
+    rather than a second fetch. Item 6 is now fully shipped, web and mobile.
 - **7 (Scryfall data and otags):** official `oracle_tags` bulk file, two tables keyed
   on tag UUID, separate `sync-oracle-tags.ts`; card fields = full_art, border_color,
   promo, promo_types, frame_effects, frame, textless, variation, edhrec_rank,
@@ -131,9 +165,37 @@ Notes behind the ranking:
   but show the language. Live `cards` size checked 2026-09-21: **118,612 rows**, which
   confirms the cheap path — the display pass adds no rows, and `all_cards` would mean
   roughly 546,000.
-  - **Step 1 done (2026-09-22, separate PR):** the display pass — collection
-    column on by default, trade builder, tradable binder, supplier rows, /find
-    and their mobile equivalents.
+  - **Step 1 done (2026-09-22):** the display pass. Web: the collection table's
+    `language` column now defaults on (`src/components/collection/columns.ts`,
+    `scripts/collection-columns.test.ts` updated to match); a badge, shown only
+    when a copy is not English (the same "only when it deviates" rule `FoilMark`
+    already uses for finish), was added to the trade builder's offer rows
+    (`src/components/social/TradeBuilder.tsx`), the tradable-binder views
+    (`src/components/social/TradableBinderPreview.tsx`, `ProfileTradables.tsx`),
+    the deck page's own wish-list supplier lines (`DeckWorkspace.tsx`), and
+    `/find`'s own-collection place rows and "Among your friends" rows
+    (`src/app/(app)/find/page.tsx`). Supplier rows across `/wants`, a deck's wish
+    list and the card-popup "friends have this" line all share `WantSupplier`
+    (`src/lib/social/wants.ts`), which now carries a deduped `languages: string[]`
+    alongside `locations`, filled in `matchWants` / `matchTradablesByTerm` from a
+    new `language` field on `TradableRow`; `describeSupplier` gained an optional
+    third parameter that appends `(Japanese)` and the like, defaulting to `[]` so
+    every existing call site reads exactly as before until it opts in — all of
+    them now do except `/decks/check`'s own separate `CheckSupplier` type, which
+    this step left alone. `getFriendTradables` / `getMyTradablesForMatching`
+    (`src/lib/social/queries.ts`) now select `language`; `/find`'s own-collection
+    half needed the same in `locate.ts` (`Place.languages`, fed by a new
+    `LocatableRow.language`) and `locateInCollection`. Mobile: the collection
+    list already showed language when non-English (`CollectionScreen.tsx`,
+    pre-existing); added to the trade builder's offer rows
+    (`TradeBuilderScreen.tsx`) and a friend's profile — both trade-binder and
+    wish-list rows share one row renderer (`FriendProfileScreen.tsx`) — via a new
+    `language` field on `FriendCard` (`friends.ts`, `trades.ts`) and
+    `@upkeep/domain`'s existing `LANGUAGE_LABELS`. No mobile /find screen exists
+    yet (placeholder), and mobile has no wish-list supplier matching yet, so
+    neither needed a change. Tests added: `scripts/wants.test.ts` (supplier
+    language aggregation and `describeSupplier`'s new parameter),
+    `scripts/locate.test.ts` (place language aggregation).
   - **Step 2 done (2026-09-22):** the trade snapshot's own `language` column.
     `supabase/migrations/00000000000040_trade_item_language_snapshot.sql` adds
     a nullable `trade_items.language`, mirroring migration 23's `finish`

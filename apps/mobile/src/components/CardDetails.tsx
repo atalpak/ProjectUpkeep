@@ -4,8 +4,9 @@ import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish } from '@upkeep/scan-core';
+import { isSameCard, reconcileFinish } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
-import { writer } from '../backend';
+import { reprintWriter, writer } from '../backend';
 import {
   FORMATS, LOAD_FAILED, addToWishList, cachedPrinting, cachedPrintings, fetchFriendActivity, fetchOwned, fetchPrinting, fetchPrintings, fetchScryfallExtras, fetchWantedQuantity,
   pickRepresentative, seedToPrinting, toPrinting,
@@ -16,7 +17,7 @@ import { errorMessage } from '../errors';
 import { compareScanToPrintings } from '../printingVerify';
 import { makeStyles } from '../preferences';
 import { accent, border, radius, space, state as stateColor, surface, text, type } from '../theme';
-import { Button, Choices } from './ui';
+import { Button, Choices, Notice } from './ui';
 import { FoilArt } from './FoilArt';
 import { ManaCost } from './ManaCost';
 
@@ -25,6 +26,18 @@ const CARD_ASPECT = 488 / 680;
 const PRINTING_TILE_W = 84;
 
 const money = (v: number | null) => (v === null ? null : `$${v.toFixed(2)}`);
+
+/** Title-case labels for the reprint panel's finish picker — matches src/lib/types.ts's FINISH_LABELS on the web. */
+const FINISH_LABELS: Record<Finish, string> = { nonfoil: 'Non-foil', foil: 'Foil', etched: 'Etched', glossy: 'Glossy' };
+
+/** Mirrors src/lib/collection/pricing.ts's priceFor: exact finish match only, no fallback — the reprint panel says the
+ *  price out loud, so it must not overstate it the way displayPrice's `~` fallback would. */
+function priceForFinish(p: CardPrinting | null, finish: Finish): number | null {
+  if (!p) return null;
+  if (finish === 'foil') return p.priceUsdFoil;
+  if (finish === 'etched') return p.priceUsdEtched;
+  return p.priceUsd;
+}
 
 type PriceVariant = { finish: Finish; label: string; value: number };
 
@@ -452,7 +465,16 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
                 : owned.length === 0
                 ? <Text style={styles.muted}>You don’t own this card yet.</Text>
                 : owned.map(s => (
-                  <Text key={s.id} style={styles.line}>{s.quantity} × {s.setCode.toUpperCase()} #{s.collectorNumber} · {s.condition} · {s.finish} · {s.locationName ?? 'Unsorted'}</Text>
+                  <OwnedStackRow
+                    key={s.id}
+                    stack={s}
+                    cardName={name!}
+                    printings={printings}
+                    onChanged={() => {
+                      onChanged?.();
+                      if (name) void refreshUserData(name, printings.map(p => p.id), selectedRef.current);
+                    }}
+                  />
                 ))}
               {wanted > 0 && <Text style={styles.line}>On your wish list (×{wanted})</Text>}
             </View>
@@ -560,6 +582,186 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   );
 }
 
+/**
+ * One owned stack's line in "In your collection", with its "Change
+ * printing…" action — mobile parity for backlog item 6 (owner decision:
+ * "mobile card details sheet only, no mobile per-copy editor yet"). Mirrors
+ * the web row-menu item + RowReprint panel in CollectionTable.tsx.
+ */
+function OwnedStackRow({ stack, printings, cardName, onChanged }: {
+  stack: OwnedStack;
+  printings: CardPrinting[];
+  cardName: string;
+  onChanged(): void;
+}) {
+  const styles = useStyles();
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.ownedRow}>
+      <Text style={styles.line}>{stack.quantity} × {stack.setCode.toUpperCase()} #{stack.collectorNumber} · {stack.condition} · {stack.finish} · {stack.locationName ?? 'Unsorted'}</Text>
+      {open ? (
+        <ReprintPanel
+          stack={stack}
+          printings={printings}
+          cardName={cardName}
+          onClose={() => setOpen(false)}
+          onChanged={() => { setOpen(false); onChanged(); }}
+        />
+      ) : (
+        <Pressable accessibilityRole="button" onPress={() => setOpen(true)} hitSlop={8}>
+          <Text style={styles.link}>Change printing…</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/**
+ * Corrects which printing one owned stack really is — its own operation id,
+ * its own retry through reprintWriter (createReprintWriter over
+ * apply_stack_reprint, migration 39), not the add form's ConfirmScan path.
+ *
+ * `printings` is the sheet's own already-loaded list for this card name (the
+ * same fetch the printings strip and the add form use), filtered through
+ * isSameCard the same way the web row-menu panel filters its own fetch — the
+ * database refuses a different card anyway (migration 39), but offering one
+ * and then rejecting it reads worse than never offering it.
+ */
+function ReprintPanel({ stack, printings, cardName, onClose, onChanged }: {
+  stack: OwnedStack;
+  printings: CardPrinting[];
+  cardName: string;
+  onClose(): void;
+  onChanged(): void;
+}) {
+  const styles = useStyles();
+  const currentOracleId = printings.find(p => p.id === stack.cardId)?.oracleId ?? printings[0]?.oracleId ?? null;
+  const candidates = printings.filter(p => isSameCard(
+    { oracle_id: p.oracleId, name: p.name },
+    { oracle_id: currentOracleId, name: cardName },
+  ));
+
+  const [chosenId, setChosenId] = useState(stack.cardId);
+  // Derived from the chosen printing, with an explicit override tagged by
+  // which printing it was made for — see RowReprint's own comment on the web
+  // for why this is not synced through an effect: that would leave a render
+  // where the finish still belongs to the previous printing.
+  const [finishChoice, setFinishChoice] = useState<{ printing: string; finish: Finish } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+
+  const chosen = candidates.find(p => p.id === chosenId) ?? null;
+  const reconciliation = chosen ? reconcileFinish(stack.finish as Finish, chosen.finishes) : null;
+  const defaultFinish: Finish =
+    reconciliation?.kind === 'keep' ? reconciliation.finish
+      : reconciliation?.kind === 'choose' ? reconciliation.options[0]!
+      : (stack.finish as Finish);
+  const finish = finishChoice?.printing === chosenId ? finishChoice.finish : defaultFinish;
+
+  const currentPrinting = printings.find(p => p.id === stack.cardId) ?? null;
+  const oldPrice = priceForFinish(currentPrinting, stack.finish as Finish);
+  const newPrice = chosen ? priceForFinish(chosen, finish) : null;
+  const priceMoves = oldPrice !== null && newPrice !== null && Math.abs(newPrice - oldPrice) >= 0.01;
+
+  const nothingChanged = chosenId === stack.cardId && finish === stack.finish;
+
+  async function confirm() {
+    if (!chosen || busy || !reprintWriter) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const result = await reprintWriter.save({
+        operationId: Crypto.randomUUID(),
+        draft: {
+          sourceInstanceId: stack.id,
+          newCardId: chosenId,
+          finish,
+          quantity: stack.quantity,
+          condition: stack.condition as Condition,
+          language: stack.language,
+          locationId: stack.locationId,
+          notes: stack.notes,
+        },
+      });
+      const where = chosen.setName || chosen.setCode.toUpperCase();
+      const finishNote = finish === stack.finish ? '' : ` as ${FINISH_LABELS[finish]}`;
+      setStatus({
+        kind: 'ok',
+        text: result.instanceId === stack.id
+          ? `Changed ${stack.quantity} × ${chosen.name} to ${where} #${chosen.collectorNumber}${finishNote}.`
+          : `Changed ${stack.quantity} × ${chosen.name} to ${where} #${chosen.collectorNumber}${finishNote} — merged into a stack you already had, now ${result.quantity}.`,
+      });
+      onChanged();
+    } catch (e) {
+      setStatus({ kind: 'error', text: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (candidates.length <= 1) {
+    return <Text style={styles.muted}>This card has only one printing.</Text>;
+  }
+
+  return (
+    <View style={styles.reprintPanel}>
+      <Text style={styles.label}>Which printing is it really? ({candidates.length})</Text>
+      <Choices
+        values={candidates.map(p => p.id)}
+        selected={chosenId}
+        disabled={busy}
+        onSelect={id => { setChosenId(id); setFinishChoice(null); }}
+        labels={Object.fromEntries(candidates.map(p => [p.id, `${p.setCode.toUpperCase()} #${p.collectorNumber}`]))}
+      />
+
+      {reconciliation?.kind === 'choose' && (
+        <View style={styles.reprintWarning}>
+          <Text style={styles.reprintWarningText}>
+            {`This printing was never made in ${FINISH_LABELS[reconciliation.from]}. Pick the finish you actually have:`}
+          </Text>
+          <Choices
+            values={reconciliation.options}
+            selected={finish}
+            disabled={busy}
+            labels={FINISH_LABELS}
+            onSelect={v => setFinishChoice({ printing: chosenId, finish: v as Finish })}
+          />
+        </View>
+      )}
+
+      {reconciliation?.kind === 'impossible' && (
+        <Notice style={styles.statusError}>
+          The card database lists no finishes for that printing, so a copy cannot be recorded against it.
+        </Notice>
+      )}
+
+      {/* Said out loud: a reprint legitimately moves a collection's estimated
+          value, and a silent swing reads as a broken valuation rather than a
+          consequence of this edit — same reasoning as the web RowReprint. */}
+      {priceMoves && (
+        <Text style={styles.muted}>{`Estimated value changes from ${money(oldPrice)} to ${money(newPrice)} per copy.`}</Text>
+      )}
+
+      {stack.locationType === 'deck' && (
+        <Text style={styles.muted}>
+          This copy is sleeved in {stack.locationName}. The deck&rsquo;s list keeps naming the printing it asks for; only the card in the box changes.
+        </Text>
+      )}
+
+      {status && <Text style={[styles.status, status.kind === 'error' ? styles.statusError : styles.statusOk]} accessibilityRole="alert">{status.text}</Text>}
+
+      <View style={styles.actions}>
+        <Button
+          label={busy ? 'Changing…' : `Change ${stack.quantity > 1 ? `all ${stack.quantity}` : 'it'}`}
+          onPress={() => void confirm()}
+          disabled={busy || nothingChanged || reconciliation?.kind === 'impossible'}
+        />
+        <Button secondary label="Close" onPress={onClose} disabled={busy} />
+      </View>
+    </View>
+  );
+}
+
 const useStyles = makeStyles(() => StyleSheet.create({
   sheet: { flex: 1, backgroundColor: surface.canvas },
   topBar: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xl, paddingVertical: space.md },
@@ -581,6 +783,10 @@ const useStyles = makeStyles(() => StyleSheet.create({
   link: { ...type.bodySm, color: text.primary, textDecorationLine: 'underline', marginTop: space.xs },
   sectionTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
   actions: { gap: space.md },
+  ownedRow: { gap: space.xs },
+  reprintPanel: { gap: space.sm, padding: space.lg, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  reprintWarning: { gap: space.xs, borderLeftWidth: 3, borderLeftColor: accent.DEFAULT, backgroundColor: accent.soft, borderRadius: radius.sm, padding: space.md },
+  reprintWarningText: { ...type.bodySm, color: text.primary },
   form: { gap: space.sm, padding: space.lg, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   formTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
   label: { ...type.label, color: text.secondary, marginTop: space.sm },

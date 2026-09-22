@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
         username: profiles.get(s.ownerId)?.username ?? "a friend",
         available: s.available,
         locations: s.locations,
+        languages: s.languages,
       })),
     });
   } catch (error) {

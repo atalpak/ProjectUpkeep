@@ -129,7 +129,17 @@ export const COLUMNS: ColumnDef[] = [
   { id: "condition", label: "Condition", default: false, sqlOrder: "condition", sortBy: (r) => r.condition },
   // No Finish column: a foil is marked beside the card name instead. See
   // src/components/FoilMark.tsx.
-  { id: "language", label: "Language", default: false, sqlOrder: "language", sortBy: (r) => r.language },
+  {
+    id: "language",
+    label: "Language",
+    // On by default (2026-09-22, backlog item 8 step 1): owning a card in a
+    // language other than English is now a normal thing to track, and a
+    // column you have to go find in a menu is easy to miss the one time it
+    // matters.
+    default: true,
+    sqlOrder: "language",
+    sortBy: (r) => r.language,
+  },
   {
     id: "location",
     label: "Location",

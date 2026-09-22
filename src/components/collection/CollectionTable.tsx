@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   deleteCardInstance,
+  reprintCardInstance,
   updateCardInstance,
 } from "@/app/(app)/collection/actions";
 import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
@@ -13,12 +14,14 @@ import { useActionState } from "react";
 import { useCardPanel, useCardPreview } from "@/components/CardPanel";
 import { SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
 import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
+import { PrintingPicker, type PrintingOption } from "@/components/cards/PrintingPicker";
+import { isSameCard, reconcileFinish } from "@/lib/collection/stacking";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { FoilMark } from "@/components/FoilMark";
 import { FoilShine } from "@/components/FoilShine";
 import { useViewportFit } from "@/hooks/useViewportFit";
 import { SetSymbol } from "@/components/SetSymbol";
-import { displayPrice, formatPrice } from "@/lib/collection/pricing";
+import { displayPrice, formatPrice, priceFor } from "@/lib/collection/pricing";
 import { BulkBar } from "@/components/collection/BulkBar";
 import { LocationSelect } from "@/components/LocationSelect";
 import {
@@ -144,6 +147,9 @@ export function CollectionTable({
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
+  // Changing a printing is its own intent, so its own open row. Opening
+  // either panel closes the other rather than stacking two forms on one row.
+  const [reprinting, setReprinting] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   function toggleColumn(id: ColumnId) {
@@ -287,7 +293,15 @@ export function CollectionTable({
                 selected={selected.has(row.id)}
                 onToggle={() => toggleRow(row.id)}
                 editing={editing === row.id}
-                onEditToggle={() => setEditing((cur) => (cur === row.id ? null : row.id))}
+                onEditToggle={() => {
+                  setReprinting(null);
+                  setEditing((cur) => (cur === row.id ? null : row.id));
+                }}
+                reprinting={reprinting === row.id}
+                onReprintToggle={() => {
+                  setEditing(null);
+                  setReprinting((cur) => (cur === row.id ? null : row.id));
+                }}
               />
             ))}
           </ul>
@@ -351,7 +365,15 @@ export function CollectionTable({
                     selected={selected.has(row.id)}
                     onToggle={() => toggleRow(row.id)}
                     editing={editing === row.id}
-                    onEditToggle={() => setEditing((cur) => (cur === row.id ? null : row.id))}
+                    onEditToggle={() => {
+                      setReprinting(null);
+                      setEditing((cur) => (cur === row.id ? null : row.id));
+                    }}
+                    reprinting={reprinting === row.id}
+                    onReprintToggle={() => {
+                      setEditing(null);
+                      setReprinting((cur) => (cur === row.id ? null : row.id));
+                    }}
                   />
                 ))}
               </tbody>
@@ -465,6 +487,8 @@ function MobileRow({
   onToggle,
   editing,
   onEditToggle,
+  reprinting,
+  onReprintToggle,
 }: {
   row: CardInstanceWithCard;
   locations: Location[];
@@ -473,6 +497,8 @@ function MobileRow({
   onToggle: () => void;
   editing: boolean;
   onEditToggle: () => void;
+  reprinting: boolean;
+  onReprintToggle: () => void;
 }) {
   const card = row.cards;
   const preview = useCardPreview(card);
@@ -514,7 +540,13 @@ function MobileRow({
               </p>
             </div>
 
-            <RowMenu row={row} onEdit={onEditToggle} editing={editing} />
+            <RowMenu
+              row={row}
+              onEdit={onEditToggle}
+              editing={editing}
+              onReprint={onReprintToggle}
+              reprinting={reprinting}
+            />
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
@@ -540,6 +572,11 @@ function MobileRow({
               <RowEditor row={row} locations={locations} onDone={onEditToggle} />
             </div>
           ) : null}
+          {reprinting ? (
+            <div className="mt-3 border-t border-border pt-3">
+              <RowReprint row={row} onDone={onReprintToggle} />
+            </div>
+          ) : null}
         </div>
       </div>
     </li>
@@ -559,6 +596,8 @@ function Row({
   onToggle,
   editing,
   onEditToggle,
+  reprinting,
+  onReprintToggle,
 }: {
   row: CardInstanceWithCard;
   columns: typeof COLUMNS;
@@ -568,6 +607,8 @@ function Row({
   onToggle: () => void;
   editing: boolean;
   onEditToggle: () => void;
+  reprinting: boolean;
+  onReprintToggle: () => void;
 }) {
   const card = row.cards;
   // imageOnly: the table row is dense and already names the card in text, so
@@ -597,7 +638,13 @@ function Row({
         ))}
 
         <td className="px-3 py-2 text-right">
-          <RowMenu row={row} onEdit={onEditToggle} editing={editing} />
+          <RowMenu
+            row={row}
+            onEdit={onEditToggle}
+            editing={editing}
+            onReprint={onReprintToggle}
+            reprinting={reprinting}
+          />
         </td>
       </tr>
 
@@ -605,6 +652,13 @@ function Row({
         <tr>
           <td colSpan={columns.length + 2} className="bg-surface-muted px-3 py-3">
             <RowEditor row={row} locations={locations} onDone={onEditToggle} />
+          </td>
+        </tr>
+      ) : null}
+      {reprinting ? (
+        <tr>
+          <td colSpan={columns.length + 2} className="bg-surface-muted px-3 py-3">
+            <RowReprint row={row} onDone={onReprintToggle} />
           </td>
         </tr>
       ) : null}
@@ -822,10 +876,14 @@ function RowMenu({
   row,
   onEdit,
   editing,
+  onReprint,
+  reprinting,
 }: {
   row: CardInstanceWithCard;
   onEdit: () => void;
   editing: boolean;
+  onReprint: () => void;
+  reprinting: boolean;
 }) {
   return (
     <FloatingMenu
@@ -860,6 +918,18 @@ function RowMenu({
             className="block w-full px-3 py-2 text-left text-sm hover:bg-surface-muted"
           >
             {editing ? "Close editor" : "Edit"}
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onReprint();
+              close();
+            }}
+            className="block w-full px-3 py-2 text-left text-sm hover:bg-surface-muted"
+          >
+            {reprinting ? "Close printing picker" : "Change printing…"}
           </button>
 
           {row.cards?.purchase_uri ? (
@@ -985,6 +1055,173 @@ function RowEditor({
       <div className="flex gap-2">
         <Button type="submit" disabled={pending}>
           {pending ? "Saving…" : "Save changes"}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Close
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Change printing — its own panel, not a field on the editor above.
+//
+// The editor submits six fields as one intent; printing cannot join them
+// without making a single Save able to change the printing, the quantity and
+// the location at once, where "quantity" means two different things on the two
+// sides. See the owner decision in apps/mobile/docs/BACKLOG.md, item 6.
+// ---------------------------------------------------------------------------
+
+type ReprintPrinting = PrintingOption & {
+  name: string;
+  oracle_id: string | null;
+  available_finishes: string[] | null;
+  // Null, never absent: `priceFor` treats a missing price as "unpriced", and
+  // an optional property would let "not fetched" pass as that silently.
+  price_usd: number | null;
+  price_usd_foil: number | null;
+  price_usd_etched: number | null;
+};
+
+function RowReprint({ row, onDone }: { row: CardInstanceWithCard; onDone: () => void }) {
+  const [state, action, pending] = useActionState(reprintCardInstance, EMPTY_STATE);
+  const card = row.cards;
+
+  const [printings, setPrintings] = useState<ReprintPrinting[]>([]);
+  // Starts true only when there is something to fetch, so the effect never has
+  // to set it synchronously just to say "nothing to load".
+  const [loading, setLoading] = useState(!!card?.name);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [chosenId, setChosenId] = useState(row.card_id);
+  // The finish is DERIVED from the chosen printing, with an explicit override
+  // tagged by which printing it was made for. Syncing it in an effect instead
+  // would mean a render where the finish still belongs to the previous
+  // printing — briefly offering a foil that this one was never made in.
+  const [finishChoice, setFinishChoice] = useState<{ printing: string; finish: Finish } | null>(
+    null,
+  );
+
+  // Every printing of this card by name, then narrowed to the ones that are
+  // genuinely the same card: the API matches on name, and art-series cards and
+  // tokens share names with the real thing. The database refuses those anyway
+  // (migration 39), but offering one and then rejecting it is a worse
+  // experience than never offering it.
+  useEffect(() => {
+    if (!card?.name) return;
+    let alive = true;
+    fetch(`/api/cards/printings?name=${encodeURIComponent(card.name)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Could not load printings."))))
+      .then((body: { printings?: ReprintPrinting[] }) => {
+        if (!alive) return;
+        const all = body.printings ?? [];
+        setPrintings(all.filter((p) => isSameCard(p, { oracle_id: card.oracle_id, name: card.name })));
+        setLoadError(null);
+      })
+      .catch((e: Error) => alive && setLoadError(e.message))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [card?.name, card?.oracle_id]);
+
+  const chosen = printings.find((p) => p.scryfall_id === chosenId);
+  const reconciliation = chosen
+    ? reconcileFinish(row.finish as Finish, chosen.available_finishes)
+    : null;
+
+  const defaultFinish: Finish =
+    reconciliation?.kind === "keep"
+      ? reconciliation.finish
+      : reconciliation?.kind === "choose"
+        ? reconciliation.options[0]
+        : (row.finish as Finish);
+  // An override only counts for the printing it was chosen against, so picking
+  // a different printing falls back to that printing's own default.
+  const finish = finishChoice?.printing === chosenId ? finishChoice.finish : defaultFinish;
+
+  const oldPrice = priceFor(card, row.finish);
+  const newPrice = chosen ? priceFor(chosen, finish) : null;
+  const priceMoves =
+    oldPrice !== null && newPrice !== null && Math.abs(newPrice - oldPrice) >= 0.01;
+
+  if (loading) return <p className="text-sm text-ink-muted">Loading printings…</p>;
+  if (loadError) return <Banner kind="error">{loadError}</Banner>;
+  if (!card || printings.length <= 1) {
+    return <p className="text-sm text-ink-muted">This card has only one printing.</p>;
+  }
+
+  return (
+    <form action={action} className="space-y-3">
+      <input type="hidden" name="instance_id" value={row.id} />
+      <input type="hidden" name="card_id" value={chosenId} />
+      <input type="hidden" name="finish" value={finish} />
+      <input type="hidden" name="quantity" value={row.quantity} />
+
+      <div className="space-y-1">
+        <span className="text-xs font-medium text-ink-muted">
+          Which printing is it really? ({printings.length})
+        </span>
+        <PrintingPicker
+          printings={printings}
+          value={chosenId}
+          onChange={setChosenId}
+          label={`Printing of ${cardDisplayName(card)}`}
+        />
+      </div>
+
+      {reconciliation?.kind === "choose" ? (
+        <div className="rounded-lg border-l-4 border-accent bg-accent-soft px-3 py-2 text-sm">
+          {`This printing was never made in ${FINISH_LABELS[reconciliation.from]}. Pick the finish you actually have:`}
+          <span className="mt-2 flex flex-wrap gap-2">
+            {reconciliation.options.map((f) => (
+              <label key={f} className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="radio"
+                  name="finish_choice"
+                  checked={finish === f}
+                  onChange={() => setFinishChoice({ printing: chosenId, finish: f })}
+                />
+                {FINISH_LABELS[f]}
+              </label>
+            ))}
+          </span>
+        </div>
+      ) : null}
+
+      {reconciliation?.kind === "impossible" ? (
+        <Banner kind="error">
+          The card database lists no finishes for that printing, so a copy cannot be recorded
+          against it.
+        </Banner>
+      ) : null}
+
+      {/* Prices are per printing and per finish, so a reprint legitimately
+          moves a collection's estimated value. Said out loud, because a silent
+          swing reads as a broken valuation rather than a consequence of this
+          edit. */}
+      {priceMoves ? (
+        <p className="text-xs text-ink-muted">
+          {`Estimated value changes from ${formatPrice(oldPrice)} to ${formatPrice(newPrice)} per copy.`}
+        </p>
+      ) : null}
+
+      {row.locations?.type === "deck" ? (
+        <p className="text-xs text-ink-muted">
+          This copy is sleeved in {row.locations.name}. The deck&rsquo;s list keeps naming the
+          printing it asks for; only the card in the box changes.
+        </p>
+      ) : null}
+
+      <Banner kind="error">{state.error}</Banner>
+      <Banner kind="success">{state.notice}</Banner>
+
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          disabled={pending || chosenId === row.card_id || reconciliation?.kind === "impossible"}
+        >
+          {pending ? "Changing…" : `Change ${row.quantity > 1 ? `all ${row.quantity}` : "it"}`}
         </Button>
         <Button type="button" variant="secondary" onClick={onDone}>
           Close

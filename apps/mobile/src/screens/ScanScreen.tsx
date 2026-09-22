@@ -347,6 +347,15 @@ export function ScanScreen() {
     patchStagedRow(id, row => ({ ...row, draft: validateDraft({ ...row.draft, ...patch }, row.printing) }));
   }
 
+  /** Session-review's "Change printing…" — the same swap `choosePrinting`
+   * does for the live sheet's staged row, but driven by the picker in
+   * ScanSessionSummary rather than the camera's own PrintingPicker, and with
+   * the finish decided ahead of time (`reconcileFinish`, in that picker)
+   * instead of falling back silently to the printing's first finish. */
+  function changeStagedPrinting(id: string, printing: Printing, finish: Finish) {
+    patchStagedRow(id, row => ({ ...row, printing, draft: validateDraft({ ...row.draft, card_id: printing.id, finish }, printing) }));
+  }
+
   function deleteStaged(id: string) {
     updateStaged(prev => prev.filter(s => s.id !== id));
     setSheet(prev => (prev?.kind === 'match' && prev.stagedId === id ? null : prev));
@@ -455,6 +464,7 @@ export function ScanScreen() {
         index={app.index}
         committing={committing}
         onEdit={editStaged}
+        onChangePrinting={changeStagedPrinting}
         onDelete={deleteStaged}
         onClear={clearStaged}
         onCommit={() => void commitAll()}
