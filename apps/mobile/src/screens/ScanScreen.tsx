@@ -54,7 +54,7 @@ type ScanMode = 'single' | 'continuous';
 type SheetState =
   | { kind: 'reading' }
   | { kind: 'unreadable' }
-  | { kind: 'match'; printing: Printing; candidates: Candidate[]; band: ScanBand; stagedId: string | null };
+  | { kind: 'match'; printing: Printing; candidates: Candidate[]; band: ScanBand; stagedId: string | null; languageHint?: string };
 
 /**
  * The FOIL tile's purple. Deliberately NOT a theme token: the brand palette
@@ -186,13 +186,23 @@ export function ScanScreen() {
 
   /** Builds a fresh read's draft from the settings sheet's finish/language
    * (falling back to the remembered defaults, then the printing's first
-   * available finish) and the remembered condition/destination. */
-  function stageFromCapture(printing: Printing, band: ScanBand): string | null {
+   * available finish) and the remembered condition/destination.
+   *
+   * `languageHint` (backlog item 8 step 4) is the footer's own printed-language
+   * token, when the read had one. It sits between the person's own explicit
+   * quick-scan setting and the passive last-used default: `quickLanguage` is a
+   * choice someone made on purpose for scans right now and always wins, but
+   * `app.lastUsedDraft?.language` is just whatever the PREVIOUS card happened
+   * to be -- stale for THIS card the moment the footer says otherwise. So the
+   * footer hint outranks the stale default but never overrides an explicit
+   * setting, consistent with printing.ts's "the person can always overrule
+   * both" design for the footer-based printing guess. */
+  function stageFromCapture(printing: Printing, band: ScanBand, languageHint?: string): string | null {
     const finish: Finish = quickFinish && printing.finishes.includes(quickFinish) ? quickFinish
       : app.lastUsedDraft?.finish && printing.finishes.includes(app.lastUsedDraft.finish) ? app.lastUsedDraft.finish
       : printing.finishes[0]!;
     const condition: Condition = app.lastUsedDraft?.condition ?? CONDITIONS[0];
-    const language = quickLanguage ?? app.lastUsedDraft?.language ?? LANGUAGES[0];
+    const language = quickLanguage ?? languageHint ?? app.lastUsedDraft?.language ?? LANGUAGES[0];
     const location_id = app.lastUsedDraft?.location_id ?? null;
     try {
       const draft = validateDraft({ card_id: printing.id, finish, condition, language, quantity: quickQuantity, location_id, notes: null }, printing);
@@ -239,9 +249,12 @@ export function ScanScreen() {
     // Continuous stages immediately and lets the sheet correct it; single
     // shows the match and waits for an explicit Add, which is how the
     // original's single mode worked (its shutter opened a detail screen
-    // rather than adding behind the player's back).
-    const stagedId = mode === 'continuous' ? stageFromCapture(printing, band) : null;
-    setSheet({ kind: 'match', printing, candidates: scoped, band, stagedId });
+    // rather than adding behind the player's back). Either way the languageHint
+    // comes off this same read, so it is carried into the sheet for single
+    // mode's deferred Add (see addFromSheet) rather than only reaching
+    // continuous mode's immediate stage.
+    const stagedId = mode === 'continuous' ? stageFromCapture(printing, band, result.languageHint) : null;
+    setSheet({ kind: 'match', printing, candidates: scoped, band, stagedId, languageHint: result.languageHint });
   }
 
   // The last card read has physically left the frame (the native gate saw it
@@ -292,7 +305,7 @@ export function ScanScreen() {
   /** Single mode's explicit "Add" — stages what the sheet is showing. */
   function addFromSheet() {
     if (sheet?.kind !== 'match' || sheet.stagedId) return;
-    const stagedId = stageFromCapture(sheet.printing, sheet.band);
+    const stagedId = stageFromCapture(sheet.printing, sheet.band, sheet.languageHint);
     setSheet({ ...sheet, stagedId });
   }
 

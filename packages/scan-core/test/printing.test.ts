@@ -15,24 +15,45 @@ const all = [m19, fdn, slz, promo];
 const sets = new Set(all.map(p => p.setCode));
 
 test('printingHints: number and set on separate footer lines, with a rarity letter', () => {
-  assert.deepEqual(printingHints(['M 0718', 'FDN • EN'], sets), { setCode: 'FDN', collectorNumber: '0718', rarity: 'mythic' });
-  assert.deepEqual(printingHints(['0718 R', 'FDN · EN'], sets), { setCode: 'FDN', collectorNumber: '0718', rarity: 'rare' });
+  assert.deepEqual(printingHints(['M 0718', 'FDN • EN'], sets), { setCode: 'FDN', collectorNumber: '0718', rarity: 'mythic', language: 'en' });
+  assert.deepEqual(printingHints(['0718 R', 'FDN · EN'], sets), { setCode: 'FDN', collectorNumber: '0718', rarity: 'rare', language: 'en' });
 });
 
 test('printingHints: the older "number/print run" footer, and the one-line form', () => {
-  assert.deepEqual(printingHints(['185/280 R', 'M19 • EN'], sets), { setCode: 'M19', collectorNumber: '185', rarity: 'rare' });
-  assert.deepEqual(printingHints(['FDN 718']), { setCode: 'FDN', collectorNumber: '718' });
+  assert.deepEqual(printingHints(['185/280 R', 'M19 • EN'], sets), { setCode: 'M19', collectorNumber: '185', rarity: 'rare', language: 'en' });
+  assert.deepEqual(printingHints(['FDN 718']), { setCode: 'FDN', collectorNumber: '718' }, 'no language token on the line: no guess');
 });
 
 test('printingHints: a language code is never the set, artist and copyright lines are ignored', () => {
-  assert.deepEqual(printingHints(['0718', 'EN']), { collectorNumber: '0718' });
-  assert.deepEqual(printingHints(['Illus. Aaron Miller 2024', '™ & © 2024 Wizards of the Coast', '0718', 'FDN EN'], sets), { setCode: 'FDN', collectorNumber: '0718' });
+  assert.deepEqual(printingHints(['0718', 'EN']), { collectorNumber: '0718', language: 'en' });
+  assert.deepEqual(printingHints(['Illus. Aaron Miller 2024', '™ & © 2024 Wizards of the Coast', '0718', 'FDN EN'], sets), { setCode: 'FDN', collectorNumber: '0718', language: 'en' });
 });
 
 test('printingHints: with the catalog\'s set codes, an unknown token is not taken for a set; the number survives', () => {
-  assert.deepEqual(printingHints(['0718', 'FDM • EN'], sets), { collectorNumber: '0718' });
+  // FDM is still rejected as a set (unknown to `sets`) even though the language
+  // token beside it is captured regardless -- the two are independent reads.
+  assert.deepEqual(printingHints(['0718', 'FDM • EN'], sets), { collectorNumber: '0718', language: 'en' });
   assert.deepEqual(printingHints([], sets), {});
   assert.deepEqual(printingHints(['~~ ,, ..'], sets), {});
+});
+
+test('printingHints: footer language token -> LanguageCode, and the exclusion-from-set-code behaviour it must not break', () => {
+  // "SOC • JA" style: the language token sits beside the set code.
+  assert.deepEqual(printingHints(['0236', 'SOC • JA'], new Set(['soc'])), { setCode: 'SOC', collectorNumber: '0236', language: 'ja' });
+  // JP is Scryfall/footer shorthand for Japanese too, and maps to the same code.
+  assert.deepEqual(printingHints(['0236', 'SOC • JP'], new Set(['soc'])).language, 'ja');
+  // A bare "ZH" is genuinely ambiguous (Simplified vs Traditional); the documented
+  // guess is `zhs`, not left undefined.
+  assert.deepEqual(printingHints(['0236', 'SOC • ZH'], new Set(['soc'])).language, 'zhs');
+  assert.deepEqual(printingHints(['0236', 'SOC • ZHS'], new Set(['soc'])).language, 'zhs');
+  assert.deepEqual(printingHints(['0236', 'SOC • ZHT'], new Set(['soc'])).language, 'zht');
+  // No recognizable language token on any line: `language` stays undefined.
+  assert.equal(printingHints(['0236', 'SOC'], new Set(['soc'])).language, undefined);
+  // Regression: a language token must still never be mistaken for the set
+  // code itself, exactly as before this field existed.
+  const hints = printingHints(['0236', 'JA • SOC'], new Set(['soc', 'ja']));
+  assert.equal(hints.setCode, 'SOC', 'JA is excluded from set-code candidacy even though it sits where a set could');
+  assert.equal(hints.language, 'ja');
 });
 
 test('rankPrintings: exact needs set and number to name one printing; leading zeros do not matter', () => {
@@ -196,7 +217,7 @@ test('regularFirst: a footer that failed to read opens the regular print, not a 
 
 test('regularFirst: the clean footer of the report resolves exactly, and the promo number is not the same as 91', () => {
   const hints = printingHints(['0091', 'ECL • EN'], new Set(['ecl', 'pecl']));
-  assert.deepEqual(hints, { setCode: 'ECL', collectorNumber: '0091' });
+  assert.deepEqual(hints, { setCode: 'ECL', collectorNumber: '0091', language: 'en' });
   const ranking = rankPrintings(bidding, hints);
   assert.equal(ranking.printingConfidence, 'exact');
   assert.equal(ranking.ranked[0]!.printing.id, bb91.id);

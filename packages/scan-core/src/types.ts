@@ -1,8 +1,8 @@
 // Condition, finish and the language code list are shared with the web app
 // via @upkeep/domain (Phase 3a of the mobile initiative) — this file used to
 // carry its own copy of all three; that copy is now the shared package's job.
-export { CONDITIONS, FINISHES, LANGUAGE_CODES as LANGUAGES, type Condition, type Finish } from '@upkeep/domain';
-import type { Condition, Finish } from '@upkeep/domain';
+export { CONDITIONS, FINISHES, LANGUAGE_CODES as LANGUAGES, type Condition, type Finish, type LanguageCode } from '@upkeep/domain';
+import type { Condition, Finish, LanguageCode } from '@upkeep/domain';
 export interface Printing {
   /** Exact Upkeep public.cards.id (Scryfall printing UUID), never oracle_id. */
   id: string;
@@ -28,7 +28,14 @@ export interface Printing {
 export interface CatalogBundle { schemaVersion: 1; version: string; generatedAt: string; printings: Printing[] }
 export interface TextEvidence { lines: string[]; printingLines?: string[] }
 export interface Candidate { printing: Printing; score: number; evidence: 'name' | 'printing' | 'image' }
-export interface ScanResult { candidates: Candidate[]; method: 'ocr' | 'image' | 'none'; needsReview: true; warnings: string[] }
+/**
+ * `languageHint`, added for backlog item 8 step 4, is the footer's own
+ * printed-language token (`printingHints`'s `language`), carried out of
+ * `matchEvidence` alongside the printing match so a caller can prefer it over
+ * a stale remembered default without this type owning any policy about WHEN
+ * that should win -- see ScanScreen's precedence comment for that call.
+ */
+export interface ScanResult { candidates: Candidate[]; method: 'ocr' | 'image' | 'none'; needsReview: true; warnings: string[]; languageHint?: LanguageCode }
 export interface CollectionDraft {
   card_id: string; condition: Condition; finish: Finish; language: string;
   quantity: number; location_id: string | null; notes: string | null;

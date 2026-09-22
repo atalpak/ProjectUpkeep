@@ -38,6 +38,15 @@ export class CardIndex {
   private byId = new Map<string, Printing>();
   private byOracle = new Map<string, Printing[]>();
   private sets = new Set<string>();
+  /**
+   * set+number -> every printing at that exact spot (backlog item 8 step 3).
+   * More than one entry is the normal case, not a collision: different
+   * languages of the same printing share the same set code and collector
+   * number, which is the whole reason a footer-only lookup is useful -- it
+   * cannot tell those languages apart on its own, so it returns all of them
+   * and leaves the choice to the person.
+   */
+  private footer = new Map<string, Printing[]>();
   constructor(value: unknown) {
     this.bundle = parseCatalog(value);
     for (const p of this.bundle.printings) {
@@ -45,6 +54,9 @@ export class CardIndex {
       this.sets.add(p.setCode.toLowerCase());
       if (!this.byOracle.has(p.oracleId)) this.byOracle.set(p.oracleId, []);
       this.byOracle.get(p.oracleId)!.push(p);
+      const footerKey = `${p.setCode.toLowerCase()}#${canonicalNumber(p.collectorNumber)}`;
+      if (!this.footer.has(footerKey)) this.footer.set(footerKey, []);
+      this.footer.get(footerKey)!.push(p);
       for (const alias of [p.name, ...p.aliases]) {
         const key = normalizeName(alias);
         if (!key) continue;
@@ -64,6 +76,18 @@ export class CardIndex {
   printingsOf(oracleId: string): Printing[] { return this.byOracle.get(oracleId) ?? []; }
   /** Lower-case set codes present in the catalog: lets footer OCR reject a token that is not a set. */
   get setCodes(): ReadonlySet<string> { return this.sets; }
+
+  /**
+   * Every printing at an exact set code + collector number, with no name
+   * needed at all -- the lookup a footer-first fallback needs (backlog item
+   * 8 step 3): a full-art card's name may be off-frame or a foreign name may
+   * not be in the catalog's aliases, but the footer's set+number is enough on
+   * its own. Returns `[]`, never throws, when nothing sits at that spot (a
+   * misread set/number that names no real printing).
+   */
+  byFooter(setCode: string, collectorNumber: string): Printing[] {
+    return this.footer.get(`${setCode.toLowerCase()}#${canonicalNumber(collectorNumber)}`) ?? [];
+  }
 
   /**
    * Ranks every printing whose name plausibly matches `text`, then narrows
