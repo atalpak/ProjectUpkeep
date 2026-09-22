@@ -8,5 +8,4 @@
  * they show it as a `mailto:` link rather than repeating the string.
  */
 
-// TODO: replace with the real support address before opening signup beyond the playgroup
-export const SUPPORT_EMAIL = "support@example.com";
+export const SUPPORT_EMAIL = "projectupkeepapp@gmail.com";

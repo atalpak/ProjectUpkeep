@@ -32,7 +32,9 @@ import {
 } from "@/lib/types";
 import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
+import { PrintingPicker, type PrintingOption } from "@/components/cards/PrintingPicker";
 import { FoilShine } from "@/components/FoilShine";
+import { isFlipCard } from "@/lib/cards/faces";
 import { ManaCost } from "@/components/ManaCost";
 import { SetSymbol } from "@/components/SetSymbol";
 import { Badge, Button, cx, Dialog, Field, Input, Select } from "@/components/ui";
@@ -855,9 +857,15 @@ const RARITY_LABEL: Record<string, string> = {
 
 function CardDetail({ card }: { card: Card }) {
   const faces = card.card_faces ?? null;
+  // Only a card with two printed sides gets the flip control; a split or
+  // adventure card is one picture, so it stays on its first face here and its
+  // other half is read out below the rules text instead (`OtherHalves`).
+  const flippable = isFlipCard(card);
+  // Component state only, never stored: closing the popup or opening another
+  // card remounts this, which is what puts every card back on its front.
   const [faceIndex, setFaceIndex] = useState(0);
 
-  const face: CardFace | null = faces?.[faceIndex] ?? null;
+  const face: CardFace | null = faces?.[flippable ? faceIndex : 0] ?? null;
   const image =
     face?.image_uris?.normal ?? face?.image_uris?.large ?? card.image_uri ?? card.image_uri_small;
 
@@ -899,7 +907,7 @@ function CardDetail({ card }: { card: Card }) {
         )}
       </div>
 
-      {faces && faces.length > 1 ? (
+      {faces && flippable ? (
         <button
           type="button"
           onClick={() => setFaceIndex((i) => (i + 1) % faces.length)}
@@ -934,6 +942,8 @@ function CardDetail({ card }: { card: Card }) {
           {loyalty ? `Loyalty ${loyalty}` : `${power} / ${toughness}`}
         </p>
       ) : null}
+
+      {!flippable ? <OtherHalves faces={faces} /> : null}
 
       <dl className="space-y-1.5 border-t border-border pt-3 text-xs">
         <Row label="Set">
@@ -984,6 +994,32 @@ function CardDetail({ card }: { card: Card }) {
   );
 }
 
+/**
+ * The rules of a split or adventure card's other half(s). Such a card has one
+ * picture and no flip control, so without this its second half would not be
+ * readable anywhere in the popup.
+ */
+function OtherHalves({ faces }: { faces: CardFace[] | null }) {
+  const rest = faces?.slice(1) ?? [];
+  if (rest.length === 0) return null;
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      {rest.map((half, index) => (
+        <div key={index} className="space-y-0.5">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold">{half.name}</p>
+            {half.mana_cost ? <ManaCost cost={half.mana_cost} /> : null}
+          </div>
+          {half.type_line ? <p className="text-xs text-ink-muted">{half.type_line}</p> : null}
+          {half.oracle_text ? (
+            <p className="whitespace-pre-line text-xs leading-relaxed">{half.oracle_text}</p>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <a
@@ -1011,9 +1047,15 @@ function ExternalLink({ href, children }: { href: string; children: React.ReactN
  */
 function CardWide({ card }: { card: Card }) {
   const faces = card.card_faces ?? null;
+  // Only a card with two printed sides gets the flip control; a split or
+  // adventure card is one picture, so it stays on its first face here and its
+  // other half is read out below the rules text instead (`OtherHalves`).
+  const flippable = isFlipCard(card);
+  // Component state only, never stored: closing the popup or opening another
+  // card remounts this, which is what puts every card back on its front.
   const [faceIndex, setFaceIndex] = useState(0);
 
-  const face: CardFace | null = faces?.[faceIndex] ?? null;
+  const face: CardFace | null = faces?.[flippable ? faceIndex : 0] ?? null;
   const image =
     face?.image_uris?.normal ?? face?.image_uris?.large ?? card.image_uri ?? card.image_uri_small;
 
@@ -1059,7 +1101,7 @@ function CardWide({ card }: { card: Card }) {
           )}
         </div>
 
-        {faces && faces.length > 1 ? (
+        {faces && flippable ? (
           <button
             type="button"
             onClick={() => setFaceIndex((i) => (i + 1) % faces.length)}
@@ -1120,6 +1162,8 @@ function CardWide({ card }: { card: Card }) {
           </p>
         ) : null}
 
+        {!flippable ? <OtherHalves faces={faces} /> : null}
+
         {/* The printing switcher sits directly under the rules text, above the
             set/number detail it belongs with. CardWide itself is keyed on the
             name, so paging through printings keeps this (and its fetch) mounted;
@@ -1162,13 +1206,7 @@ function CardWide({ card }: { card: Card }) {
   );
 }
 
-type PrintingRow = {
-  scryfall_id: string;
-  set_name: string | null;
-  set_code: string | null;
-  collector_number: string | null;
-  released_at: string | null;
-};
+type PrintingRow = PrintingOption;
 
 type ActionsData = {
   decks: Array<{ id: string; name: string }>;
@@ -1224,24 +1262,15 @@ function CardPrintingPicker({ card }: { card: Card }) {
 
   return (
     <div className="pt-1">
-      <Field label={`Printing (${printings.length})`}>
-        <Select
+      <div className="space-y-1">
+        <span className="text-xs font-medium text-ink-muted">Printing ({printings.length})</span>
+        <PrintingPicker
+          printings={printings}
           value={card.scryfall_id}
-          onChange={(event) => {
-            const id = event.target.value;
-            if (id !== card.scryfall_id) ctx?.show(id, ctx.presentation ?? "sheet");
-          }}
-          className="text-xs"
-        >
-          {printings.map((p) => (
-            <option key={p.scryfall_id} value={p.scryfall_id}>
-              {p.set_name ?? p.set_code?.toUpperCase() ?? "Unknown set"}
-              {p.collector_number ? ` · #${p.collector_number}` : ""}
-              {p.released_at ? ` · ${p.released_at.slice(0, 4)}` : ""}
-            </option>
-          ))}
-        </Select>
-      </Field>
+          label={`Printing of ${card.name}`}
+          onChange={(id) => ctx?.show(id, ctx.presentation ?? "sheet")}
+        />
+      </div>
     </div>
   );
 }

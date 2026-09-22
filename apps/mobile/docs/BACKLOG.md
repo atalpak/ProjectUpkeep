@@ -1,8 +1,161 @@
-# Mobile app backlog
+# Project Upkeep backlog and roadmap — the source of truth
 
-What is not built yet, or is built but needs a follow-up. Newest thinking first
-within each group. Kept out of the historical handoff docs on purpose: this file
-is the live list.
+**This file is the one list of what to do next, for web and mobile.** If an item is
+not here, it is not planned. When work starts, finishes or is re-ranked, update this
+file in the same change. Do not keep a second roadmap in a chat, a brief or another
+doc (`MOBILE_UI_REFINEMENT_BRIEF.md` is a work brief, not a roadmap; its items are
+tracked below). It lives under `apps/mobile/docs/` for historical reasons and covers
+the whole product.
+
+Status key: **Doing** (in progress) · **Ready** (scoped, can start) · **Needs
+architect** (structural; architect impact map, then owner sign-off, then implementer)
+· **Later** (deliberately parked).
+
+## Prioritised roadmap (ranked by ease and impact, re-ranked 2026-09-21)
+
+| # | Item | Ease | Impact | Status | Where |
+|---|---|---|---|---|---|
+| 1 | Fix the daily Scryfall sync (mobile catalog export step times out) | Easy | High | Doing | `scripts/export-catalog.ts` |
+| 2 | Sub-menus / popovers render outside the window | Easy | High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile, find every menu |
+| 3 | Photos in every printing selector | Easy–Med | Med–High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
+| 4 | Flip button on double-faced cards (swap image and name, revert on leaving the page) | Easy–Med | Med | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
+| 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Ready (after 3) | `ScanSessionSummary.tsx` |
+| 6 | Change the printing of a card you own in the collection | Med–Hard | High | Needs architect | stacking + new migration |
+| 7 | Import all Scryfall data, including oracle tags (otags) | Hard | Med–High | Needs architect | sync + schema + search |
+| 8 | Other card languages (Japanese, Phyrexian): own, show and scan them (not Japanese-name lookup) | Med | Med | Ready for owner sign-off (architect done) | display pass, trade snapshot migration, scan-core footer fallback |
+| 9 | Public leaderboard: all dev items and bugs, up and down votes, doubles as the backlog | Hard | Low until there are users | Needs architect | new tables, web + mobile |
+
+Notes behind the ranking:
+
+- **1** is failing on the schedule now (runs of 2026-09-20 and 2026-09-21). The failing
+  step is the catalog export, not the Scryfall import: "canceling statement due to
+  statement timeout" at offset 58000, paging by offset. Until fixed, the mobile catalog
+  and the in-app "new cards" check do not update, and `latest.json` never publishes.
+- **5 before 6:** the session list is unsaved data, so it needs no database change.
+  It also mitigates the wrong-printing scan problem while 6 is designed.
+- **6** changes a stack's key (the printing), so it must merge safely into an existing
+  stack, like `apply_stack_move`. Nothing may write around `apply_stack_addition` /
+  `apply_stack_move` for a stacked write.
+- **7** has two parts: extra fields already in Scryfall's `default_cards` export, and
+  otags. Correction (architect, 2026-09-21): otags ARE now an official Scryfall bulk
+  file (`oracle_tags` in `api.scryfall.com/bulk-data`, ~5.7 MB gzipped, updated daily,
+  no rate limit, covers 99.4% of our cards), so this is Moderate, not Hard. Plan:
+  two tables keyed on the tag UUID (slugs are not stable), a separate
+  `scripts/sync-oracle-tags.ts`, migration 39+. The bigger cost is a fast tag search
+  (needs a derived array or a SQL function, in both search models). Do it after item 1
+  has one green scheduled run. Do not paywall Scryfall data (their terms).
+- **8** (architect, 2026-09-21): recommended path is cheap. All 49 Phyrexian printings
+  are ALREADY in `cards`, and set + collector number are identical across languages, so
+  (1) a display pass showing a copy's language everywhere (collection column on by
+  default, trade builder, tradable binder, supplier rows, /find), (2) a `language`
+  column on the trade snapshot (new migration, like migration 23), (3) a footer-first
+  scan fallback (set + number index in `CardIndex`, pure TS in scan-core, no rebuild,
+  also helps full-art English scans), (4) keep the footer language token as the scan
+  draft's language. Then stop and ask. Do NOT switch to `all_cards` (4.6x rows, ~30 min
+  upsert in a 45 min job, over the free Postgres tier, 34 unfiltered query sites) and
+  do NOT ship an all-language mobile catalog (210 MB vs an 80 MB cap). Looking cards up
+  by their Japanese name is a separate, much larger request. Wish-list matching stays
+  language-agnostic; show the language instead of filtering on it.
+- **9** duplicates and extends the in-app feedback button
+  (`src/app/(app)/feedback-actions.ts`). With one user, votes carry no signal yet;
+  the cheapest way to find out whether it is wanted is to ask real users.
+
+### Owner decisions (2026-09-21: "go with all recommendations")
+
+- **6 (change printing of an owned copy):** web collection list + mobile card details
+  sheet only (no mobile per-copy editor yet); a finish the new printing lacks warns
+  and forces a finish choice (never hide printings); the deck list line does NOT
+  follow; blocked while the copy is in an open trade; one card at a time, no bulk;
+  same-card rule stays strict. New `apply_stack_reprint` (migration **39** — checked,
+  the directory tops out at 38), ordering test that would inflate a deck list if the
+  steps were reordered.
+
+  Architect impact map, 2026-09-21, and the owner decision that came out of it:
+
+  - **Hosting (owner, 2026-09-21): its own row-menu item "Change printing…", NOT a
+    field in the Edit form.** The edit form submits condition, finish, language,
+    location, quantity and notes as one intent; adding printing makes one Save able
+    to change printing *and* quantity *and* location together, and "quantity" means
+    *set the stack to N* there while it means *move N copies* in every atomic stack
+    function. That combination is the migration-20 deck-inflation hazard. One action,
+    one intent instead. Mirrors `DeckWorkspace.tsx`, and gives the finish warning a
+    home inside the picker flow.
+  - **The sleeved question is answered: by `oracle_id`, not by printing.** Confirmed
+    in `availability.ts` (`cardKey`), `queries.ts` (`getDeckList`, `strandedInDeck`)
+    and migration 20's trigger. A reprint therefore cannot un-sleeve a card and moves
+    no sleeved/available/missing number. This shrinks the feature.
+  - **Why the trade block matters more than it looks:** `accept_trade` transfers
+    `card_id` as read at accept time, not from migration 23's snapshot. Without the
+    block, an in-place reprint silently changes what the counterparty receives while
+    the trade UI keeps showing what was offered. Put this in the migration header so
+    nobody later relaxes the gate as over-caution.
+  - **No `ownership_history` row.** It has no insert policy (inserts come only from
+    `accept_trade`), so writing one would force `SECURITY DEFINER` and break hard
+    constraint 5; its select policy would also leak every reprint to friends. The
+    audit already exists for free in `collection_write_ops` with
+    `kind = 'stack_reprint'`.
+  - **Order is load-bearing:** clear the source stack *before* incrementing the
+    destination, or migration 37's trigger sees an inflated physical total and
+    permanently raises `deck_cards`. With no merge target, update `card_id` in place
+    rather than delete-and-reinsert, so the row id, `acquired_at` and the
+    `trade_items` FK survive.
+  - **Say the price may change** in the confirm step. Reprinting a Beta dual onto a
+    Revised one legitimately moves collection value by hundreds; unannounced it reads
+    as a broken valuation.
+  - **Take `p_quantity` from the start** even though v1 always passes the whole row:
+    "I swapped one of my four Forests" is the obvious next request, and retrofitting
+    means a second migration and a mobile signature break.
+  - **Blocked on the current branch landing** — `PrintingPicker.tsx` is still
+    untracked on `fix/catalog-export-keyset-paging`, and this feature reuses it as-is.
+  - Ships in three parts: migration 39 + schema test; server action + web UI; mobile
+    parity last. Migrations land before the code that reads them.
+- **7 (Scryfall data and otags):** official `oracle_tags` bulk file, two tables keyed
+  on tag UUID, separate `sync-oracle-tags.ts`; card fields = full_art, border_color,
+  promo, promo_types, frame_effects, frame, textless, variation, edhrec_rank,
+  reserved, illustration_id, games (legalities deferred until the deck legality check);
+  first feature = collection filter. **Rule: paid tiers may gate the user's own
+  collection features, never Scryfall card data (Scryfall's terms).** Order: item 1
+  green run, then tags and card fields, then scanner fields, then search.
+- **8 (languages):** own, show and scan foreign cards; not Japanese-name lookup.
+  Phyrexian as-is is enough. Steps: display pass, `language` on the trade snapshot,
+  footer-first scan fallback, footer language token. Wish lists stay language-blind
+  but show the language. Live `cards` size checked 2026-09-21: **118,612 rows**, which
+  confirms the cheap path — the display pass adds no rows, and `all_cards` would mean
+  roughly 546,000.
+- **9 (leaderboard):** test demand first (one line in the feedback box, then a public
+  page or GitHub Discussions). Build the feedback admin inbox (`is_admin()`, never
+  built) first. If built later: signed-in only, owner-created items only, advisory
+  votes, this file stays the authority.
+
+### From the mobile UI refinement brief (`MOBILE_UI_REFINEMENT_BRIEF.md`)
+
+Ready, not yet ranked against the table above: unified Mort-centred header (fixed
+44pt left/right regions, back chevron on detail screens, native detail headers off);
+simplified Settings; collection filters in a bottom sheet; consolidated spacing,
+type and components; fewer bordered containers; menu organisation; loading and
+interaction polish.
+
+### Found while mapping item 6 (2026-09-21) — not yet ranked
+
+- **Editing a copy into an existing stack creates a duplicate row today.**
+  `updateCardInstance` (`src/app/(app)/collection/actions.ts`) is a plain update with
+  no stacking merge, unlike `addCardInstance` twenty lines above it, which routes
+  through `decideStacking` / `apply_stack_addition`. So changing a copy's condition,
+  finish, language or location to match a stack you already own leaves two identical
+  lines on the collection page. Live now, independent of item 6 — but it becomes
+  glaring the moment reprint *does* merge, since the two paths will visibly disagree.
+- **Migration 20's shortfall placement is only tested at tier 1.** The oldest-entry
+  fallback and the fresh-row tier have no regression test, and the oldest-entry
+  fallback is nondeterministic inside one transaction (`now()` is frozen, so
+  `created_at` ties). A reprint is a new way to steer the trigger into tiers 2 and 3.
+
+### Housekeeping
+
+- Commit the support address change in `src/lib/support.ts`
+  (`projectupkeepapp@gmail.com`, replacing the `example.com` placeholder).
+
+The sections below are the detailed lists behind these items; they are grouped by
+area, not by priority.
 
 ## Pages that are still placeholders
 
@@ -36,7 +189,7 @@ Built since this list was first written, with what each still lacks:
 - Wish list: change the wanted quantity, not just add and remove.
 - Collection: sort options (name, mana value, rarity, price).
 - Card details: prices in the list rows (display-only Scryfall estimate).
-- Two-sided cards: show both faces in the collection image view.
+- Two-sided cards: a flip button now exists on the tiles and rows listed under roadmap item 4, and on the Add-a-card preview (added 2026-09-21 — it had been missed, and it is the screen where seeing the back actually decides which printing you own). Still without one: the collection table rows, the small list-row thumbnails on the web and the deck detail list (no card picture there).
 
 ## Scanner
 

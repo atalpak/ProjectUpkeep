@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, bestGuessPrinting, artCandidates, artSwitchTarget, artSwitchNow, usableArt, withTimeout, regularFirst, ART_CONFIDENCE_RATIO, ART_OVERRIDE_FOOTER_RATIO, type CatalogBundle, type Printing } from '../src';
+import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, bestGuessPrinting, artCandidates, artSwitchTarget, artSwitchNow, usableArt, withTimeout, regularFirst, thumbnailUri, finishSummary, ART_CONFIDENCE_RATIO, ART_OVERRIDE_FOOTER_RATIO, type CatalogBundle, type Printing } from '../src';
 
 const oracle = '00000000-0000-4000-8000-00000000aaaa';
 const mk = (n: number, setCode: string, collectorNumber: string, extra: Partial<Printing> = {}): Printing => ({
@@ -222,4 +222,19 @@ test('art switch: a 0.8 ratio no longer switches, and a footer-named printing ne
   assert.equal(artSwitchNow({ ...base, art: distances(0.7) })?.id, bb385.id, 'no footer: the default may be overruled');
   assert.equal(artSwitchNow({ ...base, art: distances(0.7), footerGuess: true }), null, 'a footer-named printing is not overruled by a 30% margin');
   assert.equal(artSwitchNow({ ...base, art: distances(0.4), footerGuess: true })?.id, bb385.id, 'but is by an overwhelming one');
+});
+
+test('thumbnailUri swaps the Scryfall size segment and leaves other addresses alone', () => {
+  assert.equal(thumbnailUri('https://cards.scryfall.io/normal/front/a/b/abc.jpg?1700000000'), 'https://cards.scryfall.io/small/front/a/b/abc.jpg?1700000000');
+  assert.equal(thumbnailUri('https://cards.scryfall.io/large/back/a/b/abc.jpg'), 'https://cards.scryfall.io/small/back/a/b/abc.jpg');
+  assert.equal(thumbnailUri('https://img.example/1.jpg'), 'https://img.example/1.jpg');
+  assert.equal(thumbnailUri(null), null);
+  assert.equal(thumbnailUri(''), null);
+});
+
+test('finishSummary reads a lone finish as "only" and several as a list', () => {
+  assert.equal(finishSummary(['foil']), 'Foil only');
+  assert.equal(finishSummary(['nonfoil', 'foil']), 'Nonfoil / Foil');
+  assert.equal(finishSummary(['nonfoil', 'foil', 'etched']), 'Nonfoil / Foil / Etched');
+  assert.equal(finishSummary([]), '');
 });

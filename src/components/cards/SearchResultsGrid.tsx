@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useRef, useState, useSyncExternalStore } from "react";
 
 import { useCardPanel } from "@/components/CardPanel";
+import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
 import { isTileSize, SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
 import type { CardSearchResult } from "@/lib/cards/search";
 
@@ -85,18 +86,54 @@ export function SearchResultsGrid({ results }: { results: CardSearchResult[] }) 
         style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[size].minmax}, 1fr))` }}
       >
         {results.map((card) => (
-          <li key={card.name}>
-            <MagnifierTile
-              image={card.sample_image_uri_large ?? card.sample_image_uri}
-              label={card.sample_flavor_name ?? card.name}
-              imageWidth={TILE_SIZES[size].imageWidth}
-              onClick={() => card.sample_card_id && open(card.sample_card_id)}
-              disabled={!card.sample_card_id}
-            />
-          </li>
+          <SearchTile
+            key={card.name}
+            card={card}
+            imageWidth={TILE_SIZES[size].imageWidth}
+            onOpen={() => card.sample_card_id && open(card.sample_card_id)}
+          />
         ))}
       </ul>
     </div>
+  );
+}
+
+/** One result: the loupe tile plus, for a two-sided card, its flip control. */
+function SearchTile({
+  card,
+  imageWidth,
+  onOpen,
+}: {
+  card: CardSearchResult;
+  imageWidth: string;
+  onOpen: () => void;
+}) {
+  const face = useCardFace(
+    card.sample_faces
+      ? {
+          name: card.name,
+          flavor_name: card.sample_flavor_name,
+          layout: card.sample_faces.layout,
+          card_faces: card.sample_faces.card_faces,
+          image_uri: card.sample_image_uri_large,
+          image_uri_small: card.sample_image_uri,
+        }
+      : null,
+    "normal",
+  );
+
+  return (
+    <li className="relative">
+      <MagnifierTile
+        image={face.image ?? card.sample_image_uri_large ?? card.sample_image_uri}
+        label={face.name ?? card.sample_flavor_name ?? card.name}
+        imageWidth={imageWidth}
+        onClick={onOpen}
+        onImageError={face.onImageError}
+        disabled={!card.sample_card_id}
+      />
+      {face.canFlip ? <FlipButton onFlip={face.flip} otherName={face.otherName} /> : null}
+    </li>
   );
 }
 
@@ -121,6 +158,7 @@ function MagnifierTile({
   label,
   imageWidth,
   onClick,
+  onImageError,
   disabled,
 }: {
   image: string | null;
@@ -129,6 +167,8 @@ function MagnifierTile({
    *  Next only downloads an image as large as what's actually on screen. */
   imageWidth: string;
   onClick: () => void;
+  /** Called when the picture fails to load; a flipped tile falls back to its front. */
+  onImageError?: () => void;
   disabled: boolean;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -163,6 +203,7 @@ function MagnifierTile({
           fill
           sizes={`(min-width: 1024px) ${imageWidth}, (min-width: 640px) 40vw, 50vw`}
           className="object-cover"
+          onError={onImageError}
           unoptimized
         />
       ) : null}

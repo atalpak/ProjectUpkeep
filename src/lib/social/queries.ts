@@ -16,6 +16,7 @@ import type {
 import type { TosStatus } from "@/lib/social/tos";
 import type { WantExportRow } from "@/lib/social/want-export";
 import { expiringSoon, isExpired } from "@/lib/social/trade-status";
+import { isFlipCard, type FlippableCard } from "@/lib/cards/faces";
 import { cardKey } from "@/lib/collection/availability";
 import { MIN_TERM } from "@/lib/collection/locate";
 import { displayPrice } from "@/lib/collection/pricing";
@@ -383,7 +384,7 @@ export async function getPublicDeckList(deckId: string): Promise<PublicDeckListE
 // ---------------------------------------------------------------------------
 
 const WANT_CARD_FIELDS =
-  "cards ( scryfall_id, oracle_id, name, flavor_name, set_name, set_code, image_uri, image_uri_small, price_usd, price_usd_foil, price_usd_etched )";
+  "cards ( scryfall_id, oracle_id, name, flavor_name, set_name, set_code, image_uri, image_uri_small, layout, card_faces, price_usd, price_usd_foil, price_usd_etched )";
 
 type RawWant = {
   id: string;
@@ -399,6 +400,8 @@ type RawWant = {
     set_code: string;
     image_uri: string | null;
     image_uri_small: string | null;
+    layout: string | null;
+    card_faces: FlippableCard["card_faces"];
     price_usd: number | null;
     price_usd_foil: number | null;
     price_usd_etched: number | null;
@@ -429,6 +432,19 @@ function toWantRow(raw: RawWant): WantRow {
     cardId: raw.cards?.scryfall_id ?? raw.card_id,
     image: raw.cards?.image_uri_small ?? null,
     imageLarge: raw.cards?.image_uri ?? null,
+    // Only carried for a two-sided card: `card_faces` is wide JSON and most
+    // wants do not need it.
+    flip:
+      raw.cards && isFlipCard(raw.cards)
+        ? {
+            name: raw.cards.name,
+            flavor_name: raw.cards.flavor_name,
+            layout: raw.cards.layout,
+            card_faces: raw.cards.card_faces,
+            image_uri: raw.cards.image_uri,
+            image_uri_small: raw.cards.image_uri_small,
+          }
+        : null,
     price: raw.cards ? displayPrice(raw.cards, "nonfoil") : null,
     quantity: raw.quantity,
     note: raw.note,

@@ -15,6 +15,8 @@ import { CardPreviewLink, CardPreviewTarget, useMediaQuery } from "@/components/
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { cardKey } from "@/lib/collection/availability";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
+import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
+import { PrintingPicker, type PrintingOption } from "@/components/cards/PrintingPicker";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, Select, cx } from "@/components/ui";
 import type { Card, CardNameSuggestion } from "@/lib/types";
 import { describeSupplier, type WantRow } from "@/lib/social/wants";
@@ -184,14 +186,6 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode
 // Adding: search -> draft rows -> one batch commit
 // ---------------------------------------------------------------------------
 
-type PrintingOption = {
-  scryfall_id: string;
-  set_name: string | null;
-  set_code: string | null;
-  collector_number: string | null;
-  released_at: string | null;
-};
-
 /** A card queued to add, before it is saved. */
 type DraftRow = {
   /** Client-only id — never sent to the server, just a React key. */
@@ -204,12 +198,6 @@ type DraftRow = {
   suppliers: SupplierView[];
   loadingSuppliers: boolean;
 };
-
-function printingLabel(p: PrintingOption): string {
-  const set = p.set_name ?? p.set_code?.toUpperCase() ?? "Unknown set";
-  const number = p.collector_number ? ` · #${p.collector_number}` : "";
-  return `${set}${number}`;
-}
 
 function AddWant() {
   const [state, action, pending] = useActionState(addWants, EMPTY_SOCIAL_STATE);
@@ -504,18 +492,13 @@ function DraftRowView({
           </div>
 
           {draft.printings && draft.printings.length > 1 && card ? (
-            <Select
+            <PrintingPicker
+              printings={draft.printings}
               value={card.scryfall_id}
-              onChange={(e) => onSwitchPrinting(e.target.value)}
-              aria-label={`Printing of ${draft.name}`}
-              className="w-full max-w-xs py-1 text-xs"
-            >
-              {draft.printings.map((p) => (
-                <option key={p.scryfall_id} value={p.scryfall_id}>
-                  {printingLabel(p)}
-                </option>
-              ))}
-            </Select>
+              onChange={onSwitchPrinting}
+              label={`Printing of ${draft.name}`}
+              className="w-full max-w-sm"
+            />
           ) : null}
 
           <div className="text-sm">
@@ -703,30 +686,37 @@ function WantGalleryCard({
 }) {
   // The full-resolution crop, not the list row's small one — stretched to
   // this tile's width, the small crop read as blurry.
-  const image = want.imageLarge ?? want.image;
+  const face = useCardFace(want.flip, "normal");
+  const image = face.image ?? want.imageLarge ?? want.image;
+  const displayName = face.name ?? want.displayName;
 
   return (
     <li className="space-y-1.5">
-      <CardPreviewLink
-        card={want.cardId ?? undefined}
-        href={`/collection?q=${encodeURIComponent(want.name)}`}
-        className="relative block aspect-[488/680] overflow-hidden rounded-lg border border-border bg-surface-muted"
-      >
-        {image ? (
-          <Image
-            src={image}
-            alt={want.displayName}
-            fill
-            sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
-            className="object-cover"
-            unoptimized
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
-            {want.displayName}
-          </div>
-        )}
-      </CardPreviewLink>
+      {/* The flip control sits beside the tile's link, not inside it. */}
+      <div className="relative">
+        <CardPreviewLink
+          card={want.cardId ?? undefined}
+          href={`/collection?q=${encodeURIComponent(want.name)}`}
+          className="relative block aspect-[488/680] overflow-hidden rounded-lg border border-border bg-surface-muted"
+        >
+          {image ? (
+            <Image
+              src={image}
+              alt={displayName}
+              fill
+              sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
+              className="object-cover"
+              onError={face.onImageError}
+              unoptimized
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
+              {displayName}
+            </div>
+          )}
+        </CardPreviewLink>
+        {face.canFlip ? <FlipButton onFlip={face.flip} otherName={face.otherName} /> : null}
+      </div>
 
       {/* Same shape as the list row: name and, under it, "For <deck>" (the
           picker to change it lives in the ⋯ menu now, this is read-only) on
@@ -734,8 +724,8 @@ function WantGalleryCard({
           those, right-aligned. */}
       <div className="flex items-start justify-between gap-1.5 text-xs">
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium" title={want.displayName}>
-            {want.displayName}
+          <p className="truncate font-medium" title={displayName}>
+            {displayName}
           </p>
           {want.deckName ? (
             <p className="truncate italic text-ink-muted" title={`For ${want.deckName}`}>

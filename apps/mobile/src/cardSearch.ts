@@ -19,6 +19,8 @@ export type CardSearchResult = {
   image: string | null;
   sampleCardId: string;
   flavorName: string | null;
+  /** The sample printing's layout; with the name it is what decides whether the tile can flip. */
+  layout: string | null;
 };
 
 type Row = {
@@ -30,6 +32,7 @@ type Row = {
   released_at: string | null;
   colors: string[] | null;
   loyalty: string | null;
+  layout: string | null;
 };
 
 // No ORDER BY in the query: `cards.released_at` has no index, and sorting a
@@ -47,7 +50,7 @@ const FETCH_CAP = 2000;
 function build(filter: AdvancedCardFilter) {
   let query = backend!
     .from('cards')
-    .select('name, flavor_name, image_uri, image_uri_small, scryfall_id, released_at, colors, loyalty')
+    .select('name, flavor_name, image_uri, image_uri_small, scryfall_id, released_at, colors, loyalty, layout')
     .eq('digital', false);
 
   for (const word of filter.name.trim().split(/\s+/).filter(Boolean)) query = query.ilike('name', `%${word}%`);
@@ -96,7 +99,7 @@ export async function searchCards(
       existing.printingCount += 1;
       if ((row.released_at ?? '') > (newest.get(row.name) ?? '')) {
         newest.set(row.name, row.released_at ?? '');
-        Object.assign(existing, { imageSmall: row.image_uri_small, image: row.image_uri, sampleCardId: row.scryfall_id, flavorName: row.flavor_name });
+        Object.assign(existing, { imageSmall: row.image_uri_small, image: row.image_uri, sampleCardId: row.scryfall_id, flavorName: row.flavor_name, layout: row.layout });
       }
       continue;
     }
@@ -108,6 +111,7 @@ export async function searchCards(
       image: row.image_uri,
       sampleCardId: row.scryfall_id,
       flavorName: row.flavor_name,
+      layout: row.layout,
     });
   }
   const all = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));

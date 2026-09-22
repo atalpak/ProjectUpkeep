@@ -6,6 +6,8 @@ import Image from "next/image";
 import { addCardInstance } from "@/app/(app)/collection/actions";
 import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { CardPreviewTarget } from "@/components/CardPanel";
+import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
+import { PrintingPicker } from "@/components/cards/PrintingPicker";
 import { LocationSelect } from "@/components/LocationSelect";
 import { SetSymbol } from "@/components/SetSymbol";
 import {
@@ -43,6 +45,12 @@ type Printing = Pick<
   | "image_uri_small"
   | "available_finishes"
   | "lang"
+  // `layout` only, not `card_faces`: a split or adventure card also has two
+  // faces but one picture, and the layout is what tells them apart. Leaving
+  // `card_faces` unfetched keeps the widest column on `cards` out of a query
+  // that returns up to 300 printings; the back picture is derived from the
+  // front address instead, which `card-faces.ts` documents and verifies.
+  | "layout"
 >;
 
 /**
@@ -64,6 +72,11 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
   const [selectedName, setSelectedName] = useState<string | null>(null);
   const [printings, setPrintings] = useState<Printing[]>([]);
   const [printing, setPrinting] = useState<Printing | null>(null);
+
+  // The preview is 146x204, which is exactly `image_uri_small`, so the face
+  // asks for the small size. Null-tolerant: before a printing is picked there
+  // is nothing to flip, and switching printing resets it to the front.
+  const face = useCardFace(printing, "small");
 
   // Clear the form after each successful add. Keyed off the action state's
   // nonce rather than its message, so adding the same card twice in a row —
@@ -231,20 +244,32 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                 // resizing here (see the note on `unoptimized` in CardPanel.tsx),
                 // so picking the right pre-sized variant is what actually saves
                 // the bytes.
-                <CardPreviewTarget card={printing.scryfall_id} className="shrink-0">
-                  <Image
-                    src={printing.image_uri_small ?? printing.image_uri!}
-                    alt={cardDisplayName(printing)}
-                    width={146}
-                    height={204}
-                    className="rounded-md"
-                    unoptimized
-                  />
-                </CardPreviewTarget>
+                // The flip control is a sibling of the preview target, never
+                // a child: the target is itself clickable, and a button inside
+                // a button swallows the press.
+                <div className="relative shrink-0">
+                  <CardPreviewTarget card={printing.scryfall_id}>
+                    <Image
+                      src={face.image ?? printing.image_uri_small ?? printing.image_uri!}
+                      alt={face.name ?? cardDisplayName(printing)}
+                      width={146}
+                      height={204}
+                      className="rounded-md"
+                      onError={face.onImageError}
+                      unoptimized
+                    />
+                  </CardPreviewTarget>
+                  {face.canFlip ? (
+                    <FlipButton onFlip={face.flip} otherName={face.otherName} />
+                  ) : null}
+                </div>
               ) : null}
 
               <div className="flex-1 space-y-3">
                 <div>
+                  {/* Stays the whole card's name even while the back is showing: this
+                      heading says which card is being added, and the form saves that
+                      name. Only the picture and its alt text follow the flip. */}
                   <h2 className="font-medium">{cardDisplayName(printing)}</h2>
                   <p className="flex items-center gap-1.5 text-sm text-ink-muted">
                     <SetSymbol code={printing.set_code} />
@@ -254,24 +279,19 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
                   </p>
                 </div>
 
-                <Field label={`Printing (${printings.length})`}>
-                  <Select
+                <div className="space-y-1">
+                  <span className="text-xs font-medium text-ink-muted">
+                    Printing ({printings.length})
+                  </span>
+                  <PrintingPicker
+                    printings={printings}
                     value={printing.scryfall_id}
-                    onChange={(e) =>
-                      setPrinting(
-                        printings.find((p) => p.scryfall_id === e.target.value) ?? null,
-                      )
+                    label={`Printing of ${cardDisplayName(printing)}`}
+                    onChange={(id) =>
+                      setPrinting(printings.find((p) => p.scryfall_id === id) ?? null)
                     }
-                  >
-                    {printings.map((p) => (
-                      <option key={p.scryfall_id} value={p.scryfall_id}>
-                        {(p.set_name ?? p.set_code.toUpperCase()) +
-                          ` · #${p.collector_number}` +
-                          (p.released_at ? ` · ${p.released_at.slice(0, 4)}` : "")}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
+                  />
+                </div>
 
                 <button
                   type="button"

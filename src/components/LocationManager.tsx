@@ -11,6 +11,7 @@ import {
 } from "@/app/(app)/locations/actions";
 import { EMPTY_LOCATION_STATE } from "@/app/(app)/locations/action-state";
 import { setLocationTradable } from "@/app/(app)/friends/actions";
+import { FloatingMenu } from "@/components/FloatingMenu";
 import { artCropUrl } from "@/lib/collection/art";
 import { formatPrice } from "@/lib/collection/pricing";
 import type { LocationStats } from "@/lib/collection/queries";
@@ -555,6 +556,12 @@ function LocationTile({
   );
 }
 
+/**
+ * A portalled `FloatingMenu`, not an absolute panel under the button: the
+ * tile view's card is `overflow-hidden` (it has to be, for its rounded art
+ * wash), which clipped a panel opened near the bottom of a short tile to
+ * nothing but its first row.
+ */
 function LocationMenu({
   location,
   open,
@@ -567,25 +574,33 @@ function LocationMenu({
   onRename: () => void;
 }) {
   return (
-    <div className="relative shrink-0">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-label={`Options for ${location.name}`}
-        aria-expanded={open}
-        className="inline-flex size-9 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink coarse:size-11"
-      >
-        <svg viewBox="0 0 20 20" className="size-5" fill="currentColor" aria-hidden="true">
-          <circle cx="4" cy="10" r="1.5" />
-          <circle cx="10" cy="10" r="1.5" />
-          <circle cx="16" cy="10" r="1.5" />
-        </svg>
-      </button>
-
-      {open ? (
-        <div className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl">
+    <FloatingMenu
+      open={open}
+      onOpenChange={setOpen}
+      panelClassName="w-40 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
+      trigger={({ toggle, setTriggerRef }) => (
+        <button
+          ref={setTriggerRef}
+          type="button"
+          onClick={toggle}
+          aria-haspopup="menu"
+          aria-label={`Options for ${location.name}`}
+          aria-expanded={open}
+          className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink coarse:size-11"
+        >
+          <svg viewBox="0 0 20 20" className="size-5" fill="currentColor" aria-hidden="true">
+            <circle cx="4" cy="10" r="1.5" />
+            <circle cx="10" cy="10" r="1.5" />
+            <circle cx="16" cy="10" r="1.5" />
+          </svg>
+        </button>
+      )}
+    >
+      {() => (
+        <div role="menu">
           <button
             type="button"
+            role="menuitem"
             onClick={onRename}
             className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted"
           >
@@ -595,14 +610,15 @@ function LocationMenu({
             <input type="hidden" name="location_id" value={location.id} />
             <button
               type="submit"
+              role="menuitem"
               className="block w-full px-3 py-2 text-left text-sm text-danger transition-colors hover:bg-surface-muted"
             >
               Delete
             </button>
           </form>
         </div>
-      ) : null}
-    </div>
+      )}
+    </FloatingMenu>
   );
 }
 

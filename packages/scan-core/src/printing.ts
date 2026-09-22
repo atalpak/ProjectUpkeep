@@ -326,3 +326,26 @@ export function withTimeout<T>(work: Promise<T>, ms: number, fallback: T): Promi
     work.then(finish, () => finish(fallback));
   });
 }
+
+/**
+ * The small (146x204) version of a Scryfall card image, for a thumbnail.
+ *
+ * The catalog carries only the normal-size URL per printing (adding a second
+ * one would grow a bundle that has to stay under the 80 MB download cap), but
+ * Scryfall serves every size from the same path with only the size segment
+ * changed, so the thumbnail address is derived rather than stored. A list of
+ * fifty printings then downloads ~5 KB pictures instead of ~100 KB ones. An
+ * address that is not in that shape (a demo bundle, a different host) is
+ * returned untouched, so this can never turn a working picture into a broken one.
+ */
+export function thumbnailUri(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  return uri.replace(/^(https:\/\/cards\.scryfall\.io\/)(?:normal|large|png|border_crop|art_crop)\//, '$1small/');
+}
+
+/** Which finishes a printing exists in, short enough for a thumbnail caption: "Foil only", "Nonfoil / Foil". */
+export function finishSummary(finishes: readonly string[]): string {
+  const names = finishes.map(f => (f === 'nonfoil' ? 'Nonfoil' : f === 'etched' ? 'Etched' : f === 'glossy' ? 'Glossy' : f === 'foil' ? 'Foil' : f));
+  if (names.length === 0) return '';
+  return names.length === 1 ? `${names[0]} only` : names.join(' / ');
+}

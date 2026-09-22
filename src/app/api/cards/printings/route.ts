@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     .from("cards")
     .select(
       "scryfall_id, name, flavor_name, set_code, set_name, collector_number, rarity, " +
-        "released_at, image_uri, image_uri_small, available_finishes, lang, digital",
+        "released_at, image_uri, image_uri_small, available_finishes, lang, digital, layout",
     )
     .eq("name", name)
     .eq("digital", false)

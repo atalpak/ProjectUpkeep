@@ -11,6 +11,7 @@ import {
   relativeTime,
 } from "@/lib/social/notifications";
 import type { NotificationDetail } from "@/lib/social/types";
+import { useViewportFit } from "@/hooks/useViewportFit";
 import { cx } from "@/components/ui";
 
 /**
@@ -30,8 +31,10 @@ export function AlertsMenu({ unread }: { unread: number }) {
   const router = useRouter();
   const container = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
 
   const [open, setOpen] = useState(false);
+  useViewportFit(open, panel, button);
   const [items, setItems] = useState<NotificationDetail[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [marking, startMarking] = useTransition();
@@ -128,6 +131,7 @@ export function AlertsMenu({ unread }: { unread: number }) {
 
       {open ? (
         <div
+          ref={panel}
           role="menu"
           className="absolute right-0 top-full z-30 mt-1 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
         >

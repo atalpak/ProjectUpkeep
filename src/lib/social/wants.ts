@@ -22,6 +22,7 @@
  * their copy is that printing or a different one of the same card.
  */
 
+import type { FlippableCard } from "@/lib/cards/faces";
 import { nameMatches, MIN_TERM } from "@/lib/collection/locate";
 import { cardDisplayName } from "@/lib/types";
 
@@ -46,6 +47,9 @@ export type WantRow = {
    *  `WantRow` purely to feed `matchSuppliersFor`, which never renders an
    *  image at gallery size. */
   imageLarge?: string | null;
+  /** The printing's faces, present only when it has two printed sides, so the
+   *  gallery tile can offer a flip. Absent or null: nothing to flip. */
+  flip?: FlippableCard | null;
   /**
    * The representative printing's non-foil price — a want names a card, not
    * a finish, so this is always the plain listing, the same choice the add

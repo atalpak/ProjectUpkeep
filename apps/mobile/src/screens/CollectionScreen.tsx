@@ -12,6 +12,8 @@ import { useSearchOverlay } from '../searchOverlay';
 import { CardDetails } from '../components/CardDetails';
 import type { CardSeed } from '../cardDetails';
 import { FoilOverlay, useFoilTilt } from '../components/FoilArt';
+import { FlipBadge } from '../components/FlipBadge';
+import { useCardFace } from '../hooks/useCardFace';
 import { border, radius, space, surface, text, type as typeTokens, accent } from '../theme';
 import { makeStyles, usePreferences } from '../preferences';
 
@@ -23,6 +25,9 @@ const FINISHES = ['', 'nonfoil', 'foil', 'etched'];
 const FINISH_LABELS: Record<string, string> = { '': 'Any', nonfoil: 'Non-foil', foil: 'Foil', etched: 'Etched' };
 const COLOR_MODE_LABELS: Record<string, string> = { all: 'Has all', any: 'Has any' };
 const COLUMNS = 3;
+// The filters panel's ceiling; on a short screen it is held to 40% of the height instead,
+// so the results below it never disappear behind an open panel.
+const FILTERS_MAX_HEIGHT = 340;
 const CARD_ASPECT = 488 / 680;
 
 // Browse of the signed-in user's own collection. See src/collection.ts for the
@@ -56,7 +61,7 @@ function CollectionList({ userId }: { userId: string }) {
   const navigation = useNavigation<{ navigate(page: 'Scan'): void }>();
   const openSearch = useSearchOverlay().open;
   const focused = useIsFocused();
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const { collectionView, setCollectionView, collectionSort, setCollectionSort } = usePreferences();
   // One motion listener shared by every foil tile and row thumbnail, only while this tab is showing.
   // Paused while the details sheet is open: the tiles under it are invisible, and a second tilt
@@ -119,28 +124,10 @@ function CollectionList({ userId }: { userId: string }) {
 
   // Stable between renders that only open or close the sheet, so the rows are not re-rendered by it.
   const renderItem = useCallback(({ item: e }: { item: CollectionEntry }) => (
-    collectionView === 'grid' ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, ${e.quantity} owned`} onPress={() => setDetails(e)} style={{ width: tile }}>
-              {e.card_image_uri_small
-                ? <Image source={{ uri: e.card_image_uri_small }} style={[styles.tileImage, { width: tile, height: tile / CARD_ASPECT }]} />
-                : <View style={[styles.tileImage, styles.tileEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.tileName}>{e.card_name}</Text></View>}
-              {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={tile} height={tile / CARD_ASPECT} radius={6} strength={1.05} />}
-              {e.quantity > 1 && <View style={styles.qtyBadge}><Text style={styles.qtyBadgeText}>×{e.quantity}</Text></View>}
-            </Pressable>
-          ) : (
-            <Pressable accessibilityRole="button" accessibilityLabel={`${e.card_name}, details`} onPress={() => setDetails(e)} style={styles.row}>
-              <View style={styles.thumb}>
-                {e.card_image_uri_small ? <Image source={{ uri: e.card_image_uri_small }} style={styles.thumbImage} /> : null}
-                {e.finish !== 'nonfoil' && <FoilOverlay tilt={foilTilt} width={38} height={53} radius={4} strength={1.25} />}
-              </View>
-              <View style={styles.grow}>
-                <Text numberOfLines={1} style={styles.name}>{e.card_name}</Text>
-                <Text numberOfLines={1} style={styles.meta}>{metaLine(e)}</Text>
-              </View>
-              {e.quantity > 1 && <Text style={styles.qty}>×{e.quantity}</Text>}
-            </Pressable>
-          )
-  ), [collectionView, tile, foilTilt, styles]);
+    collectionView === 'grid'
+      ? <CollectionTile entry={e} tile={tile} tilt={foilTilt} onOpen={setDetails} />
+      : <CollectionRow entry={e} tilt={foilTilt} onOpen={setDetails} />
+  ), [collectionView, tile, foilTilt]);
 
   function toggleColor(c: (typeof COLORS)[number]) {
     setFacets(f => ({ ...f, colorless: false, colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c] }));
@@ -174,7 +161,7 @@ function CollectionList({ userId }: { userId: string }) {
       )}
 
       {showFilters && (
-        <ScrollView style={styles.filters} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
+        <ScrollView style={[styles.filters, { maxHeight: Math.min(FILTERS_MAX_HEIGHT, windowHeight * 0.4) }]} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
           <Text style={styles.groupLabel}>Colors</Text>
           <View style={styles.colorRow}>
             {COLORS.map(c => {
@@ -266,6 +253,47 @@ function CollectionList({ userId }: { userId: string }) {
   );
 }
 
+type FoilTilt = ReturnType<typeof useFoilTilt>['tilt'];
+
+// A card that flips gets its own state here, per tile: leaving the tab or the list recycling the
+// tile puts it back on its front (see useCardFace). The badge is a sibling of the tile's own
+// Pressable's content, so a press flips instead of opening the details.
+function CollectionTile({ entry: e, tile, tilt, onOpen }: { entry: CollectionEntry; tile: number; tilt: FoilTilt; onOpen(e: CollectionEntry): void }) {
+  const styles = useStyles();
+  const face = useCardFace({ name: e.card_name, layout: e.card_layout, image: e.card_image_uri, imageSmall: e.card_image_uri_small }, 'small');
+  const name = face.name ?? e.card_name;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${name}, ${e.quantity} owned`} onPress={() => onOpen(e)} style={{ width: tile }}>
+      {face.image
+        ? <Image source={{ uri: face.image }} onError={face.onImageError} style={[styles.tileImage, { width: tile, height: tile / CARD_ASPECT }]} />
+        : <View style={[styles.tileImage, styles.tileEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.tileName}>{name}</Text></View>}
+      {e.finish !== 'nonfoil' && <FoilOverlay tilt={tilt} width={tile} height={tile / CARD_ASPECT} radius={6} strength={1.05} />}
+      {e.quantity > 1 && <View style={styles.qtyBadge}><Text style={styles.qtyBadgeText}>×{e.quantity}</Text></View>}
+      {face.canFlip && <FlipBadge onPress={face.flip} otherName={face.otherName} />}
+    </Pressable>
+  );
+}
+
+function CollectionRow({ entry: e, tilt, onOpen }: { entry: CollectionEntry; tilt: FoilTilt; onOpen(e: CollectionEntry): void }) {
+  const styles = useStyles();
+  const face = useCardFace({ name: e.card_name, layout: e.card_layout, image: e.card_image_uri, imageSmall: e.card_image_uri_small }, 'small');
+  const name = face.name ?? e.card_name;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${name}, details`} onPress={() => onOpen(e)} style={styles.row}>
+      <View style={styles.thumb}>
+        {face.image ? <Image source={{ uri: face.image }} onError={face.onImageError} style={styles.thumbImage} /> : null}
+        {e.finish !== 'nonfoil' && <FoilOverlay tilt={tilt} width={38} height={53} radius={4} strength={1.25} />}
+        {face.canFlip && <FlipBadge onPress={face.flip} otherName={face.otherName} size={20} corner="bottom-right" />}
+      </View>
+      <View style={styles.grow}>
+        <Text numberOfLines={1} style={styles.name}>{name}</Text>
+        <Text numberOfLines={1} style={styles.meta}>{metaLine(e)}</Text>
+      </View>
+      {e.quantity > 1 && <Text style={styles.qty}>×{e.quantity}</Text>}
+    </Pressable>
+  );
+}
+
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { flex: 1 },
   content: { paddingHorizontal: space.xl, paddingBottom: 40 },
@@ -277,7 +305,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   iconButtonOn: { borderColor: accent.DEFAULT, backgroundColor: accent.soft },
   badge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: accent.DEFAULT },
   badgeText: { ...typeTokens.label, color: text.onAccent },
-  filters: { maxHeight: 340, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  filters: { borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   sortPanel: { padding: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   filtersBody: { padding: space.lg, gap: space.sm },
   groupLabel: { ...typeTokens.label, color: text.secondary, marginTop: space.sm },

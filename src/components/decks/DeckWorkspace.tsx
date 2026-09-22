@@ -19,10 +19,12 @@ import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
 import { removeWant, setWantDeck } from "@/app/(app)/wants/actions";
 import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { useCardPreview } from "@/components/CardPanel";
+import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
+import { PRINTING_ROW_CLASS, PrintingRow, type PrintingOption } from "@/components/cards/PrintingPicker";
+import { useViewportFit } from "@/hooks/useViewportFit";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle } from "@/components/PriceToggle";
-import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
@@ -600,14 +602,7 @@ function ListRow({
   );
 }
 
-type Printing = {
-  scryfall_id: string;
-  set_name: string | null;
-  set_code: string | null;
-  collector_number: string | null;
-  released_at: string | null;
-  rarity: string | null;
-};
+type Printing = PrintingOption;
 
 /** Fired when a row menu opens, so any other open one closes itself. */
 const ROW_MENU_OPEN = "deck-row-menu-open";
@@ -649,6 +644,8 @@ function RowActions({
   const [loadingPrintings, setLoadingPrintings] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useViewportFit(open, panel, trigger);
 
   const close = () => {
     setOpen(false);
@@ -730,6 +727,7 @@ function RowActions({
 
       {open ? (
         <div
+          ref={panel}
           role="menu"
           className={cx(
             "absolute right-0 top-full z-30 mt-1 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl",
@@ -764,17 +762,12 @@ function RowActions({
                           type="submit"
                           disabled={current}
                           className={cx(
-                            "flex w-full items-start gap-1.5 px-3 py-1.5 text-left text-xs transition-colors hover:bg-surface-muted disabled:hover:bg-transparent",
-                            current && "font-medium text-accent-text",
+                            PRINTING_ROW_CLASS,
+                            "flex w-full items-center px-3 py-1.5 text-left transition-colors hover:bg-surface-muted disabled:hover:bg-transparent",
+                            current && "bg-accent-soft",
                           )}
                         >
-                          <SetSymbol code={p.set_code} size={12} className="mt-0.5" />
-                          <span>
-                            {p.set_name ?? p.set_code?.toUpperCase() ?? "Unknown set"}
-                            {p.collector_number ? ` · #${p.collector_number}` : ""}
-                            {p.released_at ? ` · ${p.released_at.slice(0, 4)}` : ""}
-                            {current ? " (current)" : ""}
-                          </span>
+                          <PrintingRow printing={p} current={current} />
                         </button>
                       </form>
                     );
@@ -947,7 +940,8 @@ function GalleryCard({
 }) {
   const card = entry.cards;
   const preview = useCardPreview(card);
-  const image = card?.image_uri ?? card?.image_uri_small;
+  const face = useCardFace(card, "normal");
+  const image = face.image;
   const state = entry.entryState;
 
   return (
@@ -978,18 +972,20 @@ function GalleryCard({
         {image ? (
           <Image
             src={image}
-            alt={card ? cardDisplayName(card) : "Card"}
+            alt={face.name ?? "Card"}
             fill
             sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
             className="object-cover"
+            onError={face.onImageError}
             unoptimized
           />
         ) : (
           <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
-            {card ? cardDisplayName(card) : "No image"}
+            {face.name ?? "No image"}
           </div>
         )}
 
+        {face.canFlip ? <FlipButton onFlip={face.flip} otherName={face.otherName} /> : null}
       </div>
 
       {/*
@@ -1024,7 +1020,7 @@ function GalleryCard({
         ) : null}
 
         <span className="min-w-0 flex-1 truncate text-xs text-ink-muted">
-          {card ? cardDisplayName(card) : "Unknown card"}
+          {face.name ?? "Unknown card"}
         </span>
 
         <RowActions

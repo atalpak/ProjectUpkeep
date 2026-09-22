@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CardDetails } from '../components/CardDetails';
 import { Button, Notice } from '../components/ui';
+import { FlipThumb } from '../components/FlipThumb';
 import { errorMessage } from '../errors';
 import { fetchFriendTradables, fetchFriendWants, removeFriendship, type FriendCard } from '../friends';
 import type { FriendsStackParamList, TabParamList } from '../navigation';
@@ -42,11 +43,14 @@ export function FriendProfileScreen({ route, navigation }: NativeStackScreenProp
     ? <Text style={styles.sub}>{empty}</Text>
     : cards.map(c => (
       <Pressable key={c.id} accessibilityRole="button" accessibilityLabel={`${c.name}, details`} onPress={() => setDetails(c)} style={styles.row}>
-        {c.imageSmall ? <Image source={{ uri: c.imageSmall }} style={styles.thumb} /> : <View style={styles.thumb} />}
-        <View style={styles.grow}>
-          <Text style={styles.name}>{c.name}</Text>
-          <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber} · ×{c.quantity}{c.finish ? ` · ${c.finish}` : ''}</Text>
-        </View>
+        <FlipThumb card={{ name: c.name, layout: c.layout, imageSmall: c.imageSmall }} thumbStyle={styles.thumb}>
+          {name => (
+            <View style={styles.grow}>
+              <Text style={styles.name}>{name}</Text>
+              <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber} · ×{c.quantity}{c.finish ? ` · ${c.finish}` : ''}</Text>
+            </View>
+          )}
+        </FlipThumb>
       </Pressable>
     ));
 

@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { useViewportFit } from "@/hooks/useViewportFit";
 import { cx } from "@/lib/cx";
 
 /**
@@ -66,6 +67,11 @@ export function FloatingMenu({
   const [coords, setCoords] = useState<{ top: number; left: number; right: number } | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // The panel is `fixed` under the trigger, which knows nothing about the
+  // window's edges: a trigger low on the screen or a wide panel would run off
+  // it. Refitted whenever the trigger is re-measured (scroll, resize).
+  useViewportFit(open && coords !== null, panelRef, triggerRef, coords);
 
   const setOpen = (value: boolean) => (onOpenChange ?? setUncontrolledOpen)(value);
   const close = () => setOpen(false);
