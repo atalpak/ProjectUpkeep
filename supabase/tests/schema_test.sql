@@ -2112,6 +2112,330 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 19. apply_stack_reprint() (migration 39): changing which printing an owned
+--     copy is, atomically -- and in an order that cannot inflate a deck list.
+--
+-- The hazard this section exists for: the merge branch increments a
+-- destination stack's quantity, which fires
+-- card_instances_list_in_deck_on_quantity_change (migration 37). If that
+-- increment happens BEFORE the source row gives its copies up, the trigger
+-- sees a physical total inflated by the reprinted quantity against an
+-- unchanged listed total, computes a shortfall, and raises deck_cards
+-- permanently -- the migration 20 corruption, reached through a new door.
+--
+-- Cases 1 and 2 are written to fail if the two sides are swapped. If this
+-- section ever passes with the destination incremented first, it has stopped
+-- doing its job. It was confirmed red that way before being allowed to pass.
+--
+-- Fresh fixtures, isolated from every section above for the same reason
+-- sections 14 and 18 give.
+-- --------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('c0000000-0000-0000-0000-000000000001', 'zara@example.com', '{"username":"zara"}'),
+  ('c0000000-0000-0000-0000-000000000002', 'wren@example.com', '{"username":"wren"}');
+
+-- The open-trade case below needs a real trade, and trades may only be
+-- proposed between friends (migration 9's insert policy).
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('c0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000002', 'accepted');
+
+insert into public.locations (id, user_id, name, type) values
+  ('c1000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001', 'Merge Deck',   'deck'),
+  ('c1000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'Partial Deck', 'deck'),
+  ('c1000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'Solo Deck',    'deck'),
+  ('c1000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000001', 'Zara Box',     'box');
+
+-- Each deck lists exactly what will be sleeved into it, so the list starts
+-- reconciled and any movement in it afterwards is the reprint's doing.
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('c1000000-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 4),
+  ('c1000000-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000002', 2),
+  ('c1000000-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000001', 4),
+  ('c1000000-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000002', 2),
+  ('c1000000-0000-0000-0000-000000000003', 'aaaaaaaa-0000-0000-0000-000000000001', 1);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'c0000000-0000-0000-0000-000000000001'; -- zara
+
+-- Sleeved as the signed-in user so the inserts run under the same RLS the app
+-- runs under. LEA (aaaa...0001) is {nonfoil}; M10 (aaaa...0002) is
+-- {nonfoil,foil} -- the finish gate below depends on that difference.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('c2000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'c1000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 4),
+  ('c2000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'c1000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 2),
+  ('c2000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'c1000000-0000-0000-0000-000000000002', 'NM', 'nonfoil', 'en', 4),
+  ('c2000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'c1000000-0000-0000-0000-000000000002', 'NM', 'nonfoil', 'en', 2),
+  ('c2000000-0000-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'c1000000-0000-0000-0000-000000000003', 'NM', 'nonfoil', 'en', 1),
+  ('c2000000-0000-0000-0000-000000000006', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'c1000000-0000-0000-0000-000000000004', 'NM', 'nonfoil', 'en', 3);
+
+-- (1) WHOLE-STACK MERGE inside a deck. The ordering case.
+do $$
+declare
+  r_result record;
+  v_entries int; v_total int; v_lea int; v_m10 int;
+  v_dest_qty int; v_dest_owner uuid; v_dest_loc uuid;
+  v_source_exists int; v_physical int;
+begin
+  select count(*), coalesce(sum(quantity), 0) into v_entries, v_total
+    from public.deck_cards where deck_id = 'c1000000-0000-0000-0000-000000000001';
+  assert v_entries = 2 and v_total = 6,
+    'fixture precondition: the merge deck should list 4+2=6 across 2 entries, saw '
+    || v_entries || ' entries totalling ' || v_total;
+
+  -- All four LEA copies turn out to be the M10 printing, merging into the
+  -- M10 stack already sleeved in the same deck.
+  select * into r_result from public.apply_stack_reprint(
+    'c4000000-0000-0000-0000-000000000001'::uuid,
+    'c2000000-0000-0000-0000-000000000001'::uuid, -- source: the 4 LEA
+    'aaaaaaaa-0000-0000-0000-000000000002'::uuid, -- to the M10 printing
+    'nonfoil',
+    'c2000000-0000-0000-0000-000000000002'::uuid, -- decided merge target
+    4
+  );
+  assert r_result.result_quantity = 6 and r_result.replayed = false,
+    'the merge target should land at 2+4=6, got ' || r_result.result_quantity;
+
+  -- THE ASSERTION THIS SECTION EXISTS FOR. Nothing physically entered the
+  -- deck -- six cards went in and six are still there -- so the list must not
+  -- move. Increment the destination before clearing the source and the
+  -- trigger sees 10 against 6, adds a shortfall of 4, and this reads 10.
+  select count(*), coalesce(sum(quantity), 0) into v_entries, v_total
+    from public.deck_cards where deck_id = 'c1000000-0000-0000-0000-000000000001';
+  assert v_total = 6,
+    'a reprint moves no card into the deck, so the list must stay at 6 -- got '
+    || v_total || ' (destination incremented before the source was cleared?)';
+  assert v_entries = 2,
+    'both list entries must survive a reprint (got ' || v_entries || ')';
+
+  select quantity into v_lea from public.deck_cards
+   where deck_id = 'c1000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into v_m10 from public.deck_cards
+   where deck_id = 'c1000000-0000-0000-0000-000000000001'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+  assert v_lea = 4, 'the deck list line does not follow a reprint: LEA stays 4, got ' || v_lea;
+  assert v_m10 = 2, 'the deck list line does not follow a reprint: M10 stays 2, got ' || v_m10;
+
+  -- The physical side did change, and conserves.
+  select quantity, owner_user_id, location_id into v_dest_qty, v_dest_owner, v_dest_loc
+    from public.card_instances where id = 'c2000000-0000-0000-0000-000000000002';
+  assert v_dest_qty = 6, 'the destination stack should hold 6, got ' || v_dest_qty;
+  assert v_dest_owner = 'c0000000-0000-0000-0000-000000000001'
+     and v_dest_loc = 'c1000000-0000-0000-0000-000000000001',
+    'a reprint must not touch ownership or location (hard constraint 6)';
+
+  select count(*) into v_source_exists from public.card_instances
+   where id = 'c2000000-0000-0000-0000-000000000001';
+  assert v_source_exists = 0, 'a whole-stack merge must remove the emptied source row';
+
+  select coalesce(sum(ci.quantity), 0) into v_physical
+    from public.card_instances ci join public.cards c on c.scryfall_id = ci.card_id
+   where ci.location_id = 'c1000000-0000-0000-0000-000000000001'
+     and c.oracle_id = 'ffffffff-0000-0000-0000-000000000001';
+  assert v_physical = 6, 'six physical copies went in and six must remain, got ' || v_physical;
+end $$;
+
+-- (2) PARTIAL MERGE. One of four. The off-by-one is harder to spot in
+-- production than case 1, so this matters more.
+do $$
+declare
+  r_result record;
+  v_total int; v_lea int; v_m10 int; v_src int;
+begin
+  select * into r_result from public.apply_stack_reprint(
+    'c4000000-0000-0000-0000-000000000002'::uuid,
+    'c2000000-0000-0000-0000-000000000003'::uuid, -- source: the 4 LEA
+    'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+    'nonfoil',
+    'c2000000-0000-0000-0000-000000000004'::uuid, -- merge into the M10 stack
+    1
+  );
+  assert r_result.result_quantity = 3, 'the merge target should land at 2+1=3, got ' || r_result.result_quantity;
+
+  select coalesce(sum(quantity), 0) into v_total
+    from public.deck_cards where deck_id = 'c1000000-0000-0000-0000-000000000002';
+  assert v_total = 6,
+    'a partial reprint moves no card into the deck either -- the list must stay at 6, got '
+    || v_total || ' (7 means the destination was incremented first)';
+
+  select quantity into v_lea from public.deck_cards
+   where deck_id = 'c1000000-0000-0000-0000-000000000002'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into v_m10 from public.deck_cards
+   where deck_id = 'c1000000-0000-0000-0000-000000000002'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+  assert v_lea = 4 and v_m10 = 2,
+    'neither list entry follows a partial reprint, got LEA ' || v_lea || ' M10 ' || v_m10;
+
+  select quantity into v_src from public.card_instances
+   where id = 'c2000000-0000-0000-0000-000000000003';
+  assert v_src = 3, 'the source stack keeps the 3 copies that were not reprinted, got ' || v_src;
+end $$;
+
+-- (3) NO MERGE TARGET: the row is updated in place and keeps its id.
+do $$
+declare
+  r_result record;
+  v_entries int; v_total int; v_card uuid; v_acquired timestamptz; v_acquired_after timestamptz;
+begin
+  select acquired_at into v_acquired from public.card_instances
+   where id = 'c2000000-0000-0000-0000-000000000005';
+
+  select * into r_result from public.apply_stack_reprint(
+    'c4000000-0000-0000-0000-000000000003'::uuid,
+    'c2000000-0000-0000-0000-000000000005'::uuid,
+    'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+    'nonfoil',
+    null,                                          -- nothing to merge into
+    1
+  );
+
+  -- Delete-and-reinsert would return a different id, lose acquired_at and
+  -- break any trade_items row pointing at this copy.
+  assert r_result.result_instance_id = 'c2000000-0000-0000-0000-000000000005',
+    'a reprint with no merge target must keep the row id, got ' || r_result.result_instance_id;
+
+  select card_id, acquired_at into v_card, v_acquired_after
+    from public.card_instances where id = 'c2000000-0000-0000-0000-000000000005';
+  assert v_card = 'aaaaaaaa-0000-0000-0000-000000000002', 'the printing should have changed';
+  assert v_acquired_after = v_acquired, 'acquired_at must survive a reprint';
+
+  select count(*), coalesce(sum(quantity), 0) into v_entries, v_total
+    from public.deck_cards where deck_id = 'c1000000-0000-0000-0000-000000000003';
+  assert v_entries = 1 and v_total = 1,
+    'an in-place reprint fires no trigger, so the list stays one entry of 1, saw '
+    || v_entries || ' entries totalling ' || v_total;
+end $$;
+
+-- (4) The refusals.
+do $$
+declare
+  r_result record;
+  v_trade uuid := 'c5000000-0000-0000-0000-000000000001';
+  v_qty_before int; v_qty_after int; v_raised boolean;
+begin
+  -- Same-card rule: a different oracle id is not a reprint, it is a different card.
+  begin
+    select * into r_result from public.apply_stack_reprint(
+      'c4000000-0000-0000-0000-000000000004'::uuid,
+      'c2000000-0000-0000-0000-000000000006'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000003'::uuid, -- Thunderbolt Dragon
+      'nonfoil', null, 1);
+    assert false, 'reprinting onto a different card must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Finish gate: the LEA printing is {nonfoil}, so foil is impossible on it.
+  begin
+    select * into r_result from public.apply_stack_reprint(
+      'c4000000-0000-0000-0000-000000000005'::uuid,
+      'c2000000-0000-0000-0000-000000000006'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+      'foil', null, 1);
+    assert false, 'a finish the target printing does not come in must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Merging a copy into itself would delete the row and then increment it.
+  begin
+    select * into r_result from public.apply_stack_reprint(
+      'c4000000-0000-0000-0000-000000000006'::uuid,
+      'c2000000-0000-0000-0000-000000000006'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+      'nonfoil',
+      'c2000000-0000-0000-0000-000000000006'::uuid,
+      1);
+    assert false, 'merging a copy into itself must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- More copies than the stack holds.
+  begin
+    select * into r_result from public.apply_stack_reprint(
+      'c4000000-0000-0000-0000-000000000007'::uuid,
+      'c2000000-0000-0000-0000-000000000006'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+      'nonfoil', null, 99);
+    assert false, 'reprinting more copies than the stack holds must be refused';
+  exception when no_data_found then null;
+  end;
+
+  -- Every refusal above must have left the copy exactly as it was.
+  select quantity into v_qty_after from public.card_instances
+   where id = 'c2000000-0000-0000-0000-000000000006';
+  assert v_qty_after = 3, 'a refused reprint must not touch the copy, saw ' || v_qty_after;
+
+  -- THE OPEN-TRADE BLOCK. Without it, accept_trade hands the counterparty a
+  -- printing they never agreed to, while the trade screen still shows them
+  -- the one that was offered (migration 23's snapshot is not re-read).
+  insert into public.trades (id, proposer_id, recipient_id, status)
+  values (v_trade, 'c0000000-0000-0000-0000-000000000001',
+          'c0000000-0000-0000-0000-000000000002', 'proposed');
+  insert into public.trade_items (trade_id, card_instance_id, direction, quantity)
+  values (v_trade, 'c2000000-0000-0000-0000-000000000006', 'from_proposer', 1);
+
+  begin
+    select * into r_result from public.apply_stack_reprint(
+      'c4000000-0000-0000-0000-000000000008'::uuid,
+      'c2000000-0000-0000-0000-000000000006'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+      'nonfoil', null, 3);
+    assert false, 'a copy committed to an open trade must not be reprintable';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- ...but a settled trade does not block it. The same copy, once the trade is
+  -- no longer open, reprints normally.
+  update public.trades set status = 'cancelled' where id = v_trade;
+
+  select * into r_result from public.apply_stack_reprint(
+    'c4000000-0000-0000-0000-000000000009'::uuid,
+    'c2000000-0000-0000-0000-000000000006'::uuid,
+    'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+    'nonfoil', null, 3);
+  assert r_result.result_instance_id = 'c2000000-0000-0000-0000-000000000006'
+     and r_result.result_quantity = 3,
+    'a cancelled trade must not keep blocking the reprint';
+end $$;
+
+-- (5) Idempotency: the same operation id replays rather than reprinting twice.
+do $$
+declare r_result record; v_qty int;
+begin
+  select * into r_result from public.apply_stack_reprint(
+    'c4000000-0000-0000-0000-000000000009'::uuid,
+    'c2000000-0000-0000-0000-000000000006'::uuid,
+    'aaaaaaaa-0000-0000-0000-000000000001'::uuid,
+    'nonfoil', null, 3);
+  assert r_result.replayed = true,
+    'replaying an operation id must be reported as a replay, not done again';
+
+  select quantity into v_qty from public.card_instances
+   where id = 'c2000000-0000-0000-0000-000000000006';
+  assert v_qty = 3, 'a replay must not change anything, saw ' || v_qty;
+
+  -- The same id with different details is a bug in the caller, not a replay.
+  begin
+    select * into r_result from public.apply_stack_reprint(
+      'c4000000-0000-0000-0000-000000000009'::uuid,
+      'c2000000-0000-0000-0000-000000000006'::uuid,
+      'aaaaaaaa-0000-0000-0000-000000000002'::uuid,
+      'nonfoil', null, 1);
+    assert false, 'a reused operation id with different details must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'
