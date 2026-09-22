@@ -131,6 +131,21 @@ Notes behind the ranking:
   but show the language. Live `cards` size checked 2026-09-21: **118,612 rows**, which
   confirms the cheap path — the display pass adds no rows, and `all_cards` would mean
   roughly 546,000.
+  - **Step 1 done (2026-09-22, separate PR):** the display pass — collection
+    column on by default, trade builder, tradable binder, supplier rows, /find
+    and their mobile equivalents.
+  - **Step 2 done (2026-09-22):** the trade snapshot's own `language` column.
+    `supabase/migrations/00000000000040_trade_item_language_snapshot.sql` adds
+    a nullable `trade_items.language`, mirroring migration 23's `finish`
+    (plain snapshot text, no FK) rather than its `card_id` (FK-backed). Same
+    shape as that migration throughout: a backfill from `card_instances` for
+    rows that still resolve, and `snapshot_trade_item_card()` (the same
+    `BEFORE INSERT` trigger function migration 23 created, extended via
+    `create or replace function` — the trigger itself did not need to be
+    recreated) now also fills `new.language` from the source instance when it
+    is not already set. Verified against local Postgres (`npm run test:db`,
+    all 40 migrations + `schema_test.sql` clean). Steps 3–4 (the footer-first
+    scan fallback, the footer language token) are not started.
 - **9 (leaderboard):** test demand first (one line in the feedback box, then a public
   page or GitHub Discussions). Build the feedback admin inbox (`is_admin()`, never
   built) first. If built later: signed-in only, owner-created items only, advisory
