@@ -20,7 +20,7 @@ architect** (structural; architect impact map, then owner sign-off, then impleme
 | 3 | Photos in every printing selector | Easy–Med | Med–High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
 | 4 | Flip button on double-faced cards (swap image and name, revert on leaving the page) | Easy–Med | Med | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
 | 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Ready (after 3) | `ScanSessionSummary.tsx` |
-| 6 | Change the printing of a card you own in the collection | Med–Hard | High | Doing — migration 39 + tests written, server action and UI next | `apply_stack_reprint` + `CollectionTable` row menu |
+| 6 | Change the printing of a card you own in the collection | Med–Hard | High | Part 2 done (migration 39, decision helper, server action, "Change printing…" row UI) — mobile parity next | `apply_stack_reprint` + `CollectionTable` row menu |
 | 7 | Import all Scryfall data, including oracle tags (otags) | Hard | Med–High | Needs architect | sync + schema + search |
 | 8 | Other card languages (Japanese, Phyrexian): own, show and scan them (not Japanese-name lookup) | Med | Med | Ready for owner sign-off (architect done) | display pass, trade snapshot migration, scan-core footer fallback |
 | 9 | Public leaderboard: all dev items and bugs, up and down votes, doubles as the backlog | Hard | Low until there are users | Needs architect | new tables, web + mobile |
@@ -116,8 +116,17 @@ Notes behind the ranking:
     different details. Both ordering cases were **confirmed red** with the destination
     incremented first (the whole-stack case inflated a 6-card list to 10, the partial
     case to 7) before being allowed to pass — a green run on a test never seen red is
-    not evidence. Still to do: the shared decision helper + `scripts/reprint.test.ts`,
-    the server action, the "Change printing…" menu item, then mobile.
+    not evidence.
+  - **Part 2 done (2026-09-22):** `packages/upkeep-domain/src/reprint.ts`
+    (`decideReprint`, `reconcileFinish`, `isSameCard`) and `scripts/reprint.test.ts`;
+    `reprintCardInstance` in `src/app/(app)/collection/actions.ts`; the "Change
+    printing…" row menu item and `RowReprint` panel in `CollectionTable.tsx`, built
+    on the existing `PrintingPicker.tsx`. `/api/cards/printings` now also returns
+    `oracle_id` (the same-card gate) and the three price columns (the "estimated
+    value changes from X to Y" line). Verified against the live dev database: a
+    9-card Foundations Mountain stack reprinted in place to Secret Lair Drop #1481
+    (value line and result both correct) and back, id preserved, no accidental
+    merge. Still to do: mobile parity.
 - **7 (Scryfall data and otags):** official `oracle_tags` bulk file, two tables keyed
   on tag UUID, separate `sync-oracle-tags.ts`; card fields = full_art, border_color,
   promo, promo_types, frame_effects, frame, textless, variation, edhrec_rank,

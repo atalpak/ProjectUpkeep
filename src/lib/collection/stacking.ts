@@ -20,3 +20,15 @@ export {
   type StackableRow,
   type StackDecision,
 } from "@upkeep/domain";
+
+/**
+ * The reprint decisions (migration 39's caller-side half) re-exported the same
+ * way, so the collection action imports its stacking vocabulary from one path.
+ */
+export {
+  decideReprint,
+  reconcileFinish,
+  isSameCard,
+  type FinishReconciliation,
+  type ReprintIntent,
+} from "@upkeep/domain";
