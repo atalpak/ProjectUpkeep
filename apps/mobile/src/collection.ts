@@ -28,6 +28,8 @@ export type CollectionEntry = {
   card_rarity: string;
   card_image_uri_small: string | null;
   card_image_uri: string | null;
+  /** Which faces the card has (transform, split, ...); with the name it is all the flip control needs. */
+  card_layout: string | null;
   condition: string;
   finish: string;
   language: string;
@@ -48,7 +50,7 @@ export type CollectionEntry = {
 const COLUMNS = [
   'id', 'card_id', 'quantity',
   'card_name', 'card_set_code', 'card_collector_number', 'card_rarity',
-  'card_image_uri_small', 'card_image_uri',
+  'card_image_uri_small', 'card_image_uri', 'card_layout',
   'condition', 'finish', 'language',
   'location_id', 'location_name', 'location_type',
   'card_colors', 'card_type_line',

@@ -43,6 +43,7 @@ export type TradeLine = {
   setCode: string;
   collectorNumber: string;
   imageSmall: string | null;
+  layout: string | null;
 };
 
 export type Trade = {
@@ -68,7 +69,7 @@ export type Trade = {
 
 type TradeRow = { id: string; proposer_id: string | null; recipient_id: string | null; status: string; expires_at: string | null; created_at: string; countered_from: string | null };
 type ItemRow = { id: string; trade_id: string; card_instance_id: string | null; direction: string; quantity: number; card_id: string | null; finish: string | null };
-type CardRow = { scryfall_id: string; name: string; set_code: string; collector_number: string; image_uri_small: string | null };
+type CardRow = { scryfall_id: string; name: string; set_code: string; collector_number: string; image_uri_small: string | null; layout: string | null };
 
 const TRADE_COLUMNS = 'id,proposer_id,recipient_id,status,expires_at,created_at,countered_from';
 
@@ -106,7 +107,7 @@ async function hydrate(userId: string, rows: TradeRow[]): Promise<Trade[]> {
   const cardIds = [...new Set(items.map(i => i.card_id ?? (i.card_instance_id ? fallback.get(i.card_instance_id)?.card_id : undefined)).filter((id): id is string => !!id))];
   const cards = new Map<string, CardRow>();
   if (cardIds.length > 0) {
-    const { data } = await backend.from('cards').select('scryfall_id,name,set_code,collector_number,image_uri_small').in('scryfall_id', cardIds);
+    const { data } = await backend.from('cards').select('scryfall_id,name,set_code,collector_number,image_uri_small,layout').in('scryfall_id', cardIds);
     for (const c of (data ?? []) as CardRow[]) cards.set(c.scryfall_id, c);
   }
 
@@ -131,6 +132,7 @@ async function hydrate(userId: string, rows: TradeRow[]): Promise<Trade[]> {
         setCode: c?.set_code ?? '',
         collectorNumber: c?.collector_number ?? '',
         imageSmall: c?.image_uri_small ?? null,
+        layout: c?.layout ?? null,
       };
     });
     const mineDirection: TradeLine['direction'] = iProposed ? 'from_proposer' : 'from_recipient';
@@ -218,16 +220,16 @@ export async function fetchMyTradables(userId: string): Promise<FriendCard[]> {
   if (!backend) return [];
   const { data, error } = await backend
     .from('card_instances')
-    .select('id,card_id,quantity,finish,condition,cards(name,set_code,collector_number,image_uri_small),locations!location_id(is_tradable)')
+    .select('id,card_id,quantity,finish,condition,cards(name,set_code,collector_number,image_uri_small,layout),locations!location_id(is_tradable)')
     .eq('owner_user_id', userId)
     .limit(5000);
   if (error) throw new Error(error.message);
-  type Join = { name: string; set_code: string; collector_number: string; image_uri_small: string | null } | null;
+  type Join = { name: string; set_code: string; collector_number: string; image_uri_small: string | null; layout: string | null } | null;
   return (data ?? []).flatMap(r => {
     const loc = r.locations as unknown as { is_tradable?: boolean } | null;
     const c = r.cards as unknown as Join;
     if (!c || loc?.is_tradable !== true) return [];
-    return [{ id: r.id as string, cardId: r.card_id as string, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, quantity: r.quantity as number, finish: r.finish as string, condition: r.condition as string, imageSmall: c.image_uri_small }];
+    return [{ id: r.id as string, cardId: r.card_id as string, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, quantity: r.quantity as number, finish: r.finish as string, condition: r.condition as string, imageSmall: c.image_uri_small, layout: c.layout }];
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 

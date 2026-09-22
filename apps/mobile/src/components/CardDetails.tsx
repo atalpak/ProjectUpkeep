@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, type ArtResult, type Condition, type Finish } from '@upkeep/scan-core';
+import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish } from '@upkeep/scan-core';
 import { useApp } from '../AppProvider';
 import { writer } from '../backend';
 import {
@@ -21,6 +21,8 @@ import { FoilArt } from './FoilArt';
 import { ManaCost } from './ManaCost';
 
 const CARD_ASPECT = 488 / 680;
+/** Width of one printing tile in the printings strip; fixed so the windowed list can place tiles without measuring. */
+const PRINTING_TILE_W = 84;
 
 const money = (v: number | null) => (v === null ? null : `$${v.toFixed(2)}`);
 
@@ -146,6 +148,8 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
       userSeq.current++;
       userPicked.current = false;
       setPrintings([]); setOwnedState('loading'); setListState('loading'); setArt(null); setArtNote(null); setDetailFailed(false);
+      // The flipped side is never kept: the next card opens on its front.
+      setFaceIndex(0);
       return;
     }
     userPicked.current = false;
@@ -515,11 +519,31 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
                 keyExtractor={p => p.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chips}
-                renderItem={({ item }) => (
-                  <Pressable accessibilityRole="radio" accessibilityState={{ selected: item.id === selectedId }} onPress={() => choosePrinting(item)} style={[styles.chip, item.id === selectedId && styles.chipOn]}>
-                    <Text style={[styles.chipText, item.id === selectedId && styles.chipTextOn]}>{item.setCode.toUpperCase()} #{item.collectorNumber}</Text>
-                  </Pressable>
-                )}
+                // Windowed like the Collection grid (see the details-sheet freeze in mobile.md): a card
+                // can have hundreds of printings, and each tile now carries a picture. Fixed-width tiles
+                // let the list place every one without measuring.
+                initialNumToRender={5}
+                maxToRenderPerBatch={5}
+                windowSize={5}
+                getItemLayout={(_, index) => ({ length: PRINTING_TILE_W + space.sm, offset: (PRINTING_TILE_W + space.sm) * index, index })}
+                renderItem={({ item }) => {
+                  const on = item.id === selectedId;
+                  const thumb = item.imageSmall ?? thumbnailUri(item.image);
+                  const finishes = finishSummary(item.finishes);
+                  return (
+                    <Pressable
+                      accessibilityRole="radio"
+                      accessibilityLabel={`${item.setName} number ${item.collectorNumber}${finishes ? `, ${finishes}` : ''}`}
+                      accessibilityState={{ selected: on }}
+                      onPress={() => choosePrinting(item)}
+                      style={[styles.printingTile, on && styles.chipOn]}
+                    >
+                      {thumb ? <Image source={{ uri: thumb }} style={styles.printingThumb} accessibilityIgnoresInvertColors /> : <View style={[styles.printingThumb, styles.printingThumbEmpty]} />}
+                      <Text numberOfLines={1} style={[styles.chipText, on && styles.chipTextOn]}>{item.setCode.toUpperCase()} #{item.collectorNumber}</Text>
+                      {!!finishes && <Text numberOfLines={1} style={[styles.printingFinish, on && styles.chipTextOn]}>{finishes}</Text>}
+                    </Pressable>
+                  );
+                }}
               />
               <Text style={styles.line}>{[selected.setName, selected.rarity, selected.releasedAt?.slice(0, 4)].filter(Boolean).join(' · ')}</Text>
               {!!selected.artist && <Text style={styles.muted}>Illustrated by {selected.artist}</Text>}
@@ -587,6 +611,10 @@ const useStyles = makeStyles(() => StyleSheet.create({
   chips: { gap: space.sm },
   chip: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline },
   chipOn: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
+  printingTile: { width: PRINTING_TILE_W, padding: space.xs, gap: 2, alignItems: 'center', borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline },
+  printingThumb: { width: PRINTING_TILE_W - 2 * space.xs - 2, aspectRatio: 488 / 680, borderRadius: 3 },
+  printingThumbEmpty: { backgroundColor: surface.sunken },
+  printingFinish: { ...type.label, fontSize: 10, color: text.secondary },
   chipText: { ...type.label, color: text.secondary },
   chipTextOn: { color: text.onAccent },
 }));

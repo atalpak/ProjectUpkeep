@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { useCardPreview } from "@/components/CardPanel";
+import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { TradeBuilder } from "@/components/social/TradeBuilder";
@@ -170,7 +171,8 @@ export function ProfileTradables({
 function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
   const card = row.cards;
   const preview = useCardPreview(card);
-  const image = card?.image_uri ?? card?.image_uri_small;
+  const face = useCardFace(card, "normal");
+  const image = face.image;
 
   return (
     <li className="space-y-1">
@@ -182,23 +184,25 @@ function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
         {image ? (
           <Image
             src={image}
-            alt={card ? cardDisplayName(card) : "Card"}
+            alt={face.name ?? "Card"}
             fill
             sizes="(min-width: 1280px) 12rem, (min-width: 640px) 25vw, 45vw"
             className="object-cover"
+            onError={face.onImageError}
             unoptimized
           />
         ) : (
           <div className="flex h-full items-center justify-center p-2 text-center text-xs text-ink-muted">
-            {card ? cardDisplayName(card) : "No image"}
+            {face.name ?? "No image"}
           </div>
         )}
+        {face.canFlip ? <FlipButton onFlip={face.flip} otherName={face.otherName} /> : null}
         <span className="absolute bottom-1 right-1 rounded bg-surface/90 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums">
           {row.quantity}×
         </span>
       </div>
       <div className="flex items-center gap-1 text-xs">
-        <span className="min-w-0 truncate text-ink-muted">{card?.name ?? "Unknown"}</span>
+        <span className="min-w-0 truncate text-ink-muted">{(face.canFlip ? face.name : card?.name) ?? "Unknown"}</span>
         <FoilMark finish={row.finish} />
       </div>
     </li>

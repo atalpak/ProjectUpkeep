@@ -65,7 +65,7 @@ export default async function SearchPage({
   let searchError: string | null = null;
   if (active) {
     const supabase = await createClient();
-    const { data, error } = await searchCards(supabase, filter, 90);
+    const { data, error } = await searchCards(supabase, filter, 90, { withFaces: true });
     results = data;
     searchError = error;
   }

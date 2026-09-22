@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { signOut } from "@/app/auth/actions";
 import { setCardPreviewMode, useCardPreviewMode } from "@/components/CardPreviewMode";
 import { toggleDarkTheme, useIsDarkTheme } from "@/components/ThemeToggle";
+import { useViewportFit } from "@/hooks/useViewportFit";
 import { cx } from "@/components/ui";
 
 /**
@@ -27,6 +28,8 @@ export function AccountMenu({ label }: { label: string }) {
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useViewportFit(open, panel, trigger);
 
   const sidebarOn = useCardPreviewMode() === "sidebar";
   const darkOn = useIsDarkTheme();
@@ -84,6 +87,7 @@ export function AccountMenu({ label }: { label: string }) {
 
       {open ? (
         <div
+          ref={panel}
           role="menu"
           className="absolute right-0 top-full z-30 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
         >

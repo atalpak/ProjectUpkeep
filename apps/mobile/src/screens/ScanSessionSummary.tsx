@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { CONDITIONS, LANGUAGES, type CardIndex, type Candidate, type CollectionDraft, type Condition, type Finish, type Printing } from '@upkeep/scan-core';
+import { CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, type CardIndex, type Candidate, type CollectionDraft, type Condition, type Finish, type Printing } from '@upkeep/scan-core';
 import { Button, Choices } from '../components/ui';
 import { ListRow } from '../components/ListRow';
 import { MortStage } from '../mort/MortStage';
@@ -164,8 +164,9 @@ function ManualAddSheet({ index, onAdd, onCancel }: { index: CardIndex; onAdd(pr
         <Pressable key={c.printing.id} onPress={() => onAdd(c.printing)}>
           <ListRow
             title={c.printing.name}
-            subtitle={`${c.printing.setName ?? c.printing.setCode.toUpperCase()} · #${c.printing.collectorNumber} · ${c.printing.language.toUpperCase()}`}
-            imageUri={c.printing.imageUri}
+            subtitle={`${c.printing.setName ?? c.printing.setCode.toUpperCase()} · #${c.printing.collectorNumber} · ${c.printing.language.toUpperCase()} · ${finishSummary(c.printing.finishes)}`}
+            // The small picture, not the catalog's normal-size one: up to 50 rows are drawn at once.
+            imageUri={thumbnailUri(c.printing.imageUri)}
           />
         </Pressable>
       ))}

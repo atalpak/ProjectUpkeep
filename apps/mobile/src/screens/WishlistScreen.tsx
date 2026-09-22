@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MAX_WANT_QUANTITY, MIN_WANT_QUANTITY } from '@upkeep/domain';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,6 +8,7 @@ import { fetchFriendSupplyCounts, fetchWantList, removeWant, type WantEntry } fr
 import { setWantQuantity } from '../wishlist';
 import { CardDetails } from '../components/CardDetails';
 import { Button, EmptyState, Notice } from '../components/ui';
+import { FlipThumb } from '../components/FlipThumb';
 import { errorMessage } from '../errors';
 import { makeStyles } from '../preferences';
 import { useSearchOverlay } from '../searchOverlay';
@@ -137,12 +138,15 @@ function WishlistList({ userId }: { userId: string }) {
           return (
             <View style={styles.row}>
               <Pressable accessibilityRole="button" accessibilityLabel={`${item.name}, details`} onPress={() => setDetails(item)} style={styles.main}>
-                {item.imageSmall ? <Image source={{ uri: item.imageSmall }} style={styles.thumb} /> : <View style={[styles.thumb, styles.thumbEmpty]} />}
-                <View style={styles.grow}>
-                  <Text style={styles.name}>{item.name}</Text>
-                  <Text style={styles.body}>{item.setCode.toUpperCase()} · #{item.collectorNumber}</Text>
-                  {friends > 0 && <Text style={styles.friends}>{friends} friend{friends === 1 ? ' has' : 's have'} it for trade</Text>}
-                </View>
+                <FlipThumb card={{ name: item.name, layout: item.layout, imageSmall: item.imageSmall }} thumbStyle={[styles.thumb, !item.imageSmall && styles.thumbEmpty]}>
+                  {name => (
+                    <View style={styles.grow}>
+                      <Text style={styles.name}>{name}</Text>
+                      <Text style={styles.body}>{item.setCode.toUpperCase()} · #{item.collectorNumber}</Text>
+                      {friends > 0 && <Text style={styles.friends}>{friends} friend{friends === 1 ? ' has' : 's have'} it for trade</Text>}
+                    </View>
+                  )}
+                </FlipThumb>
               </Pressable>
               <View style={styles.stepper}>
                 <Pressable accessibilityRole="button" accessibilityLabel={`Want fewer ${item.name}`} accessibilityState={{ disabled: item.quantity <= MIN_WANT_QUANTITY }} disabled={item.quantity <= MIN_WANT_QUANTITY} onPress={() => changeQuantity(item, -1)} hitSlop={6} style={styles.stepButton}>

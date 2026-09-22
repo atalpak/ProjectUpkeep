@@ -375,7 +375,7 @@ export function HeaderSearch() {
                 {loading ? "Searching…" : `No card matches “${term}”.`}
               </p>
             ) : (
-              <ul className="max-h-96 overflow-y-auto py-1">
+              <ul className="max-h-[min(24rem,calc(100dvh-6rem))] overflow-y-auto py-1">
                 {results.map((card, index) => (
                   <li key={card.name}>
                     <button

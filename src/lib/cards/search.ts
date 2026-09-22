@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { createClient } from "@/lib/supabase/server";
+import { isFlipCard, type FlippableCard } from "@/lib/cards/faces";
 import { matchesAdvancedCard, type AdvancedCardFilter } from "@/lib/cards/search-query";
 
 /**
@@ -25,6 +26,13 @@ export type CardSearchResult = {
   sample_image_uri_large: string | null;
   sample_card_id: string | null;
   sample_flavor_name: string | null;
+  /**
+   * Set only when the sample printing has two printed sides, so the results
+   * grid can offer a flip. Fetched for the page of samples actually returned,
+   * not the whole capped match set: `card_faces` is the widest column on
+   * `cards` and the match set can be thousands of rows.
+   */
+  sample_faces: Pick<FlippableCard, "layout" | "card_faces"> | null;
 };
 
 type AdvancedRow = {
@@ -124,6 +132,9 @@ export async function searchCards(
   // The dropdown caps at 30 — a compact list, not a browse. The dedicated
   // `/search` page asks for more, since a full page of results is the point.
   resultLimit = 30,
+  // The flip data costs a second read, and only the results grid draws a
+  // flip control, so the header dropdown does not ask for it.
+  { withFaces = false }: { withFaces?: boolean } = {},
 ): Promise<{ data: CardSearchResult[]; error: string | null }> {
   const { data, error } = await fetchMatchingRows(supabase, filter);
   if (error) return { data: [], error };
@@ -144,11 +155,30 @@ export async function searchCards(
       sample_image_uri_large: row.image_uri,
       sample_card_id: row.scryfall_id,
       sample_flavor_name: row.flavor_name,
+      sample_faces: null,
     });
   }
 
   const results = [...byName.values()]
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, resultLimit);
+
+  // One small follow-up read for the two-sided samples. Best effort: if it
+  // fails the grid simply shows no flip buttons rather than failing the search.
+  const ids = results.flatMap((r) => (r.sample_card_id ? [r.sample_card_id] : []));
+  if (withFaces && ids.length > 0) {
+    const { data: faceRows } = await supabase
+      .from("cards")
+      .select("scryfall_id, layout, card_faces")
+      .in("scryfall_id", ids)
+      .returns<Array<{ scryfall_id: string } & Pick<FlippableCard, "layout" | "card_faces">>>();
+    const facesById = new Map((faceRows ?? []).map((r) => [r.scryfall_id, r]));
+    for (const result of results) {
+      const faces = result.sample_card_id ? facesById.get(result.sample_card_id) : undefined;
+      if (faces && isFlipCard(faces)) {
+        result.sample_faces = { layout: faces.layout, card_faces: faces.card_faces };
+      }
+    }
+  }
   return { data: results, error: null };
 }

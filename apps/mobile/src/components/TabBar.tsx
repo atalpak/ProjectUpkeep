@@ -362,7 +362,7 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
           <View pointerEvents="none" style={styles.domeClip}>
             <Animated.View style={[styles.dome, { transform: [{ translateY: fan.interpolate({ inputRange: [0, 1], outputRange: [DOME_R, 0] }) }] }]} />
           </View>
-          {!!fanNote && <Text pointerEvents="none" style={styles.fanNote}>{fanNote}</Text>}
+          {!!fanNote && <Text pointerEvents="none" style={[styles.fanNote, { width: quickW }]}>{fanNote}</Text>}
           <View pointerEvents="none" style={styles.fanLayer}>
             <FanOption label="Search" icon="search" hovered={hover === 'search'} dx={-OPTION_DX} fan={fan} />
             <FanOption label="Scan" icon="scan" hovered={hover === 'scan'} dx={OPTION_DX} fan={fan} />
@@ -526,7 +526,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
     borderColor: accent.DEFAULT,
   },
   quickHint: { position: 'absolute', left: 0, right: 0, top: 0, paddingVertical: 8, paddingHorizontal: 10, textAlign: 'center', ...type.label, color: brand.parchment, backgroundColor: 'rgba(31,31,31,0.72)' },
-  fanNote: { position: 'absolute', top: -(DOME_R - SCAN_SIZE / 2) - 30, alignSelf: 'center', paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.sm, overflow: 'hidden', ...type.label, color: text.primary, backgroundColor: surface.raised },
+  fanNote: { position: 'absolute', top: -(DOME_R - SCAN_SIZE / 2) - 30, alignSelf: 'center', textAlign: 'center', paddingVertical: 4, paddingHorizontal: 10, borderRadius: radius.sm, overflow: 'hidden', ...type.label, color: text.primary, backgroundColor: surface.raised },
   // Sits on the circle's centre; each option travels out from there.
   fanLayer: { position: 'absolute', top: 0, left: 0, right: 0, height: SCAN_SIZE, alignItems: 'center' },
   optionWrap: { position: 'absolute', top: (SCAN_SIZE - OPTION) / 2 },

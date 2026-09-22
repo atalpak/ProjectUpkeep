@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { mirrorTradeForCounter } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { TradingTerms } from '../components/TradingTerms';
 import { Button, Choices, Notice } from '../components/ui';
+import { FlipThumb } from '../components/FlipThumb';
 import { errorMessage } from '../errors';
 import { fetchFriendTradables, type FriendCard } from '../friends';
 import type { TradesStackParamList } from '../navigation';
@@ -110,11 +111,14 @@ export function TradeBuilderScreen({ route, navigation }: NativeStackScreenProps
         const q = selection[c.id] ?? 0;
         return (
           <View key={c.id} style={[styles.row, q > 0 && styles.rowSelected]}>
-            {c.imageSmall ? <Image source={{ uri: c.imageSmall }} style={styles.thumb} /> : <View style={styles.thumb} />}
-            <View style={styles.grow}>
-              <Text style={styles.name}>{c.name}</Text>
-              <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber}{c.finish && c.finish !== 'nonfoil' ? ` · ${c.finish}` : ''} · {c.quantity} available</Text>
-            </View>
+            <FlipThumb card={{ name: c.name, layout: c.layout, imageSmall: c.imageSmall }} thumbStyle={styles.thumb}>
+              {name => (
+                <View style={styles.grow}>
+                  <Text style={styles.name}>{name}</Text>
+                  <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber}{c.finish && c.finish !== 'nonfoil' ? ` · ${c.finish}` : ''} · {c.quantity} available</Text>
+                </View>
+              )}
+            </FlipThumb>
             <Pressable accessibilityRole="button" accessibilityLabel={`One fewer ${c.name}`} disabled={q === 0} onPress={() => setQuantity(c.id, q - 1)} style={[styles.step, q === 0 && styles.stepOff]}><Text style={styles.stepText}>−</Text></Pressable>
             <Text style={styles.qty}>{q}</Text>
             <Pressable accessibilityRole="button" accessibilityLabel={`One more ${c.name}`} disabled={q >= c.quantity} onPress={() => setQuantity(c.id, q + 1)} style={[styles.step, q >= c.quantity && styles.stepOff]}><Text style={styles.stepText}>+</Text></Pressable>

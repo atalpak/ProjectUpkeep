@@ -12,6 +12,8 @@ import {
 import { searchCards, type CardSearchResult } from '../cardSearch';
 import { Button, Choices } from './ui';
 import { CardDetails } from './CardDetails';
+import { FlipBadge } from './FlipBadge';
+import { useCardFace } from '../hooks/useCardFace';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles } from '../preferences';
 import { accent, border, radius, scrim, space, surface, text, type } from '../theme';
@@ -23,6 +25,9 @@ const CMC_LABELS: Record<string, string> = { eq: '=', gte: '≥', lte: '≤' };
 const RARITIES = ['', 'common', 'uncommon', 'rare', 'mythic'];
 const RARITY_LABELS: Record<string, string> = { '': 'Any', common: 'Common', uncommon: 'Uncommon', rare: 'Rare', mythic: 'Mythic' };
 const DEBOUNCE_MS = 450;
+// The filters panel's ceiling; on a short screen it is held to 40% of the height instead,
+// so the results below it never disappear behind an open panel.
+const FILTERS_MAX_HEIGHT = 320;
 const CARD_ASPECT = 488 / 680;
 const COLUMNS = 3;
 
@@ -148,7 +153,7 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
         </Pressable>
 
         {showFilters && !parsed && (
-          <ScrollView style={styles.filters} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
+          <ScrollView style={[styles.filters, { maxHeight: Math.min(FILTERS_MAX_HEIGHT, screenHeight * 0.4) }]} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
             <Text style={styles.groupLabel}>Colors</Text>
             <View style={styles.colorRow}>
               {COLORS.map(c => {
@@ -208,15 +213,7 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
               ListHeaderComponent={state.total > 0 ? (
                 <Text style={styles.count}>{state.capped ? 'Too many matches to show them all. Add a filter or a bit more of the name to narrow it down.' : state.total > state.results.length ? `Showing ${state.results.length} of ${state.total} cards. Narrow the search to see the rest.` : `${state.total} card${state.total === 1 ? '' : 's'}`}</Text>
               ) : null}
-              renderItem={({ item }) => (
-                <Pressable accessibilityRole="button" accessibilityLabel={item.name} onPress={() => { Keyboard.dismiss(); setZoomed(item); }} style={{ width: tile }}>
-                  {item.imageSmall
-                    ? <Image source={{ uri: item.imageSmall }} style={[styles.thumb, { width: tile, height: tile / CARD_ASPECT }]} />
-                    : <View style={[styles.thumb, styles.thumbEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.thumbName}>{item.name}</Text></View>}
-                  <Text numberOfLines={2} style={styles.cardName}>{item.name}</Text>
-                  {item.printingCount > 1 && <Text style={styles.printings}>{item.printingCount} printings</Text>}
-                </Pressable>
-              )}
+              renderItem={({ item }) => <SearchTile item={item} tile={tile} onOpen={() => { Keyboard.dismiss(); setZoomed(item); }} />}
               contentContainerStyle={styles.gridContent}
             />
           )}
@@ -225,6 +222,23 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
 
       <CardDetails name={zoomed?.name ?? null} onClose={() => setZoomed(null)} />
     </View>
+  );
+}
+
+/** One result tile. A two-sided card gets a flip badge that swaps the picture and the name; the state is the tile's own, so it is gone with the tile. */
+function SearchTile({ item, tile, onOpen }: { item: CardSearchResult; tile: number; onOpen(): void }) {
+  const styles = useStyles();
+  const face = useCardFace({ name: item.name, layout: item.layout, image: item.image, imageSmall: item.imageSmall }, 'small');
+  const name = face.name ?? item.name;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={name} onPress={onOpen} style={{ width: tile }}>
+      {face.image
+        ? <Image source={{ uri: face.image }} onError={face.onImageError} style={[styles.thumb, { width: tile, height: tile / CARD_ASPECT }]} />
+        : <View style={[styles.thumb, styles.thumbEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.thumbName}>{name}</Text></View>}
+      <Text numberOfLines={2} style={styles.cardName}>{name}</Text>
+      {item.printingCount > 1 && <Text style={styles.printings}>{item.printingCount} printings</Text>}
+      {face.canFlip && <FlipBadge onPress={face.flip} otherName={face.otherName} />}
+    </Pressable>
   );
 }
 
@@ -239,7 +253,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   cancelText: { ...type.body, color: text.primary },
   filtersToggle: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 32 },
   filtersLabel: { ...type.bodySm, color: text.primary, fontFamily: type.label.fontFamily },
-  filters: { maxHeight: 320, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  filters: { borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   filtersBody: { padding: space.lg, gap: space.sm },
   groupLabel: { ...type.label, color: text.secondary, marginTop: space.sm },
   colorRow: { flexDirection: 'row', gap: space.sm },

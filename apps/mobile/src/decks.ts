@@ -275,6 +275,8 @@ export type SleeveCandidate = {
   locationName: string;
   setCode: string;
   collectorNumber: string;
+  /** Scryfall's small picture of this printing, for the picker row; null when the card has none. */
+  imageSmall: string | null;
 };
 
 type RawSleeveCandidateRow = {
@@ -285,7 +287,7 @@ type RawSleeveCandidateRow = {
   language: string;
   quantity: number;
   locations: { id: string; name: string; type: string } | null;
-  cards: { oracle_id: string | null; name: string; set_code: string; collector_number: string } | null;
+  cards: { oracle_id: string | null; name: string; set_code: string; collector_number: string; image_uri_small: string | null } | null;
 };
 
 /**
@@ -318,7 +320,7 @@ export async function fetchSpareStacks(
   let query = backend
     .from('card_instances')
     .select(
-      'id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards!inner(oracle_id,name,set_code,collector_number)',
+      'id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards!inner(oracle_id,name,set_code,collector_number,image_uri_small)',
     )
     // owner_user_id is mandatory, not RLS's job alone: migration 9 makes a
     // friend's tradable-binder rows genuinely readable, and an unscoped
@@ -353,6 +355,7 @@ export async function fetchSpareStacks(
       locationName: row.locations?.name ?? 'Unsorted',
       setCode: row.cards?.set_code ?? '',
       collectorNumber: row.cards?.collector_number ?? '',
+      imageSmall: row.cards?.image_uri_small ?? null,
     }))
     .sort((a, b) => a.quantity - b.quantity);
 }
@@ -370,7 +373,7 @@ export async function fetchSleevedStacks(
   if (!backend) throw new Error('Not connected.');
   const { data, error } = await backend
     .from('card_instances')
-    .select('id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards(oracle_id,name,set_code,collector_number)')
+    .select('id,card_id,condition,finish,language,quantity,locations!location_id(id,name,type),cards(oracle_id,name,set_code,collector_number,image_uri_small)')
     // Mandatory owner filter for the same reason as fetchSpareStacks — this
     // deck's own card_instances rows still need to be this account's, not
     // merely readable through RLS.
@@ -397,6 +400,7 @@ export async function fetchSleevedStacks(
       locationName: row.locations?.name ?? 'Unsorted',
       setCode: row.cards?.set_code ?? '',
       collectorNumber: row.cards?.collector_number ?? '',
+      imageSmall: row.cards?.image_uri_small ?? null,
     }))
     .sort((a, b) => a.quantity - b.quantity);
 }

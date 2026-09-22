@@ -303,6 +303,7 @@ function SleevePicker({ userId, deckId, entry, mode, onMove, onClose, onMoved }:
           onPress={() => void pick(cand)}
           title={`${cand.setCode.toUpperCase()} · #${cand.collectorNumber} · Qty ${cand.quantity}`}
           subtitle={`${cand.condition.toUpperCase()} · ${cand.finish.toUpperCase()} · ${cand.language.toUpperCase()} · ${cand.locationName}`}
+          imageUri={cand.imageSmall}
         />
       ))}
       <Button secondary label="Close" disabled={busy} onPress={onClose} />

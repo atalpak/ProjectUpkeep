@@ -43,7 +43,7 @@ export function MenuSheet({ visible, current, onSelect, onClose, unread = 0 }: {
         <Animated.View
           style={[
             styles.panel,
-            { width: panelWidth, paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.md },
+            { width: panelWidth, paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.md, paddingRight: space.lg + insets.right },
             { transform: [{ translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [panelWidth, 0] }) }] },
           ]}
         >

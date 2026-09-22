@@ -108,7 +108,7 @@ export async function deleteLocation(userId: string, id: string): Promise<void> 
 
 export type LocationCard = {
   id: string; cardId: string; name: string; setCode: string; collectorNumber: string; quantity: number;
-  condition: string; finish: string; language: string; imageSmall: string | null;
+  condition: string; finish: string; language: string; imageSmall: string | null; layout: string | null;
 };
 
 /** The cards in one location, or the unsorted ones when `locationId` is null. */
@@ -118,7 +118,7 @@ export async function fetchLocationCards(userId: string, locationId: string | nu
   for (let from = 0; from < 20_000; from += 1000) {
     let query = backend
       .from('collection_entries')
-      .select('id,card_id,card_name,card_set_code,card_collector_number,quantity,condition,finish,language,card_image_uri_small')
+      .select('id,card_id,card_name,card_set_code,card_collector_number,quantity,condition,finish,language,card_image_uri_small,card_layout')
       .eq('owner_user_id', userId)
       // Name first for display; id breaks ties so paging never skips or repeats a row.
       .order('card_name')
@@ -134,6 +134,6 @@ export async function fetchLocationCards(userId: string, locationId: string | nu
   return (data ?? []).map(r => ({
     id: r.id as string, cardId: r.card_id as string, name: r.card_name as string, setCode: r.card_set_code as string,
     collectorNumber: r.card_collector_number as string, quantity: r.quantity as number, condition: r.condition as string,
-    finish: r.finish as string, language: r.language as string, imageSmall: (r.card_image_uri_small as string | null) ?? null,
+    finish: r.finish as string, language: r.language as string, imageSmall: (r.card_image_uri_small as string | null) ?? null, layout: (r.card_layout as string | null) ?? null,
   }));
 }

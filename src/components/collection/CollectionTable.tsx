@@ -12,9 +12,11 @@ import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { useActionState } from "react";
 import { useCardPanel, useCardPreview } from "@/components/CardPanel";
 import { SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
+import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { FoilMark } from "@/components/FoilMark";
 import { FoilShine } from "@/components/FoilShine";
+import { useViewportFit } from "@/hooks/useViewportFit";
 import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice, formatPrice } from "@/lib/collection/pricing";
 import { BulkBar } from "@/components/collection/BulkBar";
@@ -1008,6 +1010,9 @@ function ColumnPicker({
   onToggle: (id: ColumnId) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLDivElement>(null);
+  useViewportFit(open, panel, trigger);
 
   useEffect(() => {
     if (!open) return;
@@ -1027,12 +1032,15 @@ function ColumnPicker({
 
   return (
     <div ref={container} className="relative">
-      <Button variant="secondary" type="button" onClick={() => onOpenChange(!open)}>
-        Columns ({visible.length})
-      </Button>
+      {/* Wrapped so the panel has an exact trigger box to flip around. */}
+      <div ref={trigger} className="w-fit">
+        <Button variant="secondary" type="button" onClick={() => onOpenChange(!open)}>
+          Columns ({visible.length})
+        </Button>
+      </div>
 
       {open ? (
-        <div className="absolute right-0 z-20 mt-1 max-h-80 w-56 overflow-y-auto rounded-md border border-border bg-surface-raised p-2 shadow-lg">
+        <div ref={panel} className="absolute right-0 top-full z-20 mt-1 max-h-80 w-56 overflow-y-auto rounded-md border border-border bg-surface-raised p-2 shadow-lg">
           {COLUMNS.map((column) => (
             <label
               key={column.id}
@@ -1126,30 +1134,36 @@ function GalleryTile({
 }) {
   const { open } = useCardPanel();
   const card = row.cards;
-  const image = card?.image_uri ?? card?.image_uri_small ?? null;
-  const name = card ? cardDisplayName(card) : "Unknown printing";
+  const face = useCardFace(card, "normal");
+  const image = face.image;
+  const name = face.name ?? "Unknown printing";
 
   return (
     <li className="space-y-1.5">
-      <button
-        type="button"
-        onClick={() => card && open(card)}
-        disabled={!card}
-        aria-label={name}
-        className="relative block aspect-[488/680] w-full overflow-hidden rounded-lg border border-border bg-surface-muted"
-      >
-        {image ? (
-          <Image
-            src={image}
-            alt=""
-            fill
-            sizes={`(min-width: 1024px) ${imageWidth}, (min-width: 640px) 40vw, 50vw`}
-            className="object-cover"
-            unoptimized
-          />
-        ) : null}
-        <FoilShine finish={row.finish} />
-      </button>
+      {/* The flip control is a sibling of the tile's button, not inside it. */}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => card && open(card)}
+          disabled={!card}
+          aria-label={name}
+          className="relative block aspect-[488/680] w-full overflow-hidden rounded-lg border border-border bg-surface-muted"
+        >
+          {image ? (
+            <Image
+              src={image}
+              alt=""
+              fill
+              sizes={`(min-width: 1024px) ${imageWidth}, (min-width: 640px) 40vw, 50vw`}
+              className="object-cover"
+              onError={face.onImageError}
+              unoptimized
+            />
+          ) : null}
+          <FoilShine finish={row.finish} />
+        </button>
+        {face.canFlip ? <FlipButton onFlip={face.flip} otherName={face.otherName} /> : null}
+      </div>
 
       <div className="space-y-1 text-xs">
         <div className="flex items-center justify-between gap-1.5">

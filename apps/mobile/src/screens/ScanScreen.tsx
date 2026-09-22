@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useFocusEffect, useIsFocused, useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,7 +7,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import { ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, scanBand, validateDraft, type Candidate, type CollectionDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type ScanBand } from '@upkeep/scan-core';
+import { ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, scanBand, validateDraft, type Candidate, type CollectionDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type ScanBand } from '@upkeep/scan-core';
 import { UpkeepScannerView, readText, scannerViewAvailable, visionAvailable, type CardReadEvent, type ScannerViewHandle } from '@upkeep/vision';
 import { writer } from '../backend';
 import { useApp, type LastUsedDraft } from '../AppProvider';
@@ -84,6 +84,7 @@ export function ScanScreen() {
   const mort = useMort();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const navigation = useNavigation<BottomTabNavigationProp<TabParamList>>();
   const [permission, requestPermission] = useCameraPermissions();
   const [suspended, setSuspended] = useState(false);
@@ -533,7 +534,11 @@ export function ScanScreen() {
       )}
 
       {settingsOpen && (
-        <View style={[styles.settings, { top: insets.top + 104 }]}>
+        // Capped above the result sheet and scrollable: the language chips wrap to
+        // as many rows as the width needs, and on a short phone (or landscape) an
+        // uncapped panel ran down behind the sheet with nothing to scroll it into reach.
+        <View style={[styles.settings, { top: insets.top + 104, maxHeight: Math.max(160, windowHeight - (insets.top + 104) - (SHEET_RESERVE + insets.bottom)) }]}>
+          <ScrollView keyboardShouldPersistTaps="handled">
           <ScanQuickBar
             finish={quickFinish}
             onSelectFinish={setQuickFinish}
@@ -545,6 +550,7 @@ export function ScanScreen() {
             quantity={quickQuantity}
             onChangeQuantity={setQuickQuantity}
           />
+          </ScrollView>
         </View>
       )}
 
@@ -570,6 +576,7 @@ export function ScanScreen() {
 
       {pickerOpen && sheet?.kind === 'match' && (
         <PrintingPicker
+          bottomInset={insets.bottom}
           candidates={sheet.candidates}
           selectedId={sheet.printing.id}
           onChoose={choosePrinting}
@@ -722,12 +729,14 @@ function ResultSheet({ sheet, stale, row, bottomInset, onOpenPicker, onToggleFoi
 
 /** Every printing the read matched, so a wrong version can be corrected
  * without leaving the camera. */
-function PrintingPicker({ candidates, selectedId, onChoose, onCancel }: {
-  candidates: Candidate[]; selectedId: string; onChoose(printing: Printing): void; onCancel(): void;
+function PrintingPicker({ bottomInset, candidates, selectedId, onChoose, onCancel }: {
+  bottomInset: number; candidates: Candidate[]; selectedId: string; onChoose(printing: Printing): void; onCancel(): void;
 }) {
   const styles = useStyles();
   return (
-    <View style={styles.picker}>
+    // The result sheet is drawn over the picker's bottom edge, so the picker stops above
+    // it, including the home-indicator inset the sheet pads its own bottom with.
+    <View style={[styles.picker, { bottom: SHEET_RESERVE + bottomInset }]}>
       <View style={styles.pickerHeader}>
         <Text style={styles.pickerTitle}>Choose the printing</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Close the printing list" style={styles.iconButton} onPress={onCancel}>
@@ -744,12 +753,12 @@ function PrintingPicker({ candidates, selectedId, onChoose, onCancel }: {
             onPress={() => onChoose(c.printing)}
           >
             {c.printing.imageUri
-              ? <Image source={{ uri: c.printing.imageUri }} style={styles.pickerThumb} accessibilityIgnoresInvertColors />
+              ? <Image source={{ uri: thumbnailUri(c.printing.imageUri) ?? c.printing.imageUri }} style={styles.pickerThumb} accessibilityIgnoresInvertColors />
               : <View style={[styles.pickerThumb, styles.thumbPlaceholder]} />}
             <View style={styles.grow}>
               <Text style={styles.pickerName} numberOfLines={1}>{c.printing.name}</Text>
               <Text style={styles.pickerCaption} numberOfLines={1}>
-                {c.printing.setName ?? c.printing.setCode.toUpperCase()} · #{c.printing.collectorNumber} · {c.printing.language.toUpperCase()}
+                {c.printing.setName ?? c.printing.setCode.toUpperCase()} · #{c.printing.collectorNumber} · {c.printing.language.toUpperCase()} · {finishSummary(c.printing.finishes)}
               </Text>
             </View>
           </Pressable>
@@ -819,6 +828,9 @@ function RecoveryPanel() {
 }
 
 const SHEET_DARK = 'rgba(37,39,38,0.97)';
+// Height the result sheet takes at the bottom, before the safe-area inset: what the
+// printing list and the scan settings panel must stay clear of.
+const SHEET_RESERVE = 110;
 const BAR_DARK = 'rgba(31,31,31,0.82)';
 
 const useStyles = makeStyles(() => StyleSheet.create({
@@ -866,7 +878,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   foilTileOff: { opacity: 0.45 },
   foilText: { color: brand.parchment, fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
 
-  picker: { position: 'absolute', left: space.md, right: space.md, top: '22%', bottom: 110, backgroundColor: SHEET_DARK, borderRadius: radius.lg, padding: space.sm },
+  picker: { position: 'absolute', left: space.md, right: space.md, top: '22%', backgroundColor: SHEET_DARK, borderRadius: radius.lg, padding: space.sm },
   pickerHeader: { flexDirection: 'row', alignItems: 'center', paddingLeft: space.sm },
   pickerTitle: { ...typeTokens.title, flex: 1, color: brand.parchment },
   pickerRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.sm, borderRadius: radius.md },

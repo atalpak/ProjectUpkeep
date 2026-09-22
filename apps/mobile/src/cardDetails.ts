@@ -322,20 +322,22 @@ export async function fetchScryfallExtras(printingId: string): Promise<ScryfallE
 
 export type WantEntry = {
   id: string; cardId: string; oracleId: string; quantity: number; name: string; setCode: string; collectorNumber: string; imageSmall: string | null; priceUsd: number | null;
+  /** Layout of the printing, so the wish list row can offer a flip on a two-sided card. */
+  layout: string | null;
 };
 
 export async function fetchWantList(userId: string): Promise<WantEntry[]> {
   if (!backend) return [];
   const { data, error } = await backend
     .from('want_list')
-    .select('id,card_id,quantity,cards(oracle_id,name,set_code,collector_number,image_uri_small,price_usd)')
+    .select('id,card_id,quantity,cards(oracle_id,name,set_code,collector_number,image_uri_small,price_usd,layout)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(1000);
   if (error) throw new Error(error.message);
   return (data ?? []).flatMap(r => {
-    const c = r.cards as unknown as { oracle_id: string; name: string; set_code: string; collector_number: string; image_uri_small: string | null; price_usd: number | string | null } | null;
-    return c ? [{ id: r.id as string, cardId: r.card_id as string, oracleId: c.oracle_id, quantity: r.quantity as number, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, imageSmall: c.image_uri_small, priceUsd: num(c.price_usd) }] : [];
+    const c = r.cards as unknown as { oracle_id: string; name: string; set_code: string; collector_number: string; image_uri_small: string | null; price_usd: number | string | null; layout: string | null } | null;
+    return c ? [{ id: r.id as string, cardId: r.card_id as string, oracleId: c.oracle_id, quantity: r.quantity as number, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, imageSmall: c.image_uri_small, priceUsd: num(c.price_usd), layout: c.layout }] : [];
   });
 }
 
