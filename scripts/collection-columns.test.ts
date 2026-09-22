@@ -222,7 +222,7 @@ test("junk falls back to the defaults instead of throwing", () => {
   );
 });
 
-test("the default columns are quantity, name, set, location, price and availability", () => {
+test("the default columns are quantity, name, set, language, location, price and availability", () => {
   // Availability joined the original three when decks arrived: "have I got a
   // spare copy" is the question this product exists to answer, and a column
   // hidden behind the picker would not answer it.
@@ -232,10 +232,22 @@ test("the default columns are quantity, name, set, location, price and availabil
   //
   // Location joined them because "where is this card" is the whole
   // differentiating idea of the product, and it had been hidden by default on
-  // the product's own main table — the order matters: it is asserted whole so
-  // a column silently changing its default shows up here rather than in
+  // the product's own main table.
+  //
+  // Language joined them 2026-09-22 (backlog item 8 step 1): owning a card in
+  // a language other than English is now a normal thing to track, not
+  // something to go find in a menu — the order matters: it is asserted whole
+  // so a column silently changing its default shows up here rather than in
   // someone's table.
-  assert.deepEqual(DEFAULT_COLUMNS, ["quantity", "name", "set", "location", "price", "available"]);
+  assert.deepEqual(DEFAULT_COLUMNS, [
+    "quantity",
+    "name",
+    "set",
+    "language",
+    "location",
+    "price",
+    "available",
+  ]);
 });
 
 test("a saved choice containing the retired Finish column still works", () => {

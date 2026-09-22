@@ -10,7 +10,7 @@ import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle } from "@/components/PriceToggle";
 import { displayPrice } from "@/lib/collection/pricing";
 import { Badge, Banner, Button, Card as Panel, EmptyState, Input, cx } from "@/components/ui";
-import { CONDITION_LABELS, cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
+import { CONDITION_LABELS, cardDisplayName, languageLabel, type CardInstanceWithCard } from "@/lib/types";
 
 /**
  * Building an offer.
@@ -219,6 +219,9 @@ function OfferRow({
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
           <span>{card?.set_name ?? card?.set_code?.toUpperCase()}</span>
           <Badge>{CONDITION_LABELS[row.condition] ?? row.condition}</Badge>
+          {/* Only when it deviates from the default, the same convention FoilMark
+              uses for finish: showing "English" on every row would be noise. */}
+          {row.language !== "en" ? <Badge>{languageLabel(row.language)}</Badge> : null}
           <span>{row.quantity} available</span>
           {(() => {
             const dp = displayPrice(card, row.finish);

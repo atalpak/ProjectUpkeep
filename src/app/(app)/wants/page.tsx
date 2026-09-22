@@ -36,6 +36,7 @@ export default async function WantsPage() {
       username: suppliers.get(s.ownerId)?.username ?? "a friend",
       available: s.available,
       locations: s.locations,
+      languages: s.languages,
     }));
   }
 
@@ -94,14 +95,14 @@ export default async function WantsPage() {
                   {m.profile.username} wants {m.items.length} card{m.items.length === 1 ? "" : "s"} you have
                 </p>
                 <ul className="mt-1 flex flex-wrap gap-1.5 text-sm">
-                  {m.items.map(({ want, available, locations }) => (
+                  {m.items.map(({ want, available, locations, languages }) => (
                     <li
                       key={want.id}
                       className="rounded border border-accent bg-accent-soft px-1.5 py-0.5"
                     >
                       {want.displayName}
                       <span className="ml-1 text-xs text-ink-muted">
-                        · you have {describeSupplier(available, locations)}
+                        · you have {describeSupplier(available, locations, languages)}
                       </span>
                     </li>
                   ))}

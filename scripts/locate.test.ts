@@ -18,8 +18,10 @@ const row = (
   location: Loc | null,
   oracle_id: string | null = `oracle-${name}`,
   flavor_name: string | null = null,
+  language = "en",
 ): LocatableRow => ({
   quantity,
+  language,
   cards: { oracle_id, name, flavor_name, image_uri_small: null, card_id: `printing-${name}` },
   locations: location,
 });
@@ -57,6 +59,27 @@ test("copies of one card across places are grouped and counted", () => {
   assert.equal(sol.total, 4);
   assert.equal(sol.available, 3, "the copy in a deck is not available");
   assert.equal(sol.places.length, 3);
+});
+
+test("an all-English place carries no languages", () => {
+  const found = locateCards([row("Sol Ring", 1, binder, undefined, null, "en")], "sol");
+  assert.deepEqual(found[0].places[0].languages, []);
+});
+
+test("a non-English copy is named on its place, deduped", () => {
+  const found = locateCards(
+    [
+      row("Sol Ring", 1, binder, undefined, null, "ja"),
+      row("Sol Ring", 1, binder, undefined, null, "ja"),
+      row("Sol Ring", 1, deck, undefined, null, "en"),
+    ],
+    "sol",
+  );
+  const inBinder = found[0].places.find((p) => p.locationId === "b1")!;
+  const inDeck = found[0].places.find((p) => p.locationId === "d1")!;
+  assert.deepEqual(inBinder.languages, ["ja"]);
+  assert.equal(inBinder.quantity, 2);
+  assert.deepEqual(inDeck.languages, []);
 });
 
 test("places are ordered by count, with unsorted always last", () => {

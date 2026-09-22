@@ -1,7 +1,7 @@
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { Badge, Card as Panel } from "@/components/ui";
-import { CONDITION_LABELS, cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
+import { CONDITION_LABELS, cardDisplayName, languageLabel, type CardInstanceWithCard } from "@/lib/types";
 
 /**
  * A read-only rendering of the cards someone has open for trade.
@@ -43,6 +43,7 @@ export function TradableBinderPreview({ cards }: { cards: CardInstanceWithCard[]
               <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-muted">
                 <span>{card?.set_name ?? card?.set_code?.toUpperCase()}</span>
                 <Badge>{CONDITION_LABELS[row.condition] ?? row.condition}</Badge>
+                {row.language !== "en" ? <Badge>{languageLabel(row.language)}</Badge> : null}
               </div>
             </div>
           </div>

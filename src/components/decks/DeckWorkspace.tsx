@@ -46,7 +46,12 @@ import { describeSupplier } from "@/lib/social/wants";
 import { cardDisplayName, type CardInstanceWithCard } from "@/lib/types";
 
 /** A friend who already has a wish-list card open for trade. */
-export type WishSupplierView = { username: string; available: number; locations: string[] };
+export type WishSupplierView = {
+  username: string;
+  available: number;
+  locations: string[];
+  languages: string[];
+};
 
 /**
  * One deck: the list it is meant to be, and how much of it is really in the box.
@@ -1338,7 +1343,8 @@ function WishRow({
 
       {suppliers.length > 0 ? (
         <Badge>
-          {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+          {suppliers[0].username} has{" "}
+          {describeSupplier(suppliers[0].available, suppliers[0].locations, suppliers[0].languages)}
           {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
         </Badge>
       ) : null}

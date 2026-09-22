@@ -37,7 +37,8 @@ const stock = (
   key: string,
   quantity: number,
   locationName: string | null = "Trade Binder",
-): TradableRow => ({ ownerId, key, quantity, locationName });
+  language = "en",
+): TradableRow => ({ ownerId, key, quantity, locationName, language });
 
 test("a want with no matching stock is absent from the result", () => {
   const m = matchWants([want("w1", "bolt")], [stock("alice", "path", 2)]);
@@ -92,6 +93,24 @@ test("a location-less stack still counts, just with no location listed", () => {
   assert.equal(m.get("w1")![0].available, 1);
 });
 
+test("an all-English supplier carries no languages", () => {
+  const m = matchWants([want("w1", "bolt")], [stock("alice", "bolt", 2, "Binder A", "en")]);
+  assert.deepEqual(m.get("w1")![0].languages, []);
+});
+
+test("a non-English copy is named, deduped, and English copies stay silent", () => {
+  const m = matchWants(
+    [want("w1", "bolt")],
+    [
+      stock("alice", "bolt", 1, "Binder A", "ja"),
+      stock("alice", "bolt", 1, "Binder A", "ja"),
+      stock("alice", "bolt", 1, "Box 2", "en"),
+    ],
+  );
+  assert.deepEqual(m.get("w1")![0].languages, ["ja"]);
+  assert.equal(m.get("w1")![0].available, 3);
+});
+
 // ---------------------------------------------------------------------------
 // matchTradablesByTerm — the free-text half, for /find's "Among your friends"
 // ---------------------------------------------------------------------------
@@ -103,7 +122,8 @@ const named = (
   quantity: number,
   locationName: string | null = "Trade Binder",
   flavorName: string | null = null,
-): NamedTradableRow => ({ ownerId, key, quantity, locationName, name, flavorName });
+  language = "en",
+): NamedTradableRow => ({ ownerId, key, quantity, locationName, name, flavorName, language });
 
 test("a term shorter than the minimum matches nothing", () => {
   assert.deepEqual(
@@ -158,6 +178,11 @@ test("zero-quantity stock is ignored, same as matchWants", () => {
   assert.deepEqual(found, []);
 });
 
+test("a friend's non-English stock carries its language, matching matchWants", () => {
+  const found = matchTradablesByTerm("sol", [named("alice", "sol", "Sol Ring", 1, "Binder A", null, "ph")]);
+  assert.deepEqual(found[0].suppliers[0].languages, ["ph"]);
+});
+
 test("results are limited and name-sorted", () => {
   const rows = ["Brute Force", "Brainstorm", "Brass Herald"].map((n, i) =>
     named(`friend${i}`, `key-${n}`, n, 1),
@@ -174,6 +199,7 @@ const supplier = (ownerId: string, available = 1): WantSupplier => ({
   ownerId,
   available,
   locations: [],
+  languages: [],
 });
 
 test("fewer suppliers than the cap are all shown, with nothing left over", () => {
@@ -206,6 +232,24 @@ test("more than one location is listed in full, not folded to a count", () => {
   assert.equal(
     describeSupplier(3, ["Trade Binder B", "Box 2"]),
     "3 in Trade Binder B, Box 2",
+  );
+});
+
+test("no languages given reads exactly as it did before languages existed", () => {
+  assert.equal(describeSupplier(2, ["Trade Binder B"]), "2 in Trade Binder B");
+});
+
+test("a non-English language is named in parentheses after the count", () => {
+  assert.equal(
+    describeSupplier(2, ["Trade Binder B"], ["ja"]),
+    "2 in Trade Binder B (Japanese)",
+  );
+});
+
+test("more than one non-English language is listed in full", () => {
+  assert.equal(
+    describeSupplier(2, [], ["ja", "ph"]),
+    "2 (Japanese, Phyrexian)",
   );
 });
 

@@ -220,7 +220,7 @@ export async function fetchMyTradables(userId: string): Promise<FriendCard[]> {
   if (!backend) return [];
   const { data, error } = await backend
     .from('card_instances')
-    .select('id,card_id,quantity,finish,condition,cards(name,set_code,collector_number,image_uri_small,layout),locations!location_id(is_tradable)')
+    .select('id,card_id,quantity,finish,condition,language,cards(name,set_code,collector_number,image_uri_small,layout),locations!location_id(is_tradable)')
     .eq('owner_user_id', userId)
     .limit(5000);
   if (error) throw new Error(error.message);
@@ -229,7 +229,7 @@ export async function fetchMyTradables(userId: string): Promise<FriendCard[]> {
     const loc = r.locations as unknown as { is_tradable?: boolean } | null;
     const c = r.cards as unknown as Join;
     if (!c || loc?.is_tradable !== true) return [];
-    return [{ id: r.id as string, cardId: r.card_id as string, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, quantity: r.quantity as number, finish: r.finish as string, condition: r.condition as string, imageSmall: c.image_uri_small, layout: c.layout }];
+    return [{ id: r.id as string, cardId: r.card_id as string, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, quantity: r.quantity as number, finish: r.finish as string, condition: r.condition as string, language: r.language as string, imageSmall: c.image_uri_small, layout: c.layout }];
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
