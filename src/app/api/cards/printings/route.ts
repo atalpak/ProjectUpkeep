@@ -21,7 +21,13 @@ export async function GET(request: NextRequest) {
     .from("cards")
     .select(
       "scryfall_id, name, flavor_name, set_code, set_name, collector_number, rarity, " +
-        "released_at, image_uri, image_uri_small, available_finishes, lang, digital, layout",
+        "released_at, image_uri, image_uri_small, available_finishes, lang, digital, layout, " +
+        // oracle_id lets a caller keep only printings of the SAME card: the
+        // match below is by name, and art-series cards and tokens share names
+        // with the real card. price_* lets the reprint flow say out loud that
+        // a collection's estimated value is about to move, which otherwise
+        // reads as a broken valuation rather than a consequence of the edit.
+        "oracle_id, price_usd, price_usd_foil, price_usd_etched",
     )
     .eq("name", name)
     .eq("digital", false)

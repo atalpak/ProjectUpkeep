@@ -202,7 +202,24 @@ export function toPrinting(p: CardPrinting): Printing {
   };
 }
 
-export type OwnedStack = { id: string; quantity: number; setCode: string; collectorNumber: string; finish: string; condition: string; locationName: string | null };
+export type OwnedStack = {
+  id: string; quantity: number; setCode: string; collectorNumber: string; finish: string; condition: string; locationName: string | null;
+  /** The printing this stack is recorded against (card_instances.card_id, the Scryfall id) —
+   *  the reprint picker's "what it currently is" half of the stack key. */
+  cardId: string;
+  language: string;
+  /** null means Unsorted — a real value, not "no destination chosen"; see the fetchOwned callers. */
+  locationId: string | null;
+  /** "deck" flags a sleeved stack, for the "the deck's list keeps naming the printing it asks for" note. */
+  locationType: string | null;
+  /**
+   * A card someone bothered to annotate never merges (packages/upkeep-domain's
+   * stackKeyFor) — decideReprint needs the real value to make the same call
+   * apply_stack_reprint's own re-verification makes, not "insert" by
+   * accident or "merge" over a note that would then be lost.
+   */
+  notes: string | null;
+};
 
 /** The signed-in user's own copies of this card, across printings. */
 export async function fetchOwned(userId: string, name: string): Promise<{ stacks: OwnedStack[]; error: string | null }> {
@@ -211,7 +228,7 @@ export async function fetchOwned(userId: string, name: string): Promise<{ stacks
   try {
     res = await bounded(backend
       .from('collection_entries')
-      .select('id,quantity,card_set_code,card_collector_number,finish,condition,location_name')
+      .select('id,quantity,card_id,card_set_code,card_collector_number,finish,condition,language,location_id,location_name,location_type,notes')
       .eq('owner_user_id', userId)
       .eq('card_name', name)
       .limit(200));
@@ -222,6 +239,8 @@ export async function fetchOwned(userId: string, name: string): Promise<{ stacks
     stacks: (data ?? []).map(r => ({
       id: r.id as string, quantity: r.quantity as number, setCode: r.card_set_code as string, collectorNumber: r.card_collector_number as string,
       finish: r.finish as string, condition: r.condition as string, locationName: (r.location_name as string | null) ?? null,
+      cardId: r.card_id as string, language: r.language as string, locationId: (r.location_id as string | null) ?? null,
+      locationType: (r.location_type as string | null) ?? null, notes: (r.notes as string | null) ?? null,
     })),
     error: null,
   };

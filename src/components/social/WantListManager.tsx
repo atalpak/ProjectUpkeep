@@ -27,6 +27,7 @@ export type SupplierView = {
   username: string;
   available: number;
   locations: string[];
+  languages: string[];
 };
 
 /** Enough of a deck to offer it in the tag picker. */
@@ -516,7 +517,7 @@ function DraftRowView({
                     <Link href={`/u/${encodeURIComponent(s.username)}`} className="text-accent-text hover:underline">
                       {s.username}
                     </Link>{" "}
-                    <span className="text-ink-muted">has {describeSupplier(s.available, s.locations)}</span>
+                    <span className="text-ink-muted">has {describeSupplier(s.available, s.locations, s.languages)}</span>
                     {i < draft.suppliers.length - 1 ? <span className="text-ink-muted">,</span> : null}
                   </span>
                 ))}
@@ -582,7 +583,7 @@ function WantRowView({
             ) : (
               <span className="text-ink-muted">
                 <span className="text-ink">{suppliers[0].username}</span> has{" "}
-                {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+                {describeSupplier(suppliers[0].available, suppliers[0].locations, suppliers[0].languages)}
                 {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
               </span>
             )}
@@ -638,7 +639,7 @@ function WantTableRow({
         ) : (
           <>
             <span className="text-ink">{suppliers[0].username}</span> has{" "}
-            {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+            {describeSupplier(suppliers[0].available, suppliers[0].locations, suppliers[0].languages)}
             {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
           </>
         )}
@@ -742,7 +743,7 @@ function WantGalleryCard({
 
       {suppliers.length > 0 ? (
         <p className="truncate text-right text-xs text-ink-muted">
-          {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations)}
+          {suppliers[0].username} has {describeSupplier(suppliers[0].available, suppliers[0].locations, suppliers[0].languages)}
           {suppliers.length > 1 ? ` +${suppliers.length - 1} more` : ""}
         </p>
       ) : null}

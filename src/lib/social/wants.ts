@@ -24,7 +24,7 @@
 
 import type { FlippableCard } from "@/lib/cards/faces";
 import { nameMatches, MIN_TERM } from "@/lib/collection/locate";
-import { cardDisplayName } from "@/lib/types";
+import { cardDisplayName, languageLabel } from "@/lib/types";
 
 /** One line of a want list, ready to match. */
 export type WantRow = {
@@ -87,6 +87,9 @@ export type TradableRow = {
    * printing and wants to say whether a friend's copy is that one or not.
    */
   cardId?: string | null;
+  /** The copy's language (`card_instances.language`), for a supplier line
+   *  that should say when what someone has isn't English. */
+  language?: string;
 };
 
 /** What one person can supply toward a want. */
@@ -96,6 +99,13 @@ export type WantSupplier = {
   available: number;
   /** The containers those copies are in, deduped. */
   locations: string[];
+  /**
+   * The non-English languages among this supplier's copies, deduped — empty
+   * when everything they have is English, which is the common case and not
+   * worth naming. Wish-list matching stays language-agnostic (any printing in
+   * any language still fills a want), this only carries what to *show*.
+   */
+  languages: string[];
 };
 
 /**
@@ -108,10 +118,20 @@ export type WantSupplier = {
  * numbers, so the phrase lives here once rather than being rebuilt at each
  * call site. Callers supply their own subject and verb ("Dave has" / "you
  * have"); this is only ever what comes after it.
+ *
+ * `languages` is optional and, when given, only adds a parenthetical when it
+ * is not empty — the same "only show when it deviates" rule `FoilMark` uses
+ * for finish, so an all-English supplier reads exactly as it did before this
+ * existed.
  */
-export function describeSupplier(available: number, locations: readonly string[]): string {
-  if (locations.length === 0) return `${available}`;
-  return `${available} in ${locations.join(", ")}`;
+export function describeSupplier(
+  available: number,
+  locations: readonly string[],
+  languages: readonly string[] = [],
+): string {
+  const base = locations.length === 0 ? `${available}` : `${available} in ${locations.join(", ")}`;
+  if (languages.length === 0) return base;
+  return `${base} (${languages.map(languageLabel).join(", ")})`;
 }
 
 /**
@@ -142,11 +162,15 @@ export function matchWants(
       if (row.locationName && !current.locations.includes(row.locationName)) {
         current.locations.push(row.locationName);
       }
+      if (row.language && row.language !== "en" && !current.languages.includes(row.language)) {
+        current.languages.push(row.language);
+      }
     } else {
       owners.set(row.ownerId, {
         ownerId: row.ownerId,
         available: row.quantity,
         locations: row.locationName ? [row.locationName] : [],
+        languages: row.language && row.language !== "en" ? [row.language] : [],
       });
     }
   }
@@ -249,11 +273,15 @@ export function matchTradablesByTerm(
       if (row.locationName && !current.locations.includes(row.locationName)) {
         current.locations.push(row.locationName);
       }
+      if (row.language && row.language !== "en" && !current.languages.includes(row.language)) {
+        current.languages.push(row.language);
+      }
     } else {
       entry.owners.set(row.ownerId, {
         ownerId: row.ownerId,
         available: row.quantity,
         locations: row.locationName ? [row.locationName] : [],
+        languages: row.language && row.language !== "en" ? [row.language] : [],
       });
     }
   }

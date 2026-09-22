@@ -19,3 +19,4 @@ export * from "./password";
 export * from "./tos";
 export * from "./want-quantity";
 export * from "./card-faces";
+export * from "./reprint";

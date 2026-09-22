@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { LANGUAGE_LABELS, type LanguageCode } from '@upkeep/domain';
 import { CardDetails } from '../components/CardDetails';
 import { Button, Notice } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
@@ -47,7 +48,7 @@ export function FriendProfileScreen({ route, navigation }: NativeStackScreenProp
           {name => (
             <View style={styles.grow}>
               <Text style={styles.name}>{name}</Text>
-              <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber} · ×{c.quantity}{c.finish ? ` · ${c.finish}` : ''}</Text>
+              <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber} · ×{c.quantity}{c.finish ? ` · ${c.finish}` : ''}{c.language && c.language !== 'en' ? ` · ${LANGUAGE_LABELS[c.language as LanguageCode] ?? c.language}` : ''}</Text>
             </View>
           )}
         </FlipThumb>

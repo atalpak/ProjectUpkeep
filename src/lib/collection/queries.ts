@@ -974,7 +974,7 @@ export async function locateInCollection(term: string): Promise<LocatedCard[]> {
     .select(
       // !inner so the filter on the joined card actually excludes rows rather
       // than merely nulling the embedded object.
-      "quantity, card_id, cards!inner ( oracle_id, name, flavor_name, image_uri_small ), locations!location_id ( id, name, type )",
+      "quantity, card_id, language, cards!inner ( oracle_id, name, flavor_name, image_uri_small ), locations!location_id ( id, name, type )",
     )
     .eq("owner_user_id", await ownerId())
     .limit(MAX_ROWS);
@@ -989,10 +989,12 @@ export async function locateInCollection(term: string): Promise<LocatedCard[]> {
   const rows: LocatableRow[] = ((data ?? []) as unknown as Array<{
     quantity: number;
     card_id: string | null;
+    language: string;
     cards: { oracle_id: string | null; name: string; image_uri_small: string | null } | null;
     locations: { id: string; name: string; type: Location["type"] } | null;
   }>).map((r) => ({
     quantity: r.quantity,
+    language: r.language,
     cards: r.cards ? { ...r.cards, card_id: r.card_id } : null,
     locations: r.locations,
   }));

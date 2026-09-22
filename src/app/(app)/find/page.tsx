@@ -6,7 +6,7 @@ import { MIN_TERM, type LocatedCard, type Place } from "@/lib/collection/locate"
 import { matchFriendTradablesByTerm } from "@/lib/social/queries";
 import type { FriendCardMatch } from "@/lib/social/wants";
 import type { Profile } from "@/lib/social/types";
-import { LOCATION_TYPE_LABELS } from "@/lib/types";
+import { LOCATION_TYPE_LABELS, languageLabel } from "@/lib/types";
 import { CardLocator } from "@/components/collection/CardLocator";
 import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
@@ -153,6 +153,9 @@ function PlaceRow({ place, name }: { place: Place; name: string }) {
       ) : (
         <Badge>{LOCATION_TYPE_LABELS[place.type]}</Badge>
       )}
+      {place.languages.length > 0 ? (
+        <Badge>{place.languages.map(languageLabel).join(", ")}</Badge>
+      ) : null}
     </li>
   );
 }
@@ -208,6 +211,9 @@ function FriendMatchRow({
               </Link>
               {s.locations.length > 0 ? (
                 <span className="truncate text-ink-muted">, {s.locations.join(", ")}</span>
+              ) : null}
+              {s.languages.length > 0 ? (
+                <Badge>{s.languages.map(languageLabel).join(", ")}</Badge>
               ) : null}
             </li>
           );
