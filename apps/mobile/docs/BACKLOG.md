@@ -19,7 +19,7 @@ architect** (structural; architect impact map, then owner sign-off, then impleme
 | 2 | Sub-menus / popovers render outside the window | Easy | High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile, find every menu |
 | 3 | Photos in every printing selector | Easy–Med | Med–High | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
 | 4 | Flip button on double-faced cards (swap image and name, revert on leaving the page) | Easy–Med | Med | Built, needs owner check (web signed-in pages and phone unverified) | web + mobile |
-| 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Ready (after 3) | `ScanSessionSummary.tsx` |
+| 5 | Change the printing of a card in the scan session list (unsaved, so low risk) | Med | High | Done (2026-09-22) | `ScanSessionSummary.tsx` |
 | 6 | Change the printing of a card you own in the collection | Med–Hard | High | Part 2 done (migration 39, decision helper, server action, "Change printing…" row UI) — mobile parity next | `apply_stack_reprint` + `CollectionTable` row menu |
 | 7 | Import all Scryfall data, including oracle tags (otags) | Hard | Med–High | Needs architect | sync + schema + search |
 | 8 | Other card languages (Japanese, Phyrexian): own, show and scan them (not Japanese-name lookup) | Med | Med | Ready for owner sign-off (architect done) | display pass, trade snapshot migration, scan-core footer fallback |
@@ -33,6 +33,17 @@ Notes behind the ranking:
   and the in-app "new cards" check do not update, and `latest.json` never publishes.
 - **5 before 6:** the session list is unsaved data, so it needs no database change.
   It also mitigates the wrong-printing scan problem while 6 is designed.
+  **Done (2026-09-22):** `EditSheet` in `ScanSessionSummary.tsx` gained a "Change
+  printing…" step, its own `PrintingChangeSheet` (search by set code / collector
+  number, seeded on the row's own card name, narrowed to genuinely the same card
+  with `isSameCard`) and `reconcileFinish` (both from `@upkeep/domain`, already
+  shipped for item 6's web half) to force a finish pick rather than silently keep
+  one the new printing was never made in. `changeStagedPrinting` in
+  `ScanScreen.tsx` swaps `printing`/`card_id`/`finish` and re-runs
+  `validateDraft`, the same as every other staged-row edit — nothing is written
+  to the database; the row stays local until "Add to collection". No migration,
+  no new package logic (both helpers already existed for the web reprint
+  feature).
 - **6** changes a stack's key (the printing), so it must merge safely into an existing
   stack, like `apply_stack_move`. Nothing may write around `apply_stack_addition` /
   `apply_stack_move` for a stacked write.
