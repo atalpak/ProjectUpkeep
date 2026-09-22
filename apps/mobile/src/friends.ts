@@ -76,7 +76,7 @@ export async function removeFriendship(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-export type FriendCard = { id: string; cardId: string; name: string; setCode: string; collectorNumber: string; quantity: number; finish?: string; condition?: string; imageSmall: string | null; layout: string | null };
+export type FriendCard = { id: string; cardId: string; name: string; setCode: string; collectorNumber: string; quantity: number; finish?: string; condition?: string; language?: string; imageSmall: string | null; layout: string | null };
 
 type CardJoin = { name: string; set_code: string; collector_number: string; image_uri_small: string | null; layout: string | null } | null;
 
@@ -85,13 +85,13 @@ export async function fetchFriendTradables(friendId: string): Promise<FriendCard
   if (!backend) return [];
   const { data, error } = await backend
     .from('card_instances')
-    .select('id,card_id,quantity,finish,condition,cards(name,set_code,collector_number,image_uri_small,layout)')
+    .select('id,card_id,quantity,finish,condition,language,cards(name,set_code,collector_number,image_uri_small,layout)')
     .eq('owner_user_id', friendId)
     .limit(1000);
   if (error) throw new Error(error.message);
   return (data ?? []).flatMap(r => {
     const c = r.cards as unknown as CardJoin;
-    return c ? [{ id: r.id as string, cardId: r.card_id as string, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, quantity: r.quantity as number, finish: r.finish as string, condition: r.condition as string, imageSmall: c.image_uri_small, layout: c.layout }] : [];
+    return c ? [{ id: r.id as string, cardId: r.card_id as string, name: c.name, setCode: c.set_code, collectorNumber: c.collector_number, quantity: r.quantity as number, finish: r.finish as string, condition: r.condition as string, language: r.language as string, imageSmall: c.image_uri_small, layout: c.layout }] : [];
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 

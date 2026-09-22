@@ -131,6 +131,39 @@ Notes behind the ranking:
   but show the language. Live `cards` size checked 2026-09-21: **118,612 rows**, which
   confirms the cheap path — the display pass adds no rows, and `all_cards` would mean
   roughly 546,000.
+  - **Step 1 done (2026-09-22):** the display pass. Web: the collection table's
+    `language` column now defaults on (`src/components/collection/columns.ts`,
+    `scripts/collection-columns.test.ts` updated to match); a badge, shown only
+    when a copy is not English (the same "only when it deviates" rule `FoilMark`
+    already uses for finish), was added to the trade builder's offer rows
+    (`src/components/social/TradeBuilder.tsx`), the tradable-binder views
+    (`src/components/social/TradableBinderPreview.tsx`, `ProfileTradables.tsx`),
+    the deck page's own wish-list supplier lines (`DeckWorkspace.tsx`), and
+    `/find`'s own-collection place rows and "Among your friends" rows
+    (`src/app/(app)/find/page.tsx`). Supplier rows across `/wants`, a deck's wish
+    list and the card-popup "friends have this" line all share `WantSupplier`
+    (`src/lib/social/wants.ts`), which now carries a deduped `languages: string[]`
+    alongside `locations`, filled in `matchWants` / `matchTradablesByTerm` from a
+    new `language` field on `TradableRow`; `describeSupplier` gained an optional
+    third parameter that appends `(Japanese)` and the like, defaulting to `[]` so
+    every existing call site reads exactly as before until it opts in — all of
+    them now do except `/decks/check`'s own separate `CheckSupplier` type, which
+    this step left alone. `getFriendTradables` / `getMyTradablesForMatching`
+    (`src/lib/social/queries.ts`) now select `language`; `/find`'s own-collection
+    half needed the same in `locate.ts` (`Place.languages`, fed by a new
+    `LocatableRow.language`) and `locateInCollection`. Mobile: the collection
+    list already showed language when non-English (`CollectionScreen.tsx`,
+    pre-existing); added to the trade builder's offer rows
+    (`TradeBuilderScreen.tsx`) and a friend's profile — both trade-binder and
+    wish-list rows share one row renderer (`FriendProfileScreen.tsx`) — via a new
+    `language` field on `FriendCard` (`friends.ts`, `trades.ts`) and
+    `@upkeep/domain`'s existing `LANGUAGE_LABELS`. No mobile /find screen exists
+    yet (placeholder), and mobile has no wish-list supplier matching yet, so
+    neither needed a change. Tests added: `scripts/wants.test.ts` (supplier
+    language aggregation and `describeSupplier`'s new parameter),
+    `scripts/locate.test.ts` (place language aggregation). Steps 2–4 (the trade
+    snapshot's own `language` column, the footer-first scan fallback, the footer
+    language token) are not started.
 - **9 (leaderboard):** test demand first (one line in the feedback box, then a public
   page or GitHub Discussions). Build the feedback admin inbox (`is_admin()`, never
   built) first. If built later: signed-in only, owner-created items only, advisory

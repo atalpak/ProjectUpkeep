@@ -574,7 +574,7 @@ export async function getFriendTradables(): Promise<NamedTradableRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("card_instances")
-    .select("owner_user_id, quantity, cards ( scryfall_id, oracle_id, name, flavor_name )")
+    .select("owner_user_id, quantity, language, cards ( scryfall_id, oracle_id, name, flavor_name )")
     .neq("owner_user_id", user.id)
     .limit(5000);
 
@@ -583,6 +583,7 @@ export async function getFriendTradables(): Promise<NamedTradableRow[]> {
   return ((data ?? []) as unknown as Array<{
     owner_user_id: string;
     quantity: number;
+    language: string;
     cards: {
       scryfall_id: string;
       oracle_id: string | null;
@@ -595,6 +596,7 @@ export async function getFriendTradables(): Promise<NamedTradableRow[]> {
     cardId: r.cards?.scryfall_id ?? null,
     quantity: r.quantity,
     locationName: null,
+    language: r.language,
     name: r.cards?.name ?? "",
     flavorName: r.cards?.flavor_name ?? null,
   }));
@@ -630,13 +632,14 @@ export async function getMyTradablesForMatching(): Promise<TradableRow[]> {
     key: cardKey(r.cards) ?? "",
     quantity: r.quantity,
     locationName: r.locations?.name ?? null,
+    language: r.language,
   }));
 }
 
 /** One friend's wants you could fill, for the wish-list page's "you could offer" section. */
 export type FriendWantMatch = {
   profile: Profile;
-  items: Array<{ want: WantRow; available: number; locations: string[] }>;
+  items: Array<{ want: WantRow; available: number; locations: string[]; languages: string[] }>;
 };
 
 /**
@@ -687,7 +690,7 @@ export async function getFriendWantMatches(): Promise<FriendWantMatch[]> {
     const friendId = wantOwner.get(want.id);
     if (!friendId) continue;
     const items = byFriend.get(friendId) ?? [];
-    items.push({ want, available: mine.available, locations: mine.locations });
+    items.push({ want, available: mine.available, locations: mine.locations, languages: mine.languages });
     byFriend.set(friendId, items);
   }
 

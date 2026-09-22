@@ -142,6 +142,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
       username: wishSuppliers.get(s.ownerId)?.username ?? "a friend",
       available: s.available,
       locations: s.locations,
+      languages: s.languages,
     }));
   }
 
@@ -176,6 +177,7 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
       username: missingSuppliers.get(s.ownerId)?.username ?? "a friend",
       available: s.available,
       locations: s.locations,
+      languages: s.languages,
     }));
   }
 
