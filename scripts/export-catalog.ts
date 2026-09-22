@@ -29,12 +29,14 @@
  * than a raw set code (see `Printing`'s new optional fields).
  *
  * Usage:
- *   npx tsx scripts/export-catalog.ts cards.jsonl
+ *   npx tsx scripts/export-catalog.ts cards.jsonl [limit]
  */
 
 import { writeFile, rename } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import { config as loadEnv } from "dotenv";
+
+import { collectAllRows, type CardRow } from "./export-catalog-paging";
 
 // Same load order as sync-scryfall.ts: .env.local wins for local/manual runs,
 // .env is the CI fallback. This script is not part of the Next build, so it
@@ -42,9 +44,9 @@ import { config as loadEnv } from "dotenv";
 loadEnv({ path: ".env.local" });
 loadEnv({ path: ".env" });
 
-const [output] = process.argv.slice(2);
+const [output, limitArg] = process.argv.slice(2);
 if (!output) {
-  throw new Error("Usage: npx tsx scripts/export-catalog.ts <output.jsonl>");
+  throw new Error("Usage: npx tsx scripts/export-catalog.ts <output.jsonl> [limit]");
 }
 
 function requireEnv(name: string): string {
@@ -66,6 +68,15 @@ const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
 const anonKey = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 const PAGE_SIZE = 1000;
+// Optional second argument, for smoke runs against the live database.
+const LIMIT = limitArg === undefined ? undefined : Number(limitArg);
+// A typo here must not quietly turn a smoke run into a full 100k-row export.
+if (LIMIT !== undefined && (!Number.isInteger(LIMIT) || LIMIT < 1)) {
+  throw new Error(
+    `Invalid limit "${limitArg}": expected a positive integer. ` +
+      "Usage: npx tsx scripts/export-catalog.ts <output.jsonl> [limit]",
+  );
+}
 
 // Every row this export selects. `scryfall_id` is mapped to the JSON key
 // `id` below, since `build-catalog.ts` and `Printing.id` both already expect
@@ -112,52 +123,66 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const lines: string[] = [];
-  let from = 0;
-  let page = 0;
+  // Keyset paging, not `.range(offset)`: see export-catalog-paging.ts for why
+  // offset paging timed out at ~58,000 rows. `.gt` on the primary key plus the
+  // same `order by scryfall_id` makes each page an index seek.
+  const rows = await collectAllRows(
+    async (after) => {
+      let query = db
+        .from("cards")
+        .select(COLUMNS)
+        .eq("digital", false)
+        .not("oracle_id", "is", null)
+        // `not.in.(...)` on its own would silently drop rows with a null
+        // layout/set_type too — SQL's `NULL NOT IN (...)` is NULL, not true,
+        // so it fails the WHERE clause. Explicitly OR in the null case so an
+        // unbackfilled row (layout/set_type only exist since migration 7) is
+        // kept rather than quietly excluded from the bundle.
+        .or(`layout.not.in.(${EXCLUDED_LAYOUTS.join(",")}),layout.is.null`)
+        .or(`set_type.not.in.(${EXCLUDED_SET_TYPES.join(",")}),set_type.is.null`)
+        .order("scryfall_id", { ascending: true })
+        .limit(PAGE_SIZE);
+      if (after !== null) query = query.gt("scryfall_id", after);
 
-  for (;;) {
-    const { data, error } = await db
-      .from("cards")
-      .select(COLUMNS)
-      .eq("digital", false)
-      .not("oracle_id", "is", null)
-      // `not.in.(...)` on its own would silently drop rows with a null
-      // layout/set_type too — SQL's `NULL NOT IN (...)` is NULL, not true,
-      // so it fails the WHERE clause. Explicitly OR in the null case so an
-      // unbackfilled row (layout/set_type only exist since migration 7) is
-      // kept rather than quietly excluded from the bundle.
-      .or(`layout.not.in.(${EXCLUDED_LAYOUTS.join(",")}),layout.is.null`)
-      .or(`set_type.not.in.(${EXCLUDED_SET_TYPES.join(",")}),set_type.is.null`)
-      .order("scryfall_id", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
+      const { data, error } = await query;
+      if (error) {
+        // PostgREST errors are plain objects, not `Error`s; wrap so the
+        // message says where it stopped, and carry `code` across so the
+        // pager can still recognise a statement timeout (57014).
+        throw Object.assign(
+          new Error(`PostgREST read failed after ${after ?? "the start"}: ${error.message}`),
+          { code: error.code },
+        );
+      }
+      // Passing a plain comma-separated column list to `.select` (rather than a
+      // typed schema generic, which this untyped anon-key client deliberately
+      // has none of) leaves supabase-js unable to infer a row shape stronger
+      // than an error type; `unknown` is the honest cast, matched by the
+      // per-field `String(...)` coercions in export-catalog and build-row.
+      return (data ?? []) as unknown as CardRow[];
+    },
+    {
+      pageSize: PAGE_SIZE,
+      onProgress: (n) => log(`fetched ${n.toLocaleString()} rows...`),
+      onRetry: ({ after, retry, waitMs, error }) =>
+        log(
+          `page after ${after ?? "start"} timed out (${(error as Error).message}); ` +
+            `retry ${retry} in ${waitMs / 1000}s`,
+        ),
+      ...(LIMIT !== undefined ? { limit: LIMIT } : {}),
+    },
+  );
 
-    if (error) {
-      throw new Error(`PostgREST read failed at offset ${from}: ${error.message}`);
-    }
-    if (!data || data.length === 0) break;
-
-    // Passing a plain comma-separated column list to `.select` (rather than a
-    // typed schema generic, which this untyped anon-key client deliberately
-    // has none of) leaves supabase-js unable to infer a row shape stronger
-    // than an error type; `unknown` is the honest cast, matched by the
-    // per-field `String(...)` coercions in export-catalog and build-row.
-    for (const row of data as unknown as Record<string, unknown>[]) {
-      const { scryfall_id, ...rest } = row;
-      lines.push(JSON.stringify({ id: scryfall_id, ...rest }));
-    }
-
-    page++;
-    from += data.length;
-    if (page % 50 === 0) log(`fetched ${from.toLocaleString()} rows...`);
-    if (data.length < PAGE_SIZE) break;
-  }
+  const lines = rows.map((row) => {
+    const { scryfall_id, ...rest } = row;
+    return JSON.stringify({ id: scryfall_id, ...rest });
+  });
 
   // Write-then-rename, same as build-catalog.ts: a reader never sees a
   // half-written file.
   await writeFile(output + ".next", lines.join("\n") + "\n");
   await rename(output + ".next", output);
-  log(`wrote ${from.toLocaleString()} rows to ${output}`);
+  log(`wrote ${rows.length.toLocaleString()} rows to ${output}`);
 }
 
 main().catch((error: unknown) => {
