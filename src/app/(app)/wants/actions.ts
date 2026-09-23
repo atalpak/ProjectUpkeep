@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { isMissingColumnError } from "@/lib/supabase/errors";
+import { pickRepresentative, type PrintingPick } from "@/lib/social/representative-printing";
 import type { SocialState } from "@/app/(app)/social-state";
 
 /**
@@ -29,37 +30,6 @@ function revalidate(deckId?: string | null) {
   // A deck-tagged want shows up on that deck's page too (its wish list
   // section), so a change here has to invalidate that page as well.
   if (deckId) revalidatePath(`/decks/${deckId}`);
-}
-
-/** Rank printings so a want row shows a normal copy, not a promo or a token. */
-const SET_TYPE_RANK: Record<string, number> = {
-  core: 0,
-  expansion: 0,
-  draft_innovation: 1,
-  commander: 1,
-  masters: 2,
-  starter: 3,
-};
-
-type PrintingPick = {
-  scryfall_id: string;
-  released_at: string | null;
-  set_type: string | null;
-  digital: boolean;
-};
-
-function pickRepresentative(rows: PrintingPick[]): string | null {
-  const usable = rows.filter((r) => !r.digital);
-  const pool = usable.length > 0 ? usable : rows;
-  if (pool.length === 0) return null;
-
-  return [...pool].sort((a, b) => {
-    const ra = SET_TYPE_RANK[a.set_type ?? ""] ?? 5;
-    const rb = SET_TYPE_RANK[b.set_type ?? ""] ?? 5;
-    if (ra !== rb) return ra - rb;
-    // Newest of the preferred kind.
-    return (b.released_at ?? "").localeCompare(a.released_at ?? "");
-  })[0].scryfall_id;
 }
 
 /**
@@ -104,7 +74,7 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
   if (!cardId) {
     const { data: printings, error: lookupError } = await supabase
       .from("cards")
-      .select("scryfall_id, released_at, set_type, digital")
+      .select("scryfall_id, released_at, set_type, digital, set_code, collector_number, available_finishes")
       .ilike("name", name)
       .limit(50);
 
