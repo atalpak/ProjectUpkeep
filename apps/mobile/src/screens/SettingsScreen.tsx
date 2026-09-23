@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { backend } from '../backend';
 import { PRIVACY_URL, TERMS_URL, deleteOwnAccount } from '../auth';
 import { Button, Choices } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { makeStyles, usePreferences, type ThemeMode } from '../preferences';
-import { PAGES, PINNABLE, type PageId } from '../navigation';
-import { border, space, state, surface, text, type as typeTokens } from '../theme';
+import { PAGES, PINNABLE, type NavSlots, type PageId } from '../navigation';
+import { accent, border, radius, scrim, space, state, surface, text, type as typeTokens } from '../theme';
 
 const MODES: ThemeMode[] = ['system', 'light', 'dark'];
 const MODE_LABELS: Record<string, string> = { system: 'System', light: 'Light', dark: 'Dark' };
-const SLOT_LABELS = ['First tab', 'Second tab', 'Fourth tab', 'Fifth tab'];
-const PAGE_LABELS = Object.fromEntries(PINNABLE.map(id => [id, PAGES[id].title]));
+// Spatial names per the UI refinement brief: the preview row already shows
+// which page sits where, so these labels are a fallback for screen readers
+// and the rare case someone reads them before looking at the icons.
+const SLOT_LABELS = ['Left 1', 'Left 2', 'Right 1', 'Right 2'];
 
 export function SettingsScreen() {
   const styles = useStyles();
@@ -20,6 +23,8 @@ export function SettingsScreen() {
   const [updateStatus, setUpdateStatus] = useState('');
   const { mode, setMode, slots, setSlot, resetSlots, setWelcomeSeen } = usePreferences();
   const [email, setEmail] = useState<string | null>(null);
+  // Which of the four configurable positions has its picker open, if any.
+  const [pickerSlot, setPickerSlot] = useState<number | null>(null);
   // Deletion is two steps: reveal the warning, then type DELETE. The typed word
   // is a UI guard only; the RPC does its own username check (see auth.ts).
   const [deleting, setDeleting] = useState(false);
@@ -54,15 +59,16 @@ export function SettingsScreen() {
 
       <Text style={styles.heading}>Navigation bar</Text>
       <View style={styles.card}>
-        <Text style={styles.body}>Scan always stays in the middle. Pick the pages for the other four spots; everything else is in the menu.</Text>
-        {slots.map((page, i) => (
-          <View key={SLOT_LABELS[i]} style={styles.slot}>
-            <Text style={styles.slotLabel}>{SLOT_LABELS[i]}</Text>
-            <Choices values={PINNABLE} selected={page} labels={PAGE_LABELS} onSelect={v => setSlot(i, v as PageId)} />
-          </View>
-        ))}
+        <Text style={styles.body}>Scan always stays in the middle. Tap a spot to change it; everything else is in the menu.</Text>
+        <NavSlotPreview slots={slots} onPick={i => setPickerSlot(i)} />
         <Button secondary label="Reset to default" onPress={resetSlots} />
       </View>
+      <SlotPicker
+        slotIndex={pickerSlot}
+        slots={slots}
+        onSelect={page => { if (pickerSlot !== null) setSlot(pickerSlot, page); setPickerSlot(null); }}
+        onClose={() => setPickerSlot(null)}
+      />
 
       <Text style={styles.heading}>Welcome</Text>
       <View style={styles.card}>
@@ -116,6 +122,85 @@ export function SettingsScreen() {
   );
 }
 
+/**
+ * The five bar positions in one glance: two configurable spots, Scan fixed in
+ * the middle, two more configurable spots. Replaces the old layout of four
+ * full `Choices` rows (one per slot, each listing all ~9 pinnable pages) that
+ * repeated the whole destination list four times on one screen. Tapping a
+ * configurable spot opens `SlotPicker`; Scan itself is not tappable here —
+ * its position isn't a setting.
+ */
+function NavSlotPreview({ slots, onPick }: { slots: NavSlots; onPick(index: number): void }) {
+  const styles = useStyles();
+  return (
+    <View style={styles.preview}>
+      {slots.slice(0, 2).map((page, i) => <SlotChip key={SLOT_LABELS[i]} label={SLOT_LABELS[i]} page={page} onPress={() => onPick(i)} />)}
+      <View style={[styles.chip, styles.chipFixed]}>
+        <Ionicons name={PAGES.Scan.filled} size={20} color={text.onAccent} />
+        <Text style={styles.chipLabelFixed} numberOfLines={1}>Scan</Text>
+      </View>
+      {slots.slice(2, 4).map((page, i) => <SlotChip key={SLOT_LABELS[i + 2]} label={SLOT_LABELS[i + 2]} page={page} onPress={() => onPick(i + 2)} />)}
+    </View>
+  );
+}
+
+function SlotChip({ label, page, onPress }: { label: string; page: PageId; onPress(): void }) {
+  const styles = useStyles();
+  const info = PAGES[page];
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${info.title}. Tap to change.`} style={styles.chip} onPress={onPress}>
+      <Ionicons name={info.outline} size={20} color={text.primary} />
+      <Text style={styles.chipLabel} numberOfLines={1}>{info.short ?? info.title}</Text>
+    </Pressable>
+  );
+}
+
+/**
+ * The concise picker the brief asks for: one list of the pinnable pages,
+ * opened for a single slot at a time instead of four inline lists shown at
+ * once. `setSlot` (preferences.tsx) already swaps the two slots when the
+ * chosen page sits elsewhere in the bar — the simpler of the brief's two
+ * options ("prevent" vs. "explain") for handling a duplicate — so the picker
+ * just names the swap plainly rather than blocking the choice.
+ */
+function SlotPicker({ slotIndex, slots, onSelect, onClose }: {
+  slotIndex: number | null; slots: NavSlots; onSelect(page: PageId): void; onClose(): void;
+}) {
+  const styles = useStyles();
+  if (slotIndex === null) return null;
+  const current = slots[slotIndex];
+  return (
+    <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <Pressable style={styles.pickerScrim} accessibilityLabel="Close" onPress={onClose}>
+        <Pressable style={styles.pickerCard} onPress={() => {}}>
+          <Text style={styles.pickerTitle}>{SLOT_LABELS[slotIndex]}</Text>
+          <ScrollView>
+            {PINNABLE.map(page => {
+              const info = PAGES[page];
+              const selected = page === current;
+              const otherSlot = slots.findIndex((p, i) => p === page && i !== slotIndex);
+              return (
+                <Pressable
+                  key={page}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  style={[styles.pickerRow, selected && styles.pickerRowSelected]}
+                  onPress={() => onSelect(page)}
+                >
+                  <Ionicons name={selected ? info.filled : info.outline} size={20} color={text.primary} />
+                  <Text style={styles.pickerRowLabel}>{info.title}</Text>
+                  {otherSlot >= 0 && !selected && <Text style={styles.pickerSwapNote}>swaps with {SLOT_LABELS[otherSlot]}</Text>}
+                  {selected && <Ionicons name="checkmark" size={18} color={accent.DEFAULT} />}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
   heading: { ...typeTokens.title, color: text.primary, marginTop: space.md },
@@ -124,6 +209,16 @@ const useStyles = makeStyles(() => StyleSheet.create({
   link: { ...typeTokens.bodySm, color: text.secondary, textDecorationLine: 'underline', paddingVertical: space.xs },
   danger: { ...typeTokens.label, color: state.error },
   input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: 10, padding: 14, color: text.primary, fontSize: 16 },
-  slot: { gap: space.sm },
-  slotLabel: { ...typeTokens.label, color: text.secondary },
+  preview: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  chip: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas },
+  chipFixed: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
+  chipLabel: { ...typeTokens.label, color: text.secondary, textTransform: 'none' },
+  chipLabelFixed: { ...typeTokens.label, color: text.onAccent, textTransform: 'none' },
+  pickerScrim: { flex: 1, backgroundColor: scrim, alignItems: 'center', justifyContent: 'center', padding: space.xxl },
+  pickerCard: { width: '100%', maxHeight: '70%', backgroundColor: surface.raised, borderRadius: radius.lg, padding: space.lg, gap: space.sm },
+  pickerTitle: { ...typeTokens.title, color: text.primary, marginBottom: space.xs },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 44, paddingHorizontal: space.sm, borderRadius: radius.md },
+  pickerRowSelected: { backgroundColor: accent.soft },
+  pickerRowLabel: { flex: 1, ...typeTokens.body, color: text.primary },
+  pickerSwapNote: { ...typeTokens.label, color: text.secondary, textTransform: 'none' },
 }));
