@@ -30,7 +30,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 7 | ~~Migration 20: test the deck-list shortfall's 2nd and 3rd tiers~~ | — | — | **Done (2026-09-23)** — `schema_test.sql` section 22 | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
 | 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
-| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Priorities 1, 2 and 6 done (2026-09-23) — unified header merged; nav-slot editor and menu grouping on this branch; Priority 3 (collection filter sheet) done separately, PR #89, not yet merged; 4, 5 and 7 open | `apps/mobile/src/components/AppHeader.tsx`, `SettingsScreen.tsx`, `MenuSheet.tsx` + brief |
+| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Priorities 1, 2, 3 and 6 done (2026-09-23) — unified header, Settings nav-slot editor, menu grouping and the collection filter bottom sheet all merged; 4, 5 and 7 still open | `apps/mobile/src/components/AppHeader.tsx`, `SettingsScreen.tsx`, `MenuSheet.tsx`, `CollectionScreen.tsx` + brief |
 | 11 | Phone deck gaps: add-to-deck from card sheet, deck wish list, stats, export, playtest | Med each | Low–Med | Open — depends on owner's habits | `apps/mobile/src/screens/DeckDetailScreen.tsx` |
 | 12 | Phone quick-add straight to a deck | Easy–Med | Low–Med | Partly done | `ScanScreen.tsx` |
 | 13 | ~~Phone collection rows: show prices~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CollectionScreen.tsx` |
@@ -562,6 +562,91 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
   "one green run" (already true) but "the write path is healthy again" — more columns
   per row is more work per write, and #1 shows that write is already near its limit.
 
+- **10 (Mobile UI refinement brief), Priority 3 shipped, 2026-09-23
+  (implementer), on `feat/mobile-collection-filter-sheet` off `main`.**
+  Priorities 1, 2 and 6 shipped earlier the same day on `feat/mobile-unified-
+  header` and `feat/mobile-settings-menu-refinement`, neither merged to `main`
+  yet — this branch was cut from `main` directly, so it carries none of that
+  code and this entry documents only Priority 3.
+  `CollectionScreen.tsx`'s filter panel used to be an inline `ScrollView`
+  clamped to `Math.min(340, windowHeight * 0.4)` inside the list's scrolling
+  header — on a short screen this held it to 40% of the height, clipped the
+  lower filter groups, and gave no clear signal that the panel itself
+  scrolled (the brief's actual complaint). It is now a bottom sheet with a
+  fixed header (title + close), a scrolling body (the same seven groups:
+  Colors, Where it is, Rarity, Finish, Condition, Type, Set code — the
+  brief's Color/Location/Rarity/Finish/Condition/Type/Set grouping already
+  matched; only the sheet changed, not the grouping or its labels, since
+  relabeling wasn't asked for and this pass is a restructuring, not a copy
+  pass), and a fixed footer (a "Reset" button, shown only while a filter is
+  active — unchanged from the old "Clear filters" condition — beside a
+  primary "Show N entries" button that closes the sheet, N being the live
+  `entries.length` after the same `filterCollection`/`sortCollection` the
+  screen already ran).
+  - **Built as a reusable primitive, not a filter-specific component.**
+    `BottomSheet` lives in `components/ui.tsx` alongside the app's other
+    shared primitives (`Button`, `Choices`, `EmptyState`, `Notice`), taking
+    `title`/`footer`/`children` so any future large sheet of controls can
+    reuse it rather than everyone re-deriving `MenuSheet`'s animation
+    plumbing. Reasoning for building it generic: the brief's Priority 2
+    (Settings' compact slot picker, shipped separately on the unmerged
+    settings branch) is exactly the second candidate for a bottom sheet this
+    app already has, so a filter-only component would likely have been
+    redone or duplicated the moment that branch merges. The primitive
+    intentionally does not try to unify with `MenuSheet.tsx` itself (side-
+    slide, no footer, no scroll body) — mirroring its Modal/Animated.View/
+    scrim shape rather than trying to generalize both into one component was
+    judged the smaller, safer change.
+  - **No drag-to-dismiss, no snap points.** A fixed open/closed animated
+    sheet, the same shape `MenuSheet.tsx` already uses, per the task's own
+    "don't over-build it" guidance — nothing in this app needs a snap point
+    today.
+  - **No draft state.** The sheet reads and writes the screen's existing
+    `facets` state directly, the same object the toolbar's Filters button and
+    the badge already read. Applying, resetting, and closing all require the
+    same number of taps as before (arguably fewer: "Show N entries" doubles
+    as the sheet's own close action). Canceling by tapping the scrim or the
+    header's close button also just closes the sheet with whatever `facets`
+    already held — since there is no draft to discard, "returning to the
+    collection retains the selected filters" falls out with no extra code,
+    exactly as the task anticipated.
+  - **Height is proportional (`windowHeight * 0.85` by default), not a fixed
+    pixel value** — same reasoning `MenuSheet.tsx` already applies to its own
+    width via `useSafeAreaInsets`/`useWindowDimensions`, so the sheet cannot
+    clip on the smallest supported phone height or under larger text
+    settings; the body's `ScrollView` absorbs whatever the header/footer
+    don't leave room for; long content (many locations, a wrapped color row)
+    scrolls inside the fixed frame instead of pushing the footer off-screen.
+  - **Sort panel and view toggle untouched.** `showSort`/`collectionSort` and
+    the grid/list `Ionicons` toggle in the toolbar are exactly as before —
+    out of scope per the task, and nothing about them changed shape.
+  - **Verified:** `npm run lint` and `npm run typecheck -w @upkeep/scanner-app`
+    both clean on the two touched files (`components/ui.tsx`,
+    `screens/CollectionScreen.tsx`); the root `npm run lint` run also reports
+    hundreds of pre-existing errors, all of them under `.claude/worktrees/**`
+    — other agent sessions' checkouts that this repo's `eslint.config.mjs`
+    does not exclude, not this change; confirmed by linting the two touched
+    files directly, which come back clean. `npm test` — 702/702, unaffected
+    (no pure logic was extracted; this is a presentational restructuring of
+    an existing panel, as scoped). No schema touched, so `npm run test:db`
+    does not apply.
+  - **Visual verification hit the same wall documented under Priority 1
+    above.** Metro was already running on 8081; the dev-client build was
+    already installed on a booted simulator and launched cleanly, but its own
+    connection screen showed the "Open in 'Project Upkeep'?" system
+    confirmation dialog this session cannot dismiss — no tap-injection tool
+    in this sandbox can drive a system alert, only the app's own rendered UI
+    once inside it (matching this file's existing note that a *different*,
+    unrelated obstacle — a stale baked-in tunnel URL — blocked the same last
+    attempt; here the server address shown was live, not stale, but the
+    system dialog itself was the wall this time). Verified instead by reading
+    the code closely: `BottomSheet`'s header/body/footer split, its
+    `useSafeAreaInsets`-driven height, and `CollectionScreen`'s direct binding
+    to `facets` were all traced by hand rather than seen rendered. Left for
+    the owner's own device session (item 4): confirming the sheet's actual
+    on-screen proportions, that the scroll affordance reads as a scroll (not
+    just structurally guaranteed not to clip), and that "Show N entries"
+    updates smoothly as filters change on a real phone.
 - **10 (Mobile UI refinement brief), Priorities 2 and 6 shipped, 2026-09-23
   (implementer).** Batched deliberately, as scoped: neither depends on the
   other or on any new shared primitive, and both are self-contained inside
