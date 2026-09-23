@@ -46,6 +46,8 @@ test("undo restores the previous state for every supported command", () => {
   });
   assertUndoRestores(start, { type: "SET_TAPPED", cardId, tapped: true });
   assertUndoRestores(start, { type: "SET_FACE", cardId, face: "face-down" });
+  assertUndoRestores(start, { type: "SET_NOTE", cardId, note: "Combo piece" });
+  assertUndoRestores(start, { type: "SET_ROTATION", cardId, rotation: 90 });
   assertUndoRestores(start, { type: "ADD_COUNTER", cardId, name: "+1/+1", delta: 3 });
   assertUndoRestores(start, {
     type: "CREATE_TOKEN",
