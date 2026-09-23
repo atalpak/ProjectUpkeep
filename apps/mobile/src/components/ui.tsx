@@ -4,10 +4,13 @@
  * stop every screen re-inventing a button), rebuilt in React Native and
  * routed through theme.ts tokens rather than Tailwind classes.
  */
-import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, Image, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import { accent, border, radius, space, surface, text as textColor, type } from '../theme';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { accent, border, radius, scrim, space, surface, text as textColor, type } from '../theme';
 import { makeStyles } from '../preferences';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
 export function Button({ label, onPress, disabled, secondary }: {
   label: string; onPress(): void; disabled?: boolean; secondary?: boolean;
@@ -85,6 +88,73 @@ export function DismissingNotice({ children, onDone, style, holdMs = 5000 }: { c
 }
 
 /**
+ * Generic bottom sheet: a scrim behind a panel that slides up from the bottom
+ * edge, with a fixed header and an optional fixed footer around a scrolling
+ * body -- the shape any "large sheet of controls that might not fit" screen
+ * needs (first user: the collection filter panel, mobile UI brief Priority 3,
+ * whose old inline panel was clamped to 40% of the screen and didn't make
+ * clear that it scrolled). Same Modal + Animated.View + scrim shape as
+ * MenuSheet, sliding up instead of in from the side, with the header/body/
+ * footer split MenuSheet doesn't need since it has no footer action.
+ *
+ * Height is a proportion of the window (`maxHeightRatio`), not a fixed pixel
+ * value, so it never clips on a short phone or with larger text settings --
+ * the body inside just gets less room to scroll rather than the sheet itself
+ * overflowing. No drag-to-dismiss or snap points: nothing in this app needs
+ * them yet, and building that machinery speculatively is out of scope for
+ * what a filter sheet actually asks for (fixed open/closed, like MenuSheet).
+ */
+export function BottomSheet({ visible, onClose, title, footer, children, maxHeightRatio = 0.85 }: {
+  visible: boolean; onClose(): void; title: string; footer?: React.ReactNode; children: React.ReactNode; maxHeightRatio?: number;
+}) {
+  const styles = useStyles();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const reducedMotion = useReducedMotion();
+  const [mounted, setMounted] = useState(visible);
+  const progress = useRef(new Animated.Value(0)).current;
+  const sheetHeight = windowHeight * maxHeightRatio;
+
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      Animated.timing(progress, { toValue: 1, duration: reducedMotion ? 0 : 240, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    } else {
+      Animated.timing(progress, { toValue: 0, duration: reducedMotion ? 0 : 180, easing: Easing.in(Easing.cubic), useNativeDriver: true })
+        .start(({ finished }) => { if (finished) setMounted(false); });
+    }
+  }, [visible, reducedMotion, progress]);
+
+  return (
+    <Modal transparent visible={mounted} animationType="none" onRequestClose={onClose} statusBarTranslucent>
+      <View style={styles.sheetRoot}>
+        <Animated.View style={[styles.sheetScrim, { opacity: progress }]}>
+          <Pressable accessibilityLabel={`Close ${title}`} style={styles.sheetScrimFill} onPress={onClose} />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.sheetPanel,
+            { maxHeight: sheetHeight, paddingBottom: insets.bottom || space.md },
+            { transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [sheetHeight, 0] }) }] },
+          ]}
+        >
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>{title}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Close ${title}`} hitSlop={8} onPress={onClose} style={styles.sheetClose}>
+              <Ionicons name="close" size={24} color={textColor.primary} />
+            </Pressable>
+          </View>
+          <ScrollView style={styles.sheetBody} contentContainerStyle={styles.sheetBodyContent} keyboardShouldPersistTaps="handled">
+            {children}
+          </ScrollView>
+          {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+/**
  * A friendly empty page: Mort, a headline, one line of why, and the next step
  * as children (buttons). Only offer next steps that exist in the app today.
  */
@@ -117,4 +187,14 @@ const useStyles = makeStyles(() => StyleSheet.create({
   chipSelected: { backgroundColor: surface.inverse, borderColor: surface.inverse },
   chipTextSelected: { color: textColor.inverse, fontSize: 13, lineHeight: 21 },
   body: { fontSize: 13, lineHeight: 21, color: textColor.secondary },
+  sheetRoot: { flex: 1, justifyContent: 'flex-end' },
+  sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: scrim },
+  sheetScrimFill: { flex: 1 },
+  sheetPanel: { backgroundColor: surface.canvas, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, borderWidth: 1, borderColor: border.hairline, borderBottomWidth: 0 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
+  sheetTitle: { ...type.title, color: textColor.primary },
+  sheetClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -space.sm },
+  sheetBody: { flexGrow: 0 },
+  sheetBodyContent: { padding: space.lg, gap: space.sm },
+  sheetFooter: { flexDirection: 'row', gap: space.sm, padding: space.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: border.hairline },
 }));

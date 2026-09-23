@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { CONDITIONS } from '@upkeep/scan-core';
@@ -7,7 +7,7 @@ import { COLLECTION_SORTS, COLLECTION_SORT_LABELS, entryPrice, filterCollection,
 import { CollectionAuthError, EMPTY_COLLECTION_FILTER, collectionFacetCount, fetchWholeCollection, type CollectionEntry, type CollectionFilter } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
-import { Button, Choices, EmptyState, Notice } from '../components/ui';
+import { BottomSheet, Button, Choices, EmptyState, Notice } from '../components/ui';
 import { useSearchOverlay } from '../searchOverlay';
 import { CardDetails } from '../components/CardDetails';
 import type { CardSeed } from '../cardDetails';
@@ -25,9 +25,6 @@ const FINISHES = ['', 'nonfoil', 'foil', 'etched'];
 const FINISH_LABELS: Record<string, string> = { '': 'Any', nonfoil: 'Non-foil', foil: 'Foil', etched: 'Etched' };
 const COLOR_MODE_LABELS: Record<string, string> = { all: 'Has all', any: 'Has any' };
 const COLUMNS = 3;
-// The filters panel's ceiling; on a short screen it is held to 40% of the height instead,
-// so the results below it never disappear behind an open panel.
-const FILTERS_MAX_HEIGHT = 340;
 const CARD_ASPECT = 488 / 680;
 
 // Browse of the signed-in user's own collection. See src/collection.ts for the
@@ -61,7 +58,7 @@ function CollectionList({ userId }: { userId: string }) {
   const navigation = useNavigation<{ navigate(page: 'Scan'): void }>();
   const openSearch = useSearchOverlay().open;
   const focused = useIsFocused();
-  const { width, height: windowHeight } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const { collectionView, setCollectionView, collectionSort, setCollectionSort } = usePreferences();
   // One motion listener shared by every foil tile and row thumbnail, only while this tab is showing.
   // Paused while the details sheet is open: the tiles under it are invisible, and a second tilt
@@ -160,44 +157,6 @@ function CollectionList({ userId }: { userId: string }) {
         </View>
       )}
 
-      {showFilters && (
-        <ScrollView style={[styles.filters, { maxHeight: Math.min(FILTERS_MAX_HEIGHT, windowHeight * 0.4) }]} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
-          <Text style={styles.groupLabel}>Colors</Text>
-          <View style={styles.colorRow}>
-            {COLORS.map(c => {
-              const on = facets.colors.includes(c);
-              return (
-                <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipOn]}>
-                  <Text style={[styles.colorText, on && styles.colorTextOn]}>{c}</Text>
-                </Pressable>
-              );
-            })}
-            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: facets.colorless }} onPress={() => setFacets(f => ({ ...f, colorless: !f.colorless, colors: [] }))} style={[styles.pill, facets.colorless && styles.colorChipOn]}>
-              <Text style={[styles.colorText, facets.colorless && styles.colorTextOn]}>Colorless</Text>
-            </Pressable>
-          </View>
-          {facets.colors.length > 1 && <Choices values={['all', 'any']} selected={facets.colorMode} labels={COLOR_MODE_LABELS} onSelect={v => setFacets(f => ({ ...f, colorMode: v as 'all' | 'any' }))} />}
-
-          <Text style={styles.groupLabel}>Where it is</Text>
-          <Choices values={['', 'unsorted', ...app.locations.map(l => l.id)]} selected={facets.location} onSelect={v => setFacets(f => ({ ...f, location: v }))}
-            labels={Object.fromEntries([['', 'Anywhere'], ['unsorted', 'Unsorted'], ...app.locations.map(l => [l.id, l.name])])} />
-
-          <Text style={styles.groupLabel}>Rarity</Text>
-          <Choices values={RARITIES} selected={facets.rarity} labels={RARITY_LABELS} onSelect={v => setFacets(f => ({ ...f, rarity: v }))} />
-          <Text style={styles.groupLabel}>Finish</Text>
-          <Choices values={FINISHES} selected={facets.finish} labels={FINISH_LABELS} onSelect={v => setFacets(f => ({ ...f, finish: v }))} />
-          <Text style={styles.groupLabel}>Condition</Text>
-          <Choices values={['', ...CONDITIONS]} selected={facets.condition} labels={{ '': 'Any' }} onSelect={v => setFacets(f => ({ ...f, condition: v }))} />
-
-          <Text style={styles.groupLabel}>Type</Text>
-          <TextInput accessibilityLabel="Type" style={styles.textInput} value={facets.type} onChangeText={t => setFacets(f => ({ ...f, type: t }))} placeholder="e.g. creature" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} />
-          <Text style={styles.groupLabel}>Set code</Text>
-          <TextInput accessibilityLabel="Set code" style={styles.textInput} value={facets.set} onChangeText={t => setFacets(f => ({ ...f, set: t }))} placeholder="e.g. fdn" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} maxLength={8} />
-
-          {facetCount > 0 && <Button secondary label="Clear filters" onPress={() => setFacets(EMPTY_COLLECTION_FILTER)} />}
-        </ScrollView>
-      )}
-
       {authError && <Notice>Your session is no longer valid. Sign out and sign in again to view your collection.</Notice>}
       {!loading && !!error && <><Notice>{error}</Notice><Button secondary label="Retry" onPress={() => void load()} /></>}
       {!loading && !authError && !error && all.length > 0 && (
@@ -241,6 +200,51 @@ function CollectionList({ userId }: { userId: string }) {
         ListFooterComponent={loadingRest && all.length > 0 ? <Text style={styles.body}>Loading the rest of your collection…</Text> : null}
         renderItem={renderItem}
       />
+      <BottomSheet
+        visible={showFilters}
+        onClose={() => setShowFilters(false)}
+        title="Filters"
+        footer={
+          <View style={styles.filterFooter}>
+            {facetCount > 0 && <Button secondary label="Reset" onPress={() => setFacets(EMPTY_COLLECTION_FILTER)} />}
+            <View style={styles.filterFooterPrimary}>
+              <Button label={`Show ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`} onPress={() => setShowFilters(false)} />
+            </View>
+          </View>
+        }
+      >
+        <Text style={styles.groupLabel}>Colors</Text>
+        <View style={styles.colorRow}>
+          {COLORS.map(c => {
+            const on = facets.colors.includes(c);
+            return (
+              <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipOn]}>
+                <Text style={[styles.colorText, on && styles.colorTextOn]}>{c}</Text>
+              </Pressable>
+            );
+          })}
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: facets.colorless }} onPress={() => setFacets(f => ({ ...f, colorless: !f.colorless, colors: [] }))} style={[styles.pill, facets.colorless && styles.colorChipOn]}>
+            <Text style={[styles.colorText, facets.colorless && styles.colorTextOn]}>Colorless</Text>
+          </Pressable>
+        </View>
+        {facets.colors.length > 1 && <Choices values={['all', 'any']} selected={facets.colorMode} labels={COLOR_MODE_LABELS} onSelect={v => setFacets(f => ({ ...f, colorMode: v as 'all' | 'any' }))} />}
+
+        <Text style={styles.groupLabel}>Where it is</Text>
+        <Choices values={['', 'unsorted', ...app.locations.map(l => l.id)]} selected={facets.location} onSelect={v => setFacets(f => ({ ...f, location: v }))}
+          labels={Object.fromEntries([['', 'Anywhere'], ['unsorted', 'Unsorted'], ...app.locations.map(l => [l.id, l.name])])} />
+
+        <Text style={styles.groupLabel}>Rarity</Text>
+        <Choices values={RARITIES} selected={facets.rarity} labels={RARITY_LABELS} onSelect={v => setFacets(f => ({ ...f, rarity: v }))} />
+        <Text style={styles.groupLabel}>Finish</Text>
+        <Choices values={FINISHES} selected={facets.finish} labels={FINISH_LABELS} onSelect={v => setFacets(f => ({ ...f, finish: v }))} />
+        <Text style={styles.groupLabel}>Condition</Text>
+        <Choices values={['', ...CONDITIONS]} selected={facets.condition} labels={{ '': 'Any' }} onSelect={v => setFacets(f => ({ ...f, condition: v }))} />
+
+        <Text style={styles.groupLabel}>Type</Text>
+        <TextInput accessibilityLabel="Type" style={styles.textInput} value={facets.type} onChangeText={t => setFacets(f => ({ ...f, type: t }))} placeholder="e.g. creature" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} />
+        <Text style={styles.groupLabel}>Set code</Text>
+        <TextInput accessibilityLabel="Set code" style={styles.textInput} value={facets.set} onChangeText={t => setFacets(f => ({ ...f, set: t }))} placeholder="e.g. fdn" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} maxLength={8} />
+      </BottomSheet>
       <CardDetails
         name={details?.card_name ?? null}
         printingId={details?.card_id}
@@ -312,9 +316,9 @@ const useStyles = makeStyles(() => StyleSheet.create({
   iconButtonOn: { borderColor: accent.DEFAULT, backgroundColor: accent.soft },
   badge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: accent.DEFAULT },
   badgeText: { ...typeTokens.label, color: text.onAccent },
-  filters: { borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   sortPanel: { padding: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
-  filtersBody: { padding: space.lg, gap: space.sm },
+  filterFooter: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  filterFooterPrimary: { flex: 1 },
   groupLabel: { ...typeTokens.label, color: text.secondary, marginTop: space.sm },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   colorChip: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: border.strong },
