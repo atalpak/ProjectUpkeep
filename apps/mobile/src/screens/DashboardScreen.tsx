@@ -9,8 +9,9 @@ import { COLOUR_LABELS, fetchDashboard, type ColourBucket, type DashboardData } 
 import { CardDetails } from '../components/CardDetails';
 import { MANA_COLORS } from '../components/ManaCost';
 import { Button, Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
-import type { TabParamList } from '../navigation';
+import { PAGES, type TabParamList } from '../navigation';
 import { makeStyles } from '../preferences';
 import { MortStage } from '../mort/MortStage';
 import { accent, border, fontFamily, radius, space, surface, text, type as typeTokens } from '../theme';
@@ -82,6 +83,7 @@ export function DashboardScreen() {
       contentContainerStyle={styles.page}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(); }} tintColor={text.secondary} />}
     >
+      <PageTitle>{PAGES.Dashboard.title}</PageTitle>
       {loading && !data && <Text style={styles.sub}>Loading your dashboard…</Text>}
       {authError && <Notice>Your session is no longer valid. Sign out and sign in again.</Notice>}
       {!!error && <><Notice>{error}</Notice><Button secondary label="Retry" onPress={() => void load()} /></>}

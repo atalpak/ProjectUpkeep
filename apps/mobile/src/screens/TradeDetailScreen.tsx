@@ -85,6 +85,8 @@ export function TradeDetailScreen({ route, navigation }: NativeStackScreenProps<
       {!!error && <Notice>{error}</Notice>}
       {!!notice && <DismissingNotice onDone={() => setNotice('')}>{notice}</DismissingNotice>}
 
+      {/* This heading is the page's title -- no native header (App.tsx's
+          TradesNavigator turns it off) and no separate PageTitle either. */}
       <View style={styles.group}>
         <Text style={styles.title}>{t.iProposed ? 'You offered' : 'Offer from'} {t.otherName}</Text>
         <Text style={styles.sub}>

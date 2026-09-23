@@ -5,8 +5,9 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { expiryLabel } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
-import type { TradesStackParamList } from '../navigation';
+import { PAGES, type TradesStackParamList } from '../navigation';
 import { makeStyles } from '../preferences';
 import { border, radius, space, state, surface, text, type } from '../theme';
 import { fetchTrades, TRADE_STATUS_LABELS, type Trade } from '../trades';
@@ -69,6 +70,7 @@ export function TradesScreen({ navigation }: NativeStackScreenProps<TradesStackP
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageTitle>{PAGES.Trades.title}</PageTitle>
       {!!error && <Notice>{error}</Notice>}
       {loading && <Text style={styles.sub}>Loading…</Text>}
       {!loading && trades.length === 0 && !error && (
