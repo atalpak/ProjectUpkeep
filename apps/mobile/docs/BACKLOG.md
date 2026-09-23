@@ -30,7 +30,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 7 | ~~Migration 20: test the deck-list shortfall's 2nd and 3rd tiers~~ | — | — | **Done (2026-09-23)** — `schema_test.sql` section 22 | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
 | 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
-| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Priorities 1, 2, 3 and 6 done (2026-09-23) — unified header, Settings nav-slot editor, menu grouping and the collection filter bottom sheet all merged; 4, 5 and 7 still open | `apps/mobile/src/components/AppHeader.tsx`, `SettingsScreen.tsx`, `MenuSheet.tsx`, `CollectionScreen.tsx` + brief |
+| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Priorities 1, 2, 3 and 6 done (2026-09-23) — unified header, Settings nav-slot editor, menu grouping and the collection filter bottom sheet all merged; Priority 4 partially done (2026-09-23, unmerged — foundation + a scoped subset of screens, see notes for exactly which); 5 and 7 still open | `apps/mobile/src/theme.ts`, `components/ui.tsx`, `components/ListRow.tsx`, `AppHeader.tsx`, `MenuSheet.tsx`, `SettingsScreen.tsx` + brief |
 | 11 | Phone deck gaps: add-to-deck from card sheet, deck wish list, stats, export, playtest | Med each | Low–Med | Open — depends on owner's habits | `apps/mobile/src/screens/DeckDetailScreen.tsx` |
 | 12 | Phone quick-add straight to a deck | Easy–Med | Low–Med | Partly done | `ScanScreen.tsx` |
 | 13 | ~~Phone collection rows: show prices~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CollectionScreen.tsx` |
@@ -713,6 +713,206 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
   never Scryfall card data** (their terms). The real blocking condition on #1 is not
   "one green run" (already true) but "the write path is healthy again" — more columns
   per row is more work per write, and #1 shows that write is already near its limit.
+
+- **10 (Mobile UI refinement brief), Priority 4 partially shipped, 2026-09-23
+  (implementer), on `feat/mobile-ui-tokens-and-typography` off `main`
+  (Priorities 1, 2, 3 and 6 already merged to `main` by the time this
+  started).** The brief's own relevant-files list for this priority is
+  `theme.ts`, `components/ui.tsx`, `components/ListRow.tsx`, and "all files
+  under `screens/`" — a genuinely large sweep. Per the task's own scoping
+  guidance (and this file's standing preference for a smaller, fully-verified
+  slice over a sprawling half-applied one — see item 24 Phase 1), this pass
+  built the foundation solidly and applied it to a bounded, named set of
+  screens rather than attempting all eighteen. **What got the full
+  treatment, what didn't, and why is spelled out below rather than left for
+  someone to discover by diffing.**
+  - **Foundation, `theme.ts`.** Added the five text-style tokens the brief's
+    "Standardize" list named that didn't already exist under another name
+    (`rowTitle`, `caption`, `buttonLabel`, `input`, `statusBadge` — page title
+    and section heading already existed as `display`/`title` and are now
+    documented in-file as filling those two roles, so nothing was duplicated)
+    and one new sizing constant, `iconButtonSize` (44, the app's one shared
+    icon-only touch target). Every new token specifies its own `fontFamily`
+    explicitly — the point of adding them at all, since the screens that
+    motivated `buttonLabel`/`statusBadge`/`input` were exactly the ones
+    rendering `fontWeight` (or, for the three raw `TextInput` styles, a bare
+    `fontSize`) with no family, which React Native silently renders in the
+    system font instead of erroring on.
+  - **Foundation, `components/ui.tsx`.** `Button` now handles pressed,
+    focused, disabled *and* loading (before, `disabled` was the only state it
+    had at all — no dimming on press, no busy indicator, and its
+    `secondary` label was the one hand-rolled `fontWeight`-with-no-`fontFamily`
+    style in the whole shared-component layer). Primary and secondary now
+    share the same border width too (secondary always had a 1px border,
+    primary had none, so the two variants were never quite the same size —
+    fixed as a side effect of adding the focus ring, not a separate change).
+    Two new shared primitives: `IconButton` (the 44pt icon-only control
+    AppHeader's back/menu buttons, and MenuSheet's and BottomSheet's close
+    buttons, had each hand-rolled separately with no pressed feedback on any
+    of them) and `Badge` (the small numeric pill AppHeader's unread count,
+    MenuSheet's notification count, and Collection's quantity badges each
+    rendered by hand, two of the three missing `fontFamily`). `Choices`'
+    unselected chip text and `Notice`'s body text now spread `type.bodySm`
+    instead of restating `{ fontSize: 13, lineHeight: 21 }` by hand (off by
+    one from `bodySm`'s actual `lineHeight: 20` — a real, if invisible,
+    drift between three copies of what was meant to be the same style).
+  - **`components/ListRow.tsx`** (a brief-named relevant file): `title` and
+    `subtitle` now spread `type.rowTitle`/`type.bodySm` instead of a bare
+    `{ fontSize: 16, fontWeight: '600' }` with no family. Its thumbnail's
+    small `borderRadius: 3` was deliberately left alone — see "Found but not
+    fixed" below.
+  - **`components/AppHeader.tsx` and `components/MenuSheet.tsx`** (both
+    touched by Priority 1/6, fresh in context per the task's own suggested
+    order): rebuilt on `IconButton`/`Badge` instead of their own duplicated
+    Pressable-plus-Ionicons-plus-absolute-badge markup. `iconButtonSize`
+    replaces `AppHeader`'s local `SIDE = 44` constant (same value, now named
+    once). `MenuSheet`'s own Cinzel-at-22pt panel title was deliberately left
+    as its own one-off, not folded into `type.display`/`type.title` — it
+    already specifies a real `fontFamily` (no bug), and collapsing a
+    brand-voice menu heading into a functional-heading token is a visual
+    judgment call closer to Priority 5's territory than a spacing/typography
+    consolidation.
+  - **`screens/SettingsScreen.tsx`, `screens/AuthScreen.tsx`,
+    `screens/ScanSessionSummary.tsx`.** All three had a `TextInput` style
+    with a bare `fontSize: 16` and no family at all; all three now spread
+    `type.input`. All three also had their own one-off `borderRadius`
+    (`10`, `10`, and `radius.sm + 2` — an arithmetic near-miss at the same
+    `10`) where the brief's own rule calls for `radius.md` (12, "medium for
+    inputs and buttons"); all three now use the token. Settings' `card` style
+    also spelled out `borderRadius: 16` as a literal where `radius.lg` (16)
+    already names that exact value.
+  - **One default horizontal page inset, applied everywhere.** Confirmed by
+    grep, not assumption: of the sixteen screens with a root `page` container
+    style, twelve used `space.xxl` (24pt) and four (`DashboardScreen`,
+    `DeckDetailScreen`, `DecksScreen`, `CollectionScreen`) used `space.xl`
+    (20pt) — exactly the brief's complaint, and exactly why it suggests 20pt
+    by name. All sixteen now use `space.xl`: `AuthScreen`, `FriendsScreen`,
+    `FriendProfileScreen`, `ImportScreen`, `NotificationsScreen`,
+    `LocationsScreen`, `LocationDetailScreen`, `ScanSessionSummary`,
+    `TradeBuilderScreen`, `WishlistScreen`, `TradesScreen`,
+    `TradeDetailScreen`, `SettingsScreen` and `PlaceholderScreen` (a
+    centered empty state with no rows to grid-align, changed anyway for the
+    same "one inset everywhere" reasoning) moved from `xxl` to `xl`; the four
+    already on `xl` needed no change. This one is mechanical and low-risk (a
+    single padding number per screen) and is the change most directly
+    answering the acceptance criterion "comparable pages align to the same
+    horizontal grid" — it was done for every screen rather than only the
+    scoped subset below, since narrowing it further would have left the
+    acceptance criterion still failing on the untouched screens for no
+    real savings in risk.
+  - **The `fontWeight`-with-no-`fontFamily` bug, fixed everywhere it was
+    cheap and safe.** Beyond the foundation and the four screens above, the
+    same one-line fix (add the matching `fontFamily`) was applied to
+    `components/ScanQuickBar.tsx` (`chipText`, `stepperText`,
+    `stepperValue`), `screens/DecksScreen.tsx` (`pipText`, a mana-pip glyph),
+    and `screens/DeckDetailScreen.tsx` (`label`) — all pure style-only edits
+    with no layout or logic change, confirmed by lint/typecheck/test staying
+    green. **Deliberately not touched: `screens/ScanScreen.tsx`**, which has
+    the same bug in roughly a dozen places (`panelTitle`, `topTitle`,
+    `sheetName`, `scanPillText`, etc.). Both `MOBILE_UI_REFINEMENT_BRIEF.md`
+    (Priority 1's "the full-screen live scanner may retain its purpose-built
+    dark camera header") and `.claude/rules/mobile.md` ("camera-overlay UI
+    uses fixed `brand.*` colours, not the scheme-aware tokens") already treat
+    this screen's overlay as a deliberate exception to the rest of the app's
+    styling rules, it sits directly on top of the live camera feed where a
+    metrics change is hardest to verify without a physical device and a real
+    scan in progress, and it is already flagged in this file as unverified-
+    on-a-device territory (item 4). Left for whoever next has a phone in
+    hand, not silently skipped.
+  - **Found but not fixed, flagged rather than guessed at.** A handful of
+    `borderRadius` one-offs exist beyond what this pass touched:
+    `DashboardScreen`'s and `CollectionScreen`'s card-art thumbnails (`6`),
+    `ListRow`'s and `CardDetails`' card-image thumbnails (`3`), and
+    `CollectionScreen`'s own list-row thumbnail (`4`) are all smaller than
+    `radius.sm` (8) and not quite consistent with each other (3 vs. 4 vs. 6).
+    They look like a deliberate "corners should stay subtle on a card-shaped
+    image" choice rather than stray mistakes — snapping all of them to
+    `radius.sm` without a device to look at would risk a real, unverified
+    visual regression on exactly the card artwork the brief's own "preserve
+    these successful patterns" section calls out by name. Left for a pass
+    with eyes on a screen, ideally alongside Priority 5 (which is already
+    about visual-hierarchy judgment calls on cards/containers, the same kind
+    of call this is). `FoilArt.tsx`'s hardcoded `borderRadius: 16` on the
+    full card image is the same category of deferred call, for the same
+    reason.
+  - **Screens not touched at all in this pass:** `CollectionScreen.tsx` (its
+    filter/sort/row/tile styles were already almost entirely token-based —
+    the one real one-off, `tileImage`'s `borderRadius: 6`, is grouped with
+    the card-thumbnail question above, not fixed alone) and every other
+    screen not named above — `DashboardScreen`, `FriendsScreen`,
+    `FriendProfileScreen`, `NotificationsScreen`, `LocationsScreen`,
+    `LocationDetailScreen`, `TradesScreen`, `TradeDetailScreen`,
+    `TradeBuilderScreen`, `WishlistScreen`, `ImportScreen`, `DecksScreen`
+    (beyond the one `pipText` fix), `DeckDetailScreen` (beyond the one
+    `label` fix), `ScanScreen`, `ScanSessionSummary` (beyond its input/label/
+    button fixes) — got only the page-inset normalization above, not a full
+    typography/component pass. None of them was found to have a *new*
+    problem beyond what's named here; a full per-screen audit of all
+    eighteen was the part of this priority scoped out, per the task's own
+    permission to do so.
+  - **Not built: a shared `TextInput`/form-field component.** Eight-plus
+    screens each hand-roll a near-identical bordered `TextInput` style
+    (`AuthScreen`, `SettingsScreen`, `ScanSessionSummary`, `DecksScreen`,
+    `LocationsScreen`, `LocationDetailScreen`, `ImportScreen`,
+    `TradeBuilderScreen`) — real duplication the brief's "prefer a small set
+    of deliberate variants" line is about. This pass added the *text* token
+    (`type.input`) three of them now use and fixed the worst of the radius
+    drift, but did not extract a shared component: each screen's input
+    differs slightly in background surface, multiline behavior, or
+    `autoCapitalize`/`autoCorrect` props, and building one generic component
+    and re-plumbing eight screens' worth of `TextInput` call sites is a
+    bigger, riskier change than fit safely in this pass without a device to
+    check each screen against afterward. Flagged as the next-highest-value
+    follow-up for this priority, not done here.
+  - **Verified:** `npm run lint` (clean on every touched file; the full
+    repo-wide run separately reports the same pre-existing `.claude/
+    worktrees/**` errors and unrelated `react-hooks` warnings this file's
+    Priority 2/3/6 entries already documented — none of them touch a file
+    this change modified), `npm run typecheck -w @upkeep/scanner-app` clean,
+    `npm test` — 704/704, unaffected (style-only change, no pure logic
+    touched, so no new `scripts/*.test.ts` was warranted). No schema touched,
+    so `npm run test:db` does not apply.
+  - **Not visually verified — no exception this time either.** Attempted the
+    same way prior rounds did: checked for a running Metro instance first
+    (none was), and this session has no path to a working simulator/dev-
+    client connection any more than Priorities 1/2/3/6 did (the same stale-
+    tunnel/system-dialog wall those entries already document). Given how much
+    of this specific priority is spacing and type scale — more visually
+    consequential than most of the prior rounds, per the task's own framing —
+    this is a real limitation, not a formality: the page-inset change, the
+    button focus ring, and the new `IconButton`/`Badge` components are all
+    unverified on an actual screen. Left for the owner's next device session
+    (item 4) alongside everything else already queued there.
+  - **Reviewed, one real regression fixed, one gap closed, 2026-09-23.**
+    Everything else checked out — the new type tokens, the `Button`
+    pressed/focused/disabled states, the font-family and radius fixes, and
+    the 16-screen inset unification were all independently re-verified
+    against the diff.
+    - **Fixed: `IconButton`'s default icon glyph size silently shrank the
+      two most visible icons in the whole app.** `IconButton` derived its
+      glyph size as `Math.round(size * 0.5)` off the 44pt touch-target box,
+      giving 22px — but the markup it replaced (`AppHeader`'s back chevron
+      and menu icon, `MenuSheet`'s and `BottomSheet`'s close icons) used
+      explicit, larger sizes (26 and 24) that nothing in the extraction
+      preserved. Not disclosed as a deliberate choice anywhere. Fixed by
+      adding an explicit `iconSize` prop (the touch-target box and the
+      glyph inside it are genuinely different concerns and needed to stay
+      independently settable) and passing the original 26/24 values back at
+      each of the three real call sites, restoring exact visual parity.
+    - **Closed: `Button`'s new `loading` prop had zero callers**, including
+      the exact case (`SettingsScreen`'s delete-account button) its own doc
+      comment cited as the motivating bug. Wired it up there, plus three
+      more call sites already touched by this same diff for other reasons
+      (`DecksScreen`, `LocationsScreen`, `LocationDetailScreen`,
+      `TradeDetailScreen` — all had the identical `busy ? 'X…' : 'X'`
+      label-only pattern `loading` exists to replace). Five more instances
+      of the same pattern exist in files this diff doesn't otherwise touch
+      (`DeckDetailsEditor.tsx`, `CardDetails.tsx` ×2, `TradingTerms.tsx`) —
+      left as-is rather than expanding this diff's file list further;
+      worth a follow-up pass, not urgent since the plain label-swap still
+      communicates busy state correctly, just without the spinner.
+    - Re-verified after both fixes: `npm run lint`, `typecheck -w
+      @upkeep/scanner-app` and `npm test` (704/704) all still pass.
 
 - **10 (Mobile UI refinement brief), Priority 3 shipped, 2026-09-23
   (implementer), on `feat/mobile-collection-filter-sheet` off `main`.**

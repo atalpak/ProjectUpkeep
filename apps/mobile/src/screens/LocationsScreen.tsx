@@ -107,7 +107,7 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
             <Text style={styles.label}>Colour</Text>
             <ColorSwatches value={color} onChange={setColor} disabled={busy} />
             {!!formError && <Text style={styles.formError} accessibilityRole="alert">{formError}</Text>}
-            <Button label={busy ? 'Creating…' : 'Create'} disabled={busy || !name.trim()} onPress={() => void create()} />
+            <Button label={busy ? 'Creating…' : 'Create'} loading={busy} disabled={!name.trim()} onPress={() => void create()} />
             <Button secondary label="Cancel" disabled={busy} onPress={() => { setCreating(false); setFormError(''); }} />
           </View>
         )}
@@ -141,7 +141,7 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   group: { gap: space.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, minHeight: 56 },
   nested: { marginLeft: space.xxl },

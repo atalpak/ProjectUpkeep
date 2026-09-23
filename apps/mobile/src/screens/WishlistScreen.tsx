@@ -173,7 +173,7 @@ function WishlistList({ userId }: { userId: string }) {
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   heading: { ...type.title, color: text.primary },
   body: { ...type.bodySm, color: text.secondary },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },

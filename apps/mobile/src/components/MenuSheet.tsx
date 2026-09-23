@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles } from '../preferences';
 import { BUILT, MENU_ORDER, PAGES, type PageId } from '../navigation';
+import { Badge, IconButton } from './ui';
 import { accent, border, fontFamily, radius, scrim, space, surface, text, type } from '../theme';
 
 /**
@@ -79,9 +80,7 @@ export function MenuSheet({ visible, current, onSelect, onClose, unread = 0 }: {
         >
           <View style={styles.panelHeader}>
             <Text style={styles.panelTitle}>Menu</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close menu" hitSlop={8} onPress={onClose} style={styles.close}>
-              <Ionicons name="close" size={24} color={text.primary} />
-            </Pressable>
+            <IconButton icon="close" iconSize={24} accessibilityLabel="Close menu" onPress={onClose} style={styles.close} />
           </View>
           <ScrollView contentContainerStyle={styles.list}>
             {MENU_GROUPS.map(group => (
@@ -101,7 +100,7 @@ export function MenuSheet({ visible, current, onSelect, onClose, unread = 0 }: {
                       <Ionicons name={selected ? page.filled : page.outline} size={22} color={text.primary} />
                       <Text style={[styles.itemLabel, selected && styles.itemLabelSelected]}>{page.title}</Text>
                       {!BUILT.has(id) && <Text style={styles.soon}>Soon</Text>}
-                      {id === 'Notifications' && unread > 0 && <View style={styles.count}><Text style={styles.countText}>{unread > 99 ? '99+' : unread}</Text></View>}
+                      {id === 'Notifications' && unread > 0 && <Badge value={unread > 99 ? '99+' : unread} style={styles.count} />}
                     </Pressable>
                   );
                 })}
@@ -121,13 +120,15 @@ const useStyles = makeStyles(() => StyleSheet.create({
   panel: { backgroundColor: surface.canvas, borderLeftWidth: 1, borderLeftColor: border.hairline, paddingHorizontal: space.lg },
   panelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.sm, paddingBottom: space.md },
   panelTitle: { fontFamily: fontFamily.display, fontSize: 22, lineHeight: 28, color: text.primary },
-  close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -space.sm },
+  close: { marginRight: -space.sm },
   list: { gap: space.sm },
   group: { gap: 2 },
   groupLabel: { ...type.label, color: text.secondary, opacity: 0.7, paddingHorizontal: space.md, paddingBottom: 2, textTransform: 'uppercase' },
   item: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 48, paddingHorizontal: space.md, borderRadius: radius.md },
-  count: { minWidth: 22, height: 22, paddingHorizontal: 6, borderRadius: radius.pill, backgroundColor: accent.DEFAULT, alignItems: 'center', justifyContent: 'center' },
-  countText: { fontSize: 12, lineHeight: 16, fontWeight: '700', color: text.onAccent },
+  // `Badge` is sized for an absolute overlay; here it sits inline in the row
+  // instead, so it needs its own (slightly larger) minWidth/height rather
+  // than the overlay default.
+  count: { minWidth: 22, height: 22 },
   itemSelected: { backgroundColor: accent.soft },
   itemLabel: { flex: 1, ...type.body, color: text.primary },
   itemLabelSelected: { fontFamily: fontFamily.bodySemiBold },

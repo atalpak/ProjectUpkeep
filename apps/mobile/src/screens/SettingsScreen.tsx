@@ -95,7 +95,7 @@ export function SettingsScreen() {
               <>
                 <Text style={styles.danger}>Type DELETE to confirm.</Text>
                 <TextInput accessibilityLabel="Type DELETE to confirm" style={styles.input} value={deleteWord} onChangeText={setDeleteWord} placeholder="DELETE" placeholderTextColor={text.secondary} autoCapitalize="characters" autoCorrect={false} />
-                <Button label={deleteBusy ? 'Deleting…' : 'Permanently delete account'} disabled={deleteBusy || deleteWord !== 'DELETE'} onPress={() => void confirmDelete()} />
+                <Button label={deleteBusy ? 'Deleting…' : 'Permanently delete account'} loading={deleteBusy} disabled={deleteWord !== 'DELETE'} onPress={() => void confirmDelete()} />
                 <Button secondary label="Cancel" disabled={deleteBusy} onPress={() => { setDeleting(false); setDeleteWord(''); }} />
               </>
             )}
@@ -202,13 +202,20 @@ function SlotPicker({ slotIndex, slots, onSelect, onClose }: {
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  // 20pt (space.xl) is the app's one shared horizontal page inset (mobile UI
+  // brief Priority 4) -- this screen used to be the wider space.xxl (24pt),
+  // out of step with Dashboard/Collection/Decks/DeckDetail's xl.
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   heading: { ...typeTokens.title, color: text.primary, marginTop: space.md },
   body: { ...typeTokens.bodySm, color: text.secondary },
-  card: { padding: space.lg, backgroundColor: surface.raised, borderRadius: 16, gap: space.md, borderWidth: 1, borderColor: border.hairline },
+  // radius.lg (16) is the token for cards/grouped panels -- this used to spell
+  // the same value out as a literal `16`.
+  card: { padding: space.lg, backgroundColor: surface.raised, borderRadius: radius.lg, gap: space.md, borderWidth: 1, borderColor: border.hairline },
   link: { ...typeTokens.bodySm, color: text.secondary, textDecorationLine: 'underline', paddingVertical: space.xs },
   danger: { ...typeTokens.label, color: state.error },
-  input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: 10, padding: 14, color: text.primary, fontSize: 16 },
+  // radius.md (12) is the token for inputs/buttons -- this was a one-off `10`.
+  // type.input supplies the font family a bare `fontSize: 16` was missing.
+  input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: radius.md, padding: 14, color: text.primary, ...typeTokens.input },
   preview: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   chip: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas },
   chipFixed: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },

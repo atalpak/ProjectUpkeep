@@ -103,7 +103,7 @@ export function LocationDetailScreen({ route, navigation }: NativeStackScreenPro
                 <Choices values={[...LOCATION_TYPES]} selected={kind} labels={LOCATION_TYPE_LABELS} disabled={busy} onSelect={v => setKind(v as LocationKind)} />
                 <Text style={styles.label}>Colour</Text>
                 <ColorSwatches value={color} onChange={setColor} disabled={busy} />
-                <Button label={busy ? 'Saving…' : 'Save'} disabled={busy || !name.trim()} onPress={() => void save()} />
+                <Button label={busy ? 'Saving…' : 'Save'} loading={busy} disabled={!name.trim()} onPress={() => void save()} />
                 <Button secondary label="Cancel" disabled={busy} onPress={() => setEditing(false)} />
               </View>
             )}
@@ -137,7 +137,7 @@ export function LocationDetailScreen({ route, navigation }: NativeStackScreenPro
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   card: { gap: space.md, padding: space.lg, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   grow: { flex: 1, gap: 2 },

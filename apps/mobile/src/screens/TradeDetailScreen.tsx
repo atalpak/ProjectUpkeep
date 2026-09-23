@@ -101,7 +101,7 @@ export function TradeDetailScreen({ route, navigation }: NativeStackScreenProps<
       {t.open && !t.iProposed && gated && <TradingTerms onAccepted={() => void load()} />}
       {t.open && !t.iProposed && !gated && (
         <>
-          <Button label={busy ? 'Working…' : 'Accept and swap cards'} disabled={busy} onPress={confirmAccept} />
+          <Button label={busy ? 'Working…' : 'Accept and swap cards'} loading={busy} onPress={confirmAccept} />
           {t.otherId && (
             <Button secondary label="Counter with a new offer" disabled={busy} onPress={() => navigation.navigate('TradeBuilder', { friendId: t.otherId!, username: t.otherName, counterOf: t.id })} />
           )}
@@ -126,7 +126,7 @@ export function TradeDetailScreen({ route, navigation }: NativeStackScreenProps<
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.lg },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.lg },
   group: { gap: 2 },
   title: { ...type.title, color: text.primary },
   sub: { ...type.bodySm, color: text.secondary },

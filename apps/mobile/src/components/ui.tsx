@@ -5,27 +5,97 @@
  * routed through theme.ts tokens rather than Tailwind classes.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { accent, border, radius, scrim, space, surface, text as textColor, type } from '../theme';
+import { accent, border, iconButtonSize, radius, scrim, space, surface, text as textColor, type } from '../theme';
 import { makeStyles } from '../preferences';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 
-export function Button({ label, onPress, disabled, secondary }: {
-  label: string; onPress(): void; disabled?: boolean; secondary?: boolean;
+/**
+ * Primary/secondary action button, with the shared pressed/focused/disabled/
+ * loading treatments Priority 4 of the mobile UI refinement brief asks for --
+ * before this, `disabled` was the only state `Button` handled at all: no
+ * dimming on press, no busy indicator (a caller wanting one, e.g.
+ * `SettingsScreen`'s "Deleting…" label, faked it with plain label text and
+ * still let the tap fire again), and `secondary`'s label was the one place in
+ * the app rendering `fontWeight` with no `fontFamily` at all -- it fell back
+ * to the system font silently. `loading` folds into `disabled` for
+ * `accessibilityState`/press-blocking rather than adding a second gate.
+ */
+export function Button({ label, onPress, disabled, secondary, loading }: {
+  label: string; onPress(): void; disabled?: boolean; secondary?: boolean; loading?: boolean;
+}) {
+  const styles = useStyles();
+  const [focused, setFocused] = useState(false);
+  const busy = disabled || loading;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: busy, busy: loading }}
+      onPress={onPress}
+      disabled={busy}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={({ pressed }) => [
+        styles.button,
+        secondary && styles.buttonSecondary,
+        focused && styles.buttonFocused,
+        busy && styles.disabled,
+        pressed && !busy && styles.buttonPressed,
+      ]}
+    >
+      {loading
+        ? <ActivityIndicator color={secondary ? textColor.secondary : textColor.onAccent} />
+        : <Text style={secondary ? styles.secondaryText : styles.buttonText}>{label}</Text>}
+    </Pressable>
+  );
+}
+
+/**
+ * A plain icon-only control at the app's one shared touch-target size --
+ * AppHeader's back chevron and menu button, MenuSheet's and BottomSheet's
+ * close buttons all used to hand-roll this same 44x44-centered-icon shape
+ * separately, each with its own pressed feedback (none had any). One
+ * component now owns the size, the pressed dim, and the accessibility role.
+ */
+export function IconButton({ icon, onPress, accessibilityLabel, size = iconButtonSize, iconSize, color, style }: {
+  icon: React.ComponentProps<typeof Ionicons>['name']; onPress(): void; accessibilityLabel: string; size?: number;
+  /** The glyph's own size, independent of the touch-target box. Defaults to
+   *  a size proportional to `size`, but every call site this replaced had
+   *  its own explicit glyph size (26 for AppHeader's back/menu icons, 24 for
+   *  a sheet's close icon) — pass it explicitly to preserve that, since
+   *  `size` alone is the 44pt touch target, not the glyph. */
+  iconSize?: number; color?: string; style?: StyleProp<ViewStyle>;
 }) {
   const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityLabel={accessibilityLabel}
+      hitSlop={4}
       onPress={onPress}
-      disabled={disabled}
-      style={[styles.button, secondary && styles.buttonSecondary, disabled && styles.disabled]}
+      style={({ pressed }) => [styles.iconButton, { width: size, height: size }, pressed && styles.iconButtonPressed, style]}
     >
-      <Text style={secondary ? styles.secondaryText : styles.buttonText}>{label}</Text>
+      <Ionicons name={icon} size={iconSize ?? Math.round(size * 0.5)} color={color ?? textColor.primary} />
     </Pressable>
+  );
+}
+
+/**
+ * A small numeric/text pill for an overlay count -- AppHeader's unread badge,
+ * MenuSheet's notification count and Collection's quantity badges each
+ * rendered this by hand, two of them with `fontWeight` and no `fontFamily`.
+ * Positioning (where the badge sits on its parent) stays with the caller,
+ * since that varies by context; only the pill's own shape and text style are
+ * shared.
+ */
+export function Badge({ value, style }: { value: string | number; style?: StyleProp<ViewStyle> }) {
+  const styles = useStyles();
+  return (
+    <View style={[styles.badgePill, style]}>
+      <Text style={styles.badgeText}>{value}</Text>
+    </View>
   );
 }
 
@@ -140,9 +210,7 @@ export function BottomSheet({ visible, onClose, title, footer, children, maxHeig
         >
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{title}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Close ${title}`} hitSlop={8} onPress={onClose} style={styles.sheetClose}>
-              <Ionicons name="close" size={24} color={textColor.primary} />
-            </Pressable>
+            <IconButton icon="close" iconSize={24} accessibilityLabel={`Close ${title}`} onPress={onClose} style={styles.sheetClose} />
           </View>
           <ScrollView style={styles.sheetBody} contentContainerStyle={styles.sheetBodyContent} keyboardShouldPersistTaps="handled">
             {children}
@@ -176,24 +244,30 @@ const useStyles = makeStyles(() => StyleSheet.create({
   emptyTitle: { ...type.title, color: textColor.primary, textAlign: 'center' },
   emptyBody: { ...type.bodySm, color: textColor.secondary, textAlign: 'center' },
   emptyActions: { alignSelf: 'stretch', gap: space.sm, marginTop: space.sm },
-  button: { padding: space.lg, backgroundColor: accent.DEFAULT, borderRadius: radius.md, alignItems: 'center' },
+  button: { padding: space.lg, backgroundColor: accent.DEFAULT, borderRadius: radius.md, alignItems: 'center', borderWidth: 1, borderColor: 'transparent' },
   buttonSecondary: { backgroundColor: 'transparent', borderWidth: 1, borderColor: border.strong },
-  buttonText: { fontFamily: type.title.fontFamily, fontSize: 15, fontWeight: '700', color: textColor.onAccent },
-  secondaryText: { fontSize: 14, fontWeight: '600', color: textColor.secondary },
+  buttonFocused: { borderColor: accent.DEFAULT },
+  buttonPressed: { opacity: 0.8 },
+  buttonText: { ...type.buttonLabel, color: textColor.onAccent },
+  secondaryText: { ...type.buttonLabel, fontSize: 14, color: textColor.secondary },
   disabled: { opacity: 0.4 },
-  notice: { backgroundColor: surface.sunken, padding: space.lg - 2, borderRadius: radius.md, color: textColor.primary, fontSize: 13, lineHeight: 21 },
+  notice: { backgroundColor: surface.sunken, padding: space.lg - 2, borderRadius: radius.md, color: textColor.primary, ...type.bodySm },
   choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   chip: { paddingVertical: 8, paddingHorizontal: 11, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline },
   chipSelected: { backgroundColor: surface.inverse, borderColor: surface.inverse },
-  chipTextSelected: { color: textColor.inverse, fontSize: 13, lineHeight: 21 },
-  body: { fontSize: 13, lineHeight: 21, color: textColor.secondary },
+  chipTextSelected: { ...type.bodySm, color: textColor.inverse },
+  body: { ...type.bodySm, color: textColor.secondary },
+  iconButton: { alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },
+  iconButtonPressed: { backgroundColor: surface.sunken },
+  badgePill: { minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: radius.pill, backgroundColor: accent.DEFAULT, alignItems: 'center', justifyContent: 'center' },
+  badgeText: { ...type.statusBadge, color: textColor.onAccent },
   sheetRoot: { flex: 1, justifyContent: 'flex-end' },
   sheetScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: scrim },
   sheetScrimFill: { flex: 1 },
   sheetPanel: { backgroundColor: surface.canvas, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, borderWidth: 1, borderColor: border.hairline, borderBottomWidth: 0 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
   sheetTitle: { ...type.title, color: textColor.primary },
-  sheetClose: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -space.sm },
+  sheetClose: { marginRight: -space.sm },
   sheetBody: { flexGrow: 0 },
   sheetBodyContent: { padding: space.lg, gap: space.sm },
   sheetFooter: { flexDirection: 'row', gap: space.sm, padding: space.lg, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: border.hairline },

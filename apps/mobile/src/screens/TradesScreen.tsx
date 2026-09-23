@@ -84,7 +84,7 @@ export function TradesScreen({ navigation }: NativeStackScreenProps<TradesStackP
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.lg },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.lg },
   group: { gap: space.sm },
   heading: { ...type.title, color: text.primary },
   sub: { ...type.bodySm, color: text.secondary },

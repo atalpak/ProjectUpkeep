@@ -4,7 +4,7 @@ import { useApp } from '../AppProvider';
 import { PRIVACY_URL, SIGNUP_INVITE_REQUIRED, TERMS_URL, requestPasswordReset, signInWithPassword, signUpWithPassword, type AuthResult } from '../auth';
 import { Button, Notice } from '../components/ui';
 import { makeStyles } from '../preferences';
-import { border, space, surface, text as textColor, type as typeTokens } from '../theme';
+import { border, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
 
 type Mode = 'signIn' | 'signUp' | 'forgot';
 
@@ -102,10 +102,13 @@ function Link({ label, onPress }: { label: string; onPress(): void }) {
 
 const useStyles = makeStyles(() => StyleSheet.create({
   flex: { flex: 1 },
-  page: { padding: space.xxl, gap: space.md },
+  page: { padding: space.xl, gap: space.md },
   section: { ...typeTokens.title, color: textColor.primary },
   body: { ...typeTokens.bodySm, color: textColor.secondary },
-  input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: 10, padding: 14, color: textColor.primary, fontSize: 16 },
+  // radius.md for inputs, type.input for the font family a bare
+  // `fontSize: 16` was missing -- same fix as Settings/ScanSessionSummary's
+  // own inputs (mobile UI brief Priority 4).
+  input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: radius.md, padding: 14, color: textColor.primary, ...typeTokens.input },
   links: { gap: space.xs, alignItems: 'center' },
   link: { paddingVertical: space.md, paddingHorizontal: space.lg, minHeight: 44, justifyContent: 'center' },
   linkText: { ...typeTokens.bodySm, color: textColor.secondary, textDecorationLine: 'underline' },

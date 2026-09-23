@@ -94,7 +94,7 @@ export function DecksScreen({ navigation }: NativeStackScreenProps<DecksStackPar
                 <TextInput accessibilityLabel="Deck name" style={styles.input} value={name} onChangeText={setName} placeholder="Mono-Red Aggro" placeholderTextColor={text.secondary} maxLength={80} autoFocus returnKeyType="done" onSubmitEditing={() => void create()} />
                 {!!formError && <Text style={styles.formError} accessibilityRole="alert">{formError}</Text>}
                 <View style={styles.formButtons}>
-                  <View style={styles.grow}><Button label={busy ? 'Creating…' : 'Create deck'} disabled={busy || !name.trim()} onPress={() => void create()} /></View>
+                  <View style={styles.grow}><Button label={busy ? 'Creating…' : 'Create deck'} loading={busy} disabled={!name.trim()} onPress={() => void create()} /></View>
                   <View style={styles.grow}><Button secondary label="Cancel" disabled={busy} onPress={() => { setCreating(false); setFormError(''); }} /></View>
                 </View>
               </View>
@@ -186,7 +186,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   tileTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   pips: { flexDirection: 'row', gap: 3 },
   pip: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.4)' },
-  pipText: { fontSize: 10, fontWeight: '800' },
+  pipText: { fontSize: 10, fontFamily: fontFamily.bodySemiBold, fontWeight: '800' },
   shared: { ...typeTokens.label, fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, overflow: 'hidden' },
   tileBottom: { gap: 3 },
   deckName: { fontFamily: fontFamily.display, fontSize: 17, lineHeight: 21 },

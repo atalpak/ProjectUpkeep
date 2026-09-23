@@ -322,7 +322,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   grow: { flex: 1 },
   strong: { ...typeTokens.title, fontSize: 15, color: text.primary },
   body: { fontSize: 13, lineHeight: 21, color: text.secondary },
-  label: { fontSize: 13, fontWeight: '700', color: text.primary, marginTop: space.sm },
+  label: { fontSize: 13, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: text.primary, marginTop: space.sm },
   banner: { borderRadius: radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: border.hairline },
   // The same flat scrim the web banner uses, for the same reason.
   scrim: { backgroundColor: 'rgba(0,0,0,0.55)' },

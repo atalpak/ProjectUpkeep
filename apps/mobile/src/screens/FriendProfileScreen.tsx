@@ -79,7 +79,7 @@ export function FriendProfileScreen({ route, navigation }: NativeStackScreenProp
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   heading: { ...type.title, color: text.primary, marginTop: space.md },
   sub: { ...type.bodySm, color: text.secondary },
   grow: { flex: 1, gap: 2 },
