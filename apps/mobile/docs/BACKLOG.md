@@ -125,6 +125,61 @@ know about them, not what's left to do.
     finish/language/location and counting groups >1 would answer this cheaply — not
     yet run (needs direct database access this session didn't have).
 
+  **Architect impact map, 2026-09-22, and the owner decisions that came out of it:**
+
+  - **The map found this is bigger than "duplicates."** `unsleeveCopies` and
+    `removeEntryFromList` (`decks/actions.ts`, behind unsleeve/remove on the deck
+    page) ignore every write error — a partial failure there doesn't duplicate a
+    row, it can make copies **vanish silently**, worse than anything else in this
+    item. `addToDeck`'s source read and `bulkMerge`'s read both skip the owner
+    filter (hard constraint 3) — exploitable only via a hand-crafted request, not
+    through the UI, but a real gap. Migration 39's header is already stale: it
+    claims trades block a copy from being deleted, but migration 25 quietly changed
+    that to `SET NULL`, so a merge/move of a traded copy can already orphan that
+    trade with no warning. `removeFromDeck` and `moveCardInstance` are both dead
+    code (no callers) — delete both.
+  - **Recommended shape: one new function, not four patches.** A single atomic RPC,
+    `apply_stack_rekey`, taking an ordered list of steps (each: move N copies to a
+    new condition/finish/language/location, optionally merging into an existing
+    pile), one transaction, all-or-nothing. Every web path in this item —
+    `updateCardInstance`, `bulkMove`, `bulkSetField`, sleeve/unsleeve, remove-from-
+    deck, and `bulkMerge` itself — routes through it. A one-row-per-call signature
+    was considered and rejected: bulk actions on up to 5,000 rows (`MAX_BULK_IDS`)
+    would mean ~10,000 sequential calls otherwise, very likely to time out on
+    Vercel. `bulkMerge` folds into this migration too — it closes the same
+    lost-copies-on-partial-failure window the unsleeve paths have, and adds the
+    missing owner filter.
+  - **Owner decisions (2026-09-22):**
+    - Edit form changing quantity and other attributes together: set quantity
+      first, then re-file the whole pile as two ordered steps — the same
+      two-steps-not-one resolution the reprint feature already used for this exact
+      ambiguity.
+    - Open-trade gate: block a merge/split step the same way `apply_stack_reprint`
+      already does. Staying in the same row (no merge/split) is still allowed.
+    - Finish check: only refuse an impossible finish when the finish is actually
+      changing — the edit form deliberately allows keeping a copy's existing finish
+      untouched even if the catalog data looks odd; checking always would break that.
+    - Function shape: list-of-steps in one call, not one row per call (see above).
+  - **Mobile needs no changes.** It never uses any of these four paths — it writes
+    to `card_instances` only through `apply_stack_addition`/`move`/`reprint`
+    (`apps/mobile/src/backend.ts`). Two small, separate mobile bugs surfaced in
+    passing, logged here rather than acted on: `apply_stack_move` gives a
+    whole-pile move a new row id and a fresh `acquired_at` (so it reads as
+    "recently added" and loses its trade link) where the web keeps the same row;
+    `packages/scan-core/src/move.ts:129` passes `notes: null` into `decideStacking`,
+    so a copy with a note can be silently merged (and the note lost) on sleeve.
+    Neither is urgent; both could be fixed later by moving mobile onto
+    `apply_stack_rekey` too.
+  - **Out of scope, flagged for later:** the CSV import (`src/lib/import/commit.ts`)
+    has the same absolute-total-overwrite problem sleeve/unsleeve have, but it's an
+    *add* path, not a re-file, so a different fix shape. Not folded into this work.
+  - **Next**: migration 41 (`apply_stack_rekey`) + a new `schema_test.sql` section
+    (21, mirroring section 19's red-before-green discipline: whole-pile merge in a
+    deck, partial merge, the two-printings-in-a-deck case, the keep-the-row branch
+    preserving id/`acquired_at`, list rollback on a stale later step, every refusal
+    including the friend's-tradable-copy case, replay/idempotency) — land and verify
+    before any server action is rewired to call it.
+
 - **3, done (2026-09-22).** Migration 40 applied to production the same day this was
   found (`supabase db push --linked`, verified via `supabase migration list --linked`
   showing local and remote both at 40). `npm run check:migrations`
