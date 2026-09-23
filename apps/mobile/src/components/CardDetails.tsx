@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, Image, Linking, Modal, Pressable, ScrollVi
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish } from '@upkeep/scan-core';
+import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish, type StackMoveDraft } from '@upkeep/scan-core';
 import { isSameCard, reconcileFinish } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { reprintWriter, writer } from '../backend';
@@ -595,23 +595,122 @@ function OwnedStackRow({ stack, printings, cardName, onChanged }: {
   onChanged(): void;
 }) {
   const styles = useStyles();
-  const [open, setOpen] = useState(false);
+  const { pendingMove, moveBusy } = useApp();
+  const moveDisabled = !!pendingMove || moveBusy;
+  const [panel, setPanel] = useState<'reprint' | 'move' | null>(null);
   return (
     <View style={styles.ownedRow}>
       <Text style={styles.line}>{stack.quantity} × {stack.setCode.toUpperCase()} #{stack.collectorNumber} · {stack.condition} · {stack.finish} · {stack.locationName ?? 'Unsorted'}</Text>
-      {open ? (
+      {panel === 'reprint' ? (
         <ReprintPanel
           stack={stack}
           printings={printings}
           cardName={cardName}
-          onClose={() => setOpen(false)}
-          onChanged={() => { setOpen(false); onChanged(); }}
+          onClose={() => setPanel(null)}
+          onChanged={() => { setPanel(null); onChanged(); }}
+        />
+      ) : panel === 'move' ? (
+        <MovePanel
+          stack={stack}
+          onClose={() => setPanel(null)}
+          onChanged={() => { setPanel(null); onChanged(); }}
         />
       ) : (
-        <Pressable accessibilityRole="button" onPress={() => setOpen(true)} hitSlop={8}>
-          <Text style={styles.link}>Change printing…</Text>
-        </Pressable>
+        <View style={styles.ownedRowActions}>
+          <Pressable accessibilityRole="button" onPress={() => setPanel('reprint')} hitSlop={8}>
+            <Text style={styles.link}>Change printing…</Text>
+          </Pressable>
+          {stack.locationType !== 'deck' && (
+            <Pressable accessibilityRole="button" disabled={moveDisabled} onPress={() => setPanel('move')} hitSlop={8}>
+              <Text style={[styles.link, moveDisabled && styles.linkDisabled]}>Move…</Text>
+            </Pressable>
+          )}
+        </View>
       )}
+    </View>
+  );
+}
+
+/**
+ * Moves one owned stack (all or part of it) to a different binder or box,
+ * through apply_stack_move via `beginMove` (AppProvider) — the same atomic
+ * function the deck page's sleeve/unsleeve picker already uses, but reachable
+ * here for the first time from Unsorted or any other non-deck location,
+ * which is the product's whole premise (backlog item 6). A sleeved copy is
+ * re-filed from the deck page instead (`locationType === 'deck'` hides this
+ * action above) — that path also updates the deck's list, which a plain move
+ * knows nothing about.
+ */
+function MovePanel({ stack, onClose, onChanged }: {
+  stack: OwnedStack;
+  onClose(): void;
+  onChanged(): void;
+}) {
+  const styles = useStyles();
+  const app = useApp();
+  const destinations = app.locations.filter(l => l.id !== stack.locationId);
+  const [destination, setDestination] = useState<string | null>(destinations[0]?.id ?? null);
+  const [quantityText, setQuantityText] = useState(String(stack.quantity));
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+
+  const quantity = Math.max(1, Math.min(stack.quantity, Number.parseInt(quantityText, 10) || 0));
+
+  async function confirm() {
+    if (busy || quantity < 1) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const draft: StackMoveDraft = {
+        sourceInstanceId: stack.id,
+        cardId: stack.cardId,
+        condition: stack.condition as Condition,
+        finish: stack.finish as Finish,
+        language: stack.language,
+        quantity,
+        destinationLocationId: destination,
+      };
+      const destName = destination ? app.locations.find(l => l.id === destination)?.name ?? 'Unsorted' : 'Unsorted';
+      const result = await app.beginMove(draft, `Move ${quantity} to ${destName}`);
+      setStatus({
+        kind: 'ok',
+        text: result.replayed
+          ? `Moved ${quantity} to ${destName}.`
+          : `Moved ${quantity} to ${destName}${result.quantity !== quantity ? ` — merged into a stack already there, now ${result.quantity}` : ''}.`,
+      });
+      onChanged();
+    } catch (e) {
+      setStatus({ kind: 'error', text: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (destinations.length === 0) {
+    return <Text style={styles.muted}>No other binder or box to move it to yet — add one from Locations.</Text>;
+  }
+
+  return (
+    <View style={styles.reprintPanel}>
+      <Text style={styles.label}>Move to…</Text>
+      <Choices
+        values={['', ...destinations.map(l => l.id)]}
+        selected={destination ?? ''}
+        disabled={busy}
+        onSelect={v => setDestination(v || null)}
+        labels={Object.fromEntries([['', 'Unsorted'], ...destinations.map(l => [l.id, l.name])])}
+      />
+      {stack.quantity > 1 && (
+        <>
+          <Text style={styles.label}>How many? (of {stack.quantity})</Text>
+          <TextInput accessibilityLabel="Quantity to move" style={styles.input} value={quantityText} onChangeText={t => setQuantityText(t.replace(/\D/g, ''))} keyboardType="number-pad" maxLength={5} editable={!busy} />
+        </>
+      )}
+      {status && <Text style={[styles.status, status.kind === 'error' ? styles.statusError : styles.statusOk]} accessibilityRole="alert">{status.text}</Text>}
+      <View style={styles.actions}>
+        <Button label={busy ? 'Moving…' : `Move ${quantity > 1 ? quantity : 'it'}`} onPress={() => void confirm()} disabled={busy || quantity < 1} />
+        <Button secondary label="Close" onPress={onClose} disabled={busy} />
+      </View>
     </View>
   );
 }
@@ -781,9 +880,11 @@ const useStyles = makeStyles(() => StyleSheet.create({
   muted: { ...type.bodySm, color: text.secondary },
   line: { ...type.bodySm, color: text.primary },
   link: { ...type.bodySm, color: text.primary, textDecorationLine: 'underline', marginTop: space.xs },
+  linkDisabled: { color: text.secondary },
   sectionTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
   actions: { gap: space.md },
   ownedRow: { gap: space.xs },
+  ownedRowActions: { flexDirection: 'row', gap: space.lg },
   reprintPanel: { gap: space.sm, padding: space.lg, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   reprintWarning: { gap: space.xs, borderLeftWidth: 3, borderLeftColor: accent.DEFAULT, backgroundColor: accent.soft, borderRadius: radius.sm, padding: space.md },
   reprintWarningText: { ...type.bodySm, color: text.primary },

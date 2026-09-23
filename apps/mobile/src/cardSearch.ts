@@ -73,11 +73,35 @@ function build(filter: AdvancedCardFilter) {
   return query;
 }
 
+/**
+ * Names the current user owns at least one copy of, among the given
+ * candidates -- one targeted query per search rather than caching the whole
+ * collection app-wide, since "owned" is a rare toggle, not the default path.
+ * Scoped on `owner_user_id` explicitly (CLAUDE.md constraint 3) even though
+ * `collection_entries` also legitimately surfaces a friend's tradable rows --
+ * this is "what do I own", not a cross-user read.
+ */
+async function ownedNamesAmong(userId: string, names: string[]): Promise<Set<string>> {
+  const owned = new Set<string>();
+  if (!backend || names.length === 0) return owned;
+  const { data, error } = await backend
+    .from('collection_entries')
+    .select('card_name')
+    .eq('owner_user_id', userId)
+    .in('card_name', names);
+  if (error) throw new Error(error.message);
+  for (const row of (data ?? []) as { card_name: string }[]) owned.add(row.card_name);
+  return owned;
+}
+
 /** One entry per card name, newest printing as the sample, sorted by name.
- *  `capped` means the match set was larger than what one search reads. */
+ *  `capped` means the match set was larger than what one search reads.
+ *  `ownedOnly` narrows to names the signed-in user owns at least one copy of
+ *  -- needs `userId`; silently has no effect without one (e.g. signed out). */
 export async function searchCards(
   filter: AdvancedCardFilter,
   limit = 60,
+  opts: { ownedOnly?: boolean; userId?: string } = {},
 ): Promise<{ results: CardSearchResult[]; total: number; capped: boolean; error: string | null }> {
   if (!backend) return { results: [], total: 0, capped: false, error: 'Search needs an internet connection and an account.' };
 
@@ -114,7 +138,17 @@ export async function searchCards(
       layout: row.layout,
     });
   }
-  const all = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  let all = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  if (opts.ownedOnly && opts.userId) {
+    try {
+      const owned = await ownedNamesAmong(opts.userId, all.map(r => r.name));
+      all = all.filter(r => owned.has(r.name));
+    } catch (e) {
+      return { results: [], total: 0, capped: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
   // Hitting the fetch cap means printings past it were never seen.
   return { results: all.slice(0, limit), total: all.length, capped: rows.length >= FETCH_CAP, error: null };
 }
