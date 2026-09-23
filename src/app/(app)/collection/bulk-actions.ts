@@ -236,12 +236,16 @@ export async function bulkMerge(_prev: BulkState, formData: FormData): Promise<B
     const [keep, ...rest] = group;
     const total = group.reduce((sum, r) => sum + r.quantity, 0);
 
-    const { error: updateError } = await supabase
-      .from("card_instances")
-      .update({ quantity: total })
-      .eq("id", keep.id);
-    if (updateError) return fail(`Merge stopped part-way: ${updateError.message}`);
-
+    // Absorbed rows go FIRST, keep's quantity rises SECOND — the same order
+    // migration 39's header requires for a reprint's merge branch, and for
+    // the same reason. Migration 37's trigger fires on the update below (an
+    // UPDATE OF quantity); if that update ran first, the trigger would sum a
+    // physical total that still includes the about-to-be-deleted rows on top
+    // of keep's new combined quantity, and raise the deck's tracked count to
+    // match — a rise the trigger never reverses (migration 20 is monotone-up
+    // by design). That is exactly how "Merge duplicates" could permanently
+    // inflate a deck list. Deleting first means the trigger only ever sees
+    // the correct final total.
     const { error: deleteError } = await supabase
       .from("card_instances")
       .delete()
@@ -250,6 +254,12 @@ export async function bulkMerge(_prev: BulkState, formData: FormData): Promise<B
         rest.map((r) => r.id),
       );
     if (deleteError) return fail(`Merge stopped part-way: ${deleteError.message}`);
+
+    const { error: updateError } = await supabase
+      .from("card_instances")
+      .update({ quantity: total })
+      .eq("id", keep.id);
+    if (updateError) return fail(`Merge stopped part-way: ${updateError.message}`);
 
     absorbed += rest.length;
   }

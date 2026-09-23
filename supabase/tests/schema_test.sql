@@ -2436,6 +2436,69 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 20. bulkMerge's write order cannot inflate a deck list either
+--     (src/app/(app)/collection/bulk-actions.ts, fixed 2026-09-23).
+--
+-- Same hazard as section 19, reached through a different door: bulkMerge
+-- combines identical stacks by raising the kept row's quantity and deleting
+-- the absorbed ones as two separate client requests -- no atomic RPC covers
+-- this path (it predates apply_stack_addition/move/reprint). If the quantity
+-- update ran first, migration 37's trigger would see the kept row's new
+-- combined total PLUS the still-present absorbed rows -- a physical count
+-- higher than the deck's listed total -- and raise deck_cards to match, a
+-- rise the trigger never reverses (migration 20 is monotone-up by design).
+-- Deleting the absorbed rows first means the trigger only ever sees the
+-- correct final total. This section replicates bulkMerge's exact
+-- two-statement sequence under RLS, and was confirmed red with the
+-- statements swapped before being allowed to pass.
+-- --------------------------------------------------------------------------
+insert into public.locations (id, user_id, name, type) values
+  ('a3000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000001',
+   'Merge Order Deck', 'deck');
+
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('a3000000-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 4);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'c0000000-0000-0000-0000-000000000001'; -- zara
+
+-- Two identical stacks of the listed card, sleeved in the same deck, sharing
+-- every stack attribute -- exactly what "Merge duplicates" groups together.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('a3000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 2),
+  ('a3000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'a3000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 2);
+
+do $$
+declare v_total int;
+begin
+  select coalesce(sum(quantity), 0) into v_total from public.deck_cards
+   where deck_id = 'a3000000-0000-0000-0000-000000000001';
+  assert v_total = 4, 'fixture precondition: the deck should list 4, saw ' || v_total;
+
+  -- bulkMerge's own order: the absorbed row is deleted first, the kept row's
+  -- quantity is raised second.
+  delete from public.card_instances where id = 'a3000000-0000-0000-0000-000000000003';
+
+  update public.card_instances set quantity = 4
+   where id = 'a3000000-0000-0000-0000-000000000002';
+
+  -- THE ASSERTION THIS SECTION EXISTS FOR. Nothing physically entered the
+  -- deck -- four cards went in and four are still there -- so the list must
+  -- not move. Raise the kept row's quantity before deleting the absorbed row
+  -- and the trigger sees 6 against 4, adds a shortfall of 2, and this reads 6.
+  select coalesce(sum(quantity), 0) into v_total from public.deck_cards
+   where deck_id = 'a3000000-0000-0000-0000-000000000001';
+  assert v_total = 4,
+    'merging two stacks moves no card into the deck, so the list must stay at 4 -- got '
+    || v_total || ' (kept row raised before the absorbed row was cleared?)';
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'
