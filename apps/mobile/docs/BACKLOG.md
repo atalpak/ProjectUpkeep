@@ -27,7 +27,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 4 | One real session on a physical iPhone | Owner only | High | Blocks ~10 other items | scanner, item 8 steps 3–4, dark mode |
 | 5 | Items 2–4 (old numbering): web sub-menus, printing photos, flip button | Easy | Medium | Owner only — built in PR #69, needs a look | web pages |
 | 6 | Phone: move a copy to another binder/box from the card details sheet | Easy–Med | High (if used) | Open | `CardDetails.tsx`, `apply_stack_move` |
-| 7 | Migration 20: test the deck-list shortfall's 2nd and 3rd tiers | Easy | Medium | Open | `schema_test.sql` |
+| 7 | ~~Migration 20: test the deck-list shortfall's 2nd and 3rd tiers~~ | — | — | **Done (2026-09-23)** — `schema_test.sql` section 22 | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
 | 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
 | 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Ready | `apps/mobile/src/components/AppHeader.tsx` + brief |
@@ -37,8 +37,8 @@ Say so again wherever it would otherwise read like invented demand.
 | 14 | Phone Settings: change password / notification prefs | Easy–Med | Low | Open | mobile Settings |
 | 15 | Phone search: filter by owned, recent searches | Easy | Low | Open | mobile search |
 | 16 | Phone import: into a deck, pick a file | Med | Low | Open | `ImportScreen.tsx` |
-| 17 | Web search should use the shared `packages/upkeep-domain` parser | Med | Low–Med | Open | `src/lib/cards/search-query.ts` |
-| 18 | Web wish-list default picks the wrong printing on a tie | Easy | Low | Open | `wants/actions.ts` |
+| 17 | ~~Web search should use the shared `packages/upkeep-domain` parser~~ | — | — | **Done (2026-09-23)** | `src/lib/cards/search-query.ts` |
+| 18 | ~~Web wish-list default picks the wrong printing on a tie~~ | — | — | **Done (2026-09-23)** | `wants/actions.ts` |
 | 19 | Phone dashboard: "expiring offers" line | Easy | Low | Open (data already loaded) | `dashboard.ts` |
 | 20 | Automated tests over mobile screens | Hard | Low for now | Later | — |
 | 21 | Haptics on the Scan fan-out button | Easy (needs rebuild) | Low | Later — bundle into next rebuild | — |
@@ -249,6 +249,58 @@ know about them, not what's left to do.
   product's whole premise, and the owner decision was iPhone-first. Impact genuinely
   depends on whether the owner re-files cards from the phone or the laptop — unknown,
   cheapest way to find out is just noticing which device gets reached for next time.
+
+- **7, done 2026-09-23.** `schema_test.sql` section 22 covers migration 20's
+  remaining two tiers — the shortfall falling back to the oldest entry when no
+  entry names the exact printing sleeved (tier 2, genuinely untested before:
+  falsified by reversing the `ORDER BY` in a scratch copy of the migration,
+  confirmed it broke only this new assertion and nothing earlier), and a
+  brand-new row when no entry exists for the card at all (tier 3, already
+  incidentally covered by section 11 — confirmed by disabling that insert
+  branch and watching section 11 fail first — but named and asserted
+  explicitly here too, alongside tier 2, in a deck that also carries other
+  entries for other cards, which section 11's deck does not). `created_at` is
+  set explicitly on the fixture rows rather than left to `now()`'s default,
+  since the whole file runs inside one transaction and `now()` is frozen
+  across every statement in it — `.claude/rules/migrations.md`'s "Known
+  unresolved" section named this as exactly why the oldest-entry tier had no
+  test yet.
+
+- **17, done 2026-09-23.** `src/lib/cards/search-query.ts`'s own copy of the
+  filter model, the literal-Scryfall-syntax reader, and the colour/loyalty
+  matching is gone — it now re-exports `packages/upkeep-domain/src/card-search.ts`
+  directly, the same thin-re-export pattern `src/lib/collection/stacking.ts`
+  already uses for the stacking policy. Only what has no mobile equivalent
+  stays local: `advancedFilterToParams`/`advancedFilterFromParams`, the
+  URL round trip (the phone has no URL to round-trip through).
+  `src/lib/collection/filters.ts` is untouched — it serves the separate
+  collection-filtering feature (`CollectionFilters.tsx` and friends), not card
+  search, and duplicates the same colour/numeric primitives for that reason;
+  folding it in too was out of scope for this item. All 16 existing
+  `search-query.test.ts` cases pass unchanged against the shared
+  implementation, confirming the two copies had already been kept in sync by
+  hand — this just makes that automatic.
+
+- **18, done 2026-09-23.** `pickRepresentative` (`wants/actions.ts`) picked a
+  wish-list entry's default printing by set-type rank then release date only —
+  a card's printings inside one set share a release date, so two same-set
+  printings (an ordinary card and its foil-only showcase treatment) fell
+  through to whatever order the database happened to return. This is the
+  identical bug `packages/scan-core`'s `regularFirst` already fixed on the
+  scanner side (its header names the real incident: a footer read once opened
+  Bloodline Bidding's foil-only showcase printing instead of the ordinary
+  card) — the scanner notes under item 8 above call this out as "the web
+  wish-list default has the same underlying tie and was left alone." Not left
+  alone anymore: the same tie-break (plain collector number, then one
+  available nonfoil, then the lowest number) is now applied here too, on the
+  now-fetched `collector_number`/`available_finishes`/`set_code` columns the
+  old query didn't select. Duplicated rather than imported from `scan-core` —
+  that package is not one web code is meant to import from (only
+  `packages/upkeep-domain` is shared in both directions, per CLAUDE.md's
+  directory map) — with a comment noting the two should stay identical if
+  `regularFirst` ever changes. New coverage in
+  `scripts/wants-representative-printing.test.ts` (7 cases), since
+  `pickRepresentative` had none before.
 
 - **9 (otags), re-scoped.** Otags are a real, free, official Scryfall bulk file
   (`oracle_tags`, ~5.7MB gzipped, daily, no rate limit, 99.4% coverage) — genuinely

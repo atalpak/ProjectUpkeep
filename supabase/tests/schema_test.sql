@@ -3183,6 +3183,131 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 22. Migration 20's deck-list shortfall trigger: the 2nd and 3rd tiers named
+--     in its header but never directly asserted. Section 12 above only
+--     exercises tier 1 -- an entry naming the exact printing sleeved.
+--
+--       tier 2: no entry names the exact printing, so the shortfall lands on
+--               the OLDEST entry for the card (any printing). Genuinely new
+--               coverage -- falsified below by reversing the ORDER BY in a
+--               scratch copy of the migration, which broke only this
+--               section's assertion, nothing earlier.
+--       tier 3: no entry exists for the card at all, so a brand-new
+--               deck_cards row is inserted. Section 11 already exercises this
+--               code path incidentally (a first-time-filed card with no list
+--               entry), which is why disabling the insert branch in the same
+--               falsification broke section 11 before ever reaching this one.
+--               Kept here anyway, alongside tier 2, so migration 20's own
+--               three tiers are named and asserted together in one place,
+--               against a deck that also has other, unrelated entries on its
+--               list -- section 11's deck does not.
+--
+-- The "oldest entry" tie-break is nondeterministic inside one transaction --
+-- this whole file runs inside a single `begin`, so now() (deck_cards'
+-- created_at default) is frozen and identical across every insert here,
+-- which would make "oldest" fall through to comparing random uuids instead.
+-- created_at is set explicitly below for exactly this reason -- see
+-- .claude/rules/migrations.md's "Known unresolved" section, which named this
+-- as the reason tier 2 had no test yet.
+-- --------------------------------------------------------------------------
+
+-- A third Lightning Bolt printing sharing section 12's oracle id
+-- (ffffffff-...0001), never named by any deck_cards entry below -- this is
+-- what forces the trigger past tier 1 and into tier 2's fallback.
+insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+                          available_finishes, lang, released_at, image_uri_small)
+values
+  ('aaaaaaaa-0000-0000-0000-000000000006', 'ffffffff-0000-0000-0000-000000000001',
+   'Lightning Bolt', '2ed', '150', '{nonfoil}', 'en', '1993-10-04', 'https://img/6');
+
+insert into public.locations (id, user_id, name, type) values
+  ('bbbbbbbb-0000-0000-0000-000000000022', '11111111-1111-1111-1111-111111111111',
+   'Shortfall Tiers', 'deck');
+
+-- Two entries for the same oracle id (LEA, M10 -- section 12's printings),
+-- neither of them the 2ED printing tier 2 will sleeve. created_at is explicit
+-- and distinct so "oldest" is deterministic regardless of statement order or
+-- id generation.
+insert into public.deck_cards (deck_id, card_id, quantity, created_at) values
+  ('bbbbbbbb-0000-0000-0000-000000000022', 'aaaaaaaa-0000-0000-0000-000000000001', 5,
+   '2020-01-01T00:00:00Z'),
+  ('bbbbbbbb-0000-0000-0000-000000000022', 'aaaaaaaa-0000-0000-0000-000000000002', 5,
+   '2020-06-01T00:00:00Z');
+
+do $$
+declare entries int; total int; lea_qty int; m10_qty int; twoed_qty int;
+begin
+  -- Tier 2: sleeve 11 copies of the UNLISTED 2ED printing. Physical (11)
+  -- exceeds listed (10) by 1, and no entry names 2ED, so the shortfall must
+  -- fall back to the oldest entry (LEA, 2020-01-01) rather than the newer
+  -- M10 entry or a fresh row for 2ED itself.
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000006',
+     'bbbbbbbb-0000-0000-0000-000000000022', 'NM', 'nonfoil', 'en', 11);
+
+  select count(*), coalesce(sum(quantity), 0) into entries, total
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000022';
+
+  select quantity into lea_qty from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000022'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into m10_qty from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000022'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+  select quantity into twoed_qty from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000022'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000006';
+
+  assert entries = 2,
+    'tier 2 must not create a new row for the unlisted printing (got ' || entries || ' entries)';
+  assert total = 11,
+    'one copy over the list should add exactly one, regardless of which printing (got ' || total || ')';
+  assert lea_qty = 6,
+    'the shortfall must land on the OLDEST entry (LEA) when no entry names the sleeved '
+    || 'printing (got ' || lea_qty || ')';
+  assert m10_qty = 5, 'the newer entry (M10) must not move (got ' || m10_qty || ')';
+  assert twoed_qty is null,
+    'tier 2 must reuse an existing entry, never create one for the printing actually sleeved';
+end $$;
+
+do $$
+declare entries int; total int; dragon_qty int; dragon_card text;
+begin
+  -- Tier 3: sleeve a card from a DIFFERENT oracle group entirely
+  -- (Thunderbolt Dragon, ffffffff-...0002 -- section 1's fixture) with no
+  -- deck_cards entry at all in this deck. Listed total for that oracle id is
+  -- 0, so the whole physical count is the shortfall, and there is no entry
+  -- to fall back to -- a fresh row must be inserted naming the exact
+  -- printing sleeved.
+  insert into public.card_instances
+    (owner_user_id, card_id, location_id, condition, finish, language, quantity)
+  values
+    ('11111111-1111-1111-1111-111111111111', 'aaaaaaaa-0000-0000-0000-000000000003',
+     'bbbbbbbb-0000-0000-0000-000000000022', 'NM', 'nonfoil', 'en', 3);
+
+  select count(*), coalesce(sum(quantity), 0) into entries, total
+    from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000022';
+
+  select quantity, card_id into dragon_qty, dragon_card from public.deck_cards
+   where deck_id = 'bbbbbbbb-0000-0000-0000-000000000022'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000003';
+
+  assert entries = 3,
+    'tier 3 must insert a brand-new row when no entry exists for the card at all (got '
+    || entries || ' entries)';
+  assert total = 14, 'the deck total must include the new row (got ' || total || ')';
+  assert dragon_qty = 3,
+    'the new row must hold the full physical count, since nothing was listed for it (got '
+    || coalesce(dragon_qty::text, 'null') || ')';
+  assert dragon_card = 'aaaaaaaa-0000-0000-0000-000000000003',
+    'the new row must name the exact printing sleeved, not some other printing of the same card';
+end $$;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

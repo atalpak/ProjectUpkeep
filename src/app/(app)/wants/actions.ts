@@ -46,9 +46,28 @@ type PrintingPick = {
   released_at: string | null;
   set_type: string | null;
   digital: boolean;
+  set_code: string | null;
+  collector_number: string | null;
+  available_finishes: string[] | null;
 };
 
-function pickRepresentative(rows: PrintingPick[]): string | null {
+// A card's printings inside one set share a release date, so sorting by
+// set-type rank then release date alone leaves a tie between same-set
+// printings (a regular card and its showcase/extended-art/foil-only
+// treatments) to fall through to whatever order the database happened to
+// return. packages/scan-core's `regularFirst` hit the identical bug on the
+// scanner side (a footer read once opened a foil-only showcase printing
+// instead of the ordinary card) and fixed it the same way: prefer a plain
+// collector number, then one available nonfoil, then the lowest number.
+// Duplicated rather than imported — scan-core is not one of the packages
+// web code is meant to import from (see CLAUDE.md's directory map; only
+// packages/upkeep-domain is shared in both directions) — but the tie-break
+// itself should stay identical if `regularFirst` ever changes.
+function isPlainNumber(collectorNumber: string | null): boolean {
+  return /^\d+$/.test(collectorNumber ?? "");
+}
+
+export function pickRepresentative(rows: PrintingPick[]): string | null {
   const usable = rows.filter((r) => !r.digital);
   const pool = usable.length > 0 ? usable : rows;
   if (pool.length === 0) return null;
@@ -57,8 +76,23 @@ function pickRepresentative(rows: PrintingPick[]): string | null {
     const ra = SET_TYPE_RANK[a.set_type ?? ""] ?? 5;
     const rb = SET_TYPE_RANK[b.set_type ?? ""] ?? 5;
     if (ra !== rb) return ra - rb;
-    // Newest of the preferred kind.
-    return (b.released_at ?? "").localeCompare(a.released_at ?? "");
+    // Newest of the preferred kind first...
+    const dateCompare = (b.released_at ?? "").localeCompare(a.released_at ?? "");
+    if (dateCompare !== 0) return dateCompare;
+    // ...but printings released the same day (almost always the same set)
+    // need their own tie-break: a plain collector number over a promo/star
+    // suffix, then one that can be had nonfoil, then the lowest number.
+    const aPlain = isPlainNumber(a.collector_number);
+    const bPlain = isPlainNumber(b.collector_number);
+    if (aPlain !== bPlain) return aPlain ? -1 : 1;
+    const aNonfoil = (a.available_finishes ?? []).includes("nonfoil");
+    const bNonfoil = (b.available_finishes ?? []).includes("nonfoil");
+    if (aNonfoil !== bNonfoil) return aNonfoil ? -1 : 1;
+    if (aPlain && bPlain) {
+      const diff = parseInt(a.collector_number ?? "", 10) - parseInt(b.collector_number ?? "", 10);
+      if (diff !== 0) return diff;
+    }
+    return (a.set_code ?? "").localeCompare(b.set_code ?? "") || a.scryfall_id.localeCompare(b.scryfall_id);
   })[0].scryfall_id;
 }
 
@@ -104,7 +138,7 @@ export async function addWant(_prev: SocialState, formData: FormData): Promise<S
   if (!cardId) {
     const { data: printings, error: lookupError } = await supabase
       .from("cards")
-      .select("scryfall_id, released_at, set_type, digital")
+      .select("scryfall_id, released_at, set_type, digital, set_code, collector_number, available_finishes")
       .ilike("name", name)
       .limit(50);
 

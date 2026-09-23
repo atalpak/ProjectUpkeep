@@ -1,86 +1,53 @@
 /**
- * Advanced card search — the structured filter model, its URL round trip, and
- * a best-effort reader for literal Scryfall syntax.
+ * Advanced card search — the web app's half of the shared filter model:
+ * the URL round trip, plus a thin re-export of everything else.
  *
- * Pure and standalone, same shape as `collection/filters.ts` and for the same
- * reason: the parsing rules are the fiddly part, and this is what lets them be
- * tested without a database or a component tree.
+ * The filter model, the literal-Scryfall-syntax reader, and the
+ * colour/loyalty matching PostgREST can't express used to be duplicated here
+ * — a second, web-only copy of `packages/upkeep-domain/src/card-search.ts`,
+ * meant to agree with it but drifting on its own schedule. The same query
+ * could give different results on web and phone. That copy is gone now;
+ * everything below `EMPTY_ADVANCED_FILTER` down to `matchesAdvancedCard` is
+ * re-exported from `@upkeep/domain` unchanged — see that module's header for
+ * the actual reasoning, which belongs there now, not duplicated here.
  *
- * Scryfall's syntax (https://scryfall.com/docs/syntax) is large; this reads a
- * deliberately small slice of it — the facets the structured panel below also
- * exposes. `parseScryfallQuery` exists to let someone type the same thing as
- * literal syntax, not to replace it:
- *
- *   - `c:` / `color:`, with `:`/`=`/`<=` (no `>=`, `<`, `>` — Scryfall's colour
- *     comparisons past "contains" / "exactly" / "at most" are rare in practice)
- *   - `cmc:` / `mv:`, with every numeric comparator
- *   - `loy:` / `loyalty:`, with every numeric comparator — matched in
- *     application code, not pushed into SQL, because `cards.loyalty` is text
- *     (some values are "X", not a number) the way `statToNumber` already
- *     treats power/toughness for the collection filter
- *   - `t:` / `type:` — substring against the type line
- *   - `o:` / `oracle:` — substring against the oracle text
- *   - `s:` / `set:` — exact set code
- *   - `r:` / `rarity:` — exact rarity
- *
- * Anything else recognisable as a Scryfall operator (`is:`, `f:`, `game:`,
- * numeric comparisons on power/toughness, and so on) is reported back as
- * unsupported rather than silently dropped or misread as a name word — a
- * search that quietly ignores half of what was typed is worse than one that
- * says so.
+ * What stays web-only, because the phone app has no URL to round-trip
+ * through: `advancedFilterToParams` / `advancedFilterFromParams`.
  */
 
 import {
   COLORS,
   COLOR_MODES,
   NUMERIC_OPS,
-  colorsOf,
-  matchesColors,
-  matchesNumeric,
-  statToNumber,
+  type AdvancedCardFilter,
   type Color,
   type ColorMode,
   type NumericFilter,
   type NumericOp,
-} from "@/lib/collection/filters";
+} from "@upkeep/domain";
 
-export type AdvancedCardFilter = {
-  /** Card-name substring; also where unrecognised bare words from a raw query land. */
-  name: string;
-  colors: Color[];
-  colorMode: ColorMode;
-  cmc: NumericFilter;
-  loyalty: NumericFilter;
-  type: string;
-  oracle: string;
-  set: string;
-  rarity: string;
-};
-
-export const EMPTY_ADVANCED_FILTER: AdvancedCardFilter = {
-  name: "",
-  colors: [],
-  colorMode: "all",
-  cmc: null,
-  loyalty: null,
-  type: "",
-  oracle: "",
-  set: "",
-  rarity: "",
-};
-
-export function isAdvancedFilterActive(filter: AdvancedCardFilter): boolean {
-  return (
-    filter.name.trim() !== "" ||
-    filter.colors.length > 0 ||
-    filter.cmc !== null ||
-    filter.loyalty !== null ||
-    filter.type.trim() !== "" ||
-    filter.oracle.trim() !== "" ||
-    filter.set.trim() !== "" ||
-    filter.rarity.trim() !== ""
-  );
-}
+export {
+  COLORS,
+  COLOR_MODES,
+  NUMERIC_OPS,
+  EMPTY_ADVANCED_FILTER,
+  isAdvancedFilterActive,
+  advancedFacetCount,
+  parseScryfallQuery,
+  looksLikeScryfallSyntax,
+  matchesNumeric,
+  statToNumber,
+  colorsOf,
+  matchesColors,
+  matchesAdvancedCard,
+  type Color,
+  type ColorMode,
+  type NumericOp,
+  type NumericFilter,
+  type AdvancedCardFilter,
+  type ParsedScryfallQuery,
+  type AdvancedMatchableCard,
+} from "@upkeep/domain";
 
 // ---------------------------------------------------------------------------
 // URL round trip — mirrors filterToParams/filterFromParams in filters.ts
@@ -146,177 +113,4 @@ export function advancedFilterFromParams(
     set: get("set") ?? "",
     rarity: get("rarity") ?? "",
   };
-}
-
-// ---------------------------------------------------------------------------
-// Literal Scryfall syntax
-// ---------------------------------------------------------------------------
-
-const NUMERIC_COMPARATORS: Array<[string, NumericOp]> = [
-  [">=", "gte"],
-  ["<=", "lte"],
-  ["!=", "ne"],
-  [">", "gt"],
-  ["<", "lt"],
-  ["=", "eq"],
-  [":", "eq"],
-];
-
-/** Splits on whitespace, keeping `key:"quoted value"` (and a bare quoted
- *  phrase) together as one token rather than breaking on the space inside. */
-function tokenize(query: string): string[] {
-  const tokens: string[] = [];
-  const re = /[^\s"]*"[^"]*"|\S+/g;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(query))) tokens.push(match[0]);
-  return tokens;
-}
-
-const unquote = (s: string) => s.replace(/^"(.*)"$/, "$1");
-
-/** `wubrg` plus the handful of names Scryfall accepts for the same colours. */
-const COLOR_ALIASES: Record<string, Color> = {
-  w: "W",
-  white: "W",
-  u: "U",
-  blue: "U",
-  b: "B",
-  black: "B",
-  r: "R",
-  red: "R",
-  g: "G",
-  green: "G",
-  c: "C",
-  colorless: "C",
-};
-
-function parseColorToken(rest: string): { colors: Color[]; mode: ColorMode } | null {
-  for (const [op, mode] of [
-    ["<=", "atMost"],
-    ["=", "exactly"],
-    [":", "all"],
-  ] as const) {
-    if (!rest.startsWith(op)) continue;
-    const raw = rest.slice(op.length).toLowerCase();
-    // "red,blue" is two colour names; "wu" is two colour letters run together.
-    // A comma-separated part maps as a whole name first, and only falls back
-    // to per-letter shorthand when it is not one.
-    const colors = raw
-      .split(",")
-      .flatMap((part) => (COLOR_ALIASES[part] ? [COLOR_ALIASES[part]] : part.split("").map((c) => COLOR_ALIASES[c])))
-      .filter((c): c is Color => Boolean(c));
-    if (colors.length === 0) return null;
-    return { colors: [...new Set(colors)], mode };
-  }
-  return null;
-}
-
-export type ParsedScryfallQuery = {
-  filter: AdvancedCardFilter;
-  /** Operators recognised but not applied — surfaced so the caller can say so. */
-  unsupported: string[];
-};
-
-/**
- * Reads as much of a literal Scryfall query as the structured panel covers.
- * Anything else recognisable as `key:value` syntax is reported unsupported
- * rather than folded into the name search, where it would silently match
- * nothing useful (searching for the literal text "is:foil", say).
- */
-export function parseScryfallQuery(raw: string): ParsedScryfallQuery {
-  const filter: AdvancedCardFilter = { ...EMPTY_ADVANCED_FILTER };
-  const unsupported: string[] = [];
-  const nameWords: string[] = [];
-
-  for (const token of tokenize(raw.trim())) {
-    const lower = token.toLowerCase();
-
-    const colorMatch = lower.match(/^(?:c|color)(:|<=|=)(.+)$/);
-    if (colorMatch) {
-      const parsed = parseColorToken(colorMatch[1] + colorMatch[2]);
-      if (parsed) {
-        filter.colors = parsed.colors;
-        filter.colorMode = parsed.mode;
-        continue;
-      }
-    }
-
-    const cmcMatch = lower.match(/^(?:cmc|mv)(:|=|!=|>=|<=|>|<)(-?\d+(?:\.\d+)?)$/);
-    if (cmcMatch) {
-      const [, opText, valueText] = cmcMatch;
-      const op = NUMERIC_COMPARATORS.find(([o]) => o === opText)?.[1] ?? "eq";
-      filter.cmc = { op, value: Number.parseFloat(valueText) };
-      continue;
-    }
-
-    const loyaltyMatch = lower.match(/^(?:loy|loyalty)(:|=|!=|>=|<=|>|<)(-?\d+(?:\.\d+)?)$/);
-    if (loyaltyMatch) {
-      const [, opText, valueText] = loyaltyMatch;
-      const op = NUMERIC_COMPARATORS.find(([o]) => o === opText)?.[1] ?? "eq";
-      filter.loyalty = { op, value: Number.parseFloat(valueText) };
-      continue;
-    }
-
-    const typeMatch = token.match(/^(?:t|type):(.+)$/i);
-    if (typeMatch) {
-      filter.type = unquote(typeMatch[1]);
-      continue;
-    }
-
-    const oracleMatch = token.match(/^(?:o|oracle):(.+)$/i);
-    if (oracleMatch) {
-      filter.oracle = unquote(oracleMatch[1]);
-      continue;
-    }
-
-    const setMatch = token.match(/^(?:s|set):(.+)$/i);
-    if (setMatch) {
-      filter.set = unquote(setMatch[1]);
-      continue;
-    }
-
-    const rarityMatch = token.match(/^(?:r|rarity):(.+)$/i);
-    if (rarityMatch) {
-      filter.rarity = unquote(rarityMatch[1]);
-      continue;
-    }
-
-    // A recognisable `key:` or `key>=`-shaped clause that did not match one of
-    // the facets above — flag it rather than guess.
-    if (/^[a-z]+(:|=|!=|>=|<=|>|<)/i.test(token)) {
-      unsupported.push(token);
-      continue;
-    }
-
-    nameWords.push(unquote(token));
-  }
-
-  filter.name = nameWords.join(" ");
-  return { filter, unsupported };
-}
-
-// ---------------------------------------------------------------------------
-// Matching — the part PostgREST cannot express on its own
-// ---------------------------------------------------------------------------
-
-/** The least a printing needs for `matchesAdvancedCard` to judge it. */
-export type AdvancedMatchableCard = {
-  colors: string[] | null;
-  loyalty: string | null;
-};
-
-/**
- * Finishes what PostgREST couldn't push into SQL: colour matching (its array
- * operators express "contains" but not "exactly these" or "at most these")
- * and loyalty (the column is text, since some cards print "X" there, so a
- * numeric comparison has to happen after `statToNumber` reads it, not in the
- * database). A query pre-filters everything else it can (name, cmc, type,
- * oracle, set, rarity — see `search.ts`) and this finishes the rest over that
- * already-narrow result.
- */
-export function matchesAdvancedCard(card: AdvancedMatchableCard, filter: AdvancedCardFilter): boolean {
-  return (
-    matchesColors(colorsOf(card.colors), filter.colors, filter.colorMode) &&
-    matchesNumeric(statToNumber(card.loyalty), filter.loyalty)
-  );
 }
