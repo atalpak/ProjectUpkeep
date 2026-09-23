@@ -45,7 +45,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 22 | Android live scanner | Hard | Low | Later — no Android user yet | `packages/upkeep-vision` |
 | 23 | Public leaderboard with votes | Hard | Unmeasurable | Later | needs `is_admin()` first |
 | 24 | Tactile solo playtester ("Play" mode) | Hard | High (if used) | Phase 1 done (2026-09-23) — deterministic game core landed; Phase 2 (desktop tabletop UI) is next | `src/lib/playtest/board/` (new, not `packages/playtest-core/` — see notes), `src/lib/playtest/game-start.ts` (new), `src/components/playtester/` (not started), new `playtest_sessions` migration in Phase 3 |
-| 25 | "Fits this deck" collection-aware recommendations | Med | Medium | Needs architect — adds `cards.legalities` | `src/lib/recommendations/deck-fit.ts` (new), migration adding `cards.legalities` |
+| 25 | "Fits this deck" collection-aware recommendations | Med | Medium | Ready — architect impact map + owner decisions done 2026-09-23 | `src/lib/recommendations/deck-fit.ts` (new), migration adding a narrow `cards.commander_legality` column |
 
 Items 5, 6 and 8 (old numbering) are fully shipped as of 2026-09-22 (PRs #71–#76) and
 are dropped from this table — see "Owner decisions" below for what future work should
@@ -332,6 +332,65 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
     resulting states, log included, are byte-identical; this is the actual
     case the initial-state-only reproducibility test didn't cover. 695 tests
     now pass repo-wide, lint and typecheck clean.
+
+- **25 ("Fits this deck"), architect impact map + owner decisions, 2026-09-23.**
+  Full spec in `FITS_THIS_DECK_DEVELOPMENT_GUIDE.md` (repo root). Verdict:
+  **go, with changes** — no hard constraint, RLS policy, or reversible bet is
+  touched.
+  - **Real finding, not a hypothetical:** two earlier `cards` column additions
+    (migrations 32, 34) landed in the exact 09-12–09-14 window item 1's sync
+    write began shrinking its batch size. "Just add a column" is not free
+    right now — item 1's write is already near its limit.
+  - **Changed from the plan (owner decision):** store only a narrow
+    `commander_legality` text column (`legal`/`banned`/`not_legal`), not the
+    full Scryfall `legalities` jsonb object. The full object is ~450–500
+    bytes/row across ~100k printings (~45MB plus matching WAL/day, architect's
+    estimate) — real cost on a write path that already times out on roughly
+    half of scheduled runs. The narrow column is ~10 bytes/row and, unlike
+    the full object, does not need to wait for item 1 to be healthy first —
+    it can be added now, with the recommendation section switched on only
+    after one full sync run completes with a verified-near-zero count of rows
+    still missing the value (a failed run leaves untouched rows with no
+    legality, which the feature must read as "don't know," not "not legal").
+  - **Changed from the plan (owner decision):** legality is checked as "any
+    free printing the user owns is legal, unless the card is banned" — not
+    "the specific printing you happen to own." Scryfall marks gold-bordered,
+    oversized and many promo printings `not_legal` even when the card itself
+    is fine; checking only the owned printing would wrongly exclude those.
+    `banned` stays consistent across printings, so excluding on it alone is
+    safe.
+  - **Changed from the plan (owner decision):** the "Not for this deck"
+    dismiss button is dropped from v1 entirely, not built with a
+    `deck_recommendation_feedback` table. An unpersisted dismissal just
+    reappears on the next load, which is worse than no button — and skipping
+    the table means this feature creates no user data at all in v1, so it
+    stays cheap to remove later if it doesn't earn its complexity.
+  - **Also decided, lower-stakes:** the section shows for any deck with a
+    nominated commander (matching the free-text `locations.format` against
+    "commander"/"EDH" for the empty-state prompt) rather than adding a
+    controlled format field to the schema; the owner filter on the new
+    candidate-pool query is enforced by convention and review, the same as
+    the ~25 existing owner-scoped queries in `queries.ts`, not by a new
+    SQL function — revisit only if a large collection makes the query slow;
+    web-only for v1, with `deck-fit.ts` kept free of Next.js imports so it
+    can move to `packages/upkeep-domain` later if the phone ever needs it.
+  - **Do not add the new column to the shared `Card` type or `CARD_FIELDS`**
+    (`src/lib/types.ts`) — migration 34's `game_changer` did that and it
+    forced changes across `collection-filters.test.ts` and
+    `deck-stats.test.ts` and widened every collection read. Keep it local to
+    the new loader.
+  - **Order matters for the migration itself:** apply the migration to
+    production, merge the sync-mapping change, then run a forced sync — in
+    that order. Landing the mapping change before the column exists in
+    production fails every batch of the next scheduled run. (Coordinate
+    numbering: `main` is at migration 41 as of PR #82; this branch and item
+    24's Phase 3 migration are both still waiting on a number.)
+  - **Housekeeping note:** this branch (`feat/playtester-phase1-game-core`,
+    PR #83) branched before PR #82 merged, so its copy of this file's item 2
+    row/notes are stale relative to `main`. Reconcile on merge — this is a
+    known, expected conflict, not a sign anything is wrong.
+  - **Not yet started:** no implementer work has begun on item 25. This
+    entry records the architect's impact map and the owner's sign-off only.
 
 - **9 (otags), re-scoped.** Otags are a real, free, official Scryfall bulk file
   (`oracle_tags`, ~5.7MB gzipped, daily, no rate limit, 99.4% coverage) — genuinely
