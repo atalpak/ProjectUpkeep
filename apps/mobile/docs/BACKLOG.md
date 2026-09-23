@@ -301,6 +301,14 @@ know about them, not what's left to do.
   `regularFirst` ever changes. New coverage in
   `scripts/wants-representative-printing.test.ts` (7 cases), since
   `pickRepresentative` had none before.
+  - **CI-caught fix, 2026-09-23:** exporting `pickRepresentative` from
+    `wants/actions.ts` broke the production build — every export from a
+    `"use server"` file must be an async function, and this is a plain sync
+    helper. Moved it (with its types and the `isPlainNumber`/`SET_TYPE_RANK`
+    helpers it uses) to a new `src/lib/social/representative-printing.ts`,
+    imported by `actions.ts` rather than defined there; the test now imports
+    from that path instead. No behavior change, `npm run build` confirmed
+    clean.
 
 - **9 (otags), re-scoped.** Otags are a real, free, official Scryfall bulk file
   (`oracle_tags`, ~5.7MB gzipped, daily, no rate limit, 99.4% coverage) — genuinely

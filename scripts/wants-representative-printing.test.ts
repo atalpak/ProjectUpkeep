@@ -16,7 +16,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { pickRepresentative } from "../src/app/(app)/wants/actions";
+import { pickRepresentative } from "../src/lib/social/representative-printing";
 
 test("a same-day tie prefers the plain collector number over a promo/showcase suffix", () => {
   const regular = {
