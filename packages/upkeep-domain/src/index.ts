@@ -20,3 +20,4 @@ export * from "./tos";
 export * from "./want-quantity";
 export * from "./card-faces";
 export * from "./reprint";
+export * from "./recent-searches";

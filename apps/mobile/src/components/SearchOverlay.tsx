@@ -10,6 +10,8 @@ import {
   type AdvancedCardFilter, type Color, type ColorMode, type NumericOp,
 } from '@upkeep/domain';
 import { searchCards, type CardSearchResult } from '../cardSearch';
+import { recordRecentSearch, readRecentSearches } from '../recentSearches';
+import { useApp } from '../AppProvider';
 import { Button, Choices } from './ui';
 import { CardDetails } from './CardDetails';
 import { FlipBadge } from './FlipBadge';
@@ -42,6 +44,7 @@ const EMPTY_FACETS: Facets = { ...EMPTY_ADVANCED_FILTER };
 export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(): void }) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
+  const { userId } = useApp();
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
   const [mounted, setMounted] = useState(visible);
@@ -52,6 +55,8 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
   const [facets, setFacets] = useState<Facets>(EMPTY_FACETS);
   const [cmcText, setCmcText] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [ownedOnly, setOwnedOnly] = useState(false);
+  const [recent, setRecent] = useState<string[]>([]);
   const [state, setState] = useState<{ results: CardSearchResult[]; total: number; capped: boolean; error: string | null; loading: boolean; ran: boolean }>(
     { results: [], total: 0, capped: false, error: null, loading: false, ran: false },
   );
@@ -61,6 +66,7 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      void readRecentSearches().then(setRecent);
       Animated.timing(progress, { toValue: 1, duration: reducedMotion ? 0 : 280, easing: Easing.out(Easing.cubic), useNativeDriver: true })
         .start(() => input.current?.focus());
     } else {
@@ -69,7 +75,7 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
         .start(({ finished }) => {
           if (!finished) return;
           setMounted(false);
-          setQuery(''); setFacets(EMPTY_FACETS); setCmcText(''); setShowFilters(false); setZoomed(null);
+          setQuery(''); setFacets(EMPTY_FACETS); setCmcText(''); setShowFilters(false); setOwnedOnly(false); setZoomed(null);
           requestId.current += 1;
           setState({ results: [], total: 0, capped: false, error: null, loading: false, ran: false });
         });
@@ -80,8 +86,10 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
   // on the web; otherwise the box is the name and the panel supplies the rest.
   const parsed = useMemo(() => (looksLikeScryfallSyntax(query) ? parseScryfallQuery(query) : null), [query]);
   const filter: AdvancedCardFilter = useMemo(() => parsed?.filter ?? { ...facets, name: query.trim() }, [parsed, facets, query]);
-  // A bare name needs two characters; any facet is enough on its own.
-  const runnable = isAdvancedFilterActive({ ...filter, name: '' }) || filter.name.trim().length >= 2;
+  // A bare name needs two characters; any facet is enough on its own -- and
+  // "owned only" is itself enough to run a browse-what-I-have search with no
+  // name or filter at all.
+  const runnable = isAdvancedFilterActive({ ...filter, name: '' }) || filter.name.trim().length >= 2 || ownedOnly;
 
   useEffect(() => {
     if (!visible) return;
@@ -89,12 +97,20 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
     if (!runnable) { setState({ results: [], total: 0, capped: false, error: null, loading: false, ran: false }); return; }
     setState(s => ({ ...s, loading: true, error: null }));
     const timer = setTimeout(() => {
-      void searchCards(filter).then(r => {
+      void searchCards(filter, 60, { ownedOnly, userId: userId ?? undefined }).then(r => {
         if (id === requestId.current) setState({ results: r.results, total: r.total, capped: r.capped, error: r.error, loading: false, ran: true });
+        // A search that actually ran and came back, not every keystroke --
+        // the debounce above already keeps this to settled lookups.
+        if (id === requestId.current && !r.error && query.trim()) void recordRecentSearch(query.trim()).then(setRecent);
       });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [filter, runnable, visible]);
+  }, [filter, runnable, visible, ownedOnly, userId, query]);
+
+  function pickRecent(term: string) {
+    setQuery(term);
+    input.current?.focus();
+  }
 
   function toggleColor(c: Color) {
     setFacets(f => ({ ...f, colors: f.colors.includes(c) ? f.colors.filter(x => x !== c) : [...f.colors, c] }));
@@ -146,11 +162,19 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
           </Pressable>
         </View>
 
-        <Pressable accessibilityRole="button" accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={styles.filtersToggle} disabled={!!parsed}>
-          <Ionicons name="options-outline" size={18} color={text.primary} />
-          <Text style={styles.filtersLabel}>{parsed ? 'Using your typed syntax' : facetCount ? `Filters (${facetCount})` : 'Filters'}</Text>
-          {!parsed && <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={16} color={text.secondary} />}
-        </Pressable>
+        <View style={styles.toggleRow}>
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={styles.filtersToggle} disabled={!!parsed}>
+            <Ionicons name="options-outline" size={18} color={text.primary} />
+            <Text style={styles.filtersLabel}>{parsed ? 'Using your typed syntax' : facetCount ? `Filters (${facetCount})` : 'Filters'}</Text>
+            {!parsed && <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={16} color={text.secondary} />}
+          </Pressable>
+          {!!userId && (
+            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: ownedOnly }} accessibilityLabel="Owned only" onPress={() => setOwnedOnly(v => !v)} style={[styles.ownedPill, ownedOnly && styles.ownedPillOn]}>
+              <Ionicons name={ownedOnly ? 'checkbox' : 'square-outline'} size={16} color={ownedOnly ? text.onAccent : text.secondary} />
+              <Text style={[styles.ownedLabel, ownedOnly && styles.ownedLabelOn]}>Owned only</Text>
+            </Pressable>
+          )}
+        </View>
 
         {showFilters && !parsed && (
           <ScrollView style={[styles.filters, { maxHeight: Math.min(FILTERS_MAX_HEIGHT, screenHeight * 0.4) }]} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
@@ -195,7 +219,19 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
 
         <View style={styles.results}>
           {!runnable ? (
-            <Text style={styles.hint}>Type a card name, or open Filters to search by color, mana value, type, rules text, set or rarity. Scryfall syntax works too, like {'“c:r cmc<=2”'}.</Text>
+            recent.length > 0 ? (
+              <View>
+                <Text style={styles.groupLabel}>Recent searches</Text>
+                {recent.map(term => (
+                  <Pressable key={term} accessibilityRole="button" onPress={() => pickRecent(term)} style={styles.recentRow}>
+                    <Ionicons name="time-outline" size={16} color={text.secondary} />
+                    <Text style={styles.recentText}>{term}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.hint}>Type a card name, or open Filters to search by color, mana value, type, rules text, set or rarity. Scryfall syntax works too, like {'“c:r cmc<=2”'}.</Text>
+            )
           ) : state.error ? (
             <Text style={styles.error}>The search couldn’t complete: {state.error}</Text>
           ) : state.loading && state.results.length === 0 ? (
@@ -251,8 +287,15 @@ const useStyles = makeStyles(() => StyleSheet.create({
   input: { flex: 1, ...type.body, color: text.primary, paddingVertical: 0 },
   cancel: { minHeight: 44, justifyContent: 'center' },
   cancelText: { ...type.body, color: text.primary },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   filtersToggle: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 32 },
   filtersLabel: { ...type.bodySm, color: text.primary, fontFamily: type.label.fontFamily },
+  ownedPill: { flexDirection: 'row', alignItems: 'center', gap: space.xs, height: 32, paddingHorizontal: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline },
+  ownedPillOn: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
+  ownedLabel: { ...type.bodySm, color: text.secondary },
+  ownedLabelOn: { color: text.onAccent },
+  recentRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
+  recentText: { ...type.body, color: text.primary },
   filters: { borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   filtersBody: { padding: space.lg, gap: space.sm },
   groupLabel: { ...type.label, color: text.secondary, marginTop: space.sm },

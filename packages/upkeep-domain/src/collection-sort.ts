@@ -63,6 +63,21 @@ export function entryPrice(e: PricedEntry): number | null {
   return plain;
 }
 
+/**
+ * Formats a USD estimate for display. Mirrors `formatPrice` in
+ * `src/lib/collection/pricing.ts` (web keeps its own copy rather than
+ * importing this one, since it predates this package) -- whole dollars once a
+ * number is large enough that cents are noise, an em dash for unpriced.
+ */
+export function formatPrice(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value >= 1000 ? 0 : 2,
+  }).format(value);
+}
+
 const RARITY_RANK: Record<string, number> = { common: 0, uncommon: 1, rare: 2, mythic: 3, special: 4, bonus: 5 };
 
 const byText = (a: string, b: string) => a.localeCompare(b, "en", { sensitivity: "base", numeric: true });

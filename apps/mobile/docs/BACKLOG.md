@@ -26,20 +26,20 @@ Say so again wherever it would otherwise read like invented demand.
 | 3 | ~~Migration 40 not applied in production~~ | — | — | **Done (2026-09-22)** — applied, PR #78 adds a CI check so it can't recur silently | — |
 | 4 | One real session on a physical iPhone | Owner only | High | Blocks ~10 other items | scanner, item 8 steps 3–4, dark mode |
 | 5 | Items 2–4 (old numbering): web sub-menus, printing photos, flip button | Easy | Medium | Owner only — built in PR #69, needs a look | web pages |
-| 6 | Phone: move a copy to another binder/box from the card details sheet | Easy–Med | High (if used) | Open | `CardDetails.tsx`, `apply_stack_move` |
+| 6 | ~~Phone: move a copy to another binder/box from the card details sheet~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CardDetails.tsx`, `apply_stack_move` |
 | 7 | Migration 20: test the deck-list shortfall's 2nd and 3rd tiers | Easy | Medium | Open | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
 | 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
 | 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Ready | `apps/mobile/src/components/AppHeader.tsx` + brief |
 | 11 | Phone deck gaps: add-to-deck from card sheet, deck wish list, stats, export, playtest | Med each | Low–Med | Open — depends on owner's habits | `apps/mobile/src/screens/DeckDetailScreen.tsx` |
 | 12 | Phone quick-add straight to a deck | Easy–Med | Low–Med | Partly done | `ScanScreen.tsx` |
-| 13 | Phone collection rows: show prices | Easy | Low | Open (data already loaded) | `CollectionScreen.tsx` |
+| 13 | ~~Phone collection rows: show prices~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CollectionScreen.tsx` |
 | 14 | Phone Settings: change password / notification prefs | Easy–Med | Low | Open | mobile Settings |
-| 15 | Phone search: filter by owned, recent searches | Easy | Low | Open | mobile search |
+| 15 | ~~Phone search: filter by owned, recent searches~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | mobile search |
 | 16 | Phone import: into a deck, pick a file | Med | Low | Open | `ImportScreen.tsx` |
 | 17 | Web search should use the shared `packages/upkeep-domain` parser | Med | Low–Med | Open | `src/lib/cards/search-query.ts` |
 | 18 | Web wish-list default picks the wrong printing on a tie | Easy | Low | Open | `wants/actions.ts` |
-| 19 | Phone dashboard: "expiring offers" line | Easy | Low | Open (data already loaded) | `dashboard.ts` |
+| 19 | ~~Phone dashboard: "expiring offers" line~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `dashboard.ts` |
 | 20 | Automated tests over mobile screens | Hard | Low for now | Later | — |
 | 21 | Haptics on the Scan fan-out button | Easy (needs rebuild) | Low | Later — bundle into next rebuild | — |
 | 22 | Android live scanner | Hard | Low | Later — no Android user yet | `packages/upkeep-vision` |
@@ -249,6 +249,64 @@ know about them, not what's left to do.
   product's whole premise, and the owner decision was iPhone-first. Impact genuinely
   depends on whether the owner re-files cards from the phone or the laptop — unknown,
   cheapest way to find out is just noticing which device gets reached for next time.
+
+- **6, 13, 15, 19 — a batch of four small phone items, done 2026-09-23, no
+  agent used.** All four are contained UI/query work built directly on
+  existing infrastructure; none needed an architect gate. Verified by lint,
+  typecheck and the unit suite only — **all four are unverified on a real
+  device**, same caveat as everything else under item 4, and none was
+  observed running on the phone before being marked done.
+  - **6 (move a copy).** The actual gap was UI, not infrastructure —
+    `apply_stack_move`/`beginMove` already existed and were already tested,
+    just unreachable outside deck sleeve/unsleeve. `CardDetails.tsx`'s "In
+    your collection" section (already listing every owned stack via the
+    existing `fetchOwned`/`OwnedStack`) gets a new `MovePanel` alongside the
+    existing "Change printing…" reprint panel, reusing `OwnedStack`'s
+    already-loaded fields directly as `StackMoveDraft`'s source. Destinations
+    come from `app.locations`, which `AppProvider` already filters to
+    non-deck locations — no new query needed. A sleeved stack
+    (`locationType === 'deck'`) hides the action entirely; re-filing that copy
+    belongs on the deck page, which also updates the deck's list, something a
+    plain move knows nothing about. Disabled while another move is pending
+    (`app.pendingMove`/`moveBusy`), the same guard `DeckDetailScreen` already
+    uses, since both write through the same single-slot pending-move state.
+  - **13 (show prices).** `entryPrice` (`@upkeep/domain`) already existed and
+    was already used for the dashboard's total — `CollectionScreen.tsx`'s
+    list-view row (`CollectionRow`) just wasn't calling it. Added a
+    `formatPrice` helper alongside it (mirrors web's `formatPrice` in
+    `src/lib/collection/pricing.ts`, which keeps its own copy rather than
+    importing this one since it predates this package), with a small new
+    test (`packages/upkeep-domain/test/collection-sort.test.ts`). List-view
+    only, not the grid tiles — the item's own name ("collection rows") and
+    grid density both argue for that scope.
+  - **19 (expiring offers).** `dashboard.ts` was already computing
+    `tradesAwaiting` with its own inline expiry check instead of the shared
+    `isExpired`/`expiringSoon` rule (`@upkeep/domain`) the web dashboard
+    already uses for the identical line. Switched to the shared functions and
+    added `tradesExpiringSoon` (a subset of the same already-fetched, already
+    owner-scoped recipient rows — no new query), surfaced as a second
+    "Needs attention" line. Scoped to trades *incoming* to you, matching what
+    the existing query already fetches — the web version also considers
+    outgoing offers you made, which mobile's query doesn't currently reach;
+    widening that was out of scope for this pass.
+  - **15 (owned filter, recent searches).** Two independent pieces:
+    - *Recent searches*: `pushRecentSearch` (the web header search's pure
+      dedup/cap rule, `src/lib/search/recent-searches.ts`) moved to
+      `@upkeep/domain` so the phone could share it — same re-export pattern
+      `stacking.ts` already uses, with `scripts/recent-searches.test.ts`
+      passing unchanged as proof the re-export is faithful. New
+      `apps/mobile/src/recentSearches.ts` wraps it in `expo-secure-store`
+      (async, unlike web's sync `localStorage`) — deliberately *not* cleared
+      on sign-out, since a search term isn't account data.
+    - *Owned only*: a new toggle in `SearchOverlay.tsx`, querying
+      `collection_entries` for the current result set's names, scoped to
+      `owner_user_id` explicitly per CLAUDE.md constraint 3 even though the
+      view also legitimately surfaces a friend's tradable rows. One
+      unmeasured cost flagged, not fixed: the owned-only query's `.in()` list
+      can hold up to ~2000 names for a very broad search (the existing fetch
+      cap), which is untested against real Postgres/PostgREST limits — worth
+      watching if it proves slow in practice, cheapest to find out from real
+      use rather than guessing.
 
 - **9 (otags), re-scoped.** Otags are a real, free, official Scryfall bulk file
   (`oracle_tags`, ~5.7MB gzipped, daily, no rate limit, 99.4% coverage) — genuinely

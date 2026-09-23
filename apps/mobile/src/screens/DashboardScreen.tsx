@@ -69,6 +69,7 @@ export function DashboardScreen() {
   const attention: { key: string; icon: keyof typeof Ionicons.glyphMap; label: string; onPress(): void }[] = [];
   if (data) {
     if (data.tradesAwaiting > 0) attention.push({ key: 'trades', icon: 'swap-horizontal-outline', label: `${data.tradesAwaiting} trade${data.tradesAwaiting === 1 ? '' : 's'} waiting on you`, onPress: () => navigation.navigate('Trades') });
+    if (data.tradesExpiringSoon > 0) attention.push({ key: 'trades-expiring', icon: 'time-outline', label: `${data.tradesExpiringSoon} offer${data.tradesExpiringSoon === 1 ? '' : 's'} expiring soon`, onPress: () => navigation.navigate('Trades') });
     if (data.unsortedCards > 0) attention.push({ key: 'unsorted', icon: 'file-tray-outline', label: `${data.unsortedCards} card${data.unsortedCards === 1 ? ' is' : 's are'} not filed anywhere yet`, onPress: () => navigation.navigate('Locations') });
     for (const w of wish.slice(0, WISH_ROWS)) {
       attention.push({ key: `w-${w.cardId}`, icon: 'heart-outline', label: `${w.name}: ${w.friends} friend${w.friends === 1 ? ' has' : 's have'} it for trade`, onPress: () => navigation.navigate('Wishlist') });

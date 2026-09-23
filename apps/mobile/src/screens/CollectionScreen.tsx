@@ -3,7 +3,7 @@ import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, us
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { CONDITIONS } from '@upkeep/scan-core';
-import { COLLECTION_SORTS, COLLECTION_SORT_LABELS, filterCollection, sortCollection, type CollectionSort } from '@upkeep/domain';
+import { COLLECTION_SORTS, COLLECTION_SORT_LABELS, entryPrice, filterCollection, formatPrice, sortCollection, type CollectionSort } from '@upkeep/domain';
 import { CollectionAuthError, EMPTY_COLLECTION_FILTER, collectionFacetCount, fetchWholeCollection, type CollectionEntry, type CollectionFilter } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
@@ -278,6 +278,10 @@ function CollectionRow({ entry: e, tilt, onOpen }: { entry: CollectionEntry; til
   const styles = useStyles();
   const face = useCardFace({ name: e.card_name, layout: e.card_layout, image: e.card_image_uri, imageSmall: e.card_image_uri_small }, 'small');
   const name = face.name ?? e.card_name;
+  // A display-only Scryfall estimate for this exact copy's finish, same rule
+  // the web collection table and the dashboard's total already use
+  // (`entryPrice`, `@upkeep/domain`) -- never a valuation the app claims to be exact.
+  const price = entryPrice(e);
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={`${name}, details`} onPress={() => onOpen(e)} style={styles.row}>
       <View style={styles.thumb}>
@@ -289,7 +293,10 @@ function CollectionRow({ entry: e, tilt, onOpen }: { entry: CollectionEntry; til
         <Text numberOfLines={1} style={styles.name}>{name}</Text>
         <Text numberOfLines={1} style={styles.meta}>{metaLine(e)}</Text>
       </View>
-      {e.quantity > 1 && <Text style={styles.qty}>×{e.quantity}</Text>}
+      <View style={styles.trailing}>
+        {e.quantity > 1 && <Text style={styles.qty}>×{e.quantity}</Text>}
+        <Text style={styles.price}>{formatPrice(price)}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -326,7 +333,9 @@ const useStyles = makeStyles(() => StyleSheet.create({
   grow: { flex: 1, gap: 1 },
   name: { ...typeTokens.body, fontFamily: typeTokens.title.fontFamily, color: text.primary },
   meta: { ...typeTokens.label, color: text.secondary, fontFamily: typeTokens.bodySm.fontFamily },
+  trailing: { alignItems: 'flex-end', gap: 1 },
   qty: { ...typeTokens.title, fontSize: 16, color: text.primary },
+  price: { ...typeTokens.label, color: text.secondary },
   gridRow: { gap: space.sm, marginBottom: space.sm },
   tileImage: { borderRadius: 6, backgroundColor: surface.sunken },
   tileEmpty: { alignItems: 'center', justifyContent: 'center', padding: 6 },
