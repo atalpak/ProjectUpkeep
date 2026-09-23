@@ -225,6 +225,7 @@ npm run lint         # eslint
 npm run typecheck    # tsc --noEmit
 npm test             # tsx --test scripts/*.test.ts — pure logic in src/lib/**
 npm run test:db      # migrations against a throwaway Postgres; needs PGHOST/PGURL
+npm run check:migrations         # local migrations vs the LINKED production project — apply, don't just merge
 npm run sync:scryfall            # ~500MB, several minutes
 npm run sync:scryfall -- --limit 5000   # quick smoke test
 ```

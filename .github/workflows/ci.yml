@@ -98,3 +98,25 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
         run: ./scripts/verify-migrations.sh
+
+  # This proves the migrations are internally consistent against a throwaway
+  # database (the job above) -- it says nothing about whether the LINKED
+  # PRODUCTION project has actually run them. Migrations 36-38 and 40 both
+  # went unapplied in production while every other check stayed green; this
+  # job is what would have caught that. Runs only on main, where "not yet
+  # applied" is an actual production gap rather than routine PR-branch noise.
+  # Skips (not fails) when SUPABASE_ACCESS_TOKEN isn't configured, so a fork
+  # PR or a repo without the secret set up is never blocked by this.
+  migration-drift:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Check local migrations are applied to production
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_ID: gttbehblxlwxszrbtsoc
+        run: ./scripts/check-migrations-applied.sh
