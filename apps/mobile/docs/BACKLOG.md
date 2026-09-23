@@ -179,6 +179,36 @@ know about them, not what's left to do.
     preserving id/`acquired_at`, list rollback on a stale later step, every refusal
     including the friend's-tradable-copy case, replay/idempotency) — land and verify
     before any server action is rewired to call it.
+  - **Part 1 done (2026-09-22).** `supabase/migrations/00000000000041_atomic_stack_rekey.sql`
+    lands `apply_stack_rekey` exactly as scoped above, plus a `result_steps` jsonb
+    column on `collection_write_ops` (the existing single-outcome columns can't hold
+    a per-step list for replay) and the matching widen of its immutability trigger
+    and `kind` check. `schema_test.sql` section 21 covers all eight cases from the
+    "Next" note. Red-before-green was actually run, not just asserted: the merge
+    branch's source-clear-before-target-increment order was temporarily swapped and
+    confirmed to fail (case 1, got a deck total of 10 instead of 6) before being
+    reverted; the keep-the-row branch was temporarily implemented as delete-and-
+    reinsert and confirmed to fail (caught by case 3's id-preservation check) before
+    being reverted. **Corrected same day**: the first pass exempted KEEP-THE-ROW
+    from the open-trade gate entirely, reasoning that nothing about the traded
+    copy's identity changes on that branch. That missed that `accept_trade` reads
+    a copy's *finish* live off the row at accept time -- the same fact that makes
+    `apply_stack_reprint` gate its own in-place branch -- so a finish correction
+    via KEEP-THE-ROW carried the identical silent-substitution risk. Widened the
+    gate to cover KEEP-THE-ROW too, but only when the step's finish actually
+    differs from the source row's current finish (condition/language/location/
+    notes-only edits stay ungated, since `accept_trade` doesn't read those live).
+    Section 21's case 7f gained its own red-before-green pair for this specific
+    condition (confirmed to fail with the narrower gate, using a card that
+    actually comes in foil so the failure isn't masked by the separate
+    finish-availability check). `PGHOST=/tmp/pgv3 PGPORT=55432 PGUSER=postgres
+    LC_ALL=C npm run test:db` passes clean against local Postgres 16; root
+    `npm run typecheck` and `npm test` (642 tests) are unaffected, as expected --
+    no TypeScript file was touched. Not yet done: no server action calls this
+    function yet, and
+    `bulkMerge`/`updateCardInstance`/`bulkMove`/`bulkSetField`/sleeve-unsleeve/
+    remove-from-deck are all still on their old read-decide-write paths -- that is
+    Part 2, unstarted.
 
 - **3, done (2026-09-22).** Migration 40 applied to production the same day this was
   found (`supabase db push --linked`, verified via `supabase migration list --linked`

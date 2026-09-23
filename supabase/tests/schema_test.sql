@@ -2499,6 +2499,676 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 21. apply_stack_rekey() (migration 41): an ordered list of re-file steps,
+--     one transaction, all-or-nothing -- backlog item 2's architect impact
+--     map (apps/mobile/docs/BACKLOG.md, 2026-09-22).
+--
+-- Same red-before-green discipline as section 19: the merge branch's
+-- source-clear-before-target-increment order (cases 1 and 2 below) was
+-- confirmed to fail with the two statements swapped before being allowed to
+-- pass. Case 4 (KEEP-THE-ROW keeping its id) was confirmed to fail when that
+-- branch was temporarily implemented as delete-and-reinsert.
+--
+-- Fresh fixtures, isolated from every section above for the same reason
+-- sections 14/18/19 give.
+-- --------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('b0000000-0000-0000-0000-000000000001', 'nyx@example.com',  '{"username":"nyx"}'),
+  ('b0000000-0000-0000-0000-000000000002', 'orin@example.com', '{"username":"orin"}');
+
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('b0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000002', 'accepted');
+
+insert into public.locations (id, user_id, name, type, is_tradable) values
+  ('b1000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'Merge Deck',        'deck', false),
+  ('b1000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'Partial Deck',      'deck', false),
+  ('b1000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001', 'TwoPrint Deck',     'deck', false),
+  ('b1000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001', 'Solo Box A',        'box',  false),
+  ('b1000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001', 'Chain Box A',       'box',  false),
+  ('b1000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000001', 'Chain Box B',       'box',  false),
+  ('b1000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000001', 'Chain Box C',       'box',  false),
+  ('b1000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000001', 'Rollback Box',      'box',  false),
+  ('b1000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000001', 'Note Box',          'box',  false),
+  ('b1000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000001', 'Qty Box',           'box',  false),
+  ('b1000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000001', 'Loc Box',           'box',  false),
+  ('b1000000-0000-0000-0000-000000000013', 'b0000000-0000-0000-0000-000000000001', 'Trade Box',         'box',  false),
+  ('b1000000-0000-0000-0000-000000000014', 'b0000000-0000-0000-0000-000000000001', 'Trade Target Box',  'box',  false),
+  ('b1000000-0000-0000-0000-000000000015', 'b0000000-0000-0000-0000-000000000001', 'Replay Box',        'box',  false),
+  ('b1000000-0000-0000-0000-000000000016', 'b0000000-0000-0000-0000-000000000001', 'Solo Box B',        'box',  false),
+  ('b1000000-0000-0000-0000-000000000020', 'b0000000-0000-0000-0000-000000000002', 'Orin Tradable Binder', 'binder', true);
+
+-- Each deck lists exactly what will be sleeved into it, so the list starts
+-- reconciled and any movement in it afterwards is the rekey's doing.
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('b1000000-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 6),
+  ('b1000000-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000001', 6),
+  ('b1000000-0000-0000-0000-000000000003', 'aaaaaaaa-0000-0000-0000-000000000001', 4),
+  ('b1000000-0000-0000-0000-000000000003', 'aaaaaaaa-0000-0000-0000-000000000002', 2);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'b0000000-0000-0000-0000-000000000001'; -- nyx
+
+-- Sleeved as the signed-in user so the inserts run under the same RLS the app
+-- runs under, same as section 19. LEA (aaaa...0001) is {nonfoil}; M10
+-- (aaaa...0002) is {nonfoil,foil}.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity, notes) values
+  -- (1) whole-pile merge, the ordering case
+  ('b2000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 4, null),
+  ('b2000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000001', 'LP', 'nonfoil', 'en', 2, null),
+  -- (2) partial merge, off-by-one
+  ('b2000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000002', 'NM', 'nonfoil', 'en', 4, null),
+  ('b2000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000002', 'LP', 'nonfoil', 'en', 2, null),
+  -- (3) two printings in one deck, one call rekeying both
+  ('b2000000-0000-0000-0000-000000000005', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000003', 'NM', 'nonfoil', 'en', 4, null),
+  ('b2000000-0000-0000-0000-000000000006', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'b1000000-0000-0000-0000-000000000003', 'NM', 'nonfoil', 'en', 2, null),
+  -- (4) KEEP-THE-ROW: id and acquired_at must survive
+  ('b2000000-0000-0000-0000-000000000007', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000004', 'NM', 'nonfoil', 'en', 3, null),
+  -- (5) chained steps: step 2 merges into the row step 1 just re-filed
+  ('b2000000-0000-0000-0000-000000000008', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000005', 'NM', 'nonfoil', 'en', 2, null),
+  ('b2000000-0000-0000-0000-000000000009', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000007', 'LP', 'nonfoil', 'en', 3, null),
+  -- (6) a stale later step must roll back the whole list
+  ('b2000000-0000-0000-0000-000000000010', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000008', 'NM', 'nonfoil', 'en', 5, null),
+  ('b2000000-0000-0000-0000-000000000011', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000008', 'LP', 'nonfoil', 'en', 1, null),
+  -- (7a/7b) self-merge, and more copies than the pile holds
+  ('b2000000-0000-0000-0000-000000000012', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000011', 'NM', 'nonfoil', 'en', 2, null),
+  -- (7c) a merge target carrying a note must be refused
+  ('b2000000-0000-0000-0000-000000000013', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000010', 'LP', 'nonfoil', 'en', 1, 'signed by artist'),
+  ('b2000000-0000-0000-0000-000000000014', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000010', 'NM', 'nonfoil', 'en', 2, null),
+  -- (7d) nyx's own row, used to try to merge into orin's readable-but-not-owned row
+  ('b2000000-0000-0000-0000-000000000016', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000011', 'NM', 'nonfoil', 'en', 2, null),
+  -- (7e) a location owned by someone else
+  ('b2000000-0000-0000-0000-000000000017', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000012', 'NM', 'nonfoil', 'en', 2, null),
+  -- (7f) open trade blocks MERGE/SPLIT but not KEEP
+  ('b2000000-0000-0000-0000-000000000018', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000013', 'NM', 'nonfoil', 'en', 3, null),
+  ('b2000000-0000-0000-0000-000000000019', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000014', 'LP', 'nonfoil', 'en', 2, null),
+  -- (7f-finish) same idea, a card that actually comes in foil (M10, not LEA),
+  -- to test KEEP-THE-ROW blocked specifically by a finish change.
+  ('b2000000-0000-0000-0000-000000000022', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', 'b1000000-0000-0000-0000-000000000013', 'NM', 'nonfoil', 'en', 1, null),
+  -- (8) replay
+  ('b2000000-0000-0000-0000-000000000020', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000015', 'NM', 'nonfoil', 'en', 4, null),
+  ('b2000000-0000-0000-0000-000000000021', 'b0000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000015', 'LP', 'nonfoil', 'en', 1, null);
+
+-- (7d) needs a row that is genuinely orin's, sitting in orin's own tradable
+-- binder -- migration 9 makes it readable to nyx (an accepted friend), and
+-- that readability is exactly what this case must not be fooled by.
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'b0000000-0000-0000-0000-000000000002'; -- orin
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('b2000000-0000-0000-0000-000000000015', 'b0000000-0000-0000-0000-000000000002',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'b1000000-0000-0000-0000-000000000020', 'NM', 'nonfoil', 'en', 1);
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = 'b0000000-0000-0000-0000-000000000001'; -- nyx
+
+-- (1) WHOLE-PILE MERGE inside a deck. The ordering case: both source and
+-- target are the SAME card_id (a rekey never changes card_id, unlike
+-- apply_stack_reprint), so nothing physically enters or leaves the deck --
+-- only the record of which pile these six copies sit in changes.
+do $$
+declare
+  r_result record;
+  v_entries int; v_total int;
+  v_dest_qty int; v_dest_owner uuid; v_dest_loc uuid;
+  v_source_exists int;
+begin
+  select count(*), coalesce(sum(quantity), 0) into v_entries, v_total
+    from public.deck_cards where deck_id = 'b1000000-0000-0000-0000-000000000001';
+  assert v_entries = 1 and v_total = 6,
+    'fixture precondition: the merge deck should list 6 across 1 entry, saw '
+    || v_entries || ' entries totalling ' || v_total;
+
+  select * into r_result from public.apply_stack_rekey(
+    'b4000000-0000-0000-0000-000000000001'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'instance_id', 'b2000000-0000-0000-0000-000000000001',
+      'quantity', 4,
+      'condition', 'LP',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', 'b1000000-0000-0000-0000-000000000001',
+      'notes', null,
+      'target_instance_id', 'b2000000-0000-0000-0000-000000000002'
+    ))
+  );
+  assert r_result.result_quantity = 6 and r_result.replayed = false,
+    'the merge target should land at 2+4=6, got ' || r_result.result_quantity;
+
+  -- THE ASSERTION THIS SECTION EXISTS FOR. Six cards went into the deck and
+  -- six are still there, so the list must not move. Increment the destination
+  -- before clearing the source and migration 37's trigger sees 10 against 6,
+  -- adds a shortfall of 4, and this reads 10.
+  select count(*), coalesce(sum(quantity), 0) into v_entries, v_total
+    from public.deck_cards where deck_id = 'b1000000-0000-0000-0000-000000000001';
+  assert v_total = 6,
+    'a rekey moves no card into the deck, so the list must stay at 6 -- got '
+    || v_total || ' (destination incremented before the source was cleared?)';
+  assert v_entries = 1, 'a same-card merge must not fork the list entry (got ' || v_entries || ')';
+
+  select quantity, owner_user_id, location_id into v_dest_qty, v_dest_owner, v_dest_loc
+    from public.card_instances where id = 'b2000000-0000-0000-0000-000000000002';
+  assert v_dest_qty = 6, 'the destination stack should hold 6, got ' || v_dest_qty;
+  assert v_dest_owner = 'b0000000-0000-0000-0000-000000000001'
+     and v_dest_loc = 'b1000000-0000-0000-0000-000000000001',
+    'a rekey must not touch ownership or location on the merged-into row beyond what was decided (hard constraint 6)';
+
+  select count(*) into v_source_exists from public.card_instances
+   where id = 'b2000000-0000-0000-0000-000000000001';
+  assert v_source_exists = 0, 'a whole-pile merge must remove the emptied source row';
+end $$;
+
+-- (2) PARTIAL MERGE. One of four. The off-by-one is harder to spot in
+-- production than case 1, so this matters more.
+do $$
+declare r_result record; v_total int; v_src int;
+begin
+  select * into r_result from public.apply_stack_rekey(
+    'b4000000-0000-0000-0000-000000000002'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'instance_id', 'b2000000-0000-0000-0000-000000000003',
+      'quantity', 1,
+      'condition', 'LP',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', 'b1000000-0000-0000-0000-000000000002',
+      'notes', null,
+      'target_instance_id', 'b2000000-0000-0000-0000-000000000004'
+    ))
+  );
+  assert r_result.result_quantity = 3, 'the merge target should land at 2+1=3, got ' || r_result.result_quantity;
+
+  select coalesce(sum(quantity), 0) into v_total
+    from public.deck_cards where deck_id = 'b1000000-0000-0000-0000-000000000002';
+  assert v_total = 6,
+    'a partial rekey moves no card into the deck either -- the list must stay at 6, got '
+    || v_total || ' (7 means the destination was incremented first)';
+
+  select quantity into v_src from public.card_instances
+   where id = 'b2000000-0000-0000-0000-000000000003';
+  assert v_src = 3, 'the source pile keeps the 3 copies that were not rekeyed, got ' || v_src;
+end $$;
+
+-- (3) TWO PRINTINGS IN ONE DECK, rekeyed together in ONE call (mirrors
+-- section 12's shape). Both steps are KEEP-THE-ROW (whole pile, no merge
+-- target), so neither list entry should move at all -- proving one call can
+-- carry steps against different printings of the same card without either
+-- one bleeding into the other's count.
+do $$
+declare
+  r_lea record; r_m10 record;
+  v_lea_qty int; v_m10_qty int; v_lea_cond text; v_m10_finish text;
+begin
+  for r_lea in
+    select * from public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000003'::uuid,
+      jsonb_build_array(
+        jsonb_build_object(
+          'instance_id', 'b2000000-0000-0000-0000-000000000005',
+          'quantity', 4, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+          'location_id', 'b1000000-0000-0000-0000-000000000003',
+          'notes', null, 'target_instance_id', null
+        ),
+        jsonb_build_object(
+          'instance_id', 'b2000000-0000-0000-0000-000000000006',
+          'quantity', 2, 'condition', 'NM', 'finish', 'foil', 'language', 'en',
+          'location_id', 'b1000000-0000-0000-0000-000000000003',
+          'notes', null, 'target_instance_id', null
+        )
+      )
+    )
+  loop
+    if r_lea.step_index = 0 then
+      assert r_lea.result_instance_id = 'b2000000-0000-0000-0000-000000000005'
+         and r_lea.result_quantity = 4,
+        'step 0 (LEA) should keep its own row at quantity 4, got id ' || r_lea.result_instance_id
+        || ' quantity ' || r_lea.result_quantity;
+    elsif r_lea.step_index = 1 then
+      assert r_lea.result_instance_id = 'b2000000-0000-0000-0000-000000000006'
+         and r_lea.result_quantity = 2,
+        'step 1 (M10) should keep its own row at quantity 2, got id ' || r_lea.result_instance_id
+        || ' quantity ' || r_lea.result_quantity;
+    else
+      assert false, 'unexpected step_index ' || r_lea.step_index;
+    end if;
+  end loop;
+
+  select quantity into v_lea_qty from public.deck_cards
+   where deck_id = 'b1000000-0000-0000-0000-000000000003'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into v_m10_qty from public.deck_cards
+   where deck_id = 'b1000000-0000-0000-0000-000000000003'
+     and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+  assert v_lea_qty = 4, 'the LEA entry must keep its own 4, unmoved by a same-quantity rekey (got ' || v_lea_qty || ')';
+  assert v_m10_qty = 2, 'the M10 entry must keep its own 2, unmoved by a same-quantity rekey (got ' || v_m10_qty || ')';
+
+  select condition into v_lea_cond from public.card_instances where id = 'b2000000-0000-0000-0000-000000000005';
+  select finish into v_m10_finish from public.card_instances where id = 'b2000000-0000-0000-0000-000000000006';
+  assert v_lea_cond = 'LP', 'the LEA row should carry its own step''s new condition, got ' || v_lea_cond;
+  assert v_m10_finish = 'foil', 'the M10 row should carry its own step''s new finish, got ' || v_m10_finish;
+end $$;
+
+-- (4) KEEP-THE-ROW: id and acquired_at survive. Confirmed to fail when this
+-- branch was temporarily written as delete-and-reinsert (a different id came
+-- back, and acquired_at reset to now()).
+do $$
+declare
+  r_result record;
+  v_acquired timestamptz; v_acquired_after timestamptz;
+  v_cond text; v_loc uuid;
+begin
+  select acquired_at into v_acquired from public.card_instances
+   where id = 'b2000000-0000-0000-0000-000000000007';
+
+  select * into r_result from public.apply_stack_rekey(
+    'b4000000-0000-0000-0000-000000000004'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'instance_id', 'b2000000-0000-0000-0000-000000000007',
+      'quantity', 3,
+      'condition', 'LP',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', 'b1000000-0000-0000-0000-000000000016',
+      'notes', null,
+      'target_instance_id', null
+    ))
+  );
+
+  assert r_result.result_instance_id = 'b2000000-0000-0000-0000-000000000007',
+    'a whole-pile rekey with no merge target must keep the row id, got ' || r_result.result_instance_id;
+  assert r_result.result_quantity = 3, 'the row keeps its own quantity, got ' || r_result.result_quantity;
+
+  select condition, location_id, acquired_at into v_cond, v_loc, v_acquired_after
+    from public.card_instances where id = 'b2000000-0000-0000-0000-000000000007';
+  assert v_cond = 'LP', 'the condition should have changed';
+  assert v_loc = 'b1000000-0000-0000-0000-000000000016', 'the location should have changed';
+  assert v_acquired_after = v_acquired, 'acquired_at must survive a rekey';
+end $$;
+
+-- (5) CHAINED STEPS: the second step merges into a row the FIRST step, in the
+-- SAME call, just re-filed to a new id-preserving state. This can only pass
+-- if step 2 sees step 1's write, not a snapshot taken before the loop began.
+do $$
+declare r_result record; v_x_qty int; v_x_loc uuid; v_x_cond text; v_y_exists int;
+begin
+  for r_result in
+    select * from public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000005'::uuid,
+      jsonb_build_array(
+        jsonb_build_object(
+          'instance_id', 'b2000000-0000-0000-0000-000000000008',
+          'quantity', 2, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+          'location_id', 'b1000000-0000-0000-0000-000000000006',
+          'notes', null, 'target_instance_id', null
+        ),
+        jsonb_build_object(
+          'instance_id', 'b2000000-0000-0000-0000-000000000009',
+          'quantity', 3, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+          'location_id', 'b1000000-0000-0000-0000-000000000006',
+          'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000008'
+        )
+      )
+    )
+  loop
+    if r_result.step_index = 1 then
+      assert r_result.result_instance_id = 'b2000000-0000-0000-0000-000000000008'
+         and r_result.result_quantity = 5,
+        'step 2 should merge into step 1''s row (X), landing at 2+3=5 -- got id '
+        || r_result.result_instance_id || ' quantity ' || r_result.result_quantity;
+    end if;
+  end loop;
+
+  select quantity, location_id, condition into v_x_qty, v_x_loc, v_x_cond
+    from public.card_instances where id = 'b2000000-0000-0000-0000-000000000008';
+  assert v_x_qty = 5 and v_x_loc = 'b1000000-0000-0000-0000-000000000006' and v_x_cond = 'LP',
+    'X should hold both piles after the chained merge, got quantity ' || v_x_qty;
+
+  select count(*) into v_y_exists from public.card_instances
+   where id = 'b2000000-0000-0000-0000-000000000009';
+  assert v_y_exists = 0, 'a whole-pile merge must remove Y, the emptied second-step source';
+end $$;
+
+-- (6) A STALE LATER STEP rolls back the WHOLE list, not just itself. Step 1
+-- fully merges A into B; step 2 then tries to use A again, which step 1 in
+-- this SAME call already deleted. The entire call must be undone -- including
+-- step 1's already-applied merge.
+do $$
+declare r_result record; v_a_qty int; v_b_qty int; v_a_exists int;
+begin
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000006'::uuid,
+      jsonb_build_array(
+        jsonb_build_object(
+          'instance_id', 'b2000000-0000-0000-0000-000000000010',
+          'quantity', 5, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+          'location_id', 'b1000000-0000-0000-0000-000000000008',
+          'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000011'
+        ),
+        jsonb_build_object(
+          'instance_id', 'b2000000-0000-0000-0000-000000000010',
+          'quantity', 1, 'condition', 'NM', 'finish', 'nonfoil', 'language', 'en',
+          'location_id', 'b1000000-0000-0000-0000-000000000008',
+          'notes', null, 'target_instance_id', null
+        )
+      )
+    );
+    assert false, 'a later step referencing a row an earlier step in this call already spent must abort the whole list';
+  exception when no_data_found then null;
+  end;
+
+  select count(*) into v_a_exists from public.card_instances
+   where id = 'b2000000-0000-0000-0000-000000000010';
+  assert v_a_exists = 1, 'the whole list must roll back -- A must still exist, saw ' || v_a_exists || ' rows';
+
+  select quantity into v_a_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000010';
+  select quantity into v_b_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000011';
+  assert v_a_qty = 5, 'A must be exactly as it was before the aborted call, saw ' || v_a_qty;
+  assert v_b_qty = 1, 'B must not have absorbed step 1''s merge once the list as a whole failed, saw ' || v_b_qty;
+end $$;
+
+-- (7) THE REFUSALS.
+do $$
+declare r_result record; v_qty int;
+begin
+  -- 7a: self-merge.
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000007'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000012',
+        'quantity', 2, 'condition', 'NM', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000011',
+        'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000012'
+      ))
+    );
+    assert false, 'merging a pile into itself must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- 7b: more copies than the pile holds.
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000008'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000012',
+        'quantity', 99, 'condition', 'NM', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000011',
+        'notes', null, 'target_instance_id', null
+      ))
+    );
+    assert false, 'rekeying more copies than the pile holds must be refused';
+  exception when no_data_found then null;
+  end;
+
+  select quantity into v_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000012';
+  assert v_qty = 2, 'both refusals above must have left the copy untouched, saw ' || v_qty;
+
+  -- 7c: a merge target carrying a note must be refused (decideStacking's
+  -- "only an un-annotated row merges" rule, enforced here too).
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000009'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000014',
+        'quantity', 2, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000010',
+        'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000013'
+      ))
+    );
+    assert false, 'a merge target carrying a note must be refused';
+  exception when no_data_found then null;
+  end;
+
+  select quantity into v_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000014';
+  assert v_qty = 2, 'a refused note-carrying merge must leave the source untouched, saw ' || v_qty;
+  select quantity into v_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000013';
+  assert v_qty = 1, 'a refused note-carrying merge must leave the target untouched, saw ' || v_qty;
+
+  -- 7d: the merge target is a friend's tradable-binder row -- genuinely
+  -- readable to nyx via migration 9's RLS policy, but not nyx's to merge
+  -- into. This is hard constraint 3's case, restated for a rekey.
+  perform 1 from public.card_instances where id = 'b2000000-0000-0000-0000-000000000015';
+  if not found then
+    assert false, 'nyx should be able to read orin''s tradable-binder row via migration 9''s policy';
+  end if;
+
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000010'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000016',
+        'quantity', 2, 'condition', 'NM', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000020',
+        'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000015'
+      ))
+    );
+    assert false, 'merging into a row that is readable but not yours must be refused';
+  exception when no_data_found then null;
+  end;
+
+  select quantity into v_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000016';
+  assert v_qty = 2, 'a refused cross-user merge must leave the caller''s own row untouched, saw ' || v_qty;
+  select quantity into v_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000015';
+  assert v_qty = 1, 'a refused cross-user merge must leave the other owner''s row completely untouched, saw ' || v_qty;
+
+  -- 7e: a location owned by someone else. Orin's tradable binder is
+  -- genuinely readable to nyx (same policy as 7d), so this exercises the
+  -- ownership check on card_instances_enforce_location_owner (migration 5),
+  -- not RLS's own invisibility.
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000011'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000017',
+        'quantity', 2, 'condition', 'NM', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000020',
+        'notes', null, 'target_instance_id', null
+      ))
+    );
+    assert false, 'rekeying a copy into a location owned by someone else must be refused';
+  exception when check_violation then null;
+  end;
+
+  select quantity into v_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000017';
+  assert v_qty = 2, 'a refused foreign-location rekey must leave the copy untouched, saw ' || v_qty;
+end $$;
+
+-- 7f: THE OPEN-TRADE GATE -- blocks MERGE and SPLIT always, and KEEP-THE-ROW
+-- only when finish changes.
+do $$
+declare
+  r_result record;
+  v_trade uuid := 'b5000000-0000-0000-0000-000000000001';
+  v_qty int;
+  v_finish_check text;
+begin
+  insert into public.trades (id, proposer_id, recipient_id, status)
+  values (v_trade, 'b0000000-0000-0000-0000-000000000001',
+          'b0000000-0000-0000-0000-000000000002', 'proposed');
+  insert into public.trade_items (trade_id, card_instance_id, direction, quantity)
+  values
+    (v_trade, 'b2000000-0000-0000-0000-000000000018', 'from_proposer', 3),
+    (v_trade, 'b2000000-0000-0000-0000-000000000022', 'from_proposer', 1);
+
+  -- MERGE refused while the trade is open.
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000012'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000018',
+        'quantity', 3, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000014',
+        'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000019'
+      ))
+    );
+    assert false, 'a merge of a copy in an open trade must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- SPLIT refused while the trade is open.
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000013'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000018',
+        'quantity', 1, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000013',
+        'notes', null, 'target_instance_id', null
+      ))
+    );
+    assert false, 'a split of a copy in an open trade must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  select quantity into v_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000018';
+  assert v_qty = 3, 'both refused open-trade attempts must leave the copy untouched, saw ' || v_qty;
+
+  -- KEEP-THE-ROW is NOT blocked when finish is unchanged (here: condition and
+  -- location move, finish stays 'nonfoil', matching the row's current
+  -- finish) -- accept_trade does not read either of those live, so a live
+  -- trade has no stake in them.
+  select * into r_result from public.apply_stack_rekey(
+    'b4000000-0000-0000-0000-000000000014'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'instance_id', 'b2000000-0000-0000-0000-000000000018',
+      'quantity', 3, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+      'location_id', 'b1000000-0000-0000-0000-000000000013',
+      'notes', null, 'target_instance_id', null
+    ))
+  );
+  assert r_result.result_instance_id = 'b2000000-0000-0000-0000-000000000018'
+     and r_result.result_quantity = 3,
+    'a copy in an open trade must still be re-fileable in place when finish is unchanged, got id ' ||
+    r_result.result_instance_id || ' quantity ' || r_result.result_quantity;
+
+  -- KEEP-THE-ROW IS blocked when it changes finish: accept_trade reads finish
+  -- live off the row at accept time (migration 39's own reasoning for gating
+  -- reprint's in-place branch), so this is the same risk reached through
+  -- rekey's keep-the-row branch instead of reprint's. Uses the M10 printing
+  -- (b2000000-...021), which actually comes in foil -- LEA (used above) does
+  -- not, so a finish change there would be refused by the finish-availability
+  -- check regardless of the trade gate, proving nothing about this gate.
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000017'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000022',
+        'quantity', 1, 'condition', 'NM', 'finish', 'foil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000013',
+        'notes', null, 'target_instance_id', null
+      ))
+    );
+    assert false, 'a keep-the-row finish change on a copy in an open trade must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  select finish into v_finish_check from public.card_instances where id = 'b2000000-0000-0000-0000-000000000022';
+  assert v_finish_check = 'nonfoil',
+    'a refused open-trade finish change must leave the copy''s finish untouched, saw ' || v_finish_check;
+
+  -- ...and once the trade is no longer open, the same copy merges normally --
+  -- same "a cancelled trade does not keep blocking it" check section 19 makes
+  -- for apply_stack_reprint.
+  update public.trades set status = 'cancelled' where id = v_trade;
+
+  select * into r_result from public.apply_stack_rekey(
+    'b4000000-0000-0000-0000-000000000015'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'instance_id', 'b2000000-0000-0000-0000-000000000018',
+      'quantity', 3, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+      'location_id', 'b1000000-0000-0000-0000-000000000014',
+      'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000019'
+    ))
+  );
+  assert r_result.result_quantity = 5,
+    'a cancelled trade must not keep blocking the merge, expected 2+3=5, got ' || r_result.result_quantity;
+end $$;
+
+-- (8) IDEMPOTENCY: the same operation id replays rather than re-applying, and
+-- the same id with different steps is refused rather than silently redone
+-- with the new details. Uses a MERGE deliberately -- a KEEP would look
+-- identical whether or not it silently re-ran; a merge's total would visibly
+-- rise if it did.
+do $$
+declare r_result record; v_target_qty int; v_source_exists int;
+begin
+  select * into r_result from public.apply_stack_rekey(
+    'b4000000-0000-0000-0000-000000000016'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'instance_id', 'b2000000-0000-0000-0000-000000000020',
+      'quantity', 4, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+      'location_id', 'b1000000-0000-0000-0000-000000000015',
+      'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000021'
+    ))
+  );
+  assert r_result.result_quantity = 5 and r_result.replayed = false,
+    'the merge target should land at 1+4=5, got ' || r_result.result_quantity;
+
+  -- Replay: same operation id, same steps.
+  select * into r_result from public.apply_stack_rekey(
+    'b4000000-0000-0000-0000-000000000016'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'instance_id', 'b2000000-0000-0000-0000-000000000020',
+      'quantity', 4, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+      'location_id', 'b1000000-0000-0000-0000-000000000015',
+      'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000021'
+    ))
+  );
+  assert r_result.replayed = true and r_result.result_quantity = 5,
+    'a replay must report the recorded result rather than redo anything, got quantity ' ||
+    r_result.result_quantity || ' replayed ' || r_result.replayed::text;
+
+  select quantity into v_target_qty from public.card_instances where id = 'b2000000-0000-0000-0000-000000000021';
+  assert v_target_qty = 5, 'a replay must not merge a second time -- 9 would mean it did, saw ' || v_target_qty;
+
+  select count(*) into v_source_exists from public.card_instances where id = 'b2000000-0000-0000-0000-000000000020';
+  assert v_source_exists = 0, 'the emptied source must still be gone, not somehow recreated by the replay';
+
+  -- Same operation id, DIFFERENT steps: refused outright, not silently
+  -- redone with the new details.
+  begin
+    perform public.apply_stack_rekey(
+      'b4000000-0000-0000-0000-000000000016'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'instance_id', 'b2000000-0000-0000-0000-000000000020',
+        'quantity', 1, 'condition', 'LP', 'finish', 'nonfoil', 'language', 'en',
+        'location_id', 'b1000000-0000-0000-0000-000000000015',
+        'notes', null, 'target_instance_id', 'b2000000-0000-0000-0000-000000000021'
+      ))
+    );
+    assert false, 'a reused operation id with a different step list must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'
