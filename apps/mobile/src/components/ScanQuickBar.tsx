@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LANGUAGES, type Finish } from '@upkeep/scan-core';
 import { Choices } from './ui';
-import { accent, border, radius, space, surface, text as textColor } from '../theme';
+import { accent, border, fontFamily, radius, space, surface, text as textColor } from '../theme';
 import { makeStyles } from '../preferences';
 
 /**
@@ -88,9 +88,9 @@ const useStyles = makeStyles(() => StyleSheet.create({
   chip: { paddingVertical: 8, paddingHorizontal: 11, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised },
   chipLocked: { backgroundColor: accent.soft, borderColor: accent.DEFAULT },
   chipDisabled: { opacity: 0.4 },
-  chipText: { fontSize: 13, fontWeight: '600', color: textColor.primary },
+  chipText: { fontSize: 13, fontFamily: fontFamily.bodySemiBold, fontWeight: '600', color: textColor.primary },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto' },
   stepperButton: { width: 30, height: 30, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, alignItems: 'center', justifyContent: 'center' },
-  stepperText: { fontSize: 16, fontWeight: '700', color: textColor.primary },
-  stepperValue: { fontSize: 14, fontWeight: '700', color: textColor.primary, minWidth: 20, textAlign: 'center' },
+  stepperText: { fontSize: 16, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: textColor.primary },
+  stepperValue: { fontSize: 14, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: textColor.primary, minWidth: 20, textAlign: 'center' },
 }));

@@ -6,7 +6,7 @@ import { Button, Choices } from '../components/ui';
 import { ListRow } from '../components/ListRow';
 import { MortStage } from '../mort/MortStage';
 import type { StagedCard } from './ScanScreen';
-import { border, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
+import { border, fontFamily, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
 import { makeStyles } from '../preferences';
 
 type Location = { id: string; name: string };
@@ -335,16 +335,19 @@ function sameCardPrintings(index: CardIndex, current: Printing, setCode: string,
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   section: { ...typeTokens.title, color: textColor.primary },
   body: { ...typeTokens.body, fontSize: 13, lineHeight: 21, color: textColor.secondary },
-  label: { fontSize: 13, fontWeight: '700', color: textColor.primary, marginTop: space.sm },
-  input: { backgroundColor: surface.canvas, borderColor: border.hairline, borderWidth: 1, borderRadius: radius.sm + 2, padding: 14, color: textColor.primary, fontSize: 16 },
+  label: { fontSize: 13, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: textColor.primary, marginTop: space.sm },
+  // radius.md is the token for inputs; this was `radius.sm + 2`, an
+  // arithmetic one-off that happened to land near it. type.input supplies the
+  // font family a bare `fontSize: 16` was missing.
+  input: { backgroundColor: surface.canvas, borderColor: border.hairline, borderWidth: 1, borderRadius: radius.md, padding: 14, color: textColor.primary, ...typeTokens.input },
   row: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   grow: { flex: 1 },
   addButton: { width: 48, height: 48, borderRadius: radius.sm + 2, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, alignItems: 'center', justifyContent: 'center' },
-  addButtonText: { fontSize: 22, fontWeight: '700', color: textColor.primary },
+  addButtonText: { fontSize: 22, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: textColor.primary },
   stagedRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   rowActions: { flexDirection: 'row', gap: 6 },
   iconButton: { width: 36, height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, alignItems: 'center', justifyContent: 'center' },

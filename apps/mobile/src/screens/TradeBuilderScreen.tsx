@@ -139,7 +139,7 @@ export function TradeBuilderScreen({ route, navigation }: NativeStackScreenProps
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   title: { ...type.title, color: text.primary },
   sub: { ...type.bodySm, color: text.secondary },
   input: { ...type.body, color: text.primary, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised },

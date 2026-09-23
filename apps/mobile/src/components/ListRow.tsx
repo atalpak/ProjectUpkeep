@@ -1,6 +1,6 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { border, radius, surface, text } from '../theme';
+import { border, radius, surface, text, type } from '../theme';
 import { makeStyles } from '../preferences';
 
 /**
@@ -36,9 +36,9 @@ const useStyles = makeStyles(() => StyleSheet.create({
   row: { flexDirection: 'row', gap: 14, alignItems: 'center', backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, padding: 14, borderRadius: radius.md },
   rowDimmed: { opacity: 0.55, borderStyle: 'dashed' },
   grow: { flex: 1 },
-  title: { fontSize: 16, fontWeight: '600', color: text.primary },
+  title: { ...type.rowTitle, color: text.primary },
   titleDimmed: { color: text.secondary },
-  subtitle: { fontSize: 13, lineHeight: 21, color: text.secondary },
+  subtitle: { ...type.bodySm, color: text.secondary },
   thumbnail: { width: 45, height: 63, borderRadius: 3 },
   arrow: { fontSize: 28, color: text.secondary },
 }));

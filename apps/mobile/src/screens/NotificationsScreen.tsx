@@ -64,7 +64,7 @@ export function NotificationsScreen() {
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.sm },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.sm },
   sub: { ...type.bodySm, color: text.secondary },
   grow: { flex: 1, gap: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, minHeight: 56, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },

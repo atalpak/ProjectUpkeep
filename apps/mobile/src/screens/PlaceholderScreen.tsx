@@ -17,7 +17,7 @@ export function PlaceholderScreen({ page }: { page: PageId }) {
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.md },
+  page: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.md },
   mort: { width: 140, height: 140 },
   // Same display type PageTitle.tsx uses on every other root screen, so this
   // "coming soon" stand-in reads as the same title language, just centered.

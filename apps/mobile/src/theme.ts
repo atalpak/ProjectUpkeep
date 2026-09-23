@@ -94,10 +94,27 @@ export function applyScheme(scheme: Scheme): void {
 
 export const scrim = 'rgba(31,31,31,0.55)';
 
-type TypeToken = { fontSize: number; lineHeight: number; fontFamily: string; fontWeight?: '400' | '600' | '700'; letterSpacing?: number; fontStyle?: 'italic' };
+type TypeToken = { fontSize: number; lineHeight: number; fontFamily: string; fontWeight?: '400' | '600' | '700' | '800'; letterSpacing?: number; fontStyle?: 'italic' };
 
+/**
+ * Every named scale the mobile UI refinement brief's Priority 4 asks for
+ * ("Define shared styles for page title, section heading, row title, row
+ * metadata, caption, button label, input, icon button, status badge") maps
+ * onto a key here except icon button, which is a touch-target size
+ * (`iconButtonSize` below), not a text style. Two of the nine already existed
+ * under other names and are not duplicated: page title is `display` (used
+ * directly by `components/PageTitle.tsx`), and section heading is `title`
+ * (every screen's own "heading"/"card" label already spreads this). The rest
+ * -- `rowTitle`, `caption`, `buttonLabel`, `input`, `statusBadge` -- are new
+ * here because screens had been hand-rolling near-identical `{ fontSize,
+ * fontWeight }` objects with no `fontFamily`, which React Native silently
+ * renders in the system font rather than erroring on -- a real, checkable bug
+ * class the brief calls out by name. `row metadata` reuses `bodySm` rather
+ * than adding a tenth key: every existing "row subtitle" style already meant
+ * exactly this size.
+ */
 export const type: Record<
-  'display' | 'title' | 'body' | 'bodySm' | 'label' | 'eyebrow' | 'mort',
+  'display' | 'title' | 'body' | 'bodySm' | 'label' | 'eyebrow' | 'mort' | 'rowTitle' | 'caption' | 'buttonLabel' | 'input' | 'statusBadge',
   TypeToken
 > = {
   display: { fontSize: 28, lineHeight: 34, fontFamily: fontFamily.display, fontWeight: '600' },
@@ -109,11 +126,38 @@ export const type: Record<
   // Mort voice lines only -- see the brand doc's "Project Upkeep voice vs
   // Mort voice" section. Never used for routine system copy.
   mort: { fontSize: 15, lineHeight: 20, fontFamily: fontFamily.body, fontWeight: '400', fontStyle: 'italic' },
+  // A list row's own title -- ListRow and the flat card/deck/location/friend
+  // rows that hand-rolled `{ fontSize: 16, fontWeight: '600' }` with no
+  // family all meant this. Distinct from `title` (20pt, section headings):
+  // a row title is one size down, still semibold.
+  rowTitle: { fontSize: 16, lineHeight: 22, fontFamily: fontFamily.bodySemiBold, fontWeight: '600' },
+  // Fine print smaller than `bodySm` -- counts, timestamps, helper text under
+  // a control. Distinct from `label` (bold, letter-spaced, for chips/tags).
+  caption: { fontSize: 12, lineHeight: 16, fontFamily: fontFamily.body, fontWeight: '400' },
+  // A button's own label -- what `Button` in ui.tsx renders for both its
+  // primary and secondary variants (the secondary one used to omit
+  // `fontFamily` entirely, the exact bug this token exists to stop).
+  buttonLabel: { fontSize: 15, lineHeight: 20, fontFamily: fontFamily.bodySemiBold, fontWeight: '700' },
+  // Text typed into a `TextInput`. Several screens set only `fontSize: 16`
+  // with no family at all (not even a `fontWeight` to hide behind) -- this is
+  // that same 16pt size, named, so it reads as a deliberate choice.
+  input: { fontSize: 16, lineHeight: 22, fontFamily: fontFamily.body, fontWeight: '400' },
+  // A small pill/overlay's number or word -- unread counts, quantity badges,
+  // the "Soon" tag's sibling on numeric badges. One size up from `label` and
+  // bolder, matching what AppHeader/MenuSheet/Collection's badges already
+  // rendered by hand (each missing `fontFamily`).
+  statusBadge: { fontSize: 11, lineHeight: 14, fontFamily: fontFamily.bodySemiBold, fontWeight: '700' },
 };
 
 export const radius = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const;
+
+// The one touch-target size every plain icon-only control (back chevron, menu
+// button, a sheet's close button) shares -- see `IconButton` in
+// `components/ui.tsx`. Named so AppHeader/MenuSheet/BottomSheet reference the
+// same constant instead of three separate `44`s that happened to agree.
+export const iconButtonSize = 44;
 
 // Milliseconds. `reactLong` covers the NONE band's longer hold (see
 // ScanScreen); `file` is the save-success reaction's fixed duration.

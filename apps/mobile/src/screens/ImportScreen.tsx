@@ -225,7 +225,7 @@ export function ImportScreen() {
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   title: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
   big: { ...type.title, color: text.primary },
   body: { ...type.bodySm, color: text.secondary },

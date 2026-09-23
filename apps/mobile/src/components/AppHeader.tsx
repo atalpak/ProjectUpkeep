@@ -1,8 +1,8 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Image, StyleSheet, View } from 'react-native';
 import { makeStyles } from '../preferences';
-import { accent, radius, space, surface, text } from '../theme';
+import { Badge, IconButton } from './ui';
+import { accent, iconButtonSize, space, surface } from '../theme';
 
 const AVATAR = 42;
 // The head-and-shoulders region of mort_idle.png (512px square art), in source
@@ -10,8 +10,9 @@ const AVATAR = 42;
 const CROP = { x: 85, y: 10, size: 340 };
 // Both edge regions are this wide, whether or not they hold a button, so Mort
 // stays geometrically centered regardless of back-button visibility (brief's
-// first acceptance criterion) and every touch target in the bar is >= 44pt.
-const SIDE = 44;
+// first acceptance criterion) and every touch target in the bar is >= 44pt --
+// the same size `IconButton` (components/ui.tsx) uses by default.
+const SIDE = iconButtonSize;
 
 /** Mort from the shoulders up, clipped to a circle, on an accent.soft medallion
  * for contrast in both themes. Decorative only -- never a navigation trigger. */
@@ -48,19 +49,20 @@ export function AppHeader({ onMenu, unread = 0, showBack, onBack }: { onMenu(): 
     <View style={styles.bar}>
       <View style={styles.side}>
         {showBack && (
-          <Pressable accessibilityRole="button" accessibilityLabel="Go back" hitSlop={4} onPress={onBack} style={styles.edgeButton}>
-            <Ionicons name="chevron-back" size={26} color={text.primary} />
-          </Pressable>
+          <IconButton icon="chevron-back" iconSize={26} accessibilityLabel="Go back" onPress={onBack} />
         )}
       </View>
       <View style={styles.center}>
         <MortAvatar />
       </View>
       <View style={styles.side}>
-        <Pressable accessibilityRole="button" accessibilityLabel={unread > 0 ? `Open menu, ${unread} unread notification${unread === 1 ? '' : 's'}` : 'Open menu'} hitSlop={4} onPress={onMenu} style={styles.edgeButton}>
-          <Ionicons name="menu" size={26} color={text.primary} />
-          {unread > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{unread > 9 ? '9+' : unread}</Text></View>}
-        </Pressable>
+        <IconButton
+          icon="menu"
+          iconSize={26}
+          accessibilityLabel={unread > 0 ? `Open menu, ${unread} unread notification${unread === 1 ? '' : 's'}` : 'Open menu'}
+          onPress={onMenu}
+        />
+        {unread > 0 && <Badge value={unread > 9 ? '9+' : unread} style={styles.badge} />}
       </View>
     </View>
   );
@@ -74,7 +76,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   side: { width: SIDE, height: SIDE, alignItems: 'center', justifyContent: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   avatar: { overflow: 'hidden', backgroundColor: accent.soft },
-  edgeButton: { width: SIDE, height: SIDE, alignItems: 'center', justifyContent: 'center' },
-  badge: { position: 'absolute', top: 6, right: 6, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: radius.pill, backgroundColor: accent.DEFAULT, alignItems: 'center', justifyContent: 'center' },
-  badgeText: { fontSize: 10, lineHeight: 12, fontWeight: '700', color: text.onAccent },
+  // Positions the shared `Badge` on top of the menu button's `IconButton',
+  // matching where the old hand-rolled badge sat.
+  badge: { position: 'absolute', top: 6, right: 6 },
 }));
