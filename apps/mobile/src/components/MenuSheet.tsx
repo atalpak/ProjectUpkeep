@@ -27,8 +27,13 @@ if (__DEV__) {
   const grouped = MENU_GROUPS.flatMap(g => g.pages);
   const missing = MENU_ORDER.filter(id => !grouped.includes(id));
   const extra = grouped.filter(id => !MENU_ORDER.includes(id));
-  if (missing.length || extra.length) {
-    console.warn('[MenuSheet] MENU_GROUPS is out of sync with MENU_ORDER', { missing, extra });
+  // `.includes()` alone only catches an id being absent, not a real id
+  // appearing in two groups at once (it's still `MENU_ORDER.includes(id)`,
+  // so `extra` misses it, and every other id can still be present so
+  // `missing` misses it too) -- checked separately by position.
+  const duplicates = grouped.filter((id, i) => grouped.indexOf(id) !== i);
+  if (missing.length || extra.length || duplicates.length) {
+    console.warn('[MenuSheet] MENU_GROUPS is out of sync with MENU_ORDER', { missing, extra, duplicates });
   }
 }
 

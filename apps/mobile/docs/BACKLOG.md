@@ -646,6 +646,23 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
     read and write through `usePreferences()`'s `slots`/`setSlot` exactly as
     the rest of Settings always has, and `MENU_GROUPS`' four arrays were
     checked by hand against `MENU_ORDER`'s twelve ids for a clean partition.
+  - **Reviewed, one finding fixed, 2026-09-23.** Everything above checked out
+    on independent review — the `setSlot` swap claim was traced by hand with
+    a concrete example, the menu partition was re-checked against the real
+    `MENU_ORDER`. One real gap: the `__DEV__` drift-check's own comment
+    claimed it caught "an id dropped or duplicated across groups," but
+    `.includes()` alone only catches an id going missing — a real id
+    appearing in *two* groups at once (nothing else dropped) left both
+    `missing` and `extra` empty, since the duplicate is still present
+    somewhere and still a member of `MENU_ORDER`. Not a live bug (no
+    duplication exists in `MENU_GROUPS` today), just a weaker safety net
+    than documented for whoever edits this next. Fixed by checking
+    `grouped.filter((id, i) => grouped.indexOf(id) !== i)` for `duplicates`
+    alongside the existing `missing`/`extra` checks — confirmed by hand
+    against the exact scenario the review described (a page duplicated into
+    two groups with nothing else dropped) that it now reports the
+    duplicate. `npm run lint`, `typecheck -w @upkeep/scanner-app` and
+    `npm test` (702/702) all still pass.
 
 ## Owner decisions — evergreen facts, kept for future work
 
