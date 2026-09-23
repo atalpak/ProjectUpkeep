@@ -4,6 +4,7 @@ import { useApp } from '../AppProvider';
 import { backend } from '../backend';
 import { PRIVACY_URL, TERMS_URL, deleteOwnAccount } from '../auth';
 import { Button, Choices } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { makeStyles, usePreferences, type ThemeMode } from '../preferences';
 import { PAGES, PINNABLE, type PageId } from '../navigation';
 import { border, space, state, surface, text, type as typeTokens } from '../theme';
@@ -45,6 +46,7 @@ export function SettingsScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageTitle>{PAGES.Settings.title}</PageTitle>
       <Text style={styles.heading}>Appearance</Text>
       <View style={styles.card}>
         <Choices values={MODES} selected={mode} labels={MODE_LABELS} onSelect={v => setMode(v as ThemeMode)} />

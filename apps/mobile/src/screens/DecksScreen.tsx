@@ -7,8 +7,9 @@ import { CollectionAuthError } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
 import { Button, EmptyState, Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { MANA_COLORS } from '../components/ManaCost';
-import type { DecksStackParamList } from '../navigation';
+import { PAGES, type DecksStackParamList } from '../navigation';
 import { border, brand, fontFamily, radius, space, state as stateColor, surface, text, type as typeTokens, accent } from '../theme';
 import { makeStyles } from '../preferences';
 
@@ -76,6 +77,7 @@ export function DecksScreen({ navigation }: NativeStackScreenProps<DecksStackPar
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      <PageTitle>{PAGES.Decks.title}</PageTitle>
       {loading && <Text style={styles.body}>Loading your decks…</Text>}
       {authError && <Notice>Your session is no longer valid. Sign out and sign in again to view your decks.</Notice>}
       {!loading && !!error && <>

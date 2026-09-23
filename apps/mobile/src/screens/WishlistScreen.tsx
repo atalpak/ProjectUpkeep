@@ -9,7 +9,9 @@ import { setWantQuantity } from '../wishlist';
 import { CardDetails } from '../components/CardDetails';
 import { Button, EmptyState, Notice } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
+import { PAGES } from '../navigation';
 import { makeStyles } from '../preferences';
 import { useSearchOverlay } from '../searchOverlay';
 import { border, radius, space, surface, text, type } from '../theme';
@@ -123,6 +125,7 @@ function WishlistList({ userId }: { userId: string }) {
         contentContainerStyle={styles.page}
         ListHeaderComponent={
           <>
+            <PageTitle>{PAGES.Wishlist.title}</PageTitle>
             {!!error && (<><Notice>{error}</Notice><Button secondary label="Retry" onPress={() => void load()} /></>)}
             {!loading && !error && wants.length > 0 && <Text style={styles.heading}>{total} card{total === 1 ? '' : 's'} across {wants.length} entr{wants.length === 1 ? 'y' : 'ies'}</Text>}
             {loading && <Text style={styles.body}>Loading your wish list…</Text>}

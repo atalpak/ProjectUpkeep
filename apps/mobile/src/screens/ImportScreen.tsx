@@ -8,8 +8,10 @@ import {
 import { useApp } from '../AppProvider';
 import { writer } from '../backend';
 import { Button, Choices, DismissingNotice, Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { resolveRows } from '../importResolve';
+import { PAGES } from '../navigation';
 import { makeStyles } from '../preferences';
 import { border, radius, space, state, surface, text, type } from '../theme';
 
@@ -61,7 +63,7 @@ export function ImportScreen() {
   if (!writer || app.demo) {
     return (
       <ScrollView contentContainerStyle={styles.page}>
-        <Text style={styles.heading}>Import</Text>
+        <PageTitle>{PAGES.Import.title}</PageTitle>
         <Notice>Importing needs a signed-in account and the card database. Finish setup first, then come back.</Notice>
       </ScrollView>
     );
@@ -137,7 +139,7 @@ export function ImportScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      <Text style={styles.heading}>Import</Text>
+      <PageTitle>{PAGES.Import.title}</PageTitle>
       {!!app.message && <DismissingNotice onDone={() => app.setMessage('')}>{app.message}</DismissingNotice>}
 
       {(step === 'paste' || step === 'checking') && (
@@ -224,7 +226,6 @@ export function ImportScreen() {
 
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xxl, paddingBottom: 40, gap: space.md },
-  heading: { ...type.title, color: text.primary },
   title: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
   big: { ...type.title, color: text.primary },
   body: { ...type.bodySm, color: text.secondary },

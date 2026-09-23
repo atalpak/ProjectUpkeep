@@ -2,7 +2,7 @@
 // — kept in their own module so App.tsx, the tab bar, the menu, Settings and
 // every screen reference the same shape rather than each re-declaring it.
 import type { Ionicons } from '@expo/vector-icons';
-import type { NavigatorScreenParams } from '@react-navigation/native';
+import type { NavigationState, NavigatorScreenParams, PartialState } from '@react-navigation/native';
 
 export type DecksStackParamList = {
   DeckList: undefined;
@@ -92,3 +92,29 @@ export const DEFAULT_SLOTS: NavSlots = ['Collection', 'Decks', 'Locations', 'Wis
 
 /** Pages that already have a real screen; the rest render a "coming soon". */
 export const BUILT: ReadonlySet<PageId> = new Set<PageId>(['Scan', 'Dashboard', 'Collection', 'Decks', 'Search', 'Wishlist', 'Locations', 'Friends', 'Trades', 'Notifications', 'Import', 'Settings']);
+
+export type HeaderBackInfo = { canGoBack: boolean; label: string };
+
+/**
+ * Whether the unified AppHeader (App.tsx) should show a back chevron: true
+ * only when the currently focused tab's OWN nested stack (Decks, Locations,
+ * Friends or Trades -- the only four with a native-stack navigator, see
+ * App.tsx) has pushed past its root screen. Native headers are off on every
+ * one of those stacks (they'd double up with this header otherwise), so this
+ * is the only place that knows a detail screen is showing.
+ *
+ * Only looks one level deep because none of the four nested stacks nest a
+ * third level -- if one ever does, this needs to recurse into `nested.state`
+ * instead of stopping at `nested.index`.
+ */
+export function getHeaderBackInfo(state: NavigationState | PartialState<NavigationState> | undefined): HeaderBackInfo {
+  if (!state) return { canGoBack: false, label: '' };
+  const index = state.index ?? state.routes.length - 1;
+  const tabRoute = state.routes[index];
+  const tabId = tabRoute?.name as PageId | undefined;
+  const nested = tabRoute?.state;
+  if (tabId && nested && typeof nested.index === 'number' && nested.index > 0) {
+    return { canGoBack: true, label: PAGES[tabId].short ?? PAGES[tabId].title };
+  }
+  return { canGoBack: false, label: '' };
+}

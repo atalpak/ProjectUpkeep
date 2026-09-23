@@ -127,6 +127,10 @@ export function DeckDetailScreen({ route, navigation }: NativeStackScreenProps<D
         <Button secondary label="Retry" onPress={() => void load()} />
       </>}
       {!loading && !authError && !error && header && <>
+        {/* This banner is the page's title -- no native header (App.tsx's
+            DecksNavigator turns it off) and no PageTitle either, since the
+            brief's own rule is one title per screen and this already gives
+            plenty of hierarchy. */}
         <View style={styles.banner}>
           {header.commanderArt
             ? <><Image source={{ uri: header.commanderArt }} style={StyleSheet.absoluteFill} resizeMode="cover" /><View style={[StyleSheet.absoluteFill, styles.scrim]} /></>

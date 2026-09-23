@@ -5,9 +5,10 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { Button, Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { acceptFriendRequest, fetchFriendEdges, removeFriendship, searchPeople, sendFriendRequest, type FriendEdge, type PersonResult } from '../friends';
-import type { FriendsStackParamList } from '../navigation';
+import { PAGES, type FriendsStackParamList } from '../navigation';
 import { makeStyles } from '../preferences';
 import { border, radius, space, surface, text, type } from '../theme';
 
@@ -74,6 +75,7 @@ export function FriendsScreen({ navigation }: NativeStackScreenProps<FriendsStac
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      <PageTitle>{PAGES.Friends.title}</PageTitle>
       {!!error && <Notice>{error}</Notice>}
       {!!notice && <Notice>{notice}</Notice>}
 

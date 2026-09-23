@@ -10,7 +10,7 @@ export function PlaceholderScreen({ page }: { page: PageId }) {
   return (
     <View style={styles.page}>
       <Image source={require('../mort/assets/mort_idle_02.png')} style={styles.mort} resizeMode="contain" />
-      <Text style={styles.title}>{PAGES[page].title}</Text>
+      <Text accessibilityRole="header" style={styles.title}>{PAGES[page].title}</Text>
       <Text style={styles.body}>This page is coming to the app soon. It works on the web in the meantime.</Text>
     </View>
   );
@@ -19,6 +19,8 @@ export function PlaceholderScreen({ page }: { page: PageId }) {
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xxl, gap: space.md },
   mort: { width: 140, height: 140 },
-  title: { ...type.title, color: text.primary },
+  // Same display type PageTitle.tsx uses on every other root screen, so this
+  // "coming soon" stand-in reads as the same title language, just centered.
+  title: { ...type.display, color: text.primary, textAlign: 'center' },
   body: { ...type.body, color: text.secondary, textAlign: 'center' },
 }));
