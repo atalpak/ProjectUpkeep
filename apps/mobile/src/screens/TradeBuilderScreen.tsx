@@ -93,6 +93,8 @@ export function TradeBuilderScreen({ route, navigation }: NativeStackScreenProps
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       {!!error && <Notice>{error}</Notice>}
+      {/* This heading is the page's title -- no native header (App.tsx's
+          TradesNavigator turns it off) and no separate PageTitle either. */}
       <Text style={styles.title}>{counterOf ? `Counter ${username}’s offer` : `Trade with ${username}`}</Text>
       <Choices
         values={['want', 'offer']}

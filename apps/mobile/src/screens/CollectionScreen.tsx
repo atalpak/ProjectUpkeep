@@ -8,9 +8,11 @@ import { CollectionAuthError, EMPTY_COLLECTION_FILTER, collectionFacetCount, fet
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
 import { BottomSheet, Button, Choices, EmptyState, Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { useSearchOverlay } from '../searchOverlay';
 import { CardDetails } from '../components/CardDetails';
 import type { CardSeed } from '../cardDetails';
+import { PAGES } from '../navigation';
 import { FoilOverlay, useFoilTilt } from '../components/FoilArt';
 import { FlipBadge } from '../components/FlipBadge';
 import { useCardFace } from '../hooks/useCardFace';
@@ -133,6 +135,7 @@ function CollectionList({ userId }: { userId: string }) {
 
   const header = (
     <View style={styles.top}>
+      <PageTitle style={styles.pageTitle}>{PAGES.Collection.title}</PageTitle>
       <View style={styles.searchRow}>
         <View style={styles.field}>
           <Ionicons name="search" size={18} color={text.secondary} />
@@ -309,6 +312,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   page: { flex: 1 },
   content: { paddingHorizontal: space.xl, paddingBottom: 40 },
   top: { gap: space.sm, paddingTop: space.sm, paddingBottom: space.sm },
+  pageTitle: { marginBottom: space.xs },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm, height: 42, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   input: { flex: 1, ...typeTokens.body, color: text.primary, paddingVertical: 0 },
