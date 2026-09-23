@@ -9,6 +9,7 @@ import {
   isSameCard,
   reconcileFinish,
 } from "@/lib/collection/stacking";
+import { applyStackRekey, type StackRekeyStep } from "@/lib/collection/rekey";
 import { CONDITIONS, FINISH_LABELS, FINISHES, type Condition, type Finish } from "@/lib/types";
 import type { ActionState } from "@/app/(app)/collection/action-state";
 
@@ -166,6 +167,9 @@ export async function updateCardInstance(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+
   const id = String(formData.get("instance_id") ?? "").trim();
   if (!id) return fail("Missing card.");
 
@@ -173,6 +177,7 @@ export async function updateCardInstance(
   const finish = String(formData.get("finish") ?? "nonfoil") as Finish;
   const language = String(formData.get("language") ?? "en").trim();
   const notes = String(formData.get("notes") ?? "").trim() || null;
+  const locationId = optionalId(formData.get("location_id"));
 
   const quantity = parseQuantity(formData.get("quantity"));
   if (quantity === null) return fail("Quantity must be a whole number between 1 and 10000.");
@@ -181,21 +186,77 @@ export async function updateCardInstance(
 
   const supabase = await createClient();
 
-  // No owner filter: RLS restricts this to the user's own rows, and its WITH
-  // CHECK clause blocks any attempt to reassign ownership through this path.
-  const { error } = await supabase
+  // The copy as it stands. Owner-scoped explicitly for the reason
+  // .claude/rules/data-access.md gives: migration 9 makes a friend's tradable
+  // binder genuinely readable, so an unscoped read by id is not "my row".
+  const { data: source, error: sourceError } = await supabase
     .from("card_instances")
-    .update({
+    .select("id, card_id, condition, finish, language, location_id, notes, quantity")
+    .eq("id", id)
+    .eq("owner_user_id", user.id)
+    .maybeSingle();
+
+  if (sourceError) return fail(friendlyDbError(sourceError.message));
+  if (!source) return fail("That copy is no longer in your collection.");
+
+  // The edit form's "quantity" has always meant "this stack now holds N", not
+  // "move N copies" — and it can be edited alongside condition/finish/
+  // language/location in the same save. Two ordered steps through
+  // apply_stack_rekey (migration 41) resolve that the same way the reprint
+  // feature already resolves the identical ambiguity: set the absolute
+  // quantity first, then re-file the whole (now correctly-sized) pile.
+  const steps: StackRekeyStep[] = [
+    { mode: "set_quantity", source_instance_id: id, quantity },
+  ];
+
+  const attrsChanged =
+    condition !== source.condition ||
+    finish !== source.finish ||
+    language !== source.language ||
+    locationId !== source.location_id ||
+    notes !== source.notes;
+
+  if (attrsChanged) {
+    // Rows that already match the POST-save stack key, excluding this row
+    // itself — it can legitimately match its own new key, and
+    // apply_stack_rekey refuses a self-merge. Owner-scoped for the same
+    // reason addCardInstance's lookup is.
+    const candidateQuery = supabase
+      .from("card_instances")
+      .select("id, quantity, notes")
+      .eq("owner_user_id", user.id)
+      .eq("card_id", source.card_id)
+      .eq("condition", condition)
+      .eq("finish", finish)
+      .eq("language", language);
+
+    const { data: candidates, error: lookupError } =
+      locationId === null
+        ? await candidateQuery.is("location_id", null)
+        : await candidateQuery.eq("location_id", locationId);
+
+    if (lookupError) return fail(friendlyDbError(lookupError.message));
+
+    const decision = decideStacking(
+      { card_id: source.card_id, condition, finish, language, location_id: locationId, notes, quantity },
+      (candidates ?? []).filter((c) => c.id !== id),
+    );
+
+    steps.push({
+      mode: "rekey",
+      source_instance_id: id,
+      quantity,
       condition,
       finish,
       language,
-      quantity,
+      location_id: locationId,
       notes,
-      location_id: optionalId(formData.get("location_id")),
-    })
-    .eq("id", id);
+      target_instance_id: decision.action === "merge" ? decision.instanceId : null,
+    });
+  }
 
-  if (error) return fail(friendlyDbError(error.message));
+  const { error } = await applyStackRekey(supabase, steps);
+  if (error) return fail(friendlyDbError(error));
 
   revalidatePath("/collection");
   revalidatePath("/locations");
@@ -357,25 +418,6 @@ export async function reprintCardInstance(
       ? `Changed ${quantity} × ${to.name} to ${where} #${to.collector_number}${finishNote} — merged into a stack you already had, now ${result.result_quantity}.`
       : `Changed ${quantity} × ${to.name} to ${where} #${to.collector_number}${finishNote}.`,
   );
-}
-
-// ---------------------------------------------------------------------------
-// Move — the location half of the product, so it gets its own narrow action
-// rather than going through the general edit form.
-// ---------------------------------------------------------------------------
-
-export async function moveCardInstance(formData: FormData): Promise<void> {
-  const id = String(formData.get("instance_id") ?? "").trim();
-  if (!id) return;
-
-  const supabase = await createClient();
-  await supabase
-    .from("card_instances")
-    .update({ location_id: optionalId(formData.get("location_id")) })
-    .eq("id", id);
-
-  revalidatePath("/collection");
-  revalidatePath("/locations");
 }
 
 // ---------------------------------------------------------------------------

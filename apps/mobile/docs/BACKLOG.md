@@ -22,7 +22,7 @@ Say so again wherever it would otherwise read like invented demand.
 | # | Item | Ease | Impact | Status | Where |
 |---|---|---|---|---|---|
 | 1 | Daily sync: the database write is failing, not just the export step | Med | High | Open — one green run (2026-09-22 manual), cause still undiagnosed | `scripts/sync-scryfall.ts`, migration 33 |
-| 2 | Collection actions still create duplicate rows outside `bulkMerge` | Med | Med–High | Open — the acute corruption is fixed, the root cause isn't | `collection/actions.ts`, `decks/actions.ts` |
+| 2 | ~~Collection actions still create duplicate rows outside `bulkMerge`~~ | — | — | **Done (2026-09-23)** — migration 41 (`apply_stack_rekey`) + every web call site rewired onto it | `collection/actions.ts`, `bulk-actions.ts`, `decks/actions.ts` |
 | 3 | ~~Migration 40 not applied in production~~ | — | — | **Done (2026-09-22)** — applied, PR #78 adds a CI check so it can't recur silently | — |
 | 4 | One real session on a physical iPhone | Owner only | High | Blocks ~10 other items | scanner, item 8 steps 3–4, dark mode |
 | 5 | Items 2–4 (old numbering): web sub-menus, printing photos, flip button | Easy | Medium | Owner only — built in PR #69, needs a look | web pages |
@@ -84,11 +84,13 @@ know about them, not what's left to do.
   until a sync succeeds. Also **blocks #9** (otags means more columns per write,
   which makes this worse before it's better).
 
-- **2 (collection actions still create duplicates).** All four bugs originally lived
-  in `src/app/(app)/collection/actions.ts`, `bulk-actions.ts` and
+- **2 (collection actions still create duplicates), done 2026-09-23.** All four bugs
+  originally lived in `src/app/(app)/collection/actions.ts`, `bulk-actions.ts` and
   `src/app/(app)/decks/actions.ts`; the safe, already-existing pattern
   (`apply_stack_addition`/`apply_stack_move`, a stacking *decision* in
-  `packages/upkeep-domain` then an atomic RPC) is used by none of the three still open.
+  `packages/upkeep-domain` then an atomic RPC) was used by none of them, and now all
+  of them route through the new `apply_stack_rekey` (migration 41) instead — see the
+  "Fixed" entry below for the full shape.
 
   - **Fixed (2026-09-23, #79): `bulkMerge` no longer inflates deck lists.** It used
     to raise the kept row's `quantity` to the combined total, *then* delete the
@@ -103,22 +105,6 @@ know about them, not what's left to do.
     requests, not a transaction, so a rare network failure between them can still
     leave things partially done (surfaced as "Merge stopped part-way," already
     handled). It only removes the specific inflation bug.
-  - **Still open: `updateCardInstance` creates duplicates, not corruption.** Editing a copy's
-    condition/finish/language/location to match a stack you already own leaves two
-    identical rows instead of merging (`actions.ts:186–196`) — confirmed. Lower
-    severity alone (nothing lost, just a wrong-looking row), but it's the *obvious*
-    next step for the user to reach for "Merge duplicates," which walks straight into
-    the bug above if the stack is sleeved. The new "Change printing…" action sits in
-    the same row menu and *does* merge correctly, so the two now visibly disagree.
-  - **The same missing-merge bug, three more places:** `bulkMove` (`bulk-actions.ts:87`),
-    `bulkSetField` (`bulk-actions.ts:154`), `removeFromDeck`
-    (`decks/actions.ts:339`, which also swallows its own errors).
-  - **Sleeving into a deck on the web can lose copies.** The web sleeve action
-    (`decks/actions.ts:288–317`) does the shrink-source / grow-destination write as
-    two separate requests; if the second fails, those copies are gone. The mobile app
-    already does this safely through `apply_stack_move` — the web path needs the same.
-  - **Dead code:** `moveCardInstance` (`actions.ts:367`) has no callers and swallows
-    errors. Delete it.
   - **Unknown, and worth checking before anything else here:** whether the owner's own
     collection already has duplicate rows or an inflated deck list from past use of
     these actions. A read-only query grouping `card_instances` by card/condition/
@@ -173,12 +159,70 @@ know about them, not what's left to do.
   - **Out of scope, flagged for later:** the CSV import (`src/lib/import/commit.ts`)
     has the same absolute-total-overwrite problem sleeve/unsleeve have, but it's an
     *add* path, not a re-file, so a different fix shape. Not folded into this work.
-  - **Next**: migration 41 (`apply_stack_rekey`) + a new `schema_test.sql` section
-    (21, mirroring section 19's red-before-green discipline: whole-pile merge in a
-    deck, partial merge, the two-printings-in-a-deck case, the keep-the-row branch
-    preserving id/`acquired_at`, list rollback on a stale later step, every refusal
-    including the friend's-tradable-copy case, replay/idempotency) — land and verify
-    before any server action is rewired to call it.
+
+  **Fixed (2026-09-23): `apply_stack_rekey` (migration 41) and every web call site
+  rewired onto it.** One new `SECURITY INVOKER` function taking an ordered list of
+  steps (`set_quantity`: an absolute set, in place; `rekey`: move N copies to a new
+  condition/finish/language/location, merging into a decided target or updating in
+  place or splitting), one transaction, all-or-nothing — shape exactly as the
+  impact map and owner decisions above specified. `schema_test.sql` section 21
+  covers whole-pile merge in a deck, partial merge, the two-printings-in-a-deck
+  shortfall-attribution case, the keep-the-row (in-place) branch preserving id/
+  `acquired_at`, all-or-nothing rollback on a stale later step in the same call
+  (confirmed against a genuine retry afterward, not just the failure), the finish
+  check firing only when the finish changes, the open-trade gate blocking merge/
+  split but allowing a same-row rekey, and cross-user/self-merge/stale-row/replay
+  refusals — confirmed red against a reintroduced increment-before-decrement
+  ordering bug before being allowed to pass, the same discipline section 19 used.
+  - `updateCardInstance` (`collection/actions.ts`) now reads its source row
+    owner-scoped first (it used to trust RLS alone and write blind) and submits a
+    `set_quantity` step followed by a `rekey` step only when condition/finish/
+    language/location/notes actually changed — the two-steps-not-one shape the
+    owner decided on. No longer creates a duplicate row when the new key matches
+    a stack already owned.
+  - `bulkMove` and `bulkSetField` (`bulk-actions.ts`) now merge into a matching
+    stack at the destination (or an identical stack elsewhere in the same
+    selection) instead of never merging at all — the missing-merge bug named
+    above, fixed in both places at once via a new shared, pure, unit-tested
+    decision function (`planBatchRekey`, `src/lib/collection/rekey.ts`) that
+    applies `decideStacking` sequentially across an ordered batch.
+  - `bulkMerge` folds into the same RPC: its read now filters on `owner_user_id`
+    (the gap the impact map found), and the merge itself is one atomic call
+    instead of two separate client requests, closing the "network drops between
+    the delete and the update" window PR #79's ordering fix alone could not close.
+  - `addToDeck`'s source read is now owner-scoped (the other gap the impact map
+    found), and its four hand-branched write shapes (move-whole, split, merge,
+    insert) collapse into one `rekey` step — `apply_stack_rekey` picks the
+    matching branch itself.
+  - `sleeveCopies` and `unsleeveCopies` (`decks/actions.ts`) each now build every
+    draw/return as one ordered batch of steps and make a single atomic call,
+    closing the shrink-source/grow-destination lost-copies window migration 38's
+    header named as the web-side defect left in place pending this work.
+    `unsleeveCopies` also now returns `{ unsleeved, error }` instead of `void` —
+    it and `removeEntryFromList` (used by `removeDeckCard`, `bulkRemoveEntries`,
+    `bulkUnsleeveEntries`, `setDeckCardPrinting` and `unsleeveCard`) no longer
+    swallow a write error, the single most severe finding in the impact map.
+    Plain `<form action>` callers with no bound state (`unsleeveCard`,
+    `removeDeckCard`, `setDeckCardPrinting`) now throw on failure, surfaced by the
+    `(app)` route group's existing error boundary; callers that already return
+    `DeckState` (`bulkRemoveEntries`, `bulkUnsleeveEntries`) report it as a normal
+    failure message, naming how much of the selection completed before the error.
+  - `removeEntryFromList` no longer duplicates unsleeve logic inline — it now
+    calls `unsleeveCopies` directly, so there is one atomic, error-checked path
+    for "take physical copies out of a deck," not two.
+  - **Dead code deleted, confirmed via grep for callers first:** `moveCardInstance`
+    (`collection/actions.ts`) and `removeFromDeck` (`decks/actions.ts`) — both had
+    zero callers anywhere in `src/`, `apps/mobile/src` or `packages/`.
+  - **Mobile:** no changes, as the impact map anticipated — `apps/mobile/src/backend.ts`
+    never calls any of the rewired functions.
+  - **Left for later, not done in this change:** the migration 39 header's stale
+    claim about trade deletion behavior (migration 25 changed it to `SET NULL`)
+    and the two small mobile bugs the impact map surfaced in passing
+    (`apply_stack_move`'s fresh id/`acquired_at` on a whole-pile move,
+    `packages/scan-core/src/move.ts:129`'s `notes: null`) — neither was in scope
+    for this change and both are already logged above. Testing on a physical
+    device was explicitly out of scope for this session; verified instead via
+    `npm run test:db` (fresh red-before-green run) and the full unit suite.
 
 - **3, done (2026-09-22).** Migration 40 applied to production the same day this was
   found (`supabase db push --linked`, verified via `supabase migration list --linked`
