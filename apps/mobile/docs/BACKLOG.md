@@ -30,7 +30,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 7 | ~~Migration 20: test the deck-list shortfall's 2nd and 3rd tiers~~ | — | — | **Done (2026-09-23)** — `schema_test.sql` section 22 | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
 | 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
-| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Ready | `apps/mobile/src/components/AppHeader.tsx` + brief |
+| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Priorities 2 and 6 done (2026-09-23, this branch); Priority 1 shipped separately on the still-unmerged `feat/mobile-unified-header` branch; 3–5 and 7 open | `apps/mobile/src/screens/SettingsScreen.tsx`, `apps/mobile/src/components/MenuSheet.tsx` + brief |
 | 11 | Phone deck gaps: add-to-deck from card sheet, deck wish list, stats, export, playtest | Med each | Low–Med | Open — depends on owner's habits | `apps/mobile/src/screens/DeckDetailScreen.tsx` |
 | 12 | Phone quick-add straight to a deck | Easy–Med | Low–Med | Partly done | `ScanScreen.tsx` |
 | 13 | ~~Phone collection rows: show prices~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CollectionScreen.tsx` |
@@ -561,6 +561,91 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
   never Scryfall card data** (their terms). The real blocking condition on #1 is not
   "one green run" (already true) but "the write path is healthy again" — more columns
   per row is more work per write, and #1 shows that write is already near its limit.
+
+- **10 (Mobile UI refinement brief), Priorities 2 and 6 shipped, 2026-09-23
+  (implementer).** Batched deliberately, as scoped: neither depends on the
+  other or on any new shared primitive, and both are self-contained inside
+  one screen/one component each. Priority 1 (the unified header) shipped
+  separately and earlier the same day on `feat/mobile-unified-header`, still
+  unmerged as of this branch — this work does not depend on it and touches
+  none of the same files. Priorities 3 (collection filter sheet), 4
+  (spacing/typography tokens), 5 (bordered containers) and 7 (interaction
+  polish) were left untouched, per scope.
+  - **Priority 2 (Settings screen).** `SettingsScreen.tsx`'s "Navigation bar"
+    section used to render a full `Choices` row of all ~9 pinnable pages for
+    each of the four configurable slots — the whole destination list,
+    repeated four times on one screen, exactly the brief's complaint. It's
+    now a compact five-position preview (`NavSlotPreview`): two chips, a
+    fixed non-tappable Scan chip in the middle (accent-filled, matching its
+    permanent centre position in the real tab bar), two more chips — each
+    configurable chip shows its current page's icon and label directly, and
+    tapping one opens `SlotPicker`, a small centered modal listing the
+    pinnable pages once, for that one slot only. Labels are the brief's own
+    suggestion verbatim — "Left 1," "Left 2," "Right 1," "Right 2" — replacing
+    "First tab"/"Second tab"/"Fourth tab"/"Fifth tab"; kept as accessibility
+    labels and the picker's modal title even though the preview's icons and
+    text carry the visible meaning day-to-day.
+    - **Duplicate handling: read `setSlot` before deciding, per the task's own
+      instruction.** `preferences.tsx`'s `setSlot` already swaps the two
+      slots when the chosen page sits elsewhere in the bar (`readSlots`
+      itself enforces four *distinct* pinnable pages as its validity check,
+      so a duplicate was never actually reachable in stored state, only
+      transiently unless swapped). That's the simpler of the brief's two
+      options ("prevent" vs. "explain") already in place — no new duplicate
+      logic was needed. `SlotPicker` just makes the existing swap legible: a
+      non-selected row that's currently pinned to another position shows
+      "swaps with Left 2" (etc.) inline, so nothing surprising happens
+      silently.
+    - "Reset to default" stays a `secondary`-variant button, now visually
+      minor beneath the compact preview rather than beneath four stacked
+      chip rows.
+    - Appearance, Welcome, Account, account deletion and Card Database
+      sections are untouched beyond the Navigation bar section shrinking
+      around them, per the brief's explicit instruction to keep that
+      grouping; account deletion's own card is unchanged and still visually
+      separated from routine settings.
+  - **Priority 6 (menu organization).** `MenuSheet.tsx` rendered `MENU_ORDER`
+    (twelve destinations) as one flat list. `MENU_ORDER` does include `Scan`
+    — it's a real page and a real menu entry, just also the tab bar's fixed
+    centre button rendered separately by `TabBar.tsx` — so the brief's
+    "Primary: Scan, Dashboard" grouping maps directly onto the app's actual
+    page list with nothing dropped or reinterpreted: `MENU_GROUPS` is
+    `Primary: Scan, Dashboard` · `Library: Collection, Locations, Decks,
+    Search, Wishlist` · `Social: Friends, Trades, Notifications` · `Tools:
+    Import, Settings` — the brief's suggested structure verbatim. A `__DEV__`
+    check compares `MENU_GROUPS`' flattened contents against `MENU_ORDER` and
+    warns if either ever drifts out of sync (an id dropped or duplicated
+    across groups), since nothing else enforces that the two stay a clean
+    partition as pages are added later. Section labels are small, low-contrast
+    (`type.label` at reduced opacity, uppercase) — no separators, no added
+    borders, no heavier visual weight than the previous flat list. The
+    per-item `Pressable` (selected highlight via `itemSelected`/`accent.soft`,
+    the unread-notification badge on Notifications, the "Soon" tag for
+    unbuilt pages) is entirely unchanged — only the surrounding `ScrollView`
+    structure changed, from one flat `.map` to a `.map` over groups each
+    containing their own `.map` over pages.
+  - **Verified:** `npm run lint` clean on both touched files (the full
+    `npm run lint` run separately surfaces ~775 pre-existing errors across
+    unrelated files, some under a different worktree path entirely — not
+    touched, not introduced by this change); `npm run typecheck -w
+    @upkeep/scanner-app` clean; `npm test` — 702/702, unaffected (screens-only,
+    no pure logic changed, so no new `scripts/*.test.ts` was warranted, per the
+    task's own instruction not to manufacture one). No schema touched, so
+    `npm run test:db` does not apply.
+  - **Simulator attempt hit the same stale dev-client tunnel URL Priority 1's
+    entry above already documents** — the Expo dev-client fell back to a
+    stale `*.exp.direct` address baked into the installed native build rather
+    than the running local Metro packager (confirmed serving at
+    `localhost:8081`), and this sandboxed session has no
+    accessibility/UI-automation permission to tap through the dev-client's
+    "Open in Project Upkeep?" confirmation dialog to work around it. Not a
+    finding about this diff — a native-build/tooling gap already known from
+    the same day's earlier attempt. **Left for the owner:** an on-device look
+    at the compact nav-slot preview, the slot picker, and the grouped menu —
+    verified here instead by close reading: `NavSlotPreview`/`SlotPicker`
+    read and write through `usePreferences()`'s `slots`/`setSlot` exactly as
+    the rest of Settings always has, and `MENU_GROUPS`' four arrays were
+    checked by hand against `MENU_ORDER`'s twelve ids for a clean partition.
 
 ## Owner decisions — evergreen facts, kept for future work
 
