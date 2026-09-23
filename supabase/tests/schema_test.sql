@@ -2499,6 +2499,690 @@ end $$;
 
 reset role;
 
+-- --------------------------------------------------------------------------
+-- 21. apply_stack_rekey() (migration 41): the shared atomic re-file behind
+--     updateCardInstance, bulkMove, bulkSetField, sleeve/unsleeve,
+--     remove-from-deck and bulkMerge.
+--
+-- Mirrors section 19's red-before-green discipline: written, confirmed to
+-- fail against a deliberately-reintroduced increment-before-decrement in the
+-- merge branch, then confirmed to pass against the real migration.
+--
+-- Fresh fixtures, isolated from every section above for the same reason
+-- sections 14, 18 and 19 give.
+-- --------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('10000000-0000-0000-0000-000000000001', 'quinn@example.com', '{"username":"quinn"}'),
+  ('10000000-0000-0000-0000-000000000002', 'rex@example.com', '{"username":"rex"}');
+
+-- The open-trade case below needs a real trade, and trades may only be
+-- proposed between friends (migration 9's insert policy).
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('10000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000002', 'accepted');
+
+insert into public.locations (id, user_id, name, type, is_tradable) values
+  ('11000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'Quinn Box',              'box',    false),
+  ('11000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001', 'Quinn Merge Deck',       'deck',   false),
+  ('11000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001', 'Quinn Partial Deck',     'deck',   false),
+  ('11000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001', 'Quinn Two Printing Deck','deck',   false),
+  ('11000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001', 'Quinn Solo Box',         'box',    false),
+  ('11000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001', 'Quinn LP Binder',        'binder', false),
+  ('11000000-0000-0000-0000-000000000007', '10000000-0000-0000-0000-000000000001', 'Quinn Tradable Binder',  'binder', true),
+  ('11000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000002', 'Rex Box',              'box',    false),
+  ('11000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001', 'Quinn Stale Box',        'box',    false);
+
+-- (A) WHOLE-PILE MERGE INSIDE A DECK. The ordering case, restated for rekey:
+-- a merge branch's destination increment must never run before the source
+-- gives its copies up.
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('11000000-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000001', 6);
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000002', 'NM', 'nonfoil', 'en', 4),
+  ('12000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000002', 'LP', 'nonfoil', 'en', 2);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '10000000-0000-0000-0000-000000000001'; -- quinn
+
+do $$
+declare
+  r_result   record;
+  v_entries  int;
+  v_total    int;
+  v_src_gone int;
+  v_dst_qty  int;
+begin
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000001'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'rekey',
+      'source_instance_id', '12000000-0000-0000-0000-000000000001',
+      'quantity', 4,
+      'condition', 'LP',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', '11000000-0000-0000-0000-000000000002',
+      'notes', null,
+      'target_instance_id', '12000000-0000-0000-0000-000000000002'
+    ))
+  );
+  assert r_result.result_quantity = 6 and r_result.replayed = false,
+    'the merge target should land at 2+4=6, got ' || r_result.result_quantity;
+
+  -- THE ASSERTION THIS CASE EXISTS FOR. Nothing physically entered the deck --
+  -- six cards went in and six are still there -- so the list must not move.
+  -- Increment the destination before clearing the source and the trigger sees
+  -- 10 against 6, adds a shortfall of 4, and this reads 10.
+  select count(*), coalesce(sum(quantity), 0) into v_entries, v_total
+    from public.deck_cards where deck_id = '11000000-0000-0000-0000-000000000002';
+  assert v_entries = 1 and v_total = 6,
+    'a rekey moves no card into the deck, so the list must stay at 6 -- got '
+    || v_total || ' across ' || v_entries || ' entries (destination incremented before the source was cleared?)';
+
+  select count(*) into v_src_gone from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000001';
+  assert v_src_gone = 0, 'a whole-stack merge must remove the emptied source row';
+
+  select quantity into v_dst_qty from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000002';
+  assert v_dst_qty = 6, 'the destination stack should hold 6, got ' || v_dst_qty;
+end $$;
+
+-- (B) PARTIAL MERGE. The off-by-one is harder to spot than the whole-pile
+-- case, so it gets its own fixtures.
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('11000000-0000-0000-0000-000000000003', 'aaaaaaaa-0000-0000-0000-000000000001', 6);
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000003', 'NM', 'nonfoil', 'en', 4),
+  ('12000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000003', 'LP', 'nonfoil', 'en', 2);
+
+do $$
+declare
+  r_result  record;
+  v_total   int;
+  v_src_qty int;
+begin
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000002'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'rekey',
+      'source_instance_id', '12000000-0000-0000-0000-000000000003',
+      'quantity', 1,
+      'condition', 'LP',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', '11000000-0000-0000-0000-000000000003',
+      'notes', null,
+      'target_instance_id', '12000000-0000-0000-0000-000000000004'
+    ))
+  );
+  assert r_result.result_quantity = 3, 'the merge target should land at 2+1=3, got ' || r_result.result_quantity;
+
+  select coalesce(sum(quantity), 0) into v_total
+    from public.deck_cards where deck_id = '11000000-0000-0000-0000-000000000003';
+  assert v_total = 6,
+    'a partial rekey moves no card into the deck either -- the list must stay at 6, got '
+    || v_total || ' (7 means the destination was incremented first)';
+
+  select quantity into v_src_qty from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000003';
+  assert v_src_qty = 3, 'the source stack keeps the 3 copies that were not rekeyed, got ' || v_src_qty;
+end $$;
+
+-- (C) TWO PRINTINGS IN ONE DECK. A rekey that genuinely brings NEW physical
+-- copies into a deck (merging a spare stack in from a box) must add the
+-- resulting shortfall to the entry naming the exact printing, never to a
+-- different printing's entry for the same card -- migration 20's rule,
+-- reached through this new write path.
+insert into public.deck_cards (deck_id, card_id, quantity) values
+  ('11000000-0000-0000-0000-000000000004', 'aaaaaaaa-0000-0000-0000-000000000001', 4),
+  ('11000000-0000-0000-0000-000000000004', 'aaaaaaaa-0000-0000-0000-000000000002', 2);
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000004', 'NM', 'nonfoil', 'en', 4),
+  ('12000000-0000-0000-0000-000000000006', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000002', '11000000-0000-0000-0000-000000000004', 'NM', 'nonfoil', 'en', 2),
+  ('12000000-0000-0000-0000-000000000007', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 2);
+
+do $$
+declare
+  r_result  record;
+  v_lea     int;
+  v_m10     int;
+  v_total   int;
+  v_entries int;
+begin
+  select coalesce(sum(quantity), 0) into v_total
+    from public.deck_cards where deck_id = '11000000-0000-0000-0000-000000000004';
+  assert v_total = 6, 'fixture precondition: the two-printing deck should list 4+2=6, got ' || v_total;
+
+  -- Two spare LEA copies move in from the box, merging into the LEA stack
+  -- already sleeved -- a real physical addition, unlike cases A and B.
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000003'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'rekey',
+      'source_instance_id', '12000000-0000-0000-0000-000000000007',
+      'quantity', 2,
+      'condition', 'NM',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', '11000000-0000-0000-0000-000000000004',
+      'notes', null,
+      'target_instance_id', '12000000-0000-0000-0000-000000000005'
+    ))
+  );
+  assert r_result.result_quantity = 6, 'the LEA stack in the deck should land at 4+2=6, got ' || r_result.result_quantity;
+
+  select count(*), coalesce(sum(quantity), 0) into v_entries, v_total
+    from public.deck_cards where deck_id = '11000000-0000-0000-0000-000000000004';
+  select quantity into v_lea from public.deck_cards
+   where deck_id = '11000000-0000-0000-0000-000000000004' and card_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  select quantity into v_m10 from public.deck_cards
+   where deck_id = '11000000-0000-0000-0000-000000000004' and card_id = 'aaaaaaaa-0000-0000-0000-000000000002';
+
+  assert v_entries = 2, 'both list entries must survive, got ' || v_entries;
+  assert v_lea = 6, 'the shortfall must land on the entry naming the exact printing (LEA), got ' || v_lea;
+  assert v_m10 = 2, 'the M10 entry must not absorb a shortfall that belongs to LEA, got ' || v_m10;
+  assert v_total = 8, 'two physical copies genuinely entered the deck, so the list total should rise to 8, got ' || v_total;
+end $$;
+
+-- (D) THE KEEP-THE-ROW BRANCH: a whole-stack rekey with nothing to merge into
+-- updates in place and keeps the row's id and acquired_at -- delete-and-
+-- reinsert would lose both and break any trade_items row pointing at it.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000008', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000005', 'NM', 'nonfoil', 'en', 3);
+
+do $$
+declare
+  r_result         record;
+  v_acquired       timestamptz;
+  v_acquired_after timestamptz;
+  v_condition      text;
+  v_location       uuid;
+begin
+  select acquired_at into v_acquired from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000008';
+
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000004'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'rekey',
+      'source_instance_id', '12000000-0000-0000-0000-000000000008',
+      'quantity', 3,
+      'condition', 'LP',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', '11000000-0000-0000-0000-000000000006',
+      'notes', null,
+      'target_instance_id', null
+    ))
+  );
+
+  assert r_result.result_instance_id = '12000000-0000-0000-0000-000000000008',
+    'a rekey with no merge target must keep the row id, got ' || r_result.result_instance_id;
+
+  select condition, location_id, acquired_at into v_condition, v_location, v_acquired_after
+    from public.card_instances where id = '12000000-0000-0000-0000-000000000008';
+  assert v_condition = 'LP' and v_location = '11000000-0000-0000-0000-000000000006',
+    'the in-place branch must apply the new key, got condition ' || v_condition || ' location ' || v_location;
+  assert v_acquired_after = v_acquired, 'acquired_at must survive an in-place rekey';
+end $$;
+
+-- (E) ALL-OR-NOTHING: a later step in the same call failing must roll back an
+-- earlier step that already wrote something -- the one hazard unique to this
+-- function's list-of-steps shape, since every sibling in this family applies
+-- exactly one logical change.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000009', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 5),
+  ('12000000-0000-0000-0000-000000000010', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000009', 'NM', 'nonfoil', 'en', 1);
+
+-- Simulates the decided target's stack key changing between the decision and
+-- the call, the same way section 19's case 7 stales a reprint's target.
+update public.card_instances set condition = 'LP'
+ where id = '12000000-0000-0000-0000-000000000010';
+
+do $$
+declare v_qty int;
+begin
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000005'::uuid,
+      jsonb_build_array(
+        jsonb_build_object(
+          'mode', 'set_quantity',
+          'source_instance_id', '12000000-0000-0000-0000-000000000009',
+          'quantity', 3
+        ),
+        jsonb_build_object(
+          'mode', 'rekey',
+          'source_instance_id', '12000000-0000-0000-0000-000000000009',
+          'quantity', 3,
+          'condition', 'NM',
+          'finish', 'nonfoil',
+          'language', 'en',
+          'location_id', '11000000-0000-0000-0000-000000000009',
+          'notes', null,
+          'target_instance_id', '12000000-0000-0000-0000-000000000010'
+        )
+      )
+    );
+    assert false, 'a stale later step must fail the whole call';
+  exception when no_data_found then null;
+  end;
+
+  -- THE ASSERTION THIS CASE EXISTS FOR: step 1 (the quantity change to 3)
+  -- must not have survived step 2's failure -- the whole call is one
+  -- transaction, or a caller retrying after a reported failure would be
+  -- retrying against a half-applied state it never asked for.
+  select quantity into v_qty from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000009';
+  assert v_qty = 5, 'a failed later step must roll back an earlier step in the same call, saw quantity ' || v_qty;
+end $$;
+
+-- The failed attempt above must not have left a ledger row behind that blocks
+-- a retry under the same operation id: since the whole function raised, its
+-- own ledger insert rolled back with everything else.
+update public.card_instances set condition = 'NM'
+ where id = '12000000-0000-0000-0000-000000000010';
+
+do $$
+declare r_result record; v_qty int;
+begin
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000005'::uuid,
+    jsonb_build_array(
+      jsonb_build_object(
+        'mode', 'set_quantity',
+        'source_instance_id', '12000000-0000-0000-0000-000000000009',
+        'quantity', 3
+      ),
+      jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000009',
+        'quantity', 3,
+        'condition', 'NM',
+        'finish', 'nonfoil',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000009',
+        'notes', null,
+        'target_instance_id', '12000000-0000-0000-0000-000000000010'
+      )
+    )
+  );
+
+  -- Step 1 set the pile to an absolute 3 (not "reduce by 3"), so step 2's
+  -- whole-stack merge (quantity 3 = the entire updated pile) consumes the
+  -- source row entirely, the same as case A above.
+  select count(*) into v_qty from public.card_instances where id = '12000000-0000-0000-0000-000000000009';
+  assert v_qty = 0, 'the retried call''s whole-stack merge must remove the emptied source row, saw ' || v_qty || ' remaining';
+
+  select quantity into v_qty from public.card_instances where id = '12000000-0000-0000-0000-000000000010';
+  assert v_qty = 4, 'the retried call should merge the 3 moved copies into the target (1+3=4), got ' || v_qty;
+end $$;
+
+-- (F) THE FINISH CHECK: refused when the finish is actually changing to
+-- something the printing does not come in, but never refused merely for
+-- keeping whatever finish the row already has -- even a finish the catalog
+-- would call impossible (owner decision, 2026-09-22).
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 2);
+
+-- Simulates a copy whose finish is already odd relative to the catalog --
+-- LEA's available_finishes is {nonfoil} only. The edit form must still allow
+-- saving an unrelated change without being forced to fix this first.
+update public.card_instances set finish = 'foil'
+ where id = '12000000-0000-0000-0000-000000000011';
+
+do $$
+declare r_result record; v_condition text;
+begin
+  -- Changing the finish to something impossible IS refused.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000006'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000011',
+        'quantity', 2,
+        'condition', 'LP',
+        'finish', 'etched',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000001',
+        'notes', null,
+        'target_instance_id', null
+      ))
+    );
+    assert false, 'changing to a finish the printing does not come in must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Keeping the existing (already-odd) finish untouched, while changing
+  -- something else, must succeed.
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000007'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'rekey',
+      'source_instance_id', '12000000-0000-0000-0000-000000000011',
+      'quantity', 2,
+      'condition', 'LP',
+      'finish', 'foil',
+      'language', 'en',
+      'location_id', '11000000-0000-0000-0000-000000000001',
+      'notes', null,
+      'target_instance_id', null
+    ))
+  );
+
+  select condition into v_condition from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000011';
+  assert v_condition = 'LP',
+    'keeping an already-odd finish untouched must not block an unrelated change, got condition ' || v_condition;
+end $$;
+
+-- (G) OTHER REFUSALS, and the transactional guarantee that each leaves
+-- everything exactly as it was.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000001', 'NM', 'nonfoil', 'en', 4);
+
+do $$
+declare r_result record; v_qty int;
+begin
+  -- Unknown mode.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000008'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'delete_it',
+        'source_instance_id', '12000000-0000-0000-0000-000000000012',
+        'quantity', 1
+      ))
+    );
+    assert false, 'an unknown step mode must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Empty steps array.
+  begin
+    perform public.apply_stack_rekey('14000000-0000-0000-0000-000000000009'::uuid, '[]'::jsonb);
+    assert false, 'an empty step list must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- Self-merge would delete the row and then increment it.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000010'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000012',
+        'quantity', 1,
+        'condition', 'NM',
+        'finish', 'nonfoil',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000001',
+        'notes', null,
+        'target_instance_id', '12000000-0000-0000-0000-000000000012'
+      ))
+    );
+    assert false, 'merging a copy into itself must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- More copies than the stack holds.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000011'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000012',
+        'quantity', 99,
+        'condition', 'NM',
+        'finish', 'nonfoil',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000001',
+        'notes', null,
+        'target_instance_id', null
+      ))
+    );
+    assert false, 'rekeying more copies than the stack holds must be refused';
+  exception when no_data_found then null;
+  end;
+
+  select quantity into v_qty from public.card_instances where id = '12000000-0000-0000-0000-000000000012';
+  assert v_qty = 4, 'every refusal above must leave the copy untouched, saw ' || v_qty;
+
+  -- Reusing an operation id with a different payload is a caller bug, not a
+  -- replay.
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000012'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'set_quantity',
+      'source_instance_id', '12000000-0000-0000-0000-000000000012',
+      'quantity', 4
+    ))
+  );
+  assert r_result.replayed = false;
+
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000012'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'set_quantity',
+        'source_instance_id', '12000000-0000-0000-0000-000000000012',
+        'quantity', 1
+      ))
+    );
+    assert false, 'a reused operation id with a different payload must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- The identical call again is a genuine replay, not a second write.
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000012'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'set_quantity',
+      'source_instance_id', '12000000-0000-0000-0000-000000000012',
+      'quantity', 4
+    ))
+  );
+  assert r_result.replayed = true, 'the identical call again must be reported as a replay';
+
+  select quantity into v_qty from public.card_instances where id = '12000000-0000-0000-0000-000000000012';
+  assert v_qty = 4, 'a replay must not change anything, saw ' || v_qty;
+end $$;
+
+reset role;
+
+-- (H) CROSS-USER REFUSAL, including the case migration 9 makes genuinely
+-- readable: rex is quinn's accepted friend, and Quinn Tradable Binder is marked
+-- tradable, so a copy sitting in it is genuinely SELECT-able by rex -- but
+-- apply_stack_rekey's owner_user_id = auth.uid() predicates must still refuse
+-- to rekey it or merge into it. The same "readable through RLS is not the
+-- same as yours to write" case hard constraint 3 exists to catch, restated
+-- for rekey -- and this is also the exact gap the impact map found in
+-- addToDeck's source read and bulkMerge's read, both missing this filter.
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000013', '10000000-0000-0000-0000-000000000001',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000007', 'NM', 'nonfoil', 'en', 3);
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '10000000-0000-0000-0000-000000000002'; -- rex
+
+insert into public.card_instances
+  (id, owner_user_id, card_id, location_id, condition, finish, language, quantity) values
+  ('12000000-0000-0000-0000-000000000014', '10000000-0000-0000-0000-000000000002',
+   'aaaaaaaa-0000-0000-0000-000000000001', '11000000-0000-0000-0000-000000000008', 'NM', 'nonfoil', 'en', 2);
+
+do $$
+declare visible int;
+begin
+  select count(*) into visible from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000013';
+  assert visible = 1,
+    'rex should be able to read quinn''s tradable-binder instance via migration 9''s policy, saw ' || visible;
+
+  -- rex tries to use quinn's (readable) instance as the SOURCE of a rekey.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000013'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000013',
+        'quantity', 1,
+        'condition', 'NM',
+        'finish', 'nonfoil',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000008',
+        'notes', null,
+        'target_instance_id', null
+      ))
+    );
+    assert false, 'a caller must not be able to rekey another owner''s instance, even one they can read';
+  exception when no_data_found then null;
+  end;
+
+  -- rex tries to merge her own card into quinn's (readable) instance as the
+  -- decided destination target.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000014'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000014',
+        'quantity', 1,
+        'condition', 'NM',
+        'finish', 'nonfoil',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000007',
+        'notes', null,
+        'target_instance_id', '12000000-0000-0000-0000-000000000013'
+      ))
+    );
+    assert false, 'a caller must not be able to merge into another owner''s instance, even one they can read';
+  exception when no_data_found then null;
+  end;
+end $$;
+
+reset role;
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '10000000-0000-0000-0000-000000000001'; -- quinn
+
+do $$
+declare v_qty int; v_owner uuid;
+begin
+  select quantity, owner_user_id into v_qty, v_owner from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000013';
+  assert v_qty = 3 and v_owner = '10000000-0000-0000-0000-000000000001',
+    'a cross-user attempt must leave the target row completely untouched, saw quantity ' || v_qty;
+end $$;
+
+-- (I) THE OPEN-TRADE GATE: blocks a merge or a split, but -- unlike
+-- apply_stack_reprint, which changes card_id on every branch -- does NOT
+-- block a whole-stack rekey that keeps the same row (owner decision,
+-- 2026-09-22).
+insert into public.trades (id, proposer_id, recipient_id, status)
+values ('15000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001',
+        '10000000-0000-0000-0000-000000000002', 'proposed');
+insert into public.trade_items (trade_id, card_instance_id, direction, quantity)
+values ('15000000-0000-0000-0000-000000000001', '12000000-0000-0000-0000-000000000013', 'from_proposer', 3);
+
+do $$
+declare r_result record; v_qty int; v_condition text; v_location uuid;
+begin
+  -- A MERGE step against a traded copy is refused.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000015'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000013',
+        'quantity', 3,
+        'condition', 'NM',
+        'finish', 'nonfoil',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000001',
+        'notes', null,
+        'target_instance_id', '12000000-0000-0000-0000-000000000012'
+      ))
+    );
+    assert false, 'a merge of a copy committed to an open trade must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  -- A SPLIT step (partial quantity, no merge target) against a traded copy is
+  -- also refused.
+  begin
+    perform public.apply_stack_rekey(
+      '14000000-0000-0000-0000-000000000016'::uuid,
+      jsonb_build_array(jsonb_build_object(
+        'mode', 'rekey',
+        'source_instance_id', '12000000-0000-0000-0000-000000000013',
+        'quantity', 1,
+        'condition', 'LP',
+        'finish', 'nonfoil',
+        'language', 'en',
+        'location_id', '11000000-0000-0000-0000-000000000001',
+        'notes', null,
+        'target_instance_id', null
+      ))
+    );
+    assert false, 'a split of a copy committed to an open trade must be refused';
+  exception when invalid_parameter_value then null;
+  end;
+
+  select quantity into v_qty from public.card_instances where id = '12000000-0000-0000-0000-000000000013';
+  assert v_qty = 3, 'both refused attempts must leave the traded copy untouched, saw ' || v_qty;
+
+  -- A whole-stack rekey with NOTHING to merge into -- staying in the same
+  -- row -- is allowed even while the trade is open: accept_trade still reads
+  -- the same card_instances.id it always did, holding the same card.
+  select * into r_result from public.apply_stack_rekey(
+    '14000000-0000-0000-0000-000000000017'::uuid,
+    jsonb_build_array(jsonb_build_object(
+      'mode', 'rekey',
+      'source_instance_id', '12000000-0000-0000-0000-000000000013',
+      'quantity', 3,
+      'condition', 'LP',
+      'finish', 'nonfoil',
+      'language', 'en',
+      'location_id', '11000000-0000-0000-0000-000000000009',
+      'notes', null,
+      'target_instance_id', null
+    ))
+  );
+  assert r_result.result_instance_id = '12000000-0000-0000-0000-000000000013',
+    'a same-row rekey must be allowed under an open trade and must keep the row id';
+
+  select condition, location_id into v_condition, v_location from public.card_instances
+   where id = '12000000-0000-0000-0000-000000000013';
+  assert v_condition = 'LP' and v_location = '11000000-0000-0000-0000-000000000009',
+    'the allowed same-row rekey must actually have applied, got condition ' || v_condition;
+end $$;
+
+reset role;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

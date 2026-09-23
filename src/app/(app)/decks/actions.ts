@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { decideStacking } from "@/lib/collection/stacking";
 import { planSplit, takeableFrom } from "@/lib/collection/availability";
+import { applyStackRekey, planBatchRekey, type BatchRekeyRow } from "@/lib/collection/rekey";
 import type { DeckState } from "@/app/(app)/decks/deck-state";
 
 /**
@@ -222,12 +223,17 @@ export async function addToDeck(_prev: DeckState, formData: FormData): Promise<D
 
   const supabase = await createClient();
 
+  // Owner-scoped explicitly (hard constraint 3): this read used to skip the
+  // filter entirely, which the architect's impact map flagged as a real gap
+  // — exploitable only via a hand-crafted request, since RLS's own UPDATE
+  // policy would still refuse the actual write, but a gap nonetheless.
   const { data: source, error: readError } = await supabase
     .from("card_instances")
     .select(
       "id, card_id, location_id, condition, finish, language, quantity, notes, locations!location_id ( type )",
     )
     .eq("id", instanceId)
+    .eq("owner_user_id", user.id)
     .maybeSingle();
 
   if (readError) return fail(readError.message);
@@ -275,70 +281,30 @@ export async function addToDeck(_prev: DeckState, formData: FormData): Promise<D
     candidates ?? [],
   );
 
-  if (plan.action === "moveWhole" && decision.action === "insert") {
-    // Nothing to merge with and nothing left behind: move the row itself, which
-    // keeps its id, notes and acquisition date.
-    const { error } = await supabase
-      .from("card_instances")
-      .update({ location_id: deckId })
-      .eq("id", stack.id);
-    if (error) return fail(error.message);
-  } else {
-    // Either we are splitting, or an identical stack is already in the deck.
-    if (plan.action === "split") {
-      const { error } = await supabase
-        .from("card_instances")
-        .update({ quantity: plan.leave })
-        .eq("id", stack.id);
-      if (error) return fail(error.message);
-    } else {
-      const { error } = await supabase.from("card_instances").delete().eq("id", stack.id);
-      if (error) return fail(error.message);
-    }
-
-    if (decision.action === "merge") {
-      const { error } = await supabase
-        .from("card_instances")
-        .update({ quantity: decision.newQuantity })
-        .eq("id", decision.instanceId);
-      if (error) return fail(error.message);
-    } else {
-      const { error } = await supabase.from("card_instances").insert({
-        owner_user_id: user.id,
-        card_id: stack.card_id,
-        location_id: deckId,
-        condition: stack.condition,
-        finish: stack.finish,
-        language: stack.language,
-        quantity: taking,
-        notes: stack.notes,
-      });
-      if (error) return fail(error.message);
-    }
-  }
+  // One atomic step covers every shape the manual branching used to handle
+  // separately: a whole stack with nothing to merge into updates in place
+  // (apply_stack_rekey's IN-PLACE branch, keeping the row's id and
+  // acquired_at); a partial take with nothing to merge into decrements the
+  // source and inserts a fresh row in the deck (SPLIT); either shape with a
+  // decided merge target decrements/deletes the source and increments the
+  // target (MERGE) — see migration 41's header.
+  const { error } = await applyStackRekey(supabase, [
+    {
+      mode: "rekey",
+      source_instance_id: stack.id,
+      quantity: taking,
+      condition: stack.condition,
+      finish: stack.finish,
+      language: stack.language,
+      location_id: deckId,
+      notes: stack.notes,
+      target_instance_id: decision.action === "merge" ? decision.instanceId : null,
+    },
+  ]);
+  if (error) return fail(error);
 
   revalidate(deckId);
   return ok(`Added ${taking} ${taking === 1 ? "copy" : "copies"}.`);
-}
-
-/**
- * Takes cards back out of a deck.
- *
- * Sends them to Unsorted rather than to wherever they came from: the collection
- * does not record where a card was before, and inventing a destination would be
- * a guess about a physical action the user has to perform anyway.
- */
-export async function removeFromDeck(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
-
-  const instanceId = String(formData.get("instance_id") ?? "").trim();
-  const deckId = String(formData.get("deck_id") ?? "").trim();
-  if (!instanceId) return;
-
-  const supabase = await createClient();
-  await supabase.from("card_instances").update({ location_id: null }).eq("id", instanceId);
-
-  revalidate(deckId);
 }
 
 // ---------------------------------------------------------------------------
@@ -522,10 +488,11 @@ export async function setDeckCardQuantity(formData: FormData): Promise<void> {
  * per entry.
  */
 async function removeEntryFromList(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SupabaseClient,
+  userId: string,
   deckId: string,
   entryId: string,
-): Promise<void> {
+): Promise<{ error: string | null }> {
   const { data: entry } = await supabase
     .from("deck_cards")
     .select("card_id")
@@ -548,48 +515,36 @@ async function removeEntryFromList(
       .eq("type", "deck")
       .eq("commander_card_id", cardId);
 
-    const { data: listed } = await supabase
-      .from("cards")
-      .select("oracle_id, name")
-      .eq("scryfall_id", cardId)
-      .maybeSingle();
-    const target = listed as { oracle_id: string | null; name: string } | null;
-
-    if (target) {
-      const { data: inDeck } = await supabase
-        .from("card_instances")
-        .select("id, cards ( oracle_id, name )")
-        .eq("location_id", deckId);
-
-      const ids = ((inDeck ?? []) as unknown as Array<{
-        id: string;
-        cards: { oracle_id: string | null; name: string } | null;
-      }>)
-        .filter((row) =>
-          target.oracle_id
-            ? row.cards?.oracle_id === target.oracle_id
-            : row.cards?.name?.toLowerCase() === target.name.toLowerCase(),
-        )
-        .map((row) => row.id);
-
-      if (ids.length > 0) {
-        await supabase.from("card_instances").update({ location_id: null }).in("id", ids);
-      }
-    }
+    // Every sleeved copy of this card comes out to Unsorted, through the same
+    // atomic unsleeveCopies every other unsleeve path uses now — this used to
+    // duplicate that logic inline with no error check at all, which the
+    // architect's impact map named as the most severe finding in this item: a
+    // partial failure here did not duplicate a row, it made copies vanish
+    // silently. Reported now instead of swallowed.
+    const { error } = await unsleeveCopies(supabase, userId, deckId, cardId);
+    if (error) return { error };
   }
 
-  await supabase.from("deck_cards").delete().eq("id", entryId);
+  const { error: deleteError } = await supabase.from("deck_cards").delete().eq("id", entryId);
+  if (deleteError) return { error: deleteError.message };
+
+  return { error: null };
 }
 
 export async function removeDeckCard(formData: FormData): Promise<void> {
-  if (!(await getCurrentUser())) return;
+  const user = await getCurrentUser();
+  if (!user) return;
 
   const entryId = String(formData.get("entry_id") ?? "").trim();
   const deckId = String(formData.get("deck_id") ?? "").trim();
   if (!entryId || !deckId) return;
 
   const supabase = await createClient();
-  await removeEntryFromList(supabase, deckId, entryId);
+  // A plain <form action> with no bound state — throwing surfaces the
+  // failure to the (app) route group's error boundary rather than the write
+  // being silently dropped.
+  const { error } = await removeEntryFromList(supabase, user.id, deckId, entryId);
+  if (error) throw new Error(error);
 
   revalidate(deckId);
 }
@@ -654,8 +609,11 @@ export async function setDeckCardPrinting(formData: FormData): Promise<void> {
   if (!sameCard) return;
 
   // Reset the entry to unsleeved: pull any copies in the deck box for this
-  // card back out to Unsorted before the printing moves.
-  await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+  // card back out to Unsorted before the printing moves. Throwing on failure
+  // (this is a plain <form action>, no bound state) means the printing swap
+  // below never runs against a still-sleeved entry.
+  const { error: unsleeveError } = await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+  if (unsleeveError) throw new Error(unsleeveError);
 
   // deck_cards is unique on (deck_id, card_id): if the chosen printing is
   // already its own line on this deck, fold this entry's quantity into it
@@ -697,6 +655,7 @@ export async function setDeckCardPrinting(formData: FormData): Promise<void> {
 type SleeveCandidate = {
   id: string;
   card_id: string;
+  location_id: string | null;
   condition: string;
   finish: string;
   language: string;
@@ -763,7 +722,7 @@ async function sleeveCopies(
     const { data, error } = await supabase
       .from("card_instances")
       .select(
-        "id, card_id, condition, finish, language, quantity, notes, cards ( oracle_id, name ), locations!location_id ( type )",
+        "id, card_id, location_id, condition, finish, language, quantity, notes, cards ( oracle_id, name ), locations!location_id ( type )",
       )
       .eq("owner_user_id", userId);
 
@@ -788,79 +747,39 @@ async function sleeveCopies(
   const taking = Math.min(wanted, availableTotal);
   let remaining = taking;
 
+  // One row per spare stack drawn from, each carrying only the portion being
+  // taken from it — planBatchRekey decides a merge target per row, tracking
+  // any target it creates for an earlier row so a later row sharing the same
+  // destination key merges into that one too, rather than each deciding
+  // against the same stale "nothing there yet" read.
+  const rows: BatchRekeyRow[] = [];
   for (const source of candidates) {
     if (remaining <= 0) break;
     const take = Math.min(remaining, source.quantity);
-
-    const { data: alreadyThere } = await supabase
-      .from("card_instances")
-      .select("id, quantity, notes")
-      .eq("owner_user_id", userId) // hard constraint 3: RLS also exposes friends' tradable rows
-      .eq("card_id", source.card_id)
-      .eq("condition", source.condition)
-      .eq("finish", source.finish)
-      .eq("language", source.language)
-      .eq("location_id", deckId);
-
-    const decision = decideStacking(
-      {
-        card_id: source.card_id,
-        condition: source.condition,
-        finish: source.finish,
-        language: source.language,
-        location_id: deckId,
-        notes: source.notes,
-        quantity: take,
-      } as Parameters<typeof decideStacking>[0],
-      alreadyThere ?? [],
-    );
-
-    if (take === source.quantity && decision.action === "insert") {
-      const { error: moveError } = await supabase
-        .from("card_instances")
-        .update({ location_id: deckId })
-        .eq("id", source.id);
-      if (moveError) return { sleeved: taking - remaining, error: moveError.message };
-    } else {
-      if (take === source.quantity) {
-        const { error: dropError } = await supabase
-          .from("card_instances")
-          .delete()
-          .eq("id", source.id);
-        if (dropError) return { sleeved: taking - remaining, error: dropError.message };
-      } else {
-        const { error: splitError } = await supabase
-          .from("card_instances")
-          .update({ quantity: source.quantity - take })
-          .eq("id", source.id);
-        if (splitError) return { sleeved: taking - remaining, error: splitError.message };
-      }
-
-      if (decision.action === "merge") {
-        const { error: mergeError } = await supabase
-          .from("card_instances")
-          .update({ quantity: decision.newQuantity })
-          .eq("id", decision.instanceId);
-        if (mergeError) return { sleeved: taking - remaining, error: mergeError.message };
-      } else {
-        const { error: insertError } = await supabase.from("card_instances").insert({
-          owner_user_id: userId,
-          card_id: source.card_id,
-          location_id: deckId,
-          condition: source.condition,
-          finish: source.finish,
-          language: source.language,
-          quantity: take,
-          notes: source.notes,
-        });
-        if (insertError) return { sleeved: taking - remaining, error: insertError.message };
-      }
-    }
-
+    rows.push({
+      id: source.id,
+      card_id: source.card_id,
+      condition: source.condition,
+      finish: source.finish,
+      language: source.language,
+      location_id: source.location_id,
+      notes: source.notes,
+      quantity: take,
+    });
     remaining -= take;
   }
 
-  return { sleeved: taking, error: null };
+  const steps = planBatchRekey(rows, (row) => ({ ...row, location_id: deckId }), owned);
+
+  // One atomic call for the whole draw, however many spare stacks it came
+  // from — the sleeve action used to shrink each source and grow the
+  // destination as separate requests, so a failure partway through could
+  // lose copies outright (migration 38's header names this as the web-side
+  // defect it deliberately left in place pending this work).
+  const { results, error } = await applyStackRekey(supabase, steps);
+  if (error) return { sleeved: 0, error };
+
+  return { sleeved: results?.length === steps.length ? taking : 0, error: null };
 }
 
 /**
@@ -905,26 +824,26 @@ async function unsleeveCopies(
   deckId: string,
   cardId: string,
   wanted?: number,
-): Promise<void> {
+): Promise<{ unsleeved: number; error: string | null }> {
   const { data: listed } = await supabase
     .from("cards")
     .select("oracle_id, name")
     .eq("scryfall_id", cardId)
     .maybeSingle();
-  if (!listed) return;
+  if (!listed) return { unsleeved: 0, error: "That card is not in the database." };
   const target = listed as { oracle_id: string | null; name: string };
 
-  const { data: inDeck } = await supabase
+  const { data: inDeck, error: readError } = await supabase
     .from("card_instances")
-    .select("id, quantity, cards ( oracle_id, name )")
+    .select("id, card_id, condition, finish, language, location_id, notes, quantity, cards ( oracle_id, name )")
     .eq("owner_user_id", userId) // hard constraint 3
     .eq("location_id", deckId);
 
-  const matching = ((inDeck ?? []) as unknown as Array<{
-    id: string;
-    quantity: number;
-    cards: { oracle_id: string | null; name: string } | null;
-  }>)
+  if (readError) return { unsleeved: 0, error: readError.message };
+
+  const matching = ((inDeck ?? []) as unknown as Array<
+    BatchRekeyRow & { cards: { oracle_id: string | null; name: string } | null }
+  >)
     .filter((row) =>
       target.oracle_id
         ? row.cards?.oracle_id === target.oracle_id
@@ -932,54 +851,52 @@ async function unsleeveCopies(
     )
     .sort((a, b) => a.quantity - b.quantity);
 
+  if (matching.length === 0) return { unsleeved: 0, error: null };
+
   // Undefined `wanted` (or a non-positive one) means every sleeved copy.
   let remaining =
     wanted === undefined || !Number.isFinite(wanted) || wanted <= 0
       ? matching.reduce((sum, r) => sum + r.quantity, 0)
       : wanted;
 
+  // Every one of the caller's own instances of this card, at any location —
+  // the seed set for finding an already-existing Unsorted stack to merge
+  // into, the same reason planBatchRekey's callers elsewhere read broadly.
+  const { data: existingRaw, error: existingError } = await supabase
+    .from("card_instances")
+    .select("id, card_id, condition, finish, language, location_id, notes, quantity")
+    .eq("owner_user_id", userId)
+    .eq("card_id", cardId);
+  if (existingError) return { unsleeved: 0, error: existingError.message };
+
+  const rows: BatchRekeyRow[] = [];
   for (const row of matching) {
     if (remaining <= 0) break;
     const take = Math.min(remaining, row.quantity);
-
-    if (take === row.quantity) {
-      await supabase.from("card_instances").update({ location_id: null }).eq("id", row.id);
-    } else {
-      // Only part of this stack comes out: leave the rest sleeved.
-      await supabase
-        .from("card_instances")
-        .update({ quantity: row.quantity - take })
-        .eq("id", row.id);
-
-      const { data: full } = await supabase
-        .from("card_instances")
-        .select("card_id, condition, finish, language, notes")
-        .eq("id", row.id)
-        .maybeSingle();
-
-      if (full) {
-        const source = full as {
-          card_id: string;
-          condition: string;
-          finish: string;
-          language: string;
-          notes: string | null;
-        };
-        await supabase.from("card_instances").insert({
-          owner_user_id: userId,
-          card_id: source.card_id,
-          location_id: null,
-          condition: source.condition,
-          finish: source.finish,
-          language: source.language,
-          quantity: take,
-          notes: source.notes,
-        });
-      }
-    }
-
+    rows.push({
+      id: row.id,
+      card_id: row.card_id,
+      condition: row.condition,
+      finish: row.finish,
+      language: row.language,
+      location_id: row.location_id,
+      notes: row.notes,
+      quantity: take,
+    });
     remaining -= take;
   }
+
+  const taking = rows.reduce((sum, r) => sum + r.quantity, 0);
+  const steps = planBatchRekey(rows, (row) => ({ ...row, location_id: null }), (existingRaw ?? []) as BatchRekeyRow[]);
+
+  // One atomic call for the whole return trip, however many sleeved stacks
+  // it draws from — the sleeve/unsleeve pair used to write each side as a
+  // separate request, so a failure partway through could lose copies
+  // outright rather than merely fail to move them.
+  const { results, error } = await applyStackRekey(supabase, steps);
+  if (error) return { unsleeved: 0, error };
+
+  return { unsleeved: results?.length === steps.length ? taking : 0, error: null };
 }
 
 /**
@@ -998,7 +915,14 @@ export async function unsleeveCard(formData: FormData): Promise<void> {
   if (!deckId || !cardId) return;
 
   const supabase = await createClient();
-  await unsleeveCopies(supabase, user.id, deckId, cardId, wanted);
+  // A plain <form action> with no bound state to report into — throwing
+  // surfaces the failure to the (app) route group's error boundary instead
+  // of the write being silently dropped, the single most severe finding in
+  // the architect's impact map (apps/mobile/docs/BACKLOG.md item 2). Since
+  // the write is now one atomic apply_stack_rekey call, a thrown error means
+  // nothing happened, which is exactly what that boundary already tells people.
+  const { error } = await unsleeveCopies(supabase, user.id, deckId, cardId, wanted);
+  if (error) throw new Error(error);
 
   revalidate(deckId);
 }
@@ -1069,9 +993,7 @@ export async function bulkSleeveEntries(
     )
     .eq("owner_user_id", user.id);
 
-  const ownedRows = (owned ?? []) as unknown as Array<
-    SleeveCandidate & { location_id: string | null }
-  >;
+  const ownedRows = (owned ?? []) as unknown as SleeveCandidate[];
 
   const sleevedHere = new Map<string, number>();
   const spare = new Map<string, number>();
@@ -1085,19 +1007,9 @@ export async function bulkSleeveEntries(
     }
   }
 
-  // The pool for sleeveCopies: the same rows, minus the location_id column it
-  // does not use.
-  const poolCandidates: SleeveCandidate[] = ownedRows.map((r) => ({
-    id: r.id,
-    card_id: r.card_id,
-    condition: r.condition,
-    finish: r.finish,
-    language: r.language,
-    quantity: r.quantity,
-    notes: r.notes,
-    cards: r.cards,
-    locations: r.locations,
-  }));
+  // The pool for sleeveCopies: the same rows, now including location_id,
+  // which planBatchRekey needs to find a merge target at the destination.
+  const poolCandidates: SleeveCandidate[] = ownedRows;
 
   // Group the selected entries by card (oracle), because two entries for the
   // same card — 14 of one Forest art, 6 of another — draw on the same spare
@@ -1176,14 +1088,27 @@ export async function bulkUnsleeveEntries(
   const supabase = await createClient();
   const entries = await loadSelectedEntries(supabase, deckId, entryIds);
 
+  // Sequential, not one call for the whole selection: each entry's unsleeve
+  // is already its own atomic apply_stack_rekey call (one per card, since
+  // each draws from a different set of sleeved stacks), and a failure on one
+  // entry must not silently cancel the ones already returned — it is
+  // reported instead of swallowed, unlike this function's previous version.
+  let returned = 0;
   for (const entry of entries) {
-    await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+    const { error } = await unsleeveCopies(supabase, user.id, deckId, entry.card_id);
+    if (error) {
+      revalidate(deckId);
+      return fail(
+        returned > 0
+          ? `Returned ${returned} before hitting a problem: ${error}`
+          : `Nothing was returned: ${error}`,
+      );
+    }
+    returned += 1;
   }
 
   revalidate(deckId);
-  return ok(
-    `Returned ${entries.length} ${entries.length === 1 ? "entry" : "entries"} to your collection.`,
-  );
+  return ok(`Returned ${returned} ${returned === 1 ? "entry" : "entries"} to your collection.`);
 }
 
 /**
@@ -1204,10 +1129,23 @@ export async function bulkRemoveEntries(
 
   const supabase = await createClient();
 
+  // Sequential, each entry's removal its own atomic unsleeve-then-delete —
+  // a failure partway through is reported, not swallowed, and does not undo
+  // entries already removed.
+  let removed = 0;
   for (const entryId of entryIds) {
-    await removeEntryFromList(supabase, deckId, entryId);
+    const { error } = await removeEntryFromList(supabase, user.id, deckId, entryId);
+    if (error) {
+      revalidate(deckId);
+      return fail(
+        removed > 0
+          ? `Removed ${removed} before hitting a problem: ${error}`
+          : `Nothing was removed: ${error}`,
+      );
+    }
+    removed += 1;
   }
 
   revalidate(deckId);
-  return ok(`Removed ${entryIds.length} ${entryIds.length === 1 ? "card" : "cards"} from the list.`);
+  return ok(`Removed ${removed} ${removed === 1 ? "card" : "cards"} from the list.`);
 }
