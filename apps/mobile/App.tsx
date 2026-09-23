@@ -40,7 +40,7 @@ import { SearchOverlayContext } from './src/searchOverlay';
 import { PreferencesProvider, usePreferences } from './src/preferences';
 import { TabBar, ScreenFade } from './src/components/TabBar';
 import { Button, DismissingNotice, Notice } from './src/components/ui';
-import { PAGES, type DecksStackParamList, type FriendsStackParamList, type LocationsStackParamList, type PageId, type TradesStackParamList, type TabParamList } from './src/navigation';
+import { getHeaderBackInfo, type DecksStackParamList, type FriendsStackParamList, type HeaderBackInfo, type LocationsStackParamList, type PageId, type TradesStackParamList, type TabParamList } from './src/navigation';
 import { accent as accentColor, border, brand, space, surface, text as textColor, type as typeTokens } from './src/theme';
 import { makeStyles } from './src/preferences';
 import { initCrashReporting } from './src/crashReporting';
@@ -70,17 +70,24 @@ export default function App() {
   // Dashboard is the initial tab, and onStateChange does not fire for the initial
   // state, so this starts where the navigator actually starts.
   const [page, setPage] = useState<PageId>('Dashboard');
+  // Whether the unified header should show a back chevron, and for whom --
+  // derived from the same state change React Navigation already reports, see
+  // navigation.ts's getHeaderBackInfo for why this can't just be "page".
+  const [backInfo, setBackInfo] = useState<HeaderBackInfo>({ canGoBack: false, label: '' });
   return (
     <SafeAreaProvider>
       <PreferencesProvider>
         <AppProvider>
           <ThemedNavigation
-            onStateChange={state => setPage((state?.routes[state.index ?? 0]?.name as PageId | undefined) ?? 'Dashboard')}
+            onStateChange={state => {
+              setPage((state?.routes[state.index ?? 0]?.name as PageId | undefined) ?? 'Dashboard');
+              setBackInfo(getHeaderBackInfo(state));
+            }}
           >
             {/* Inside the providers so the fallback can be themed; a crash anywhere
                 below shows "Something went wrong" instead of a white screen. */}
             <ErrorBoundary context="app.shell">
-              <RootShell fontsLoaded={fonts} page={page} onNavigatorMounted={() => setPage('Dashboard')} />
+              <RootShell fontsLoaded={fonts} page={page} backInfo={backInfo} onNavigatorMounted={() => setPage('Dashboard')} />
             </ErrorBoundary>
           </ThemedNavigation>
         </AppProvider>
@@ -113,7 +120,12 @@ function DecksNavigator() {
   return (
     <DecksStack.Navigator id="DecksStack" screenOptions={{ headerShown: false }}>
       <DecksStack.Screen name="DeckList" component={DecksScreen} />
-      <DecksStack.Screen name="DeckDetail" component={DeckDetailScreen} options={{ headerShown: true, title: '', headerBackTitle: 'Decks', headerShadowVisible: false }} />
+      {/* No native header: the unified AppHeader (App.tsx's RootShell) carries the
+          back chevron instead, driven by getHeaderBackInfo -- headerShown:true
+          here would double up with it. The commander-art banner inside
+          DeckDetailScreen is its title; the native swipe-back gesture is
+          unaffected by hiding the header. */}
+      <DecksStack.Screen name="DeckDetail" component={DeckDetailScreen} options={{ headerShown: false }} />
     </DecksStack.Navigator>
   );
 }
@@ -124,7 +136,9 @@ function LocationsNavigator() {
   return (
     <LocationsStack.Navigator id="LocationsStack" screenOptions={{ headerShown: false }}>
       <LocationsStack.Screen name="LocationList" component={LocationsScreen} />
-      <LocationsStack.Screen name="LocationDetail" component={LocationDetailScreen} options={({ route }) => ({ headerShown: true, title: route.params.title, headerBackTitle: 'Locations' })} />
+      {/* No native header -- see DecksNavigator's comment. LocationDetailScreen
+          carries its own title (route.params.title) in the content area. */}
+      <LocationsStack.Screen name="LocationDetail" component={LocationDetailScreen} options={{ headerShown: false }} />
     </LocationsStack.Navigator>
   );
 }
@@ -135,7 +149,9 @@ function FriendsNavigator() {
   return (
     <FriendsStack.Navigator id="FriendsStack" screenOptions={{ headerShown: false }}>
       <FriendsStack.Screen name="FriendList" component={FriendsScreen} />
-      <FriendsStack.Screen name="FriendProfile" component={FriendProfileScreen} options={({ route }) => ({ headerShown: true, title: route.params.username, headerBackTitle: 'Friends' })} />
+      {/* No native header -- see DecksNavigator's comment. FriendProfileScreen
+          carries its own title (route.params.username) in the content area. */}
+      <FriendsStack.Screen name="FriendProfile" component={FriendProfileScreen} options={{ headerShown: false }} />
     </FriendsStack.Navigator>
   );
 }
@@ -162,8 +178,10 @@ function TradesNavigator() {
   return (
     <TradesStack.Navigator id="TradesStack" screenOptions={{ headerShown: false }}>
       <TradesStack.Screen name="TradeList" component={TradesScreen} />
-      <TradesStack.Screen name="TradeDetail" component={TradeDetailScreen} options={{ headerShown: true, title: 'Trade', headerBackTitle: 'Trades', headerShadowVisible: false }} />
-      <TradesStack.Screen name="TradeBuilder" component={TradeBuilderScreen} options={{ headerShown: true, title: 'New offer', headerBackTitle: 'Trades', headerShadowVisible: false }} />
+      {/* No native header on either -- see DecksNavigator's comment. Both screens
+          carry their own heading ("Offer from X" / "Trade with X") in content. */}
+      <TradesStack.Screen name="TradeDetail" component={TradeDetailScreen} options={{ headerShown: false }} />
+      <TradesStack.Screen name="TradeBuilder" component={TradeBuilderScreen} options={{ headerShown: false }} />
     </TradesStack.Navigator>
   );
 }
@@ -217,7 +235,7 @@ function SignedInTabs({ onMounted }: { onMounted(): void }) {
  * other Scan-tab screen (session list, permission and download panels) is
  * ordinary content and keeps the header, banners and safe area.
  */
-function RootShell({ fontsLoaded, page, onNavigatorMounted }: { fontsLoaded: boolean; page: PageId; onNavigatorMounted(): void }) {
+function RootShell({ fontsLoaded, page, backInfo, onNavigatorMounted }: { fontsLoaded: boolean; page: PageId; backInfo: HeaderBackInfo; onNavigatorMounted(): void }) {
   const styles = useStyles();
   const app = useApp();
   const titleStyle = fontsLoaded ? styles.title : styles.titleFallback;
@@ -247,7 +265,14 @@ function RootShell({ fontsLoaded, page, onNavigatorMounted }: { fontsLoaded: boo
     <CardDetailsContext.Provider value={cardApi}>
     <SafeAreaView style={fullBleed ? styles.fullBleed : styles.safe} edges={fullBleed ? [] : ['top', 'left', 'right']}>
       <StatusBar barStyle={fullBleed || scheme === 'dark' ? 'light-content' : 'dark-content'} />
-      {!fullBleed && signedIn && <AppHeader title={PAGES[page].title} fontsLoaded={fontsLoaded} onMenu={() => setMenuOpen(true)} unread={unread} />}
+      {!fullBleed && signedIn && (
+        <AppHeader
+          showBack={backInfo.canGoBack}
+          onBack={() => { if (navigationRef.isReady()) navigationRef.goBack(); }}
+          onMenu={() => setMenuOpen(true)}
+          unread={unread}
+        />
+      )}
       {!fullBleed && !signedIn && (
         <View style={styles.header}>
           <Text style={styles.eyebrow}>PROJECT UPKEEP</Text>

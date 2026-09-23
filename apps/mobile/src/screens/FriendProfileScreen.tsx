@@ -6,6 +6,7 @@ import { LANGUAGE_LABELS, type LanguageCode } from '@upkeep/domain';
 import { CardDetails } from '../components/CardDetails';
 import { Button, Notice } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { fetchFriendTradables, fetchFriendWants, removeFriendship, type FriendCard } from '../friends';
 import type { FriendsStackParamList, TabParamList } from '../navigation';
@@ -57,6 +58,10 @@ export function FriendProfileScreen({ route, navigation }: NativeStackScreenProp
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      {/* No hero art here the way DeckDetail has -- this is the title now the
+          native header (which used to carry route.params.username) is off,
+          see App.tsx's FriendsNavigator. */}
+      <PageTitle>{username}</PageTitle>
       {!!error && <Notice>{error}</Notice>}
       {loading ? <Text style={styles.sub}>Loading…</Text> : (
         <>

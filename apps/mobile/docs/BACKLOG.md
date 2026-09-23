@@ -30,7 +30,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 7 | ~~Migration 20: test the deck-list shortfall's 2nd and 3rd tiers~~ | — | — | **Done (2026-09-23)** — `schema_test.sql` section 22 | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
 | 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
-| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Priorities 2 and 6 done (2026-09-23, this branch); Priority 1 shipped separately on the still-unmerged `feat/mobile-unified-header` branch; 3–5 and 7 open | `apps/mobile/src/screens/SettingsScreen.tsx`, `apps/mobile/src/components/MenuSheet.tsx` + brief |
+| 10 | Mobile UI refinement brief (7 items) | Varies | Medium | Priorities 1, 2 and 6 done (2026-09-23) — unified header merged; nav-slot editor and menu grouping on this branch; Priority 3 (collection filter sheet) done separately, PR #89, not yet merged; 4, 5 and 7 open | `apps/mobile/src/components/AppHeader.tsx`, `SettingsScreen.tsx`, `MenuSheet.tsx` + brief |
 | 11 | Phone deck gaps: add-to-deck from card sheet, deck wish list, stats, export, playtest | Med each | Low–Med | Open — depends on owner's habits | `apps/mobile/src/screens/DeckDetailScreen.tsx` |
 | 12 | Phone quick-add straight to a deck | Easy–Med | Low–Med | Partly done | `ScanScreen.tsx` |
 | 13 | ~~Phone collection rows: show prices~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CollectionScreen.tsx` |
@@ -663,6 +663,98 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
     two groups with nothing else dropped) that it now reports the
     duplicate. `npm run lint`, `typecheck -w @upkeep/scanner-app` and
     `npm test` (702/702) all still pass.
+- **10 (Mobile UI refinement brief), Priority 1 shipped, 2026-09-23
+  (implementer).** The unified Mort-centered header (`MOBILE_UI_REFINEMENT_BRIEF.md`'s
+  Priority 1, plus its "Navigation integration" subsection pulled forward as
+  scoped): `AppHeader.tsx` now renders three fixed 44pt regions — a back
+  chevron or reserved space, Mort at 42pt on his existing `accent.soft`
+  circle, and the menu button — instead of the old title bar. It replaces the
+  mixture of that branded header and React Navigation's native detail headers
+  everywhere signed in; the live scanner's own dark camera chrome
+  (`ScanScreen.tsx`) was not touched.
+  - **Titles moved into content, not duplicated.** Every root screen
+    (Dashboard, Collection, Locations, Decks, Wishlist, Friends, Trades,
+    Notifications, Import, Settings, and the "coming soon" placeholder) now
+    shows its own title at the top of its content in the existing 28pt Cinzel
+    display type, via a new shared `components/PageTitle.tsx` — one place to
+    keep that in sync rather than a copy-pasted style per screen. Detail
+    screens that already had a hero/banner title with real hierarchy
+    (`DeckDetailScreen`'s commander banner, `TradeDetailScreen`/
+    `TradeBuilderScreen`'s own heading) keep that instead of adding a second
+    one, per the brief's own "never show a title twice" rule. The two detail
+    screens that had neither (`LocationDetailScreen`, `FriendProfileScreen`)
+    now show one, sourced from the same route param the native header used to
+    display (`route.params.title`, `route.params.username`) so nothing that
+    was visible before silently disappeared.
+  - **Navigation integration.** The native header is now off
+    (`headerShown: false`) on all four of `App.tsx`'s nested stacks — Decks,
+    Locations, Friends, Trades — so nothing can show the old "branded header
+    above a native back bar" double-header condition again; there is now
+    exactly one header component in the whole signed-in app outside the
+    scanner. Back-button visibility and the swipe-back gesture are two
+    independent things: which the new `getHeaderBackInfo` in `navigation.ts`
+    computes from the navigator's own state (whether the focused tab's nested
+    stack has pushed past its root screen) on every `onStateChange`, purely to
+    decide whether `AppHeader` shows a chevron; the swipe gesture itself is a
+    native-stack property that hiding the header does not touch, so it kept
+    working unmodified. The chevron calls `navigationRef.goBack()` — the
+    standard React Navigation pattern for a back button that lives above the
+    navigator rather than inside one of its screens.
+  - **Verified:** `npm run lint` and `npm run typecheck -w @upkeep/scanner-app`
+    both clean on every touched file (two pre-existing warnings elsewhere,
+    unrelated to this change); `npm test` — 702 tests, unaffected (this is a
+    screens-only change, nothing in `src/lib`-equivalent pure logic moved).
+    No schema touched, so `npm run test:db` does not apply. Booted the iOS
+    Simulator and installed the existing dev-client build alongside Metro:
+    confirmed the app installs, launches and Metro serves the edited bundle
+    with no build/transform errors. Could not get past the Expo dev-client's
+    own connection screen to see a live screenshot of the header — the
+    simulator here has no way to simulate a touch (no Accessibility/Automation
+    permission available in this environment for UI scripting, and there is
+    no bundled tap-injection tool), which blocked confirming this visually
+    rather than any problem found in the app itself.
+  - **Left for the owner:** on-device/signed-in visual confirmation of the
+    header and its back button on Deck Detail, Location Detail, Friend
+    Profile and Trade Detail/Builder specifically (this session had no
+    credentials for the real, production-backed account) — the code path for
+    each was read closely (native header off, `getHeaderBackInfo` covers all
+    four stacks, each screen's title source is correct) but never seen
+    rendered. Also left alone, deliberately, as outside this task's scope:
+    Priorities 2–7 of the same brief (Settings screen, collection filter
+    sheet, spacing/typography tokens, bordered containers, menu grouping,
+    interaction polish), and the brief's optional "a subtle divider once
+    content scrolls beneath the header" — the header is canvas-coloured with
+    no border today, which satisfies the brief's default state; wiring a
+    scroll listener into every screen's list/ScrollView for the scrolled
+    state would have meaningfully widened this change's surface for a detail
+    the brief itself calls optional ("may appear").
+  - **Reviewed, 2026-09-23 — clean, no findings above "preference."**
+    Independently re-verified `npm run lint`/`typecheck`/`npm test`
+    (702/702), and confirmed by direct code reading (not the implementer's
+    summary): the two side regions really are fixed-width `View`s with the
+    chevron rendered conditionally *inside* the left one, so Mort's
+    centering doesn't depend on a swapped wrapper; `headerShown: false` is
+    set once per navigator (not per screen), so every current and future
+    screen in all four stacks is covered; Mort has no `onPress` anywhere and
+    is genuinely hidden from accessibility; both header buttons are true
+    44×44 boxes, not just `hitSlop`; `ScanScreen.tsx` has zero diff. One
+    documented, non-blocking tripwire: `getHeaderBackInfo` only looks one
+    level into a tab's nested stack, which is correct for today's shape but
+    would silently stop showing the chevron if any of the four stacks ever
+    grew a third screen level — already called out in the code's own
+    comment, not a surprise for whoever touches this next.
+  - **A second attempt at simulator verification (parent session, not the
+    implementer), same result.** Booted a simulator myself with real
+    tap/screenshot tools (rather than the implementer's sandbox, which had
+    none) and tried to reach the header past the Expo dev-client's connection
+    screen — tapping the correctly Bonjour-discovered local Metro server,
+    and a clean uninstall/reinstall of the dev-client build, both still fell
+    back to a stale `*.exp.direct` tunnel URL baked into this particular
+    native build from however it was last compiled. That's a native-build/
+    tooling gap unrelated to this diff — fixing it means a fresh native
+    rebuild, out of proportion for screenshotting a header — not a finding
+    about the code. The four signed-in detail screens still need the
+    owner's own eyes, as above.
 
 ## Owner decisions — evergreen facts, kept for future work
 

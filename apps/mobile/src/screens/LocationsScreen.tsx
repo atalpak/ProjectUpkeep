@@ -6,9 +6,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { ColorSwatches } from '../components/ColorSwatches';
 import { Button, Choices, EmptyState, Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { createLocation, fetchLocations, LOCATION_COLOR_HEX, LOCATION_TYPE_LABELS, LOCATION_TYPES, type LocationColor, type LocationKind, type LocationRow } from '../locations';
-import type { LocationsStackParamList } from '../navigation';
+import { PAGES, type LocationsStackParamList } from '../navigation';
 import { makeStyles } from '../preferences';
 import { border, radius, space, surface, text, type } from '../theme';
 
@@ -84,6 +85,7 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      <PageTitle>{PAGES.Locations.title}</PageTitle>
       {!!error && <><Notice>{error}</Notice><Button secondary label="Retry" onPress={() => void load()} /></>}
       {loading && <Text style={styles.sub}>Loading your locations…</Text>}
 

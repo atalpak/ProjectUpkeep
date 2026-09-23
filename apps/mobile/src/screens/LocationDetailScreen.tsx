@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useApp } from '../AppProvider';
 import { CardDetails } from '../components/CardDetails';
 import { ColorSwatches } from '../components/ColorSwatches';
+import { PageTitle } from '../components/PageTitle';
 import { Button, Choices, Notice } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
 import { errorMessage } from '../errors';
@@ -76,6 +77,11 @@ export function LocationDetailScreen({ route, navigation }: NativeStackScreenPro
   const total = cards.reduce((sum, c) => sum + c.quantity, 0);
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      {/* This detail screen has no hero/banner art the way DeckDetail does, so
+          it needs its own title now the native header (which used to carry
+          route.params.title) is off -- see App.tsx's LocationsNavigator. Kept
+          in sync with the location's real name via navigation.setParams on save. */}
+      <PageTitle>{route.params.title}</PageTitle>
       {!!error && <><Notice>{error}</Notice><Button secondary label="Retry" onPress={() => void load()} /></>}
 
       {locationId && location && (

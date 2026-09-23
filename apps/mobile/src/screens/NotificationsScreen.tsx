@@ -4,8 +4,9 @@ import { useIsFocused, useNavigation, type NavigationProp } from '@react-navigat
 import { notificationSentence, relativeTime } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { Notice } from '../components/ui';
+import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
-import type { TabParamList } from '../navigation';
+import { PAGES, type TabParamList } from '../navigation';
 import { fetchNotifications, markAllRead, type AppNotification } from '../notifications';
 import { makeStyles } from '../preferences';
 import { accent, border, radius, space, surface, text, type } from '../theme';
@@ -45,6 +46,7 @@ export function NotificationsScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageTitle>{PAGES.Notifications.title}</PageTitle>
       {!!error && <Notice>{error}</Notice>}
       {loading && <Text style={styles.sub}>Loading…</Text>}
       {!loading && items.length === 0 && !error && <Text style={styles.sub}>Nothing yet. Trade offers and friend requests show up here.</Text>}
