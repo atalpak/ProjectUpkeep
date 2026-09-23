@@ -1,4 +1,4 @@
-import { entryPrice } from '@upkeep/domain';
+import { entryPrice, expiringSoon, isExpired } from '@upkeep/domain';
 import { reportError } from './errors';
 import { backend } from './backend';
 import { CollectionAuthError } from './collection';
@@ -29,6 +29,8 @@ export type DashboardData = {
   wishMatches: { name: string; cardId: string; friends: number }[];
   /** Trade proposals waiting on you. */
   tradesAwaiting: number;
+  /** Of those, how many expire within two days (matches the web dashboard's rule, `expiringSoon`). */
+  tradesExpiringSoon: number;
 };
 
 type Row = {
@@ -111,13 +113,18 @@ export async function fetchDashboard(userId: string): Promise<DashboardData> {
     return [{ name: w.name, cardId: w.cardId, friends }];
   });
 
-  const now = Date.now();
-  const tradesAwaiting = (tradesRes.data ?? []).filter(t => t.recipient_id === userId && (!t.expires_at || Date.parse(t.expires_at as string) > now)).length;
+  // The query already scopes to this user's incoming, still-`proposed` trades
+  // (see fetchRows above -- `.eq('recipient_id', userId).eq('status', 'proposed')`),
+  // so `isExpired` here is really just the shared `expires_at` rule, kept in
+  // one place rather than reimplemented -- same reasoning as `entryPrice`.
+  const openTrades = (tradesRes.data ?? []).filter(t => !isExpired({ expires_at: t.expires_at as string | null }));
+  const tradesAwaiting = openTrades.length;
+  const tradesExpiringSoon = openTrades.filter(t => expiringSoon(t.expires_at as string | null)).length;
 
   return {
     totalCards, totalEntries: rows.length, unsortedCards, valueTotal, unpricedEntries, mostValuable,
     colours: COLOUR_BUCKETS.filter(b => (colourCounts.get(b) ?? 0) > 0).map(bucket => ({ bucket, count: colourCounts.get(bucket)! })),
     recent: (recentRes.data ?? []).map(r => ({ id: r.id as string, cardId: r.card_id as string, name: r.card_name as string, imageSmall: (r.card_image_uri_small as string | null) ?? null })),
-    decks, wishMatches, tradesAwaiting,
+    decks, wishMatches, tradesAwaiting, tradesExpiringSoon,
   };
 }

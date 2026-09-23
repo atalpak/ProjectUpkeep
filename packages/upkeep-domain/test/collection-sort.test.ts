@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { COLLECTION_SORTS, DEFAULT_COLLECTION_SORT, entryPrice, readCollectionSort, sortCollection, type CollectionSort, type SortableEntry } from "../src/collection-sort";
+import { COLLECTION_SORTS, DEFAULT_COLLECTION_SORT, entryPrice, formatPrice, readCollectionSort, sortCollection, type CollectionSort, type SortableEntry } from "../src/collection-sort";
 
 const e = (over: Partial<SortableEntry> & { id: string; card_name: string }): SortableEntry => ({
   card_set_code: "fdn", card_collector_number: "1", card_rarity: "common", finish: "nonfoil",
@@ -78,4 +78,13 @@ test("readCollectionSort keeps only known values", () => {
   for (const s of COLLECTION_SORTS) assert.equal(readCollectionSort(s), s);
   assert.equal(readCollectionSort("bogus"), DEFAULT_COLLECTION_SORT);
   assert.equal(readCollectionSort(undefined), DEFAULT_COLLECTION_SORT);
+});
+
+test("formatPrice shows an em dash for unpriced, cents under $1000, whole dollars over", () => {
+  assert.equal(formatPrice(null), "—");
+  assert.equal(formatPrice(undefined), "—");
+  assert.equal(formatPrice(4.5), "$4.50");
+  assert.equal(formatPrice(999.99), "$999.99");
+  assert.equal(formatPrice(1000), "$1,000");
+  assert.equal(formatPrice(0), "$0.00");
 });
