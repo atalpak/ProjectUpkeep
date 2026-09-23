@@ -47,12 +47,28 @@ policy to make a transfer work.**
 ## Verifying
 
 ```bash
-npm run test:db     # applies every migration to a throwaway Postgres, then asserts
+npm run test:db           # applies every migration to a throwaway Postgres, then asserts
+npm run check:migrations  # compares local migration files against the LINKED PRODUCTION project
 ```
 
 Needs a reachable Postgres via `PGHOST`/`PGPORT`/`PGUSER` or `PGURL`. CI runs it
 against a `postgres:16` service container on every pull request, so a migration
 that only works against the live database will fail there.
+
+**`test:db` passing does not mean production is up to date.** It proves the
+migrations are internally consistent against a throwaway database — it says
+nothing about whether the real project has actually run them. Migrations
+36–38 and 40 both went unapplied in production while everything else stayed
+green; nobody noticed until someone ran `supabase migration list --linked` by
+hand. `npm run check:migrations` (`scripts/check-migrations-applied.sh`) is
+that check, made automatic: it runs in CI on every push to `main` and fails
+the build when a migration exists locally but not on the linked project.
+Locally it uses whatever `supabase link` session is already active; in CI it
+needs the `SUPABASE_ACCESS_TOKEN` secret (`SUPABASE_PROJECT_ID` is not secret —
+it's the same ref in `NEXT_PUBLIC_SUPABASE_URL`). Without either, it skips with
+a warning rather than failing, so it never blocks a PR that can't reach
+production. After merging a new migration, apply it — `npx supabase db push
+--linked` — in the same session; don't leave it for later.
 
 ## Known unresolved
 

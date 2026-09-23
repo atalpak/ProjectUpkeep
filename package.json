@@ -18,6 +18,7 @@
     "db:push": "npx --yes supabase db push",
     "test": "tsx --test scripts/*.test.ts",
     "test:db": "./scripts/verify-migrations.sh",
+    "check:migrations": "./scripts/check-migrations-applied.sh",
     "catalog:snapshot": "bash scripts/catalog-snapshot.sh"
   },
   "dependencies": {
