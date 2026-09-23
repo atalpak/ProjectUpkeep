@@ -44,10 +44,21 @@ Say so again wherever it would otherwise read like invented demand.
 | 21 | Haptics on the Scan fan-out button | Easy (needs rebuild) | Low | Later — bundle into next rebuild | — |
 | 22 | Android live scanner | Hard | Low | Later — no Android user yet | `packages/upkeep-vision` |
 | 23 | Public leaderboard with votes | Hard | Unmeasurable | Later | needs `is_admin()` first |
+| 24 | Tactile solo playtester ("Play" mode) | Hard | High (if used) | Phase 1 done (2026-09-23) — deterministic game core landed; Phase 2 (desktop tabletop UI) is next | `src/lib/playtest/board/` (new, not `packages/playtest-core/` — see notes), `src/lib/playtest/game-start.ts` (new), `src/components/playtester/` (not started), new `playtest_sessions` migration in Phase 3 |
+| 25 | "Fits this deck" collection-aware recommendations | Med | Medium | Needs architect — adds `cards.legalities` | `src/lib/recommendations/deck-fit.ts` (new), migration adding `cards.legalities` |
 
 Items 5, 6 and 8 (old numbering) are fully shipped as of 2026-09-22 (PRs #71–#76) and
 are dropped from this table — see "Owner decisions" below for what future work should
 know about them, not what's left to do.
+
+**Items 24 and 25 are appended, not re-ranked.** They arrived as full written proposals
+(`PLAYTESTER_IMPLEMENTATION_PLAN.md` and `FITS_THIS_DECK_DEVELOPMENT_GUIDE.md`, both at
+the repo root) on 2026-09-23 and are recorded here so this stays the one list, per this
+file's own rule — their position in the table is not a claim about priority relative to
+items 1–23; only `assessor`'s full re-rank sets that. Both are structural (new table +
+RLS for 24, a new `cards` column for 25) and need an architect impact map and owner
+sign-off before any implementer work starts, per `.claude/ORGANIZATION.md`'s delegation
+rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been.
 
 ### Notes behind the ranking
 
@@ -205,6 +216,122 @@ know about them, not what's left to do.
   product's whole premise, and the owner decision was iPhone-first. Impact genuinely
   depends on whether the owner re-files cards from the phone or the laptop — unknown,
   cheapest way to find out is just noticing which device gets reached for next time.
+
+- **24 (tactile playtester), architect impact map + owner decisions, 2026-09-23.**
+  Full plan in `PLAYTESTER_IMPLEMENTATION_PLAN.md` (repo root). The architect's
+  verdict: **go, with changes** — nothing in it touches a hard constraint, RLS, or
+  either reversible bet.
+  - **Changed from the plan:** the pure game logic (state/command/reducer/undo)
+    goes in `src/lib/playtest/board/`, not a new `packages/playtest-core/` — a
+    separate package can't reach `src/lib/playtest/rng.ts` (outside `packages/`),
+    so it would either copy the shuffle code or force the extraction the plan
+    itself says to defer. This way it shares directly and runs in the existing
+    `npm test`. Keep it framework-free by convention, backed by a lint rule (no
+    React/Next/Supabase/`@/app/**` imports in that folder).
+  - **Changed:** the `playtest_sessions` write policy needs a migration-17-style
+    trigger that explicitly compares the session's `owner_user_id` to the deck's
+    owner (and checks `type = 'deck'`) — a naive "does this deck exist" check
+    would pass for a **friend's public deck** (migration 35) or tradable location
+    (migration 9), since RLS legitimately makes those readable. Test the same way
+    section 16 already covers a friend-with-public-deck setup, and prove the test
+    can fail by removing the owner comparison first.
+  - **Added:** a size cap on saved snapshots (~256KB, unmeasured) — as scoped, any
+    signed-in user could otherwise post arbitrary JSON and fill the free-tier
+    database.
+  - **Real risk flagged, not a change to the plan:** 10 components under
+    `src/components/decks/` carry server actions that write `card_instances`/
+    `deck_cards` (e.g. `DeckBanner.tsx`, `DeckWorkspace.tsx`). Reusing one of them
+    on the play page could let a "just a viewer" board accidentally mutate
+    physical inventory. The play route gets its own `play/actions.ts` touching
+    only `playtest_sessions`, plus a lint rule banning inventory-action imports
+    from the playtester folder and the board-logic folder.
+  - **Owner decisions (2026-09-23):** deleting a deck deletes its saved games too
+    (consistent with decklist deletion already doing this). v1 ships with pure-logic
+    + `schema_test.sql` coverage only, no Playwright/E2E — this repo has no
+    browser-test setup today, and standing one up is its own separate project.
+    The "never touches inventory" guarantee for v1 therefore rests on the
+    structural lint-rule boundary, not an end-to-end test.
+  - **Also worth doing, not blocking:** store the resulting card order in a
+    snapshot, not just its shuffle seed, so a saved game never depends on the
+    RNG code staying frozen; identify real cards in a snapshot only by Scryfall
+    card ID, never a physical `card_instances` row id, so a future trade can't
+    reach into a saved game; settle the battlefield's two overlapping
+    representations (`zones.battlefield` vs. the separate `battlefield` array)
+    before the snapshot format is fixed in Phase 3.
+  - **Timing:** Phases 0–2 (prototype → deterministic core → desktop UI) can
+    start now; the `playtest_sessions` migration is Phase 3 and waits until the
+    game-state shape has settled through the prototype. Migration numbering:
+    coordinate with item 2's `apply_stack_rekey` (migration 41) — whichever
+    merges first takes the number.
+  - **Simplified, 2026-09-23 (owner):** the "Use sleeved copies only" mode is
+    dropped from v1. The playtester always starts from the deck's full
+    `deck_cards` list — no capped-quantity generation, no shortfall banner, no
+    per-card sleeved-count read, no `source_mode` column, no "deck changed
+    since last save" resume prompt tied to sleeve state. `PLAYTESTER_IMPLEMENTATION_PLAN.md`
+    updated to match throughout. This removes one of the two start-mode paths
+    Phase 1's tests were meant to cover and simplifies `GameState` (no
+    `sourceMode` field) and the `playtest_sessions` schema (no `source_mode`
+    check column) accordingly.
+  - **Phase 1 shipped, 2026-09-23 (implementer).** The deterministic game
+    core: `src/lib/playtest/board/` (`types.ts`, `commands.ts`, `reduce.ts`,
+    `inverse.ts`, `history.ts`, `selectors.ts`, `shuffle.ts`, `serialize.ts`,
+    `fixtures.ts`) plus the pure web adapter `src/lib/playtest/game-start.ts`.
+    No UI, no route, no migration — those stay Phases 2 and 3. Notable choices
+    made while building, each documented in-file:
+    - Resolved the impact map's flagged risk (the overlapping
+      `zones.battlefield` array vs. a separate `battlefield` list) at the
+      type's birth rather than carrying it forward: a card's board group
+      lives on the card itself (`GameCard.groupId`), so there is only one
+      representation of battlefield membership from day one.
+    - The 11 commands are exactly the set named in the brief (`DRAW`,
+      `MOVE_CARD`, `SET_TAPPED`, `SET_FACE`, `ADD_COUNTER`, `CREATE_TOKEN`,
+      `DELETE_OBJECT`, `SHUFFLE`, `SET_LIFE`, `NEXT_TURN`,
+      `RESTORE_SNAPSHOT`). Anything that would otherwise need randomness at
+      apply-time (a token's object ids, a reshuffle's seed) is carried on the
+      command itself, which is what keeps replay deterministic.
+    - Undo is two independent, deliberately separate mechanisms: `history.ts`
+      is the bounded (200-entry) past/future stack of stored states the plan
+      recommends as the simplest-correct v1 form; `inverse.ts` computes a real
+      per-command inverse for every command that has a cheap exact one — all
+      but `DELETE_OBJECT`, `SHUFFLE`, `NEXT_TURN`, and `RESTORE_SNAPSHOT`
+      itself, which fall back to restoring the prior state wholesale (reasoning
+      in `inverse.ts`'s header).
+    - Card object identity in `game-start.ts` is derived from the
+      `deck_cards` row id (`${entry.id}:copy:{n}`), not a random UUID, so
+      "same input + same seed" reproduces the literal same `GameState`, ids
+      included, not just an equivalent one.
+    - 43 new tests across 7 files in `scripts/` (`playtest-board-reduce`,
+      `-inverse`, `-history`, `-serialize`, `-selectors`, `-shuffle`,
+      `playtest-game-start`), covering every item in the plan's Phase 1 test
+      list, including the exit criterion itself asserted directly (same seed
+      + same commands -> identical state, ids included). `npm run lint`,
+      `npm run typecheck` and `npm test` all pass (694 tests total, repo-wide).
+    - Deliberately deferred, not forgotten: `src/components/playtester/`, the
+      `/decks/[id]/play` route, and the `playtest_sessions` migration
+      (Phases 2–3); the "worth doing, not blocking" items from the impact map
+      (storing shuffle results rather than replaying the seed at
+      snapshot-restore time; identifying real cards in a snapshot only by
+      Scryfall id) remain open for whoever builds Phase 3's persistence. The
+      lint rule banning inventory-action imports from the playtester/board
+      folders (impact map's "real risk flagged") is also not built yet — there
+      is nothing under `src/components/playtester/` for it to guard until
+      Phase 2 exists.
+  - **Reviewed, one finding fixed, 2026-09-23.** `reduce.ts`'s action-log
+    entries were keyed with `crypto.randomUUID()`, which quietly broke the
+    determinism guarantee the moment any command ran — two runs of "same seed,
+    same commands" produced states that matched everywhere except every log
+    entry's id. Not a functional bug (undo/redo restores stored states rather
+    than recomputing them, so nothing depended on it), but it contradicted
+    the claim above and would have mattered for Phase 3's replay/resume story.
+    Fixed: the log id is now a sequence number derived from the log's own
+    length, so it's deterministic across identical replays (a number can
+    repeat only after the entry that previously held it has already been
+    dropped by the log's 500-entry cap, which is not a collision). Added a
+    test — `playtest-board-reduce.test.ts` — that runs an identical command
+    sequence against two independently-created fixtures and asserts the
+    resulting states, log included, are byte-identical; this is the actual
+    case the initial-state-only reproducibility test didn't cover. 695 tests
+    now pass repo-wide, lint and typecheck clean.
 
 - **9 (otags), re-scoped.** Otags are a real, free, official Scryfall bulk file
   (`oracle_tags`, ~5.7MB gzipped, daily, no rate limit, 99.4% coverage) — genuinely
