@@ -21,9 +21,9 @@ Say so again wherever it would otherwise read like invented demand.
 
 | # | Item | Ease | Impact | Status | Where |
 |---|---|---|---|---|---|
-| 1 | Daily sync: the database write is failing, not just the export step | Med | High | Open — diagnosis needs redoing | `scripts/sync-scryfall.ts`, migration 33 |
-| 2 | Collection actions can corrupt deck lists and duplicate rows | Med | High | Open — live bugs | `collection/actions.ts`, `bulk-actions.ts`, `decks/actions.ts` |
-| 3 | Migration 40 is merged but not applied in production | Trivial | Low (this migration) / High (the pattern) | Open | `supabase/migrations/00000000000040...` |
+| 1 | Daily sync: the database write is failing, not just the export step | Med | High | Open — one green run (2026-09-22 manual), cause still undiagnosed | `scripts/sync-scryfall.ts`, migration 33 |
+| 2 | Collection actions still create duplicate rows outside `bulkMerge` | Med | Med–High | Open — the acute corruption is fixed, the root cause isn't | `collection/actions.ts`, `decks/actions.ts` |
+| 3 | ~~Migration 40 not applied in production~~ | — | — | **Done (2026-09-22)** — applied, PR #78 adds a CI check so it can't recur silently | — |
 | 4 | One real session on a physical iPhone | Owner only | High | Blocks ~10 other items | scanner, item 8 steps 3–4, dark mode |
 | 5 | Items 2–4 (old numbering): web sub-menus, printing photos, flip button | Easy | Medium | Owner only — built in PR #69, needs a look | web pages |
 | 6 | Phone: move a copy to another binder/box from the card details sheet | Easy–Med | High (if used) | Open | `CardDetails.tsx`, `apply_stack_move` |
@@ -84,25 +84,26 @@ know about them, not what's left to do.
   until a sync succeeds. Also **blocks #9** (otags means more columns per write,
   which makes this worse before it's better).
 
-- **2 (collection actions can corrupt data).** All four bugs live in
-  `src/app/(app)/collection/actions.ts`, `bulk-actions.ts` and
-  `src/app/(app)/decks/actions.ts`, and the safe, already-existing pattern
+- **2 (collection actions still create duplicates).** All four bugs originally lived
+  in `src/app/(app)/collection/actions.ts`, `bulk-actions.ts` and
+  `src/app/(app)/decks/actions.ts`; the safe, already-existing pattern
   (`apply_stack_addition`/`apply_stack_move`, a stacking *decision* in
-  `packages/upkeep-domain` then an atomic RPC) is not used by any of them.
+  `packages/upkeep-domain` then an atomic RPC) is used by none of the three still open.
 
-  - **Worst: `bulkMerge` can permanently inflate a deck list.** It raises the kept
-    row's `quantity` to the combined total, *then* deletes the absorbed rows
-    (`bulk-actions.ts:239–252`) — confirmed by reading it directly. Migration 37's
-    trigger reacts to that first update, sums every row still physically in the deck
-    (migration 20) while the about-to-be-deleted rows are still there, and raises the
-    deck's tracked count — which the trigger only ever raises, never lowers. Example:
-    4 Forests sleeved as two stacks of 2; merging them makes the list say 6, and it
-    stays 6. This is exactly the ordering hazard migration 39's header and schema-test
-    section 19 were written to prevent for reprints — the fix here is the same:
-    decrement/delete the source(s) before the destination gains anything. Deck rows
-    are reachable through this button — `queries.ts` only excludes them when
-    "available only" is on.
-  - **`updateCardInstance` creates duplicates, not corruption.** Editing a copy's
+  - **Fixed (2026-09-23, #79): `bulkMerge` no longer inflates deck lists.** It used
+    to raise the kept row's `quantity` to the combined total, *then* delete the
+    absorbed rows (`bulk-actions.ts:239–252`) — migration 37's trigger reacted to that
+    first update, summed every row still physically in the deck (migration 20) while
+    the about-to-be-deleted rows were still there, and raised the deck's tracked
+    count, which the trigger only ever raises, never lowers. Now deletes first,
+    updates second — the same ordering migration 39's header requires for a reprint's
+    merge branch. `schema_test.sql` section 20 replicates the exact two-statement
+    sequence and was confirmed red with the old order before being allowed to pass.
+    **This did not make `bulkMerge` atomic** — it's still two separate client
+    requests, not a transaction, so a rare network failure between them can still
+    leave things partially done (surfaced as "Merge stopped part-way," already
+    handled). It only removes the specific inflation bug.
+  - **Still open: `updateCardInstance` creates duplicates, not corruption.** Editing a copy's
     condition/finish/language/location to match a stack you already own leaves two
     identical rows instead of merging (`actions.ts:186–196`) — confirmed. Lower
     severity alone (nothing lost, just a wrong-looking row), but it's the *obvious*
@@ -124,12 +125,13 @@ know about them, not what's left to do.
     finish/language/location and counting groups >1 would answer this cheaply — not
     yet run (needs direct database access this session didn't have).
 
-- **3 (migration 40 not applied).** `supabase migration list --linked` confirms
-  1–39 applied remotely, 40 (the item-8 trade-language snapshot, merged today) still
-  local-only. Nothing reads `trade_items.language` yet, so production isn't visibly
-  broken — but this is the exact same slip the owner's own notes record for
-  migrations 36–38 (which broke adding cards). Apply it, and consider a release-time
-  check that fails loudly when local and remote migration counts disagree.
+- **3, done (2026-09-22).** Migration 40 applied to production the same day this was
+  found (`supabase db push --linked`, verified via `supabase migration list --linked`
+  showing local and remote both at 40). `npm run check:migrations`
+  (`scripts/check-migrations-applied.sh`, #78) now runs in CI on every push to `main`
+  and fails the build if this ever drifts again — skips with a warning rather than
+  failing when `SUPABASE_ACCESS_TOKEN` isn't configured, which it isn't yet; add that
+  secret to make the CI side actually enforce it (the local command already works).
 
 - **4 (a real phone session).** Roughly ten open items below are marked "unverified
   on a device" or depend on it directly: items 2–4/8/12 (old numbering) on the phone,
