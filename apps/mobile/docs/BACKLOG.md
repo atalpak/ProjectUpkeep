@@ -44,7 +44,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 21 | Haptics on the Scan fan-out button | Easy (needs rebuild) | Low | Later — bundle into next rebuild | — |
 | 22 | Android live scanner | Hard | Low | Later — no Android user yet | `packages/upkeep-vision` |
 | 23 | Public leaderboard with votes | Hard | Unmeasurable | Later | needs `is_admin()` first |
-| 24 | Tactile solo playtester ("Play" mode) | Hard | High (if used) | Phase 1 done (2026-09-23) — deterministic game core landed; Phase 2 (desktop tabletop UI) is next | `src/lib/playtest/board/` (new, not `packages/playtest-core/` — see notes), `src/lib/playtest/game-start.ts` (new), `src/components/playtester/` (not started), new `playtest_sessions` migration in Phase 3 |
+| 24 | Tactile solo playtester ("Play" mode) | Hard | High (if used) | Phase 2 done (2026-09-23) — desktop tabletop UI landed at `/decks/[id]/play`; Phase 3 (snapshots/save-resume) is next | `src/lib/playtest/board/` (game core, now with two Phase-2 additions — see notes), `src/lib/playtest/game-start.ts`, `src/components/playtester/` (new — PlayBoard, GameCard, CardMenu, Battlefield, Hand, ZonePile, GameControls, ActionLog, TokenForm), `src/app/(app)/decks/[id]/play/page.tsx` (new), new `playtest_sessions` migration still Phase 3 |
 | 25 | "Fits this deck" collection-aware recommendations | Med | Medium | Ready — architect impact map + owner decisions done 2026-09-23 | `src/lib/recommendations/deck-fit.ts` (new), migration adding a narrow `cards.commander_legality` column |
 
 Items 5, 6 and 8 (old numbering) are fully shipped as of 2026-09-22 (PRs #71–#76) and
@@ -493,6 +493,158 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
     resulting states, log included, are byte-identical; this is the actual
     case the initial-state-only reproducibility test didn't cover. 695 tests
     now pass repo-wide, lint and typecheck clean.
+  - **Phase 2 shipped, 2026-09-23 (implementer).** The desktop tabletop UI:
+    `src/app/(app)/decks/[id]/play/page.tsx` (server-rendered, owner-checked
+    via the existing `getDeck()`, `force-dynamic` like every other signed-in
+    deck page — no new query) and `src/components/playtester/` (`PlayBoard`,
+    `GameCard`, `CardMenu`, `Battlefield`, `Hand`, `ZonePile`,
+    `GameControls`, `ActionLog`, `TokenForm`). `Playtest`/`PlaytestLauncher`
+    and `/decks/[id]/test` are untouched except for the trigger's own label
+    (`PlaytestLauncher`'s button now reads "Analyze"); the deck page grew a
+    real `Play` link, styled as the primary action, going straight to the
+    new route rather than a dialog — the impact map's own "no modal
+    confinement" requirement.
+    - **No server actions and no writes anywhere under this route or
+      `src/components/playtester/`.** Every command runs locally through
+      `applyCommand`; the route loads `getDeck()`/`getDeckList()` once and
+      hands plain props to a client component. The impact map's proposed
+      lint rule banning inventory-action imports from this folder was not
+      added — there is no server action file in the folder for it to guard
+      against importing (Phase 3's persistence, when it adds one, is the
+      right time), and grep confirms no import of
+      `src/app/(app)/decks/actions.ts` or any `card_instances`/`deck_cards`
+      write path exists anywhere under `src/components/playtester/` or
+      `src/app/(app)/decks/[id]/play/` today.
+    - **Two small, deliberate additions to the Phase 1 command union:**
+      `SET_NOTE` and `SET_ROTATION` (`board/commands.ts`, `reduce.ts`,
+      `inverse.ts`, with matching cases added to the existing
+      `playtest-board-reduce.test.ts`/`playtest-board-inverse.test.ts`
+      suites — 21 reduce tests, 1 inverse test now, all passing). Both
+      fields (`GameCard.note`, `GameCard.rotation`) already existed in
+      Phase 1's `types.ts`, unused by any command — plan section 3.3
+      requires "notes" and "rotate" as battlefield actions, and there was no
+      way to express either through the eleven commands actually listed.
+      Given the field already existed for exactly this purpose, adding the
+      matching single-field setter (the same shape as `SET_TAPPED`/
+      `SET_FACE`) read as completing Phase 1's own design rather than
+      redesigning it — flagged here explicitly since the task brief named a
+      closed list of eleven commands and this deviates from it by two.
+    - **"Copy" is a token, not a `kind: "copy"` object.** `CREATE_TOKEN`
+      hardcodes `kind: "token"` in `reduce.ts`, and that file was left alone
+      (already reviewed, Phase 1). A card's "Copy" menu action mints a
+      same-name/same-art token instead of a true `copy`-kind object —
+      functionally identical for goldfishing (a copy needs no card-specific
+      rules enforcement), but `GameCard.kind: "copy"` and `copiedFromId`
+      remain unused by any code path. Worth a real `SET_KIND`-free fix in a
+      later pass if snapshot format ever needs to distinguish a copy from a
+      token; not done now to avoid a third deviation from the reviewed union.
+    - **Battlefield grouping** is a set of drag-and-drop-or-menu rows keyed
+      on `GameCard.groupId`, per the plan's decided rows/groups model
+      (section 8) — an always-present "Ungrouped" row plus one row per
+      distinct group id currently in play. A group is created by moving any
+      card into a fresh id via the card menu's "New group…"; there is no
+      separate empty-group affordance, so an empty group cannot be created
+      ahead of having a card to put in it. Reordering within a row and
+      cross-row moves are both plain HTML5 drag-and-drop (`draggable`,
+      `onDragStart`/`onDrop`) — no drag library was added; every drag has a
+      non-drag equivalent through the same `CardMenu` "Move to" list, which
+      is also the entire keyboard/touch-only path (select a card, Enter opens
+      the menu, choose a destination — the interaction contract's own
+      "select → Move → destination" flow collapses into one menu rather than
+      a separate two-step wizard).
+    - **Opening hand and London mulligan** live in `PlayBoard`, built only
+      from existing commands (no new ones): a mulligan returns the whole hand
+      to the library, reshuffles with a fresh seed, and redraws seven,
+      recorded as one undo step rather than one per card moved. Bottom
+      selection mirrors `PlaytestHand.tsx`'s own interaction (a fresh seven
+      shown, click to select exactly N for the bottom, Confirm), reusing the
+      same "one more card per mulligan taken" rule rather than reimplementing
+      it differently.
+    - **Interaction contract (plan 3.4), implemented as specified:** click/tap
+      selects (a ring, not a menu); Enter/Space opens the `CardMenu`; Escape
+      clears the current selection from anywhere on the board; double-click/
+      tap toggles tapped on a battlefield card directly (falls back to
+      opening the menu on a card where tapping means nothing, e.g. one in
+      hand); Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z undo/redo globally, alongside
+      always-visible Undo/Redo buttons. Life, turn, mulligan, restart, and a
+      d6/d20 roller sit in `GameControls`; the die roll is deliberately
+      ephemeral local state, never dispatched as a command — there is no
+      dice command in the union and a die roll has nothing meaningful to
+      undo.
+    - **Deferred, not forgotten, and flagged rather than silently dropped:**
+      commander-damage tracking (the state shape exists,
+      `GameState.commanderDamage`, but nothing writes to it — there is no
+      opposing board in v1 to deal it, so a UI for it would have nothing
+      real to track); a generic per-player counter tracker (poison/energy/
+      experience) — could reuse `ADD_COUNTER` against a hidden pseudo-card in
+      the already-defined but unused `temporary` zone, but wasn't built this
+      pass; library peek's "reorder the top N" (peek/move-any-card exists,
+      dragging to reorder within the peek list does not); mill N as a single
+      action (achievable today via repeated "Move to graveyard" from the
+      peek list, one card at a time, not a dedicated button).
+    - **No component/E2E tests added**, per the owner's standing decision
+      (this file, 2026-09-23, "no Playwright/E2E" — this repo has no
+      browser-test setup and standing one up is a separate project). The two
+      new commands got the same reduce/inverse unit-test treatment as every
+      existing command instead.
+    - **Verified:** `npm run lint`, `npm run typecheck`, `npm test` (697
+      tests, repo-wide) and `npm run build` all pass; `npx supabase`-free —
+      no schema change, so `test:db` is unaffected. The exact command
+      sequence `PlayBoard` issues (new game → draw 7 → mulligan → reshuffle →
+      redraw → bottom one → move to battlefield → tap → rotate → note →
+      create a token → undo the token → life/turn) was run directly against
+      the real `game-start.ts`/`reduce.ts`/`inverse.ts` modules outside the
+      UI and produced the expected state and log at every step. **Not
+      verified in a real browser**: this sandboxed session has no browser
+      tool and no test-account credentials, so the rendered board — drag
+      gestures, the card menu's actual click/keyboard behaviour, focus
+      management — was not exercised by hand. `getDeck()`'s ownership check
+      and `force-dynamic` were confirmed with `curl` (an anonymous request
+      to `/decks/<id>/play` redirects to `/login`, and the production build
+      lists the route as dynamic, not prerendered). A manual pass in a real
+      browser, signed in as an owner of a real deck, is recommended before
+      this is treated as done end-to-end.
+  - **Reviewed, one real gap fixed, two disclosures added, 2026-09-23.**
+    Independently confirmed clean: no Supabase/server-action writes anywhere
+    under the route or `src/components/playtester/`, `getDeck()`'s owner
+    filter, `SET_NOTE`/`SET_ROTATION`'s inverses, `Battlefield`'s single
+    `groupId`-keyed representation, the untouched analyzer files, and that
+    every deferred item is genuinely absent rather than present-but-broken.
+    - **Fixed: library "Peek" was silently capped at the top 10 cards**
+      (`ZonePile.tsx`), for every zone including the library. Plan section
+      3.3 requires manual search/reveal — "show the library and let the
+      player choose" — as its own listed action, distinct from peeking the
+      top of the deck; capped at 10, an ordinary fetch-land or tutor
+      targeting the 11th-deepest card or beyond had no way to resolve short
+      of drawing through the whole library into hand. The cap wasn't itself
+      disclosed as a deferral the way the other four items above are. Fixed
+      by removing the cap — the list already scrolls (`max-h-56
+      overflow-y-auto`), and a full deck tops out around 100 cards, cheap to
+      render as plain rows. Relabeled the button "Search" to match what it
+      now actually does.
+    - **Disclosed, not fixed as a gap (both were reasonable calls, just
+      undisclosed alongside the other four deferrals above):** "Draw N" had
+      no direct control, only "Draw 1" — added a number input next to it
+      rather than leaving it as a silent gap, since it was a few lines
+      against the existing `DRAW` command. "Copy" mints a token labeled
+      "Token", same as a real token, which could momentarily read as
+      misleading on the board or in the action log later — the badge now
+      reads "Copy" specifically for a card menu's copy action (detected by
+      the "Copy of &lt;name&gt;" name `CardMenu.tsx` already gives it), with a
+      tooltip on either badge saying plainly what it is. `reduce.ts`'s
+      `CREATE_TOKEN` case itself (Phase 1, already reviewed) is unchanged —
+      this is a display-only distinction, not a new command or state shape.
+    - Re-verified after the fixes: `npm run lint`, `npm run typecheck`,
+      `npm test` (697 tests) and `npm run build` all still pass; confirmed
+      via the built-in browser that the dev server boots with no console or
+      server errors and an anonymous request to `/decks/<id>/play` still
+      redirects to `/login`. **Still not verified**: actually clicking
+      through the rendered board signed in as a real deck owner — neither
+      the implementer's sandbox nor this review session had a way to sign
+      into the real account without the owner's own credentials (this
+      project's `.env.local` points at the live production Supabase
+      project, not a throwaway one). That manual pass is still the one thing
+      only the owner can do before this is truly done end-to-end.
 
 - **25 ("Fits this deck"), architect impact map + owner decisions, 2026-09-23.**
   Full spec in `FITS_THIS_DECK_DEVELOPMENT_GUIDE.md` (repo root). Verdict:

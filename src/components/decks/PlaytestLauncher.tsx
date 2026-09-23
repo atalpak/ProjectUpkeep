@@ -86,7 +86,7 @@ export function PlaytestLauncher({
         // paired with inherited white would go invisible in light mode.
         className="inline-flex items-center rounded-full border border-border bg-surface px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface-muted coarse:min-h-11"
       >
-        Playtest
+        Analyze
       </button>
 
       <Dialog

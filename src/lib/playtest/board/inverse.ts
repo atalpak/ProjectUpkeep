@@ -65,6 +65,18 @@ export function invertCommand(command: GameCommand, before: GameState): GameComm
       return [{ type: "SET_FACE", cardId: command.cardId, face: card.face }];
     }
 
+    case "SET_NOTE": {
+      const card = before.cards[command.cardId];
+      if (!card) return [];
+      return [{ type: "SET_NOTE", cardId: command.cardId, note: card.note }];
+    }
+
+    case "SET_ROTATION": {
+      const card = before.cards[command.cardId];
+      if (!card) return [];
+      return [{ type: "SET_ROTATION", cardId: command.cardId, rotation: card.rotation }];
+    }
+
     case "ADD_COUNTER":
       return [{ type: "ADD_COUNTER", cardId: command.cardId, name: command.name, delta: -command.delta }];
 

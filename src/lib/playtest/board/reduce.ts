@@ -79,6 +79,24 @@ export function applyCommand(state: GameState, command: GameCommand): GameState 
       return { ...state, cards, log: appendLog(state, `Set ${card.name} to ${command.face}.`) };
     }
 
+    case "SET_NOTE": {
+      const card = state.cards[command.cardId];
+      if (!card) return state;
+      const cards = { ...state.cards, [command.cardId]: { ...card, note: command.note } };
+      return {
+        ...state,
+        cards,
+        log: appendLog(state, command.note ? `Noted "${command.note}" on ${card.name}.` : `Cleared the note on ${card.name}.`),
+      };
+    }
+
+    case "SET_ROTATION": {
+      const card = state.cards[command.cardId];
+      if (!card) return state;
+      const cards = { ...state.cards, [command.cardId]: { ...card, rotation: command.rotation } };
+      return { ...state, cards, log: appendLog(state, `Rotated ${card.name} to ${command.rotation}°.`) };
+    }
+
     case "ADD_COUNTER": {
       const card = state.cards[command.cardId];
       if (!card) return state;

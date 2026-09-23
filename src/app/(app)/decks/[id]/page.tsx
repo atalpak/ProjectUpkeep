@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -216,8 +217,18 @@ export default async function DeckPage({ params }: { params: Promise<{ id: strin
         gameChangers={gameChangerCount(entries)}
         actions={
           <>
+            {/* Play is a real navigation to /decks/[id]/play, not a dialog —
+                BACKLOG.md item 24 is explicit that presenting a modal as the
+                manual tabletop is exactly the mistake to avoid, unlike
+                Analyze below, which is deliberately a popup over this page. */}
+            <Link
+              href={`/decks/${id}/play`}
+              className="inline-flex items-center rounded-full bg-accent px-3.5 py-2 text-sm font-medium text-accent-ink transition-colors hover:bg-accent/90 coarse:min-h-11"
+            >
+              Play
+            </Link>
             {/* /decks/[id]/test still exists as a real route — the deep
-                link and refresh-safe fallback — but from here Playtest
+                link and refresh-safe fallback — but from here Analyze
                 opens as a near-fullscreen popup instead of a navigation.
                 No new queries: entries and commanderCardId are already
                 loaded above for the page itself. */}

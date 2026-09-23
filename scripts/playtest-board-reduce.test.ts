@@ -87,6 +87,24 @@ test("SET_FACE flips only the targeted card's face", () => {
   assert.equal(next.cards[cardId].face, "face-down");
 });
 
+test("SET_ROTATION sets only the targeted card's rotation", () => {
+  const state = fixtureSixtyCardStart();
+  const cardId = state.zones.library[0];
+  const next = applyCommand(state, { type: "SET_ROTATION", cardId, rotation: 90 });
+  assert.equal(next.cards[cardId].rotation, 90);
+  const other = state.zones.library[1];
+  assert.equal(next.cards[other].rotation, 0);
+});
+
+test("SET_NOTE sets and clears only the targeted card's note", () => {
+  const state = fixtureSixtyCardStart();
+  const cardId = state.zones.library[0];
+  const noted = applyCommand(state, { type: "SET_NOTE", cardId, note: "Combo piece" });
+  assert.equal(noted.cards[cardId].note, "Combo piece");
+  const cleared = applyCommand(noted, { type: "SET_NOTE", cardId, note: null });
+  assert.equal(cleared.cards[cardId].note, null);
+});
+
 test("ADD_COUNTER adds, and removes the key entirely once it returns to zero", () => {
   const state = fixtureSixtyCardStart();
   const cardId = state.zones.library[0];
