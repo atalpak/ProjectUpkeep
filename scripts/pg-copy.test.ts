@@ -85,6 +85,9 @@ test("objects become JSON", () => {
 
 test("a NUL byte is dropped rather than failing the load", () => {
   assert.equal(copyField("a\u0000b"), '"ab"');
+  // In jsonb the NUL would otherwise survive as the text \u0000, which jsonb rejects.
+  assert.equal(copyField({ "k\u0000": "v\u0000w" }), '"{""k"":""vw""}"');
+  assert.equal(copyField(["x\u0000y"]), '"{""xy""}"');
 });
 
 test("a nasty row round-trips through a CSV reader", () => {

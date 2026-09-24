@@ -178,19 +178,38 @@ export function planOracleWrites(
 }
 
 /**
- * A feed that maps to far fewer cards than are already stored is a truncated or
- * wrong file, not Scryfall retiring half of Magic. The loader never deletes, so
+ * Fewer oracle cards than this cannot be a complete export: Scryfall has
+ * published ~38,900 and the number only grows. An ABSOLUTE floor, because the
+ * relative check below has nothing to compare against on a first load.
+ */
+export const MIN_ORACLE_CARDS = 20_000;
+
+/**
+ * A feed that maps to far fewer cards than expected is a truncated or wrong
+ * file, not Scryfall retiring half of Magic. The loader never deletes, so
  * writing it would do no harm, but recording it as a success would hide that
- * the day's data is missing. Returns a message, or null when the feed looks
+ * the day's data is missing, and on a first load would then be skipped by the
+ * unchanged-export check until Scryfall next republished. Two tests: an
+ * absolute floor (MIN_ORACLE_CARDS), which covers an empty table, and half of
+ * whatever is already stored. Returns a message, or null when the feed looks
  * complete. Same idea as checkHashReadComplete for the printings sync.
  */
 export function checkOracleFeedComplete(fed: number, stored: number): string | null {
-  if (stored === 0 || fed >= stored * 0.5) return null;
-  return (
-    `The oracle export mapped to only ${fed.toLocaleString()} cards but ` +
-    `${stored.toLocaleString()} are stored. Refusing to record this as a good run; ` +
-    "the download was probably truncated (use --force to override)."
-  );
+  if (fed < MIN_ORACLE_CARDS) {
+    return (
+      `The oracle export mapped to only ${fed.toLocaleString()} cards; a complete export has ` +
+      `over ${MIN_ORACLE_CARDS.toLocaleString()}. Refusing to record this as a good run; ` +
+      "the download was probably truncated (use --force to override)."
+    );
+  }
+  if (fed < stored * 0.5) {
+    return (
+      `The oracle export mapped to only ${fed.toLocaleString()} cards but ` +
+      `${stored.toLocaleString()} are stored. Refusing to record this as a good run; ` +
+      "the download was probably truncated (use --force to override)."
+    );
+  }
+  return null;
 }
 
 export type StreamOracleRowsResult = {

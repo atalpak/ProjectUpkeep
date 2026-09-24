@@ -11,10 +11,12 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 
 import { toCardRow } from "../src/lib/scryfall";
 import {
+  MIN_ORACLE_CARDS,
   ORACLE_COLUMNS,
   checkOracleFeedComplete,
   compactLegalities,
@@ -251,11 +253,23 @@ test("planOracleWrites separates new and changed rows from ones already stored e
   assert.equal(planOracleWrites([rows[0]], new Map([[rows[0].oracle_id, null]])).changed.length, 1);
 });
 
-test("checkOracleFeedComplete refuses a feed far shorter than what is stored", () => {
+test("checkOracleFeedComplete: absolute floor first, then half of what is stored", () => {
   assert.equal(checkOracleFeedComplete(38_900, 38_906), null);
-  assert.equal(checkOracleFeedComplete(100, 0), null, "an empty table has nothing to compare with");
-  assert.equal(checkOracleFeedComplete(20_000, 38_906), null);
-  assert.match(checkOracleFeedComplete(1_000, 38_906)!, /truncated/);
+  assert.equal(checkOracleFeedComplete(MIN_ORACLE_CARDS, 0), null, "a first load at the floor is fine");
+  assert.equal(checkOracleFeedComplete(38_900, 0), null, "a full first load is fine");
+  // The gap this closes: with an empty table there is nothing to compare to,
+  // and a truncated first load must not be recorded as succeeded.
+  assert.match(checkOracleFeedComplete(100, 0)!, /truncated/);
+  assert.match(checkOracleFeedComplete(MIN_ORACLE_CARDS - 1, 0)!, /truncated/);
+  // Above the floor but under half of what is stored.
+  assert.match(checkOracleFeedComplete(20_500, 60_000)!, /are stored/);
+  assert.equal(checkOracleFeedComplete(30_000, 60_000), null);
+});
+
+test("the printings sync never touches oracle_cards (which is why migration 43 revokes service_role writes)", () => {
+  const source = readFileSync(new URL("./sync-scryfall.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /oracle_cards/);
+  assert.doesNotMatch(source, /scryfall-oracle/);
 });
 
 const jsonl = (cards: unknown[]) => Readable.from([cards.map((c) => JSON.stringify(c)).join("\n") + "\n"]);

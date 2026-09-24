@@ -23,9 +23,27 @@ export type CopyValue =
   | readonly string[]
   | Record<string, unknown>;
 
-const quote = (text: string): string =>
-  // A NUL cannot be stored in text or jsonb; dropping it beats failing a load.
-  `"${text.replaceAll("\u0000", "").replaceAll('"', '""')}"`;
+const NUL = "\u0000";
+
+/**
+ * A NUL cannot be stored in text or jsonb; dropping it beats failing a load.
+ * Applied to jsonb BEFORE it is serialised, not to the JSON text: after
+ * JSON.stringify a NUL is the six characters \u0000, which text-stripping would
+ * miss and jsonb would then reject. Scryfall does not send NULs today, so this
+ * is unreachable in practice and exists so one odd record cannot fail a load.
+ */
+function stripNul(value: unknown): unknown {
+  if (typeof value === "string") return value.replaceAll(NUL, "");
+  if (Array.isArray(value)) return value.map(stripNul);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k.replaceAll(NUL, ""), stripNul(v)]),
+    );
+  }
+  return value;
+}
+
+const quote = (text: string): string => `"${text.replaceAll(NUL, "").replaceAll('"', '""')}"`;
 
 /** `{"a","b"}` -- every element quoted, so commas, braces and spaces need no thought. */
 export function pgArrayLiteral(items: readonly string[]): string {
@@ -45,7 +63,7 @@ export function copyField(value: CopyValue): string {
   }
   if (typeof value === "boolean") return quote(value ? "t" : "f");
   if (Array.isArray(value)) return quote(pgArrayLiteral(value as readonly string[]));
-  return quote(JSON.stringify(value));
+  return quote(JSON.stringify(stripNul(value)));
 }
 
 /** A whole row, newline-terminated. Column order is the caller's. */

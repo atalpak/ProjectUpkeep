@@ -67,6 +67,12 @@
 -- mattered), and RLS alone is a single line of defence, so the grants are also
 -- taken back: revoke everything, give select back. The one writer is the
 -- scryfall_loader role, whose grants and policies are in migration 44.
+--
+-- service_role is revoked from writing too, on purpose and not by oversight:
+-- it bypasses RLS, so its write grant would be the only thing between the
+-- service key and this table, and nothing needs it. The printings sync
+-- (scripts/sync-scryfall.ts, service key) never touches oracle_cards, and a
+-- unit test (scripts/scryfall-oracle.test.ts) fails if it ever starts to.
 -- ---------------------------------------------------------------------------
 
 create table public.oracle_cards (

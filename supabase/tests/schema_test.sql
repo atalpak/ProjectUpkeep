@@ -3487,6 +3487,10 @@ insert into public.oracle_cards (oracle_id, name, type_line, oracle_text, conten
 values ('cccccccc-0000-0000-0000-000000000001', 'Lightning Bolt', 'Instant',
         'Lightning Bolt deals 3 damage to any target.', 'seed');
 
+-- A printings run the loader must not be able to see, change or imitate.
+insert into public.scryfall_sync_runs (bulk_type, status, finished_at, catalog_needs_publish)
+values ('default_cards', 'succeeded', '2026-09-01 09:20+00', true);
+
 -- a. Clients ---------------------------------------------------------------
 do $$
 declare r text; p text;
@@ -3494,7 +3498,7 @@ begin
   foreach r in array array['anon', 'authenticated', 'service_role'] loop
     foreach p in array array['insert', 'update', 'delete', 'truncate'] loop
       assert not has_table_privilege(r, 'public.oracle_cards', p),
-        r || ' must not hold ' || p || ' on oracle_cards (the revoke in migration 43 is what removes the schema default)';
+        r || ' must not hold ' || p || ' on oracle_cards (the revoke in migration 43 is what removes the schema default; service_role is included on purpose, since the printings sync never writes oracle_cards)';
     end loop;
   end loop;
 
@@ -3554,6 +3558,8 @@ begin
     'the loader''s upsert must actually have changed the row';
 
   -- The staging table the loader builds is `like` the real one, in the session.
+  assert not has_schema_privilege('scryfall_loader', 'public', 'create'),
+    'the loader must not be able to create objects in public';
   assert not pg_temp.denied('scryfall_loader',
     'create temp table oracle_stage (like public.oracle_cards including defaults)'),
     'the loader must be able to create its temp staging table';
@@ -3561,22 +3567,6 @@ end $$;
 
 do $$
 begin
-  -- cards: the printings load will use the same connection later.
-  assert pg_temp.rows_affected('scryfall_loader', $q$
-    insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
-                              available_finishes, lang)
-    values ('aaaaaaaa-0000-0000-0000-0000000000c1', 'cccccccc-0000-0000-0000-000000000001',
-            'Lightning Bolt', 'tst', '1', '{nonfoil}', 'en')
-    on conflict (scryfall_id) do update set name = excluded.name
-  $q$) = 1, 'the loader must be able to insert into cards under RLS';
-  assert pg_temp.rows_affected('scryfall_loader', $q$
-    insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
-                              available_finishes, lang)
-    values ('aaaaaaaa-0000-0000-0000-0000000000c1', 'cccccccc-0000-0000-0000-000000000001',
-            'Lightning Bolt', 'tst', '1', '{nonfoil}', 'en')
-    on conflict (scryfall_id) do update set name = 'Lightning Bolt (updated)'
-  $q$) = 1, 'the loader must be able to update cards under RLS';
-
   -- The run record: open, then close, on the identity column with no sequence grant.
   assert pg_temp.rows_affected('scryfall_loader', $q$
     insert into public.scryfall_sync_runs (bulk_type, status) values ('oracle_cards', 'running')
@@ -3594,6 +3584,48 @@ end $$;
 do $$
 declare t text;
 begin
+  -- `cards` is not the oracle loader's: the printings load still goes through
+  -- PostgREST, and moving it to COPY adds its own grants in its own migration.
+  assert pg_temp.denied('scryfall_loader', 'select 1 from public.cards limit 1'),
+    'the loader must not be able to read cards';
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+                              available_finishes, lang)
+    values ('aaaaaaaa-0000-0000-0000-0000000000c1', 'cccccccc-0000-0000-0000-000000000001',
+            'Lightning Bolt', 'tst', '1', '{nonfoil}', 'en')$q$),
+    'the loader must not be able to insert into cards';
+  assert pg_temp.denied('scryfall_loader', $q$update public.cards set name = 'x'$q$),
+    'the loader must not be able to update cards';
+
+  -- Run history: the loader can write oracle_cards rows and nothing that
+  -- reaches the printings sync or the catalog publish.
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.scryfall_sync_runs (bulk_type, status, finished_at)
+    values ('default_cards', 'succeeded', now())$q$),
+    'the loader must not be able to forge a default_cards run';
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.scryfall_sync_runs (bulk_type, status, catalog_needs_publish)
+    values ('oracle_cards', 'succeeded', true)$q$),
+    'the loader must not be able to set catalog_needs_publish';
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.scryfall_sync_runs (bulk_type, status, catalog_published_at)
+    values ('oracle_cards', 'succeeded', now())$q$),
+    'the loader must not be able to set catalog_published_at on insert';
+  assert pg_temp.denied('scryfall_loader', $q$
+    update public.scryfall_sync_runs set catalog_published_at = now() where bulk_type = 'oracle_cards'$q$),
+    'the loader must not be able to stamp catalog_published_at';
+  assert pg_temp.denied('scryfall_loader', $q$
+    update public.scryfall_sync_runs set bulk_type = 'default_cards' where bulk_type = 'oracle_cards'$q$),
+    'the loader must not be able to rewrite a run into another bulk_type';
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    select 1 from public.scryfall_sync_runs where bulk_type = 'default_cards'$q$) = 0,
+    'the loader must not be able to see printings runs';
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    update public.scryfall_sync_runs set status = 'failed'$q$) = 1,
+    'an unconditional loader update must reach only the oracle_cards run, never the printings run (UPDATE policy USING; no WHERE, so the select policy is not what hides it)';
+  assert (select status from public.scryfall_sync_runs where bulk_type = 'default_cards') = 'succeeded',
+    'the printings run must be untouched';
+
   assert pg_temp.denied('scryfall_loader', 'delete from public.oracle_cards'),
     'the loader must not be able to delete from oracle_cards';
   assert pg_temp.denied('scryfall_loader', 'delete from public.cards'),
@@ -3629,6 +3661,39 @@ begin
     select 1 from pg_auth_members m
      where m.member = 'scryfall_loader'::regrole),
     'scryfall_loader must not be a member of any role (that would inherit its grants)';
+end $$;
+
+rollback;
+
+-- ---------------------------------------------------------------------------
+-- 26. Migration 45: prices_as_of() ignores every run that is not a printings run.
+--
+-- The oracle loader records runs in the same table. Without the bulk_type
+-- filter, a night where the printings sync failed but the oracle load
+-- succeeded would report today as "prices as of". The oracle run below is
+-- deliberately NEWER than the default_cards one.
+-- Falsified against a scratch copy of migration 45 with the
+-- `r.bulk_type = 'default_cards'` line removed: the assertion below fails.
+-- ---------------------------------------------------------------------------
+begin;
+
+insert into auth.users (id, email, raw_user_meta_data)
+values ('11111111-1111-1111-1111-111111111111', 'alice26@example.com', '{"username":"alice26"}');
+
+insert into public.scryfall_sync_runs (bulk_type, status, started_at, finished_at) values
+  ('default_cards', 'succeeded', '2026-09-01 09:00+00', '2026-09-01 09:20+00'),
+  ('oracle_cards',  'succeeded', '2026-09-02 09:00+00', '2026-09-02 09:05+00');
+
+do $$
+declare got timestamptz;
+begin
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  set local role authenticated;
+  got := public.prices_as_of();
+  reset role;
+  assert got = '2026-09-01 09:20+00',
+    'prices_as_of() must return the newest succeeded default_cards run, not a newer oracle_cards one (got '
+    || coalesce(got::text, 'null') || ')';
 end $$;
 
 rollback;

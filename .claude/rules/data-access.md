@@ -41,11 +41,13 @@ credential, a direct Postgres connection, listed after them:
   into `oracle_cards` over a **direct Postgres connection** through the
   session pooler (port 5432), using `COPY`. It does not use the service key and
   does not bypass RLS: it connects as `scryfall_loader` (migration 44), a role
-  with no `BYPASSRLS`, `select/insert/update` on `cards`, `oracle_cards` and
-  `scryfall_sync_runs` only, and explicit per-role policies on those three
-  tables. `supabase/tests/schema_test.sql` section 25 asserts that it can write
-  exactly that and nothing else, and that no client role can write
-  `oracle_cards`. The connection string (`SCRYFALL_SYNC_DATABASE_URL`) is
+  with no `BYPASSRLS`, `select/insert/update` on `oracle_cards`, and on
+  `scryfall_sync_runs` only for rows with `bulk_type = 'oracle_cards'` and only
+  the run-outcome columns (never `catalog_*`). It has no access to `cards`; the
+  later phase that moves the printings load will add that in its own migration.
+  `supabase/tests/schema_test.sql` section 25 asserts that it can write exactly
+  that and nothing else, and that no client role (service_role included) can
+  write `oracle_cards`. The connection string (`SCRYFALL_SYNC_DATABASE_URL`) is
   as powerful as that role, so it gets the service key's containment: read in
   `scripts/` only, and `eslint.config.mjs` bans both the Postgres drivers and
   the variable name under `src/`, `apps/` and `packages/`. Do not add an

@@ -181,8 +181,9 @@ alerts. Each migration header carries the reasoning for its decision.
    places, `scripts/sync-scryfall.ts` and `scripts/publish-catalog.ts` (the
    mobile catalog's publish step, added 2026-09). The other is
    `SCRYFALL_SYNC_DATABASE_URL`, a connection string for the least-privilege
-   `scryfall_loader` role (migration 44: select/insert/update on `cards`,
-   `oracle_cards` and `scryfall_sync_runs`, nothing else), read only by
+   `scryfall_loader` role (migration 44: select/insert/update on `oracle_cards`, and
+   its own `oracle_cards` rows in `scryfall_sync_runs`; no access to `cards` or
+   any user data), read only by
    `scripts/sync-oracle-direct.ts` and its helper
    `scripts/sync-oracle-connection.ts`. That role is deliberately narrow, but a
    connection string is still a credential, so it gets the same containment.
