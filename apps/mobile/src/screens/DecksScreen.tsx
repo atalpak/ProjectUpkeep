@@ -8,7 +8,7 @@ import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
 import { Button, EmptyState, Notice } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
-import { MANA_COLORS } from '../components/ManaCost';
+import { ManaSymbol } from '../components/ManaCost';
 import { PAGES, type DecksStackParamList } from '../navigation';
 import { border, brand, fontFamily, radius, space, state as stateColor, surface, text, type as typeTokens, accent } from '../theme';
 import { makeStyles } from '../preferences';
@@ -138,9 +138,7 @@ function DeckTileView({ deck, width, height, onPress }: { deck: DeckTile; width:
       <View style={styles.tileBody}>
         <View style={styles.tileTop}>
           <View style={styles.pips}>
-            {deck.commanderColors.map(c => MANA_COLORS[c] && (
-              <View key={c} style={[styles.pip, { backgroundColor: MANA_COLORS[c]!.bg }]}><Text style={[styles.pipText, { color: MANA_COLORS[c]!.fg }]}>{c}</Text></View>
-            ))}
+            {deck.commanderColors.filter(c => 'WUBRG'.includes(c)).map(c => <ManaSymbol key={c} code={c} size={20} />)}
           </View>
           {deck.isPublic && <Text style={[styles.shared, { color: fg, borderColor: hasArt ? 'rgba(245,237,224,0.5)' : accent.DEFAULT }]}>Shared</Text>}
         </View>
@@ -185,8 +183,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   tileBody: { flex: 1, padding: space.md, justifyContent: 'space-between' },
   tileTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   pips: { flexDirection: 'row', gap: 3 },
-  pip: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.4)' },
-  pipText: { fontSize: 10, fontFamily: fontFamily.bodySemiBold, fontWeight: '800' },
   shared: { ...typeTokens.label, fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, overflow: 'hidden' },
   tileBottom: { gap: 3 },
   deckName: { fontFamily: fontFamily.display, fontSize: 17, lineHeight: 21 },

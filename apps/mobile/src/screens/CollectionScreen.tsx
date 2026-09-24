@@ -9,6 +9,7 @@ import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
 import { BottomSheet, Button, Choices, EmptyState, Notice } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
+import { ManaSymbol } from '../components/ManaCost';
 import { useSearchOverlay } from '../searchOverlay';
 import { CardDetails } from '../components/CardDetails';
 import type { CardSeed } from '../cardDetails';
@@ -221,8 +222,8 @@ function CollectionList({ userId }: { userId: string }) {
           {COLORS.map(c => {
             const on = facets.colors.includes(c);
             return (
-              <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipOn]}>
-                <Text style={[styles.colorText, on && styles.colorTextOn]}>{c}</Text>
+              <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipRing]}>
+                <ManaSymbol code={c} size={26} hidden />
               </Pressable>
             );
           })}
@@ -328,6 +329,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   colorChip: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: border.strong },
   pill: { height: 38, paddingHorizontal: space.md, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: border.strong },
   colorChipOn: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
+  // A symbol keeps its own colours, so "on" is a ring and a soft wash rather than a solid accent fill.
+  colorChipRing: { backgroundColor: accent.soft, borderColor: accent.DEFAULT, borderWidth: 2 },
   colorText: { ...typeTokens.bodySm, color: text.primary, fontWeight: '700' },
   colorTextOn: { color: text.onAccent },
   textInput: { height: 40, paddingHorizontal: space.md, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...typeTokens.body },

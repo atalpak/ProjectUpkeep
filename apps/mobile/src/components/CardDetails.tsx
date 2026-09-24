@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, FlatList, Image, Linking, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,7 +16,8 @@ import type { CardDetailsTarget } from '../cardDetailsHost';
 import { errorMessage } from '../errors';
 import { compareScanToPrintings } from '../printingVerify';
 import { makeStyles } from '../preferences';
-import { accent, border, radius, space, state as stateColor, surface, text, type } from '../theme';
+import { accent, border, duration, radius, scrim, space, state as stateColor, surface, text, type } from '../theme';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { Button, Choices, Notice } from './ui';
 import { FoilArt } from './FoilArt';
 import { ManaCost } from './ManaCost';
@@ -66,6 +67,11 @@ function knownFinishOf(p: CardPrinting, ownedFinish: string | null | undefined, 
  */
 const LEGALITY_LABELS: Record<Legality, string> = { legal: 'Legal', not_legal: 'Not legal', banned: 'Banned', restricted: 'Restricted' };
 
+// How far or how fast a pull must go to count as "close", not "wobble".
+const CLOSE_DRAG_DISTANCE = 100;
+const CLOSE_DRAG_VELOCITY = 0.8;
+const OVERSCROLL_CLOSE = 70;
+
 export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChanged, onClose }: {
   name: string | null;
   /** Open on this printing (e.g. the one you own) instead of the default. */
@@ -83,6 +89,60 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
+  const reducedMotion = useReducedMotion();
+
+  // Sheet position: 0 is open, windowHeight is off-screen. One value drives the slide-in,
+  // the finger drag, the slide-out and the scrim fade, so they can never disagree.
+  //
+  // Why this is not a native pageSheet any more: iOS lets a pageSheet be pulled down only
+  // by a swipe that starts on its non-scrolling part, and the body here is one big
+  // ScrollView, so in practice only the ~50pt top bar worked and a pull from the card art
+  // scrolled instead. Owning the gesture lets the whole top bar (and an overscroll pull on
+  // the body) close it. No Reanimated or Gesture Handler in the app, so this is the core
+  // Animated + PanResponder pair, all on the native driver.
+  const y = useRef(new Animated.Value(windowHeight)).current;
+  const closing = useRef(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const motionRef = useRef({ reducedMotion, windowHeight });
+  motionRef.current = { reducedMotion, windowHeight };
+
+  const isOpen = !!name;
+  useEffect(() => {
+    if (!isOpen) return;
+    closing.current = false;
+    y.setValue(motionRef.current.windowHeight);
+    Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, [isOpen, y]);
+
+  // Slides out from wherever the sheet is (mid-drag included), then asks the parent to close.
+  const requestClose = useCallback(() => {
+    if (closing.current) return;
+    closing.current = true;
+    const { reducedMotion: reduced, windowHeight: h } = motionRef.current;
+    Animated.timing(y, { toValue: h, duration: reduced ? 0 : duration.micro, easing: Easing.in(Easing.cubic), useNativeDriver: true })
+      .start(() => onCloseRef.current());
+  }, [y]);
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+
+  const dragZone = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
+    onPanResponderMove: (_e, g) => { if (!closing.current) y.setValue(Math.max(0, g.dy)); },
+    onPanResponderRelease: (_e, g) => {
+      if (g.dy > CLOSE_DRAG_DISTANCE || g.vy > CLOSE_DRAG_VELOCITY) { requestCloseRef.current(); return; }
+      Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.micro, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    },
+    onPanResponderTerminate: () => {
+      Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.micro, useNativeDriver: true }).start();
+    },
+  })).current;
+
+  // Pulling the body down past its top (iOS rubber-band) and letting go closes it too.
+  const onScrollEndDrag = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (e.nativeEvent.contentOffset.y < -OVERSCROLL_CLOSE) requestCloseRef.current();
+  }, []);
   const app = useApp();
   const [printings, setPrintings] = useState<CardPrinting[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -95,7 +155,6 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   const [status, setStatus] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [faceIndex, setFaceIndex] = useState(0);
-  const [previewFoil, setPreviewFoil] = useState(false);
   const [friends, setFriends] = useState<FriendActivity | null>(null);
   // The full printing list can trail the first paint (the sheet opens on a seed or a cached row first).
   const [listState, setListState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -180,7 +239,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     // fetches that single row, so the sheet paints without waiting for the whole printing list.
     select(start?.id ?? printingId ?? null);
     setPrintings(initial); setLoading(initial.length === 0); setLoadError(null); setListState(cachedList ? 'ready' : 'loading'); setDetailFailed(false);
-    setOwned([]); setOwnedState(userIdRef.current ? 'loading' : 'ready'); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setPreviewFoil(false); setFriends(null); setArt(null); setArtNote(null); setExtras({ state: 'idle' });
+    setOwned([]); setOwnedState(userIdRef.current ? 'loading' : 'ready'); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setFriends(null); setArt(null); setArtNote(null); setExtras({ state: 'idle' });
     // Owned copies need only the name, so they start now, in parallel with the printing fetches.
     void refreshUserData(name, initial.map(p => p.id), start?.id ?? printingId ?? null);
   }, [name, printingId, refreshUserData, select]);
@@ -245,7 +304,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     });
     if (!name || !target || target.id === selectedRef.current) return;
     select(target.id);
-    setFaceIndex(0); setPreviewFoil(false); setExtras({ state: 'idle' });
+    setFaceIndex(0); setExtras({ state: 'idle' });
     setArtNote(`Matched to ${target.setCode.toUpperCase()} #${target.collectorNumber} by artwork`);
     void refreshUserData(name, printings.map(p => p.id), target.id);
   }, [art, listState, printings, adding, name, scan, printingId, select, refreshUserData]);
@@ -270,7 +329,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     setArtNote(null);
     select(p.id);
     setFaceIndex(0);
-    setPreviewFoil(false);
+   
     setExtras({ state: 'idle' });
     if (adding) { setFinish(p.finishes.includes(finish) ? finish : (p.finishes[0] ?? 'nonfoil')); operationId.current = Crypto.randomUUID(); }
   }
@@ -325,11 +384,10 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   }
 
   const isFoilFinish = (f?: string | null) => f === 'foil' || f === 'etched';
-  // Foil shows for a copy you own in foil, while adding a foil copy, or when asked to preview.
+  // Foil shows for a copy you own in foil or while adding a foil copy.
   // A foil-only printing has no plain version to compare against, so it shows foil by default.
   const foilOnly = !!selected && selected.finishes.length > 0 && selected.finishes.every(f => isFoilFinish(f));
-  const foilShown = isFoilFinish(ownedFinish) || (adding && isFoilFinish(finish)) || previewFoil || foilOnly;
-  const canPreviewFoil = !!selected && !isFoilFinish(ownedFinish) && !adding && !foilOnly && selected.finishes.some(f => isFoilFinish(f));
+  const foilShown = isFoilFinish(ownedFinish) || (adding && isFoilFinish(finish)) || foilOnly;
 
   const imageWidth = Math.min(width - space.xxl * 2, 340);
   const variants = selected ? priceVariants(selected) : [];
@@ -339,11 +397,16 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   const headline = variants.find(v => v.finish === knownFinish) ?? variants.find(v => v.finish === 'nonfoil') ?? variants[0] ?? null;
 
   return (
-    <Modal visible={!!name} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={styles.sheet}>
-        <View style={styles.topBar}>
-          <Text style={styles.topTitle} numberOfLines={1}>{name}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8} style={styles.close}>
+    <Modal transparent visible={!!name} animationType="none" statusBarTranslucent onRequestClose={requestClose}>
+      <View style={styles.root}>
+        <Animated.View style={[styles.scrim, { opacity: y.interpolate({ inputRange: [0, windowHeight], outputRange: [1, 0], extrapolate: 'clamp' }) }]}>
+          <Pressable accessibilityLabel="Close" style={styles.scrimFill} onPress={requestClose} />
+        </Animated.View>
+        <Animated.View style={[styles.sheet, { top: insets.top + space.md, transform: [{ translateY: y }] }]}>
+        {/* The drag zone: the grabber and the whole top bar, so a pull anywhere along the top edge closes the sheet. */}
+        <View style={styles.topBar} {...dragZone.panHandlers}>
+          <View style={styles.grabber} />
+          <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={requestClose} hitSlop={8} style={styles.close}>
             <Ionicons name="close" size={26} color={text.primary} />
           </Pressable>
         </View>
@@ -354,7 +417,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
             <Button secondary label="Try again" onPress={() => { setLoadError(null); setLoading(true); setListTick(t => t + 1); }} />
           </View>
         ) : selected && (
-          <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled" onScrollEndDrag={onScrollEndDrag} scrollEventThrottle={16}>
             {!!artNote && (
               <View style={styles.artNote} accessibilityRole="alert">
                 <Text style={styles.artNoteText}>{artNote}</Text>
@@ -364,12 +427,6 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
               </View>
             )}
             <FoilArt uri={artUri} width={imageWidth} height={imageWidth / CARD_ASPECT} foil={foilShown} />
-            {canPreviewFoil && (
-              <Pressable accessibilityRole="switch" accessibilityState={{ checked: previewFoil }} onPress={() => setPreviewFoil(v => !v)} style={[styles.flip, previewFoil && styles.flipOn]}>
-                <Ionicons name="sparkles-outline" size={16} color={text.primary} />
-                <Text style={styles.flipText}>{previewFoil ? 'Foil preview on' : 'Preview foil'}</Text>
-              </Pressable>
-            )}
             {flippable && (
               <Pressable accessibilityRole="button" accessibilityLabel="Flip card" onPress={() => setFaceIndex(i => (i + 1) % faces.length)} style={styles.flip}>
                 <Ionicons name="sync-outline" size={18} color={text.primary} />
@@ -577,6 +634,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
             </View>
           </ScrollView>
         )}
+        </Animated.View>
       </View>
     </Modal>
   );
@@ -862,9 +920,13 @@ function ReprintPanel({ stack, printings, cardName, onClose, onChanged }: {
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  sheet: { flex: 1, backgroundColor: surface.canvas },
-  topBar: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.xl, paddingVertical: space.md },
-  topTitle: { flex: 1, ...type.title, color: text.primary },
+  root: { flex: 1 },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: scrim },
+  scrimFill: { flex: 1 },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: surface.canvas, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, overflow: 'hidden' },
+  // Tall enough (about 56pt) to be an easy target for a pull, with the grabber centred and the close button at the right.
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: space.xs, minHeight: 56 },
+  grabber: { position: 'absolute', top: space.sm, alignSelf: 'center', left: '50%', marginLeft: -18, width: 36, height: 5, borderRadius: radius.pill, backgroundColor: border.strong },
   close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -space.sm },
   spinner: { marginTop: space.xxxl },
   errorBox: { padding: space.xxl, gap: space.lg },
@@ -904,7 +966,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   legalOk: { color: stateColor.success },
   legalBad: { color: stateColor.error },
   ruling: { gap: 2, marginTop: space.xs },
-  flipOn: { backgroundColor: accent.soft, borderColor: accent.DEFAULT },
   artNote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md, paddingVertical: space.xs, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: surface.sunken },
   artNoteText: { ...type.label, flex: 1, color: text.secondary },
   price: { gap: space.xs },

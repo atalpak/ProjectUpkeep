@@ -1,0 +1,70 @@
+// Bundled mana-symbol art, so symbols draw offline and never depend on a CDN.
+//
+// Source: Scryfall's official symbology SVGs (svgs.scryfall.io/card-symbols/<CODE>.svg,
+// the same set the web app's ManaCost loads over the network), rasterised once to
+// 96px PNGs (about 3x the largest size the app draws) because the app has no SVG
+// renderer: react-native-svg is not a dependency, and adding it means a native
+// rebuild. Scryfall lets these be used under its fan-content guidelines: the art is
+// Wizards of the Coast's, unaltered apart from scaling, and not sold.
+// Keys are Scryfall's file names: the symbol with its slashes removed ({R/G} -> RG).
+// A symbol not listed here (a rare hybrid-Phyrexian, say) falls back to a drawn disc.
+import type { ImageSourcePropType } from 'react-native';
+
+export const MANA_SYMBOL_IMAGES: Record<string, ImageSourcePropType> = {
+  '0': require('../assets/mana/0.png'),
+  '1': require('../assets/mana/1.png'),
+  '2': require('../assets/mana/2.png'),
+  '3': require('../assets/mana/3.png'),
+  '4': require('../assets/mana/4.png'),
+  '5': require('../assets/mana/5.png'),
+  '6': require('../assets/mana/6.png'),
+  '7': require('../assets/mana/7.png'),
+  '8': require('../assets/mana/8.png'),
+  '9': require('../assets/mana/9.png'),
+  '10': require('../assets/mana/10.png'),
+  '11': require('../assets/mana/11.png'),
+  '12': require('../assets/mana/12.png'),
+  '13': require('../assets/mana/13.png'),
+  '14': require('../assets/mana/14.png'),
+  '15': require('../assets/mana/15.png'),
+  '16': require('../assets/mana/16.png'),
+  '17': require('../assets/mana/17.png'),
+  '18': require('../assets/mana/18.png'),
+  '19': require('../assets/mana/19.png'),
+  '20': require('../assets/mana/20.png'),
+  '2B': require('../assets/mana/2B.png'),
+  '2G': require('../assets/mana/2G.png'),
+  '2R': require('../assets/mana/2R.png'),
+  '2U': require('../assets/mana/2U.png'),
+  '2W': require('../assets/mana/2W.png'),
+  'B': require('../assets/mana/B.png'),
+  'BG': require('../assets/mana/BG.png'),
+  'BP': require('../assets/mana/BP.png'),
+  'BR': require('../assets/mana/BR.png'),
+  'C': require('../assets/mana/C.png'),
+  'CB': require('../assets/mana/CB.png'),
+  'CG': require('../assets/mana/CG.png'),
+  'CR': require('../assets/mana/CR.png'),
+  'CU': require('../assets/mana/CU.png'),
+  'CW': require('../assets/mana/CW.png'),
+  'G': require('../assets/mana/G.png'),
+  'GP': require('../assets/mana/GP.png'),
+  'GU': require('../assets/mana/GU.png'),
+  'GW': require('../assets/mana/GW.png'),
+  'R': require('../assets/mana/R.png'),
+  'RG': require('../assets/mana/RG.png'),
+  'RP': require('../assets/mana/RP.png'),
+  'RW': require('../assets/mana/RW.png'),
+  'S': require('../assets/mana/S.png'),
+  'U': require('../assets/mana/U.png'),
+  'UB': require('../assets/mana/UB.png'),
+  'UP': require('../assets/mana/UP.png'),
+  'UR': require('../assets/mana/UR.png'),
+  'W': require('../assets/mana/W.png'),
+  'WB': require('../assets/mana/WB.png'),
+  'WP': require('../assets/mana/WP.png'),
+  'WU': require('../assets/mana/WU.png'),
+  'X': require('../assets/mana/X.png'),
+  'Y': require('../assets/mana/Y.png'),
+  'Z': require('../assets/mana/Z.png'),
+};
