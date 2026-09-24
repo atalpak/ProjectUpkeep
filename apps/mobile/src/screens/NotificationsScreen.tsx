@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused, useNavigation, type NavigationProp } from '@react-navigation/native';
 import { notificationSentence, relativeTime } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
-import { Notice } from '../components/ui';
+import { GroupRow, ListGroup, Notice } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { PAGES, type TabParamList } from '../navigation';
 import { fetchNotifications, markAllRead, type AppNotification } from '../notifications';
 import { makeStyles } from '../preferences';
-import { accent, border, radius, space, surface, text, type } from '../theme';
+import { accent, radius, space, text, type } from '../theme';
 
 /**
  * The alerts inbox. Opening it is the acknowledgement (as on the web): the list
@@ -50,24 +50,25 @@ export function NotificationsScreen() {
       {!!error && <Notice>{error}</Notice>}
       {loading && <Text style={styles.sub}>Loading…</Text>}
       {!loading && items.length === 0 && !error && <Text style={styles.sub}>Nothing yet. Trade offers and friend requests show up here.</Text>}
+      <ListGroup>
       {items.map(n => (
-        <Pressable key={n.id} accessibilityRole="button" accessibilityLabel={`${notificationSentence(n.type, n.actor)} ${relativeTime(n.createdAt)}${n.read ? '' : ', unread'}`} onPress={() => open(n)} style={styles.row}>
+        <GroupRow key={n.id} accessibilityLabel={`${notificationSentence(n.type, n.actor)} ${relativeTime(n.createdAt)}${n.read ? '' : ', unread'}`} onPress={() => open(n)}>
           <View style={[styles.dot, !n.read && styles.dotUnread]} />
           <View style={styles.grow}>
             <Text style={styles.name}>{notificationSentence(n.type, n.actor)}</Text>
             <Text style={styles.sub}>{relativeTime(n.createdAt)}</Text>
           </View>
-        </Pressable>
+        </GroupRow>
       ))}
+      </ListGroup>
     </ScrollView>
   );
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xl, paddingBottom: 40, gap: space.sm },
+  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   sub: { ...type.bodySm, color: text.secondary },
   grow: { flex: 1, gap: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, minHeight: 56, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   name: { ...type.body, color: text.primary },
   dot: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: 'transparent' },
   dotUnread: { backgroundColor: accent.DEFAULT },

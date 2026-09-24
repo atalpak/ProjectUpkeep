@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useApp } from '../AppProvider';
 import { CardDetails } from '../components/CardDetails';
 import { ColorSwatches } from '../components/ColorSwatches';
 import { PageTitle } from '../components/PageTitle';
-import { Button, Choices, Notice } from '../components/ui';
+import { Button, Choices, GroupRow, ListGroup, Notice, TextField } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
 import { errorMessage } from '../errors';
 import { deleteLocation, fetchLocationCards, fetchLocations, LOCATION_TYPE_LABELS, LOCATION_TYPES, setLocationTradable, updateLocation, type LocationCard, type LocationColor, type LocationKind, type LocationRow } from '../locations';
@@ -98,7 +98,7 @@ export function LocationDetailScreen({ route, navigation }: NativeStackScreenPro
             : (
               <View style={styles.form}>
                 <Text style={styles.label}>Name</Text>
-                <TextInput accessibilityLabel="Name" style={styles.input} value={name} onChangeText={setName} maxLength={80} />
+                <TextField tone="canvas" accessibilityLabel="Name" value={name} onChangeText={setName} maxLength={80} />
                 <Text style={styles.label}>Type</Text>
                 <Choices values={[...LOCATION_TYPES]} selected={kind} labels={LOCATION_TYPE_LABELS} disabled={busy} onSelect={v => setKind(v as LocationKind)} />
                 <Text style={styles.label}>Colour</Text>
@@ -114,19 +114,21 @@ export function LocationDetailScreen({ route, navigation }: NativeStackScreenPro
         <>
           <Text style={styles.heading}>{total} card{total === 1 ? '' : 's'}{cards.length !== total ? ` in ${cards.length} entries` : ''}</Text>
           {cards.length === 0 && <Text style={styles.sub}>{locationId ? 'Nothing is filed here yet.' : 'Everything you own is filed somewhere.'}</Text>}
-          {cards.map(c => (
-            <Pressable key={c.id} accessibilityRole="button" accessibilityLabel={`${c.name}, details`} onPress={() => setDetails(c)} style={styles.cardRow}>
-              <FlipThumb card={{ name: c.name, layout: c.layout, imageSmall: c.imageSmall }} thumbStyle={styles.thumb}>
-                {name => (
-                  <View style={styles.grow}>
-                    <Text style={styles.strong}>{name}</Text>
-                    <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber}</Text>
-                    <Text style={styles.sub}>{c.condition.toUpperCase()} · {c.finish.toUpperCase()} · {c.language.toUpperCase()} · Qty {c.quantity}</Text>
-                  </View>
-                )}
-              </FlipThumb>
-            </Pressable>
-          ))}
+          <ListGroup>
+            {cards.map(c => (
+              <GroupRow key={c.id} accessibilityLabel={`${c.name}, details`} onPress={() => setDetails(c)}>
+                <FlipThumb card={{ name: c.name, layout: c.layout, imageSmall: c.imageSmall }} thumbStyle={styles.thumb}>
+                  {name => (
+                    <View style={styles.grow}>
+                      <Text style={styles.strong}>{name}</Text>
+                      <Text style={styles.sub}>{c.setCode.toUpperCase()} · #{c.collectorNumber}</Text>
+                      <Text style={styles.sub}>{c.condition.toUpperCase()} · {c.finish.toUpperCase()} · {c.language.toUpperCase()} · Qty {c.quantity}</Text>
+                    </View>
+                  )}
+                </FlipThumb>
+              </GroupRow>
+            ))}
+          </ListGroup>
         </>
       )}
 
@@ -143,10 +145,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   grow: { flex: 1, gap: 2 },
   form: { gap: space.sm },
   heading: { ...type.title, color: text.primary },
-  strong: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
+  strong: { ...type.rowTitle, color: text.primary },
   sub: { ...type.bodySm, color: text.secondary },
   label: { ...type.label, color: text.secondary, marginTop: space.sm },
-  input: { height: 44, paddingHorizontal: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...type.body },
-  cardRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
-  thumb: { width: 56, height: 78, borderRadius: radius.sm, backgroundColor: surface.sunken },
+  thumb: { width: 56, height: 78, borderRadius: radius.thumb, backgroundColor: surface.sunken },
 }));

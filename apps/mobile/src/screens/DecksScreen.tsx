@@ -1,12 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { createDeck, fetchDeckTiles, type DeckTile } from '../decks';
 import { CollectionAuthError } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
-import { Button, EmptyState, Notice } from '../components/ui';
+import { Button, EmptyState, Notice, Skeleton, Tappable, TextField } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { ManaSymbol } from '../components/ManaCost';
 import { PAGES, type DecksStackParamList } from '../navigation';
@@ -78,7 +78,16 @@ export function DecksScreen({ navigation }: NativeStackScreenProps<DecksStackPar
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <PageTitle>{PAGES.Decks.title}</PageTitle>
-      {loading && <Text style={styles.body}>Loading your decks…</Text>}
+      {loading && (
+        // Same shape as the loaded page (button, count, two-column tile grid),
+        // so the layout does not jump when the decks arrive.
+        <View accessibilityLabel="Loading your decks" accessibilityRole="progressbar" style={styles.skeletonPage}>
+          <Skeleton height={54} />
+          <View style={styles.grid}>
+            {[0, 1, 2, 3].map(i => <Skeleton key={i} width={tileWidth} height={tileHeight} corner={radius.xl} />)}
+          </View>
+        </View>
+      )}
       {authError && <Notice>Your session is no longer valid. Sign out and sign in again to view your decks.</Notice>}
       {!loading && !!error && <>
         <Notice>{error}</Notice>
@@ -91,7 +100,7 @@ export function DecksScreen({ navigation }: NativeStackScreenProps<DecksStackPar
             ? <Button secondary label="Start a deck" onPress={() => setCreating(true)} />
             : (
               <View style={styles.form}>
-                <TextInput accessibilityLabel="Deck name" style={styles.input} value={name} onChangeText={setName} placeholder="Mono-Red Aggro" placeholderTextColor={text.secondary} maxLength={80} autoFocus returnKeyType="done" onSubmitEditing={() => void create()} />
+                <TextField tone="canvas" accessibilityLabel="Deck name" value={name} onChangeText={setName} placeholder="Mono-Red Aggro" maxLength={80} autoFocus returnKeyType="done" onSubmitEditing={() => void create()} />
                 {!!formError && <Text style={styles.formError} accessibilityRole="alert">{formError}</Text>}
                 <View style={styles.formButtons}>
                   <View style={styles.grow}><Button label={busy ? 'Creating…' : 'Create deck'} loading={busy} disabled={!name.trim()} onPress={() => void create()} /></View>
@@ -131,7 +140,7 @@ function DeckTileView({ deck, width, height, onPress }: { deck: DeckTile; width:
   const sub = deck.commanderName ?? `${deck.uniqueCount} unique card${deck.uniqueCount === 1 ? '' : 's'}`;
 
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${deck.name}, ${deck.cardCount ? `${deck.sleevedCount} of ${deck.cardCount} sleeved` : 'empty list'}`} onPress={onPress} style={[styles.tile, { width, height }]}>
+    <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`${deck.name}, ${deck.cardCount ? `${deck.sleevedCount} of ${deck.cardCount} sleeved` : 'empty list'}`} onPress={onPress} style={[styles.tile, { width, height }]}>
       {hasArt
         ? <><Image source={{ uri: deck.commanderArt! }} style={StyleSheet.absoluteFill} resizeMode="cover" /><View style={[StyleSheet.absoluteFill, styles.scrim]} /></>
         : <View style={[StyleSheet.absoluteFill, { backgroundColor: surface.sunken }]} />}
@@ -162,7 +171,7 @@ function DeckTileView({ deck, width, height, onPress }: { deck: DeckTile; width:
           )}
         </View>
       </View>
-    </Pressable>
+    </Tappable>
   );
 }
 
@@ -170,9 +179,9 @@ const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   body: { ...typeTokens.bodySm, color: text.secondary },
   count: { ...typeTokens.label, color: text.secondary },
+  skeletonPage: { gap: space.md },
   grow: { flex: 1 },
   form: { gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
-  input: { height: 44, paddingHorizontal: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...typeTokens.body },
   formButtons: { flexDirection: 'row', gap: space.sm },
   formError: { ...typeTokens.bodySm, color: text.primary },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP },
@@ -183,10 +192,10 @@ const useStyles = makeStyles(() => StyleSheet.create({
   tileBody: { flex: 1, padding: space.md, justifyContent: 'space-between' },
   tileTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   pips: { flexDirection: 'row', gap: 3 },
-  shared: { ...typeTokens.label, fontSize: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, overflow: 'hidden' },
+  shared: { ...typeTokens.label, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.pill, borderWidth: 1, overflow: 'hidden' },
   tileBottom: { gap: 3 },
   deckName: { fontFamily: fontFamily.display, fontSize: 17, lineHeight: 21 },
-  track: { height: 6, borderRadius: 3, overflow: 'hidden', marginTop: 2 },
-  fill: { height: '100%', borderRadius: 3 },
-  meta: { ...typeTokens.label, fontFamily: fontFamily.body, fontSize: 11, lineHeight: 14 },
+  track: { height: 6, borderRadius: radius.pill, overflow: 'hidden', marginTop: 2 },
+  fill: { height: '100%', borderRadius: radius.pill },
+  meta: { ...typeTokens.label, fontFamily: fontFamily.body },
 }));

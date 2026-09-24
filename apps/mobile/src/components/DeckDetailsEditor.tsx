@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Button, Choices, Notice } from './ui';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Button, Choices, Notice, Tappable } from './ui';
 import { DECK_ARCHETYPES, DECK_FORMATS, DECK_FORMAT_MAX, DECK_NAME_MAX, DECK_NOTES_MAX, DECK_TAG_MAX, DECK_TAGS_MAX, normalizeTags, type DeckDetailsInput } from '../decks';
 import { errorMessage } from '../errors';
 import { makeStyles } from '../preferences';
@@ -58,9 +58,9 @@ export function DeckDetailsEditor({ initial, onSave, onCancel }: {
       {tags.length > 0 && (
         <View style={styles.chips}>
           {tags.map(t => (
-            <Pressable key={t} accessibilityRole="button" accessibilityLabel={`Remove ${t}`} disabled={busy} onPress={() => setTags(prev => prev.filter(x => x !== t))} style={styles.tag}>
+            <Tappable feedback="dim" key={t} accessibilityRole="button" accessibilityLabel={`Remove ${t}`} disabled={busy} onPress={() => setTags(prev => prev.filter(x => x !== t))} style={styles.tag}>
               <Text style={styles.tagText}>{t}  ×</Text>
-            </Pressable>
+            </Tappable>
           ))}
         </View>
       )}
@@ -70,9 +70,9 @@ export function DeckDetailsEditor({ initial, onSave, onCancel }: {
       </View>
       <View style={styles.chips}>
         {DECK_ARCHETYPES.filter(a => !tags.some(t => t.toLowerCase() === a.toLowerCase())).map(a => (
-          <Pressable key={a} accessibilityRole="button" accessibilityLabel={`Add tag ${a}`} disabled={busy || tags.length >= DECK_TAGS_MAX} onPress={() => addTag(a)} style={styles.suggest}>
+          <Tappable feedback="dim" key={a} accessibilityRole="button" accessibilityLabel={`Add tag ${a}`} disabled={busy || tags.length >= DECK_TAGS_MAX} onPress={() => addTag(a)} style={styles.suggest}>
             <Text style={styles.suggestText}>{a}</Text>
-          </Pressable>
+          </Tappable>
         ))}
       </View>
 

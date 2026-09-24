@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LANGUAGE_LABELS, mirrorTradeForCounter, type LanguageCode } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { TradingTerms } from '../components/TradingTerms';
-import { Button, Choices, Notice } from '../components/ui';
+import { Button, Choices, Notice, Tappable, TextField } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
 import { errorMessage } from '../errors';
 import { fetchFriendTradables, type FriendCard } from '../friends';
 import type { TradesStackParamList } from '../navigation';
 import { makeStyles } from '../preferences';
-import { border, radius, space, surface, text, type } from '../theme';
+import { border, iconButtonSize, radius, space, surface, text, type } from '../theme';
 import { fetchMyTradables, fetchTrade, counterSource, proposeTrade, type Selection } from '../trades';
 import { CURRENT_TOS_VERSION, fetchTosStatus, tradingAllowed, type TosStatus } from '../tos';
 
@@ -102,7 +102,7 @@ export function TradeBuilderScreen({ route, navigation }: NativeStackScreenProps
         onSelect={v => { setSide(v as Side); setFilter(''); }}
         labels={{ want: `Want (${total(requesting)})`, offer: `Offer (${total(offering)})` }}
       />
-      <TextInput accessibilityLabel="Filter by name" style={styles.input} value={filter} onChangeText={setFilter} placeholder="Filter by name" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} />
+      <TextField accessibilityLabel="Filter by name" value={filter} onChangeText={setFilter} placeholder="Filter by name" autoCapitalize="none" autoCorrect={false} />
 
       {loading && <Text style={styles.sub}>Loading…</Text>}
       {!loading && rows.length === 0 && (
@@ -121,9 +121,9 @@ export function TradeBuilderScreen({ route, navigation }: NativeStackScreenProps
                 </View>
               )}
             </FlipThumb>
-            <Pressable accessibilityRole="button" accessibilityLabel={`One fewer ${c.name}`} disabled={q === 0} onPress={() => setQuantity(c.id, q - 1)} style={[styles.step, q === 0 && styles.stepOff]}><Text style={styles.stepText}>−</Text></Pressable>
+            <Tappable accessibilityRole="button" accessibilityLabel={`One fewer ${c.name}`} disabled={q === 0} onPress={() => setQuantity(c.id, q - 1)} style={[styles.step, q === 0 && styles.stepOff]}><Text style={styles.stepText}>−</Text></Tappable>
             <Text style={styles.qty}>{q}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={`One more ${c.name}`} disabled={q >= c.quantity} onPress={() => setQuantity(c.id, q + 1)} style={[styles.step, q >= c.quantity && styles.stepOff]}><Text style={styles.stepText}>+</Text></Pressable>
+            <Tappable accessibilityRole="button" accessibilityLabel={`One more ${c.name}`} disabled={q >= c.quantity} onPress={() => setQuantity(c.id, q + 1)} style={[styles.step, q >= c.quantity && styles.stepOff]}><Text style={styles.stepText}>+</Text></Tappable>
           </View>
         );
       })}
@@ -142,14 +142,13 @@ const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   title: { ...type.title, color: text.primary },
   sub: { ...type.bodySm, color: text.secondary },
-  input: { ...type.body, color: text.primary, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised },
   grow: { flex: 1, gap: 2 },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   rowSelected: { borderColor: border.strong },
-  thumb: { width: 42, height: 58, borderRadius: radius.sm / 2, backgroundColor: surface.sunken },
+  thumb: { width: 42, height: 58, borderRadius: radius.thumb, backgroundColor: surface.sunken },
   name: { ...type.body, color: text.primary },
-  step: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: border.strong },
+  step: { width: iconButtonSize, height: iconButtonSize, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: border.strong },
   stepOff: { opacity: 0.35 },
-  stepText: { fontSize: 20, color: text.primary },
+  stepText: { ...type.title, color: text.primary },
   qty: { ...type.body, color: text.primary, minWidth: 18, textAlign: 'center' },
 }));

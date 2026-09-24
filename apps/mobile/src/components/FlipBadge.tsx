@@ -24,7 +24,7 @@ export function FlipBadge({ onPress, otherName, size = 26, corner = 'top-left' }
       accessibilityLabel={otherName ? `Flip card to ${otherName}` : 'Flip card'}
       hitSlop={slop}
       onPress={onPress}
-      style={[styles.badge, { width: size, height: size, borderRadius: size / 2 }, corner === 'top-left' ? styles.topLeft : styles.bottomRight]}
+      style={({ pressed }) => [styles.badge, { width: size, height: size, borderRadius: size / 2 }, corner === 'top-left' ? styles.topLeft : styles.bottomRight, pressed && styles.pressed]}
     >
       <Ionicons name="sync-outline" size={Math.round(size * 0.62)} color={text.primary} />
     </Pressable>
@@ -33,6 +33,7 @@ export function FlipBadge({ onPress, otherName, size = 26, corner = 'top-left' }
 
 const useStyles = makeStyles(() => StyleSheet.create({
   badge: { position: 'absolute', alignItems: 'center', justifyContent: 'center', backgroundColor: surface.raised, borderWidth: 1, borderColor: border.strong },
+  pressed: { opacity: 0.7 },
   topLeft: { top: 4, left: 4 },
   bottomRight: { bottom: 2, right: 2 },
 }));
