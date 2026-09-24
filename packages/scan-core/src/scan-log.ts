@@ -1,6 +1,6 @@
 import type { Candidate, Printing } from './types';
 import {
-  ART_CONFIDENCE_RATIO, ART_OVERRIDE_FOOTER_RATIO, artCoversAll, artVerdict, canonicalNumber,
+  ART_CONFIDENCE_RATIO, ART_OVERRIDE_FOOTER_RATIO, artSwitchDecision, artVerdict, canonicalNumber,
   type ArtResult, type PrintingHints, type PrintingRanking,
 } from './printing';
 
@@ -62,8 +62,12 @@ export interface ScanLogEntry {
   /** Whether a picture check was set up for this read (quick scan only). */
   artPlanned: boolean | null;
   art?: ScanLogArt;
-  /** The printing the details sheet finally showed / the scan staged. */
+  /** Quick scan: the printing the details sheet is on (kept current as the picture check or the person moves it). */
   finalPrinting?: string;
+  /** Main Scan tab: the printing suggested at read time. Not updated if the person picks another in the sheet. */
+  suggestedPrinting?: string;
+  /** More than 1 when consecutive rejected quick reads were folded into this one entry. */
+  rejectedCount?: number;
   note?: string;
 }
 
@@ -123,35 +127,43 @@ export function explainGuess(ranking: PrintingRanking, hints: PrintingHints): { 
 
 /**
  * The picture check's outcome in words: what was compared, how decisive the winner was, and whether
- * CardDetails could apply it. Mirrors `artSwitchNow`'s gates in the same order, so the reason is the
- * first gate that fails; a unit test holds the two in agreement.
+ * CardDetails could apply it. The verdict and reason come from `artSwitchDecision`, the same function
+ * the sheet uses to decide, so this cannot disagree with what actually happened.
  */
 export function explainArt(input: {
-  all: readonly Printing[]; art: ArtResult | null; footerGuess: boolean; userPicked: boolean; adding: boolean; alreadySelected?: string | null;
+  all: readonly Printing[]; art: ArtResult | null; footerGuess: boolean; userPicked: boolean; adding: boolean;
+  /** The card the sheet is open on and the card the picture was computed for; default to the list's own name. */
+  name?: string | null; artName?: string | null; selectedId?: string | null;
 }): ScanLogArt {
-  const { all, art, footerGuess, userPicked, adding } = input;
+  const { all, art, footerGuess } = input;
   const requiredRatio = footerGuess ? ART_OVERRIDE_FOOTER_RATIO : ART_CONFIDENCE_RATIO;
   const label = (id: string) => { const p = all.find(x => x.id === id); return p ? printingLabel(p) : id.slice(0, 8); };
-  const base: ScanLogArt = { candidates: [], bestDistance: null, runnerUpDistance: null, ratio: null, requiredRatio, winner: null, applied: false, reason: '' };
-  if (!art) return { ...base, reason: 'no picture result (download failed, timed out, sheet closed or older build)' };
-  base.candidates = art.ids.map((id, i) => ({ printing: label(id), distance: Number.isFinite(art.distances[i]) ? Number(art.distances[i]!.toFixed(4)) : null }));
-  const sorted = [...art.distances].filter(d => Number.isFinite(d) && d >= 0).sort((a, b) => a - b);
-  base.bestDistance = sorted[0] !== undefined ? Number(sorted[0].toFixed(4)) : null;
-  base.runnerUpDistance = sorted[1] !== undefined ? Number(sorted[1].toFixed(4)) : null;
-  if (sorted.length > 1 && sorted[1]! > 0) base.ratio = Number((sorted[0]! / sorted[1]!).toFixed(3));
+  const name = input.name === undefined ? (all[0]?.name ?? null) : input.name;
+  const decision = artSwitchDecision({
+    name, artName: input.artName === undefined ? name : input.artName, all: all as Printing[], art, userPicked: input.userPicked, adding: input.adding, footerGuess, selectedId: input.selectedId,
+  });
+  const out: ScanLogArt = { candidates: [], bestDistance: null, runnerUpDistance: null, ratio: null, requiredRatio, winner: null, applied: decision.target !== null, reason: decision.reason };
+  if (!art) return out;
+  out.candidates = art.ids.map((id, i) => ({ printing: label(id), distance: Number.isFinite(art.distances[i]) ? Number(art.distances[i]!.toFixed(4)) : null }));
+  const sorted = [...art.distances].filter(d => Number.isFinite(d) && d >= 0).sort((x, y) => x - y);
+  out.bestDistance = sorted[0] !== undefined ? Number(sorted[0].toFixed(4)) : null;
+  out.runnerUpDistance = sorted[1] !== undefined ? Number(sorted[1].toFixed(4)) : null;
+  if (sorted.length > 1 && sorted[1]! > 0) out.ratio = Number((sorted[0]! / sorted[1]!).toFixed(3));
   const verdict = artVerdict(art, requiredRatio);
-  base.winner = verdict ? label(verdict.bestId) : null;
-  if (userPicked) return { ...base, reason: 'not applied: the person had already chosen a printing' };
-  if (adding) return { ...base, reason: 'not applied: the add form was open' };
-  if (all.length < 2) return { ...base, reason: 'not applied: only one printing' };
-  if (!artCoversAll(all as Printing[], art)) return { ...base, reason: `not applied: only ${art.ids.length} of ${all.length} printings were compared` };
-  if (!verdict?.confident) return { ...base, reason: `not applied: winner not decisive (ratio ${base.ratio ?? 'n/a'}, needs under ${requiredRatio}${footerGuess ? ', strict because the footer named the printing' : ''})` };
-  if (input.alreadySelected && verdict.bestId === input.alreadySelected) return { ...base, applied: false, reason: 'confident, but the winner was already the selected printing' };
-  return { ...base, applied: true, reason: `applied: decisive (ratio ${base.ratio ?? 'n/a'} < ${requiredRatio})` };
+  out.winner = verdict ? label(verdict.bestId) : null;
+  return out;
 }
 
-/** Newest last, capped. Returns a new array. */
+/**
+ * Newest last, capped. Returns a new array. A rejected quick read (`rejectedCount` set) directly after another
+ * one is folded into it, keeping the latest reason and the count: quick scan retries a held card several
+ * times a second, and each retry would otherwise push a real read out of the 30-entry buffer.
+ */
 export function pushScanLog(entries: readonly ScanLogEntry[], entry: ScanLogEntry, max = SCAN_LOG_MAX): ScanLogEntry[] {
+  const last = entries[entries.length - 1];
+  if (last && last.rejectedCount && entry.rejectedCount) {
+    return [...entries.slice(0, -1), { ...entry, id: last.id, rejectedCount: last.rejectedCount + entry.rejectedCount }];
+  }
   return [...entries, entry].slice(-max);
 }
 
@@ -172,7 +184,7 @@ export function readScanLog(raw: string | null | undefined): ScanLogEntry[] {
 
 export function summarizeScanEntry(e: ScanLogEntry): string {
   const when = new Date(e.at).toISOString().slice(11, 19);
-  return `${when} ${e.source} | ${e.title || '(no title)'} | ${e.finalPrinting ?? e.guess?.printing ?? 'no printing'}`;
+  return `${when} ${e.source} | ${e.title || '(no title)'} | ${e.rejectedCount ? `rejected${e.rejectedCount > 1 ? ` x${e.rejectedCount}` : ''}` : (e.finalPrinting ?? e.suggestedPrinting ?? e.guess?.printing ?? 'no printing')}`;
 }
 
 export function formatScanEntry(e: ScanLogEntry, n?: number): string {
@@ -194,7 +206,9 @@ export function formatScanEntry(e: ScanLogEntry, n?: number): string {
     out.push(`picture check: ${a.candidates.map(c => `${c.printing}=${c.distance ?? 'n/a'}`).join(', ') || '(no distances)'}`);
     out.push(`  best ${a.bestDistance ?? '-'} runner-up ${a.runnerUpDistance ?? '-'} ratio ${a.ratio ?? '-'} (needs < ${a.requiredRatio}) winner ${a.winner ?? '-'} -> ${a.reason}`);
   }
-  out.push(`final printing: ${e.finalPrinting ?? '(not recorded)'}`);
+  if (e.rejectedCount && e.rejectedCount > 1) out.push(`rejected reads folded into this entry: ${e.rejectedCount} (latest shown)`);
+  if (e.suggestedPrinting) out.push(`suggested printing (top candidate at read time; not updated if changed in the sheet): ${e.suggestedPrinting}`);
+  else out.push(`final printing: ${e.finalPrinting ?? '(not recorded)'}`);
   if (e.note) out.push(`note: ${e.note}`);
   return out.join('\n');
 }

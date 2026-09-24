@@ -305,7 +305,7 @@ export function artSwitchTarget(all: Printing[], art: ArtResult | null, ratio = 
  * `artName` and the printings' own names must both equal `name`: a result or
  * list that belongs to the previously opened card must never move this one.
  */
-export function artSwitchNow(input: {
+export interface ArtSwitchInput {
   /** The card the sheet is open on; null when closed. */
   name: string | null;
   /** The card name the picture result was computed for. */
@@ -317,11 +317,42 @@ export function artSwitchNow(input: {
   /** True when the open selection came from a footer match rather than the
    *  default: the picture then needs the stricter `ART_OVERRIDE_FOOTER_RATIO`. */
   footerGuess?: boolean;
-}): Printing | null {
-  const { name, artName, all, art, userPicked, adding, footerGuess } = input;
-  if (!name || userPicked || adding || artName !== name) return null;
-  if (all.length === 0 || all.some(p => p.name !== name)) return null;
-  return artSwitchTarget(all, art, footerGuess ? ART_OVERRIDE_FOOTER_RATIO : ART_CONFIDENCE_RATIO);
+}
+
+/**
+ * `artSwitchNow`'s decision with its reason. One function serves both the sheet
+ * (which only wants the target) and scan diagnostics (which wants the words), so
+ * the explanation cannot drift from what actually happens. `selectedId` is only
+ * for the explanation: when the winner is already selected there is nothing to
+ * switch, and the sheet's own effect already ignores that case.
+ */
+export function artSwitchDecision(input: ArtSwitchInput & { selectedId?: string | null }): { target: Printing | null; reason: string } {
+  const { name, artName, all, art, userPicked, adding, footerGuess, selectedId } = input;
+  const ratio = footerGuess ? ART_OVERRIDE_FOOTER_RATIO : ART_CONFIDENCE_RATIO;
+  const no = (reason: string) => ({ target: null, reason: `not applied: ${reason}` });
+  if (!name) return no('the sheet was closed');
+  if (userPicked) return no('the person had already chosen a printing');
+  if (adding) return no('the add form was open');
+  if (artName !== name) return no('the picture result belongs to another card');
+  if (all.length === 0) return no('the printing list was not loaded');
+  if (all.some(p => p.name !== name)) return no('the printing list mixes card names');
+  if (!art) return no('no picture result (download failed, timed out, or older build)');
+  if (all.length < 2) return no('only one printing');
+  if (!artCoversAll(all, art)) return no(`only ${art.ids.length} of ${all.length} printings were compared`);
+  const verdict = artVerdict(art, ratio);
+  if (!verdict?.confident) {
+    const sorted = [...art.distances].sort((a, b) => a - b);
+    const shown = sorted.length > 1 && sorted[1]! > 0 ? (sorted[0]! / sorted[1]!).toFixed(3) : 'n/a';
+    return no(`winner not decisive (ratio ${shown}, needs under ${ratio}${footerGuess ? ', strict because the footer named the printing' : ''})`);
+  }
+  const target = all.find(p => p.id === verdict.bestId) ?? null;
+  if (!target) return no('the winner is not in the printing list');
+  if (selectedId && target.id === selectedId) return { target: null, reason: 'confident, but the winner was already the selected printing' };
+  return { target, reason: `applied: decisive (needs under ${ratio})` };
+}
+
+export function artSwitchNow(input: ArtSwitchInput): Printing | null {
+  return artSwitchDecision(input).target;
 }
 
 /**

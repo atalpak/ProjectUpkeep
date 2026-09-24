@@ -43,7 +43,7 @@ apps/mobile/            Expo app.
                         live dark/light scheme, and `makeStyles`
   src/screens/          ScanScreen · ScanSessionSummary · CollectionScreen ·
                         DecksScreen (commander-art tiles like the web deck list, plus "Start a deck"; data in src/decks.ts `fetchDeckTiles`) · DeckDetailScreen (commander-art banner, list grouped by type via `groupDeck` in @upkeep/domain, per-card sleeved/available/missing state, owns SleevePicker; `ManaCost` draws mana symbols from bundled Scryfall PNGs in `assets/mana/`, indexed by `src/manaSymbols.ts`) ·
-                        SettingsScreen (appearance, nav bar, account, catalog) ·
+                        SettingsScreen (appearance, nav bar, scan diagnostics, account, catalog) · ScanLogScreen (the scan-diagnostics log modal opened from Settings; recorder in src/scanLog.ts, pure shapes and text in packages/scan-core/src/scan-log.ts) ·
                         PlaceholderScreen (pages not built yet)
   src/components/       TabBar (5 slots, raised Scan, + ScreenFade) · AppHeader
                         (Mort avatar, title, menu button) · MenuSheet · ScanQuickBar
@@ -351,7 +351,7 @@ memory plus a debounced SecureStore write; pure shapes and text in scan-core
 `scan-log.ts`): the title and footer lines read, the hints, each candidate with its
 evidence, the best guess and why, and later, from `CardDetails` via `logId`, the picture
 check (distances, ratio, winner, applied or not and why) and the printing finally shown.
-It only describes; nothing reads it back. The "Scan log" modal lists and copies it via
+It only describes; nothing reads it back. Builders run inside try/catch (`logScan`/`logUpdate`), consecutive rejected quick reads fold into one counted entry, the save is flushed when the app leaves the foreground, and sign-out clears the log. The picture-check explanation comes from `artSwitchDecision`, the same function `artSwitchNow` uses. The "Scan log" modal lists and copies it via
 the share sheet (a direct clipboard write needs `expo-clipboard`, a native module).
 
 **Open items** (none of these are bugs to fix in passing): the rest of the

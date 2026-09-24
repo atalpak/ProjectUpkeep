@@ -9,7 +9,7 @@ import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flush
 import { UpkeepScannerView, cardImageRankingAvailable, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
 import { useApp } from '../AppProvider';
 import { useOpenCardDetails } from '../cardDetailsHost';
-import { newScanLogId, recordScan, scanLogEnabled } from '../scanLog';
+import { logScan, newScanLogId, scanLogEnabled } from '../scanLog';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles, usePreferences } from '../preferences';
 import { PAGES, type PageId } from '../navigation';
@@ -289,18 +289,18 @@ function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: 
   function handleRead({ title, lines, printingLines, imageUri, source }: CardReadEvent) {
     const candidates = env.current.pipeline.matchEvidence({ lines, printingLines }).candidates;
     const match = quickMatch(candidates);
-    // Scan diagnostics (Settings): describes this read; changes nothing about it. Only built when the switch is on.
-    const logging = scanLogEnabled();
-    const logBase = () => ({
-      id: newScanLogId(), at: Date.now(), source: (source === 'guide' ? 'quick/guide' : 'quick/outline') as ScanLogEntry['source'], title: title ?? '',
+    // Scan diagnostics (Settings): describes this read and changes nothing about it. `logScan` only runs its
+    // builder when the switch is on and swallows any failure in it, so nothing below can be held up by it.
+    const logBase = (): Omit<ScanLogEntry, 'match' | 'candidates' | 'guess' | 'artPlanned'> => ({
+      id: newScanLogId(), at: Date.now(), source: source === 'guide' ? 'quick/guide' : 'quick/outline', title: title ?? '',
       printingLines: clipLines(printingLines), hints: hintsForLog(printingHints(printingLines, env.current.index.setCodes)),
     });
     if ('reason' in match) {
-      if (logging) {
+      logScan(() => {
         const top = candidates[0];
-        recordScan({ ...logBase(), match: `rejected (${match.reason}); top ${top ? `${top.printing.name} score ${top.score.toFixed(2)} ${top.evidence}` : 'none'}; retry ${retries.current + 1}; lines ${JSON.stringify(clipLines(lines).slice(0, 3))}`,
-          candidates: describeCandidates(candidates, 4), guess: null, artPlanned: null });
-      }
+        return { ...logBase(), rejectedCount: 1, match: `rejected (${match.reason}); top ${top ? `${top.printing.name} score ${top.score.toFixed(2)} ${top.evidence}` : 'none'}; retry ${retries.current + 1}; lines ${JSON.stringify(clipLines(lines).slice(0, 3))}`,
+          candidates: describeCandidates(candidates, 4), guess: null, artPlanned: null };
+      });
       // The card does not need taking away: bumping the token has native re-read it
       // (~0.4s later). The retries are silent (what was read is not something the
       // person can act on); after QUICK_RETRY_CAP tries the line turns into advice
@@ -322,12 +322,9 @@ function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: 
     const ranking = rankPrintings(index.printingsOf(match.printing.oracleId), hints);
     const guess = bestGuessPrinting(ranking);
     const artPool = imageUri && cardImageRankingAvailable ? artCandidates(ranking) : null;
-    let logId: string | undefined;
-    if (logging) {
-      logId = newScanLogId();
-      recordScan({ ...logBase(), id: logId, match: `accepted ${match.printing.name} (${match.exactPrinting ? 'name + exact footer' : 'name'}); ${ranking.ranked.length} printing(s) in catalog; footer confidence ${ranking.printingConfidence}`,
-        candidates: describeRanking(ranking), guess: explainGuess(ranking, hints), artPlanned: !!artPool });
-    }
+    const logId = scanLogEnabled() ? newScanLogId() : undefined;
+    logScan(() => ({ ...logBase(), id: logId!, match: `accepted ${match.printing.name} (${match.exactPrinting ? 'name + exact footer' : 'name'}); ${ranking.ranked.length} printing(s) in catalog; footer confidence ${ranking.printingConfidence}`,
+      candidates: describeRanking(ranking), guess: explainGuess(ranking, hints), artPlanned: !!artPool }));
     doneRef.current = true;
     stopQuick();
     closeFan();

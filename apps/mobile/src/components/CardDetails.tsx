@@ -15,7 +15,7 @@ import {
 import type { CardDetailsTarget } from '../cardDetailsHost';
 import { errorMessage } from '../errors';
 import { compareScanToPrintings } from '../printingVerify';
-import { scanLogEnabled, updateScan } from '../scanLog';
+import { logUpdate } from '../scanLog';
 import { makeStyles } from '../preferences';
 import { accent, border, duration, radius, scrim, space, state as stateColor, surface, text, type } from '../theme';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -338,10 +338,8 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
     if (!name || !scan || listState !== 'ready' || userPicked.current) return;
     let alive = true;
     void compareScanToPrintings(scan.photoUri, scan.candidates, () => alive && !userPicked.current).then(r => {
-      // Scan diagnostics: what the picture said and whether the switch below may use it. Describes only.
-      if (scanLogEnabled() && logId) {
-        updateScan(logId, { art: explainArt({ all: printingsRef.current.map(toPrinting), art: r, footerGuess: !!printingIdRef.current, userPicked: userPicked.current, adding: false, alreadySelected: selectedRef.current }) });
-      }
+      // Scan diagnostics: what the picture said and whether the switch below may use it. Describes only; setArt below always runs.
+      logUpdate(logId, () => ({ art: explainArt({ all: printingsRef.current.map(toPrinting), art: r, footerGuess: !!printingIdRef.current, userPicked: userPicked.current, adding: false, name, artName: name, selectedId: selectedRef.current }) }));
       if (alive && r) setArt({ name, scan, result: r });
     });
     return () => { alive = false; };
@@ -351,8 +349,8 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
 
   // Scan diagnostics: the printing this sheet is on, kept current (the picture check or the person may move it).
   useEffect(() => {
-    if (!logId || !selected || !scanLogEnabled()) return;
-    updateScan(logId, { finalPrinting: `${selected.setCode.toLowerCase()} #${selected.collectorNumber}` });
+    if (!logId || !selected) return;
+    logUpdate(logId, () => ({ finalPrinting: `${selected.setCode.toLowerCase()} #${selected.collectorNumber}` }));
   }, [logId, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Quietly move to the picture's winner, but never over a choice the person made or a form they opened.
@@ -368,7 +366,7 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
     select(target.id);
     setFaceIndex(0); setExtras({ state: 'idle' });
     setArtNote(`Matched to ${target.setCode.toUpperCase()} #${target.collectorNumber} by artwork`);
-    if (scanLogEnabled() && logId) updateScan(logId, { note: `picture check moved the selection to ${target.setCode.toLowerCase()} #${target.collectorNumber}` });
+    logUpdate(logId, () => ({ note: `picture check moved the selection to ${target.setCode.toLowerCase()} #${target.collectorNumber}` }));
     void refreshUserData(name, printings.map(p => p.id), target.id);
   }, [art, listState, printings, adding, name, scan, printingId, logId, select, refreshUserData]);
 

@@ -65,6 +65,41 @@ test('explainArt agrees with artSwitchNow about whether the picture may switch t
   assert.match(thin.reason, /not decisive/);
 });
 
+test('explainArt covers the gates artSwitchNow has: already selected, another card\'s result, mixed names, empty list', () => {
+  const art = { ids: [a.id, b.id], distances: [0.1, 0.5] };
+  const base = { all: [a, b], art, footerGuess: false, userPicked: false, adding: false };
+  const already = explainArt({ ...base, selectedId: a.id });
+  assert.equal(already.applied, false);
+  assert.match(already.reason, /already the selected/);
+  assert.equal(explainArt({ ...base, selectedId: b.id }).applied, true);
+
+  const other = explainArt({ ...base, name: 'Book of Mazarbul', artName: 'Oliphaunt' });
+  assert.equal(other.applied, false);
+  assert.match(other.reason, /another card/);
+
+  const stranger = { ...b, id: '00000000-0000-4000-8000-000000000299', name: 'Oliphaunt' };
+  const mixed = explainArt({ ...base, all: [a, stranger], art: { ids: [a.id, stranger.id], distances: [0.1, 0.5] } });
+  assert.equal(mixed.applied, false);
+  assert.match(mixed.reason, /mixes card names/);
+  assert.equal(artSwitchNow({ name: 'Book of Mazarbul', artName: 'Book of Mazarbul', all: [a, stranger], art: { ids: [a.id, stranger.id], distances: [0.1, 0.5] }, userPicked: false, adding: false }), null);
+
+  assert.match(explainArt({ ...base, all: [], name: 'Book of Mazarbul' }).reason, /not loaded/);
+});
+
+test('consecutive rejected quick reads fold into one entry and do not evict real reads', () => {
+  let log: ScanLogEntry[] = [];
+  for (let i = 0; i < 5; i++) log = pushScanLog(log, entry(i));
+  for (let i = 0; i < 40; i++) log = pushScanLog(log, entry(100 + i, { match: `rejected ${i}`, rejectedCount: 1 }));
+  assert.equal(log.length, 6);
+  assert.equal(log[5]!.rejectedCount, 40);
+  assert.equal(log[5]!.match, 'rejected 39', 'the latest reason is kept');
+  assert.equal(log[0]!.id, 'e0');
+  // An accepted read in between starts a fresh rejected run.
+  log = pushScanLog(pushScanLog(log, entry(200)), entry(201, { rejectedCount: 1 }));
+  assert.equal(log.length, 8);
+  assert.equal(log[7]!.rejectedCount, 1);
+});
+
 test('the ring buffer keeps the newest SCAN_LOG_MAX reads and patches by id', () => {
   let log: ScanLogEntry[] = [];
   for (let i = 0; i < SCAN_LOG_MAX + 5; i++) log = pushScanLog(log, entry(i));
