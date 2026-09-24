@@ -104,8 +104,6 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   // Animated + PanResponder pair, all on the native driver.
   const y = useRef(new Animated.Value(windowHeight)).current;
   const closing = useRef(false);
-  // True while the slide-in runs: a drag then would fight the native-driven timing for `y`.
-  const entering = useRef(false);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const motionRef = useRef({ reducedMotion, windowHeight });
@@ -127,17 +125,15 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   useEffect(() => {
     if (!isOpen) return;
     closing.current = false;
-    entering.current = true;
     y.setValue(motionRef.current.windowHeight);
     Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true })
-      .start(() => { entering.current = false; });
+      .start();
   }, [isOpen, y]);
 
   // Slides out from wherever the sheet is (mid-drag included), then asks the parent to close.
   const requestClose = useCallback(() => {
     if (closing.current) return;
     closing.current = true;
-    entering.current = false;
     const { reducedMotion: reduced, windowHeight: h } = motionRef.current;
     Animated.timing(y, { toValue: h, duration: reduced ? 0 : duration.micro, easing: Easing.in(Easing.cubic), useNativeDriver: true })
       .start(() => onCloseRef.current());
@@ -145,18 +141,29 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
 
+  // The drag zone claims the touch the moment it lands (onStartShouldSet), instead of waiting for
+  // a move-based negotiation with every ancestor: the top bar is not a scroller, so there is
+  // nothing to disambiguate from, and the earlier onMoveShouldSet-only version (which also
+  // refused to start while the slide-in ran and needed >4pt of mostly-vertical travel) never
+  // engaged on a real phone. A drag grabs the sheet wherever it is, stopping the slide-in if it
+  // is still running, and moves it from that position.
+  const dragStart = useRef(0);
+  const settle = (toValue: number) => Animated.timing(y, { toValue, duration: motionRef.current.reducedMotion ? 0 : duration.micro, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   const dragZone = useRef(PanResponder.create({
-    onMoveShouldSetPanResponder: (_e, g) => !entering.current && !closing.current && g.dy > 4 && g.dy > Math.abs(g.dx),
-    onPanResponderMove: (_e, g) => { if (!closing.current) y.setValue(Math.max(0, g.dy)); },
+    onStartShouldSetPanResponder: () => !closing.current,
+    onMoveShouldSetPanResponder: () => !closing.current,
+    // Once the zone has the finger nothing (the ScrollView, a parent) gets to take it away mid-drag.
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: () => { y.stopAnimation(v => { dragStart.current = v; }); },
+    onPanResponderMove: (_e, g) => { if (!closing.current) y.setValue(Math.max(0, dragStart.current + g.dy)); },
     onPanResponderRelease: (_e, g) => {
       if (closing.current) return;
-      if (g.dy > CLOSE_DRAG_DISTANCE || g.vy > CLOSE_DRAG_VELOCITY) { requestCloseRef.current(); return; }
-      Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.micro, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      if (dragStart.current + g.dy > CLOSE_DRAG_DISTANCE || g.vy > CLOSE_DRAG_VELOCITY) { requestCloseRef.current(); return; }
+      settle(0);
     },
     onPanResponderTerminate: () => {
       // A close already under way must run to the end, not be pulled back open.
-      if (closing.current) return;
-      Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.micro, useNativeDriver: true }).start();
+      if (!closing.current) settle(0);
     },
   })).current;
 
@@ -427,8 +434,11 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
         </Animated.View>
         <Animated.View style={[styles.sheet, { top: insets.top + space.md, bottom: keyboardHeight, transform: [{ translateY: y }] }]}>
         {/* The drag zone: the grabber and the whole top bar, so a pull anywhere along the top edge closes the sheet. */}
-        <View style={styles.topBar} {...dragZone.panHandlers}>
-          <View style={styles.grabber} />
+        <View style={styles.topBar}>
+          {/* Fills the bar; the close button is a later sibling, so it sits on top and keeps its own hit area. */}
+          <View style={styles.dragZone} collapsable={false} accessible={false} {...dragZone.panHandlers}>
+            <View style={styles.grabber} />
+          </View>
           <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={requestClose} hitSlop={8} style={styles.close}>
             <Ionicons name="close" size={26} color={text.primary} />
           </Pressable>
@@ -949,7 +959,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: surface.canvas, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, overflow: 'hidden' },
   // Tall enough (about 56pt) to be an easy target for a pull, with the grabber centred and the close button at the right.
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: space.xl, paddingTop: space.md, paddingBottom: space.xs, minHeight: 56 },
-  grabber: { position: 'absolute', top: space.sm, alignSelf: 'center', left: '50%', marginLeft: -18, width: 36, height: 5, borderRadius: radius.pill, backgroundColor: border.strong },
+  dragZone: { ...StyleSheet.absoluteFillObject, alignItems: 'center', paddingTop: space.sm },
+  grabber: { width: 36, height: 5, borderRadius: radius.pill, backgroundColor: border.strong },
   close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -space.sm },
   spinner: { marginTop: space.xxxl },
   errorBox: { padding: space.xxl, gap: space.lg },
