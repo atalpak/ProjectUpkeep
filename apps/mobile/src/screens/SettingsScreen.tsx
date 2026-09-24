@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { backend } from '../backend';
 import { PRIVACY_URL, TERMS_URL, deleteOwnAccount } from '../auth';
 import { Button, Choices, Chevron, GroupRow, ListGroup, Tappable, TextField } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
+import { ScanLogScreen } from './ScanLogScreen';
 import { makeStyles, usePreferences, type ThemeMode } from '../preferences';
 import { PAGES, PINNABLE, type NavSlots, type PageId } from '../navigation';
 import { accent, border, radius, scrim, space, state, surface, text, type as typeTokens } from '../theme';
@@ -21,7 +22,8 @@ export function SettingsScreen() {
   const styles = useStyles();
   const { userId, disabled, signOut, setMessage, syncCatalog, demo, index, checkForCatalogUpdate } = useApp();
   const [updateStatus, setUpdateStatus] = useState('');
-  const { mode, setMode, slots, setSlot, resetSlots, setWelcomeSeen } = usePreferences();
+  const { mode, setMode, slots, setSlot, resetSlots, setWelcomeSeen, scanDiagnostics, setScanDiagnostics } = usePreferences();
+  const [logOpen, setLogOpen] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
   // Which of the four configurable positions has its picker open, if any.
   const [pickerSlot, setPickerSlot] = useState<number | null>(null);
@@ -67,6 +69,17 @@ export function SettingsScreen() {
         onSelect={page => { if (pickerSlot !== null) setSlot(pickerSlot, page); setPickerSlot(null); }}
         onClose={() => setPickerSlot(null)}
       />
+
+      <Text style={styles.heading}>Scan diagnostics</Text>
+      <View style={styles.card}>
+        <View style={styles.switchRow}>
+          <Text style={[styles.rowText, styles.switchLabel]}>Record scan reads</Text>
+          <Switch value={scanDiagnostics} onValueChange={setScanDiagnostics} accessibilityLabel="Scan diagnostics" />
+        </View>
+        <Text style={styles.body}>Keeps the last 30 scans: what the camera read, which printings were considered and why one was chosen. It changes nothing about how scanning works.</Text>
+        <Button secondary label="Open scan log" onPress={() => setLogOpen(true)} />
+      </View>
+      <ScanLogScreen visible={logOpen} onClose={() => setLogOpen(false)} />
 
       <Text style={styles.heading}>Welcome</Text>
       <Text style={styles.body}>A quick tour of what Upkeep does.</Text>
@@ -206,6 +219,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   // the same value out as a literal `16`.
   card: { padding: space.lg, backgroundColor: surface.raised, borderRadius: radius.lg, gap: space.md, borderWidth: 1, borderColor: border.hairline },
   rowText: { flex: 1, ...typeTokens.body, color: text.primary },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
+  switchLabel: { flex: 1 },
   danger: { ...typeTokens.label, color: state.error },
   preview: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
   chip: { flex: 1, alignItems: 'center', gap: space.xs, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas },

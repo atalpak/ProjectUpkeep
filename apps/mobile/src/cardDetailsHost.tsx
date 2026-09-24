@@ -12,6 +12,8 @@ export type CardDetailsTarget = {
    * winner with a small dismissable line. Never blocks anything.
    */
   scan?: { photoUri: string; candidates: Printing[] };
+  /** Scan diagnostics only: the log entry this open belongs to, so the sheet can add the picture check and the printing it settled on. Absent when diagnostics are off. */
+  logId?: string;
 };
 
 /** Opens the card details sheet from anywhere in the signed-in app (the sheet

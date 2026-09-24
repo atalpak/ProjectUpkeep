@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, Linking
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish, type StackMoveDraft } from '@upkeep/scan-core';
+import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, explainArt, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish, type StackMoveDraft } from '@upkeep/scan-core';
 import { isSameCard, reconcileFinish } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { reprintWriter, writer } from '../backend';
@@ -15,6 +15,7 @@ import {
 import type { CardDetailsTarget } from '../cardDetailsHost';
 import { errorMessage } from '../errors';
 import { compareScanToPrintings } from '../printingVerify';
+import { logUpdate } from '../scanLog';
 import { makeStyles } from '../preferences';
 import { accent, border, duration, radius, scrim, space, state as stateColor, surface, text, type } from '../theme';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -75,7 +76,7 @@ const CLOSE_DRAG_VELOCITY = 0.8;
 const CLOSE_DRAG_MIN_TRAVEL = 12;
 const OVERSCROLL_CLOSE = 70;
 
-export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChanged, onClose }: {
+export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, onChanged, onClose }: {
   name: string | null;
   /** Open on this printing (e.g. the one you own) instead of the default. */
   printingId?: string | null;
@@ -85,6 +86,8 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   onChanged?(): void;
   /** Quick scan's photo and candidate printings: checked in the background, and may switch the selection (see cardDetailsHost). */
   scan?: CardDetailsTarget['scan'];
+  /** Scan diagnostics only (see scanLog.ts): where to record the picture check and the printing this sheet settled on. */
+  logId?: string;
   /** The finish of the copy this sheet was opened from, so a foil copy shows foil. */
   ownedFinish?: string | null;
   onClose(): void;
@@ -334,9 +337,21 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     // Nothing to gain once the person has chosen: skip the downloads entirely.
     if (!name || !scan || listState !== 'ready' || userPicked.current) return;
     let alive = true;
-    void compareScanToPrintings(scan.photoUri, scan.candidates, () => alive && !userPicked.current).then(r => { if (alive && r) setArt({ name, scan, result: r }); });
+    void compareScanToPrintings(scan.photoUri, scan.candidates, () => alive && !userPicked.current).then(r => {
+      // Scan diagnostics: what the picture said and whether the switch below may use it. Describes only; setArt below always runs.
+      logUpdate(logId, () => ({ art: explainArt({ all: printingsRef.current.map(toPrinting), art: r, footerGuess: !!printingIdRef.current, userPicked: userPicked.current, adding: false, name, artName: name, selectedId: selectedRef.current }) }));
+      if (alive && r) setArt({ name, scan, result: r });
+    });
     return () => { alive = false; };
+    // logId is a whole-open constant like `scan`; it must not restart the comparison.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, scan, listState]);
+
+  // Scan diagnostics: the printing this sheet is on, kept current (the picture check or the person may move it).
+  useEffect(() => {
+    if (!logId || !selected) return;
+    logUpdate(logId, () => ({ finalPrinting: `${selected.setCode.toLowerCase()} #${selected.collectorNumber}` }));
+  }, [logId, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Quietly move to the picture's winner, but never over a choice the person made or a form they opened.
   // Coverage is judged against the LIVE list, so a printing the offline catalog never knew blocks the switch.
@@ -351,8 +366,9 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     select(target.id);
     setFaceIndex(0); setExtras({ state: 'idle' });
     setArtNote(`Matched to ${target.setCode.toUpperCase()} #${target.collectorNumber} by artwork`);
+    logUpdate(logId, () => ({ note: `picture check moved the selection to ${target.setCode.toLowerCase()} #${target.collectorNumber}` }));
     void refreshUserData(name, printings.map(p => p.id), target.id);
-  }, [art, listState, printings, adding, name, scan, printingId, select, refreshUserData]);
+  }, [art, listState, printings, adding, name, scan, printingId, logId, select, refreshUserData]);
 
   function startAdding() {
     if (!selected) return;

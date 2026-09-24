@@ -7,7 +7,8 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import { ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, scanBand, validateDraft, type Candidate, type CollectionDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type ScanBand } from '@upkeep/scan-core';
+import { ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, scanBand, validateDraft, type Candidate, type CollectionDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type ScanBand, clipLines, describeCandidates, hintsForLog, printingHints, printingLabel } from '@upkeep/scan-core';
+import { logScan, newScanLogId } from '../scanLog';
 import { UpkeepScannerView, readText, scannerViewAvailable, visionAvailable, type CardReadEvent, type ScannerViewHandle } from '@upkeep/vision';
 import { writer } from '../backend';
 import { useApp, type LastUsedDraft } from '../AppProvider';
@@ -231,12 +232,24 @@ export function ScanScreen() {
    * the old JS `lastSeen` check was trying and failing to approximate.
    */
   function onCardRead(event: { nativeEvent: CardReadEvent }) {
-    const { lines, printingLines } = event.nativeEvent;
+    const { title, lines, printingLines, source } = event.nativeEvent;
     const result = pipeline.matchEvidence({ lines, printingLines });
     const scoped = lockedSetCode
       ? (() => { const filtered = result.candidates.filter(c => c.printing.setCode === lockedSetCode); return filtered.length ? filtered : result.candidates; })()
       : result.candidates;
     const band = scanBand(scoped);
+    // Scan diagnostics (Settings): describes this read, changes nothing about it. Only built when the switch is on.
+    logScan(() => {
+      const top = scoped[0];
+      const hints = printingHints(printingLines, app.index.setCodes);
+      return {
+        id: newScanLogId(), at: Date.now(), source: source === 'guide' ? 'scan/guide' : 'scan/outline', title: title ?? '',
+        printingLines: clipLines(printingLines), hints: hintsForLog(hints),
+        match: band === 'none' ? 'no match' : `band ${band}; top ${top!.printing.name} score ${top!.score.toFixed(2)} ${top!.evidence}${lockedSetCode ? `; set lock ${lockedSetCode}` : ''}; ${mode} mode`,
+        candidates: describeCandidates(scoped), guess: top ? { printing: printingLabel(top.printing), why: top.evidence === 'printing' ? 'top candidate matched the footer set + number' : 'top candidate is a name match only; ties broken by the default order (plain number, nonfoil, NEWEST release, lowest number)' } : null,
+        artPlanned: null, ...(top ? { suggestedPrinting: printingLabel(top.printing) } : {}),
+      };
+    });
     if (band === 'none') {
       // Quiet: an unreadable frame is the common case, not an error. No
       // message, no Mort reaction, nothing staged.

@@ -43,7 +43,7 @@ apps/mobile/            Expo app.
                         live dark/light scheme, and `makeStyles`
   src/screens/          ScanScreen · ScanSessionSummary · CollectionScreen ·
                         DecksScreen (commander-art tiles like the web deck list, plus "Start a deck"; data in src/decks.ts `fetchDeckTiles`) · DeckDetailScreen (commander-art banner, list grouped by type via `groupDeck` in @upkeep/domain, per-card sleeved/available/missing state, owns SleevePicker; `ManaCost` draws mana symbols from bundled Scryfall PNGs in `assets/mana/`, indexed by `src/manaSymbols.ts`) ·
-                        SettingsScreen (appearance, nav bar, account, catalog) ·
+                        SettingsScreen (appearance, nav bar, scan diagnostics, account, catalog) · ScanLogScreen (the scan-diagnostics log modal opened from Settings; recorder in src/scanLog.ts, pure shapes and text in packages/scan-core/src/scan-log.ts) ·
                         PlaceholderScreen (pages not built yet)
   src/components/       TabBar (5 slots, raised Scan, + ScreenFade) · AppHeader
                         (Mort avatar, title, menu button) · MenuSheet · ScanQuickBar
@@ -343,6 +343,16 @@ Never override a manual choice. A foil-only or nonfoil-only printing needs no fi
 choice: the add form already has one option. The main Scan tab (`ScanScreen`) does
 not use the picture step. `npm run accuracy -w @upkeep/scan-core` reports the
 footer's "needs verification" rate, on the illustrative sample only.
+
+**Scan diagnostics** (Settings -> "Scan diagnostics", off by default). While on, each
+read from quick scan (`TabBar.handleRead`, including rejected reads) and the main Scan
+tab (`ScanScreen.onCardRead`) is recorded in a 30-entry ring buffer (`src/scanLog.ts`,
+memory plus a debounced SecureStore write; pure shapes and text in scan-core
+`scan-log.ts`): the title and footer lines read, the hints, each candidate with its
+evidence, the best guess and why, and later, from `CardDetails` via `logId`, the picture
+check (distances, ratio, winner, applied or not and why) and the printing finally shown.
+It only describes; nothing reads it back. Builders run inside try/catch (`logScan`/`logUpdate`), consecutive rejected quick reads fold into one counted entry, the save is flushed when the app leaves the foreground, and sign-out clears the log. The picture-check explanation comes from `artSwitchDecision`, the same function `artSwitchNow` uses. The "Scan log" modal lists and copies it via
+the share sheet (a direct clipboard write needs `expo-clipboard`, a native module).
 
 **Open items** (none of these are bugs to fix in passing): the rest of the
 alternate-art plan (`apps/mobile/docs/SCANNER_ALTERNATE_ART_PLAN.md`: still-photo

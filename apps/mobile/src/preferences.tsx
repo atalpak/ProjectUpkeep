@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { readCollectionSort, type CollectionSort } from '@upkeep/domain';
 import { PREFS_KEY } from './storage';
 import { applyScheme, type Scheme } from './theme';
+import { setScanLogEnabled } from './scanLog';
 import { DEFAULT_SLOTS, PINNABLE, type NavSlots, type PageId } from './navigation';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
@@ -15,7 +16,7 @@ export type CollectionView = 'list' | 'grid';
 // "Show the welcome again" in Settings just sets it back to false.
 // `scanHintSeen` is the same kind of flag for the one-time "hold Scan" coach
 // mark (see TabBar): shown once, then never again on this phone.
-type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView; collectionSort: CollectionSort; welcomeSeen: boolean; scanHintSeen: boolean };
+type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView; collectionSort: CollectionSort; welcomeSeen: boolean; scanHintSeen: boolean; scanDiagnostics: boolean };
 
 type PreferencesValue = Prefs & {
   scheme: Scheme;
@@ -24,6 +25,7 @@ type PreferencesValue = Prefs & {
   setCollectionSort(sort: CollectionSort): void;
   setWelcomeSeen(seen: boolean): void;
   setScanHintSeen(seen: boolean): void;
+  setScanDiagnostics(on: boolean): void;
   /** Put `page` in slot `index`; if it already sits in another slot the two swap. */
   setSlot(index: number, page: PageId): void;
   resetSlots(): void;
@@ -40,12 +42,12 @@ function readSlots(value: unknown): NavSlots {
 }
 
 function readPrefs(raw: string | null): Prefs {
-  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list', collectionSort: 'name', welcomeSeen: false, scanHintSeen: false };
+  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list', collectionSort: 'name', welcomeSeen: false, scanHintSeen: false, scanDiagnostics: false };
   if (!raw) return fallback;
   try {
-    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown; collectionSort?: unknown; welcomeSeen?: unknown; scanHintSeen?: unknown };
+    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown; collectionSort?: unknown; welcomeSeen?: unknown; scanHintSeen?: unknown; scanDiagnostics?: unknown };
     const mode: ThemeMode = parsed.mode === 'light' || parsed.mode === 'dark' ? parsed.mode : 'system';
-    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list', collectionSort: readCollectionSort(parsed.collectionSort), welcomeSeen: parsed.welcomeSeen === true, scanHintSeen: parsed.scanHintSeen === true };
+    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list', collectionSort: readCollectionSort(parsed.collectionSort), welcomeSeen: parsed.welcomeSeen === true, scanHintSeen: parsed.scanHintSeen === true, scanDiagnostics: parsed.scanDiagnostics === true };
   } catch { return fallback; }
 }
 
@@ -61,6 +63,10 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       .then(raw => { if (!cancelled) { loaded.current = true; setPrefs(readPrefs(raw)); } });
     return () => { cancelled = true; };
   }, []);
+
+  // The recorder lives outside React (the scan path must not depend on a render), so the pref is mirrored into it.
+  const diagnosticsOn = prefs?.scanDiagnostics === true;
+  useEffect(() => { setScanLogEnabled(diagnosticsOn); }, [diagnosticsOn]);
 
   const scheme: Scheme = (prefs?.mode ?? 'system') === 'system' ? (system === 'dark' ? 'dark' : 'light') : prefs!.mode as Scheme;
   // Synchronously, during render and before any child renders: every reader of
@@ -82,6 +88,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       setCollectionSort: collectionSort => save({ ...prefs, collectionSort }),
       setWelcomeSeen: welcomeSeen => save({ ...prefs, welcomeSeen }),
       setScanHintSeen: scanHintSeen => save({ ...prefs, scanHintSeen }),
+      setScanDiagnostics: scanDiagnostics => save({ ...prefs, scanDiagnostics }),
       setSlot: (index, page) => {
         const slots = [...prefs.slots] as NavSlots;
         const from = slots.indexOf(page);

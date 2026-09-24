@@ -8,6 +8,7 @@ import { demoBundle, installBundledCatalog, loadCatalog, refreshCatalog, type Ca
 import { checkForUpdate, dismissUpdate, type LatestCatalog, type UpdateCheck } from './catalogUpdates';
 import { errorMessage, reportError } from './errors';
 import { pendingKey, pendingMoveKey } from './storage';
+import { clearScanLog } from './scanLog';
 
 export type Review = { printing: Printing; operationId: string; submitted?: ConfirmedScan };
 export type Location = { id: string; name: string; type: string };
@@ -175,6 +176,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!nextUser && previousUser) {
         void SecureStore.deleteItemAsync(pendingKey(previousUser));
         void SecureStore.deleteItemAsync(pendingMoveKey(previousUser));
+        // The scan log is device-level but holds what this person scanned; it must not reach the next account.
+        clearScanLog();
       }
     });
     return () => data.subscription.unsubscribe();
