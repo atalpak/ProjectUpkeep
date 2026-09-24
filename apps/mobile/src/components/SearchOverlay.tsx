@@ -13,6 +13,7 @@ import { searchCards, type CardSearchResult } from '../cardSearch';
 import { recordRecentSearch, readRecentSearches } from '../recentSearches';
 import { useApp } from '../AppProvider';
 import { Button, Choices } from './ui';
+import { ManaSymbol } from './ManaCost';
 import { CardDetails } from './CardDetails';
 import { FlipBadge } from './FlipBadge';
 import { useCardFace } from '../hooks/useCardFace';
@@ -184,7 +185,7 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
                 const on = facets.colors.includes(c);
                 return (
                   <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipOn]}>
-                    <Text style={[styles.colorText, on && styles.colorTextOn]}>{c}</Text>
+                    <ManaSymbol code={c} size={28} hidden />
                   </Pressable>
                 );
               })}
@@ -301,9 +302,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
   groupLabel: { ...type.label, color: text.secondary, marginTop: space.sm },
   colorRow: { flexDirection: 'row', gap: space.sm },
   colorChip: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: border.strong },
-  colorChipOn: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
-  colorText: { ...type.body, color: text.primary, fontWeight: '700' },
-  colorTextOn: { color: text.onAccent },
+  // A symbol keeps its own colours, so "on" is a ring and a soft wash rather than a solid accent fill.
+  colorChipOn: { backgroundColor: accent.soft, borderColor: accent.DEFAULT, borderWidth: 2 },
   inline: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   smallInput: { width: 64, height: 40, paddingHorizontal: space.md, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...type.body },
   textInput: { height: 40, paddingHorizontal: space.md, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...type.body },

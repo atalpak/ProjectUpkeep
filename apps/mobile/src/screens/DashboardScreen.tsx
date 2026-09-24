@@ -7,7 +7,7 @@ import { useApp } from '../AppProvider';
 import { CollectionAuthError } from '../collection';
 import { COLOUR_LABELS, fetchDashboard, type ColourBucket, type DashboardData } from '../dashboard';
 import { CardDetails } from '../components/CardDetails';
-import { MANA_COLORS } from '../components/ManaCost';
+import { ManaSymbol } from '../components/ManaCost';
 import { Button, Notice } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
@@ -177,10 +177,9 @@ export function DashboardScreen() {
 
 function ColourDot({ bucket }: { bucket: ColourBucket }) {
   const styles = useStyles();
-  const solid = MANA_COLORS[bucket === 'M' || bucket === 'C' ? 'C' : bucket]!;
+  // Multicolour has no Scryfall symbol of its own, so it keeps the gold dot.
   if (bucket === 'M') return <View style={[styles.dot, { backgroundColor: '#C9A227' }]} />;
-  if (bucket === 'C') return <View style={[styles.dot, { borderWidth: 1, borderColor: text.secondary }]} />;
-  return <View style={[styles.dot, { backgroundColor: solid.bg, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.4)' }]} />;
+  return <ManaSymbol code={bucket} size={16} hidden />;
 }
 
 function Tile({ label, value, hint, onPress }: { label: string; value: string; hint?: string; onPress(): void }) {
@@ -236,6 +235,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   recentName: { ...typeTokens.label, color: text.secondary, textAlign: 'center' },
   colours: { flexDirection: 'row', flexWrap: 'wrap', gap: space.lg },
   colour: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dot: { width: 12, height: 12, borderRadius: 6 },
+  dot: { width: 16, height: 16, borderRadius: 8 },
   colourCount: { ...typeTokens.bodySm, color: text.secondary },
 }));

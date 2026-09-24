@@ -1,8 +1,11 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import { MANA_SYMBOL_IMAGES } from '../manaSymbols';
 
-// Card-frame mana colours; fixed rather than themed, like the location colour tags.
-export const MANA_COLORS: Record<string, { bg: string; fg: string }> = {
+// Card-frame mana colours for the drawn-disc fallback, fixed rather than themed,
+// like the location colour tags. Real symbols come from manaSymbols.ts; the disc
+// only draws for a code we hold no art for.
+const FALLBACK_COLORS: Record<string, { bg: string; fg: string }> = {
   W: { bg: '#F8F6D8', fg: '#3A3520' },
   U: { bg: '#0E68AB', fg: '#FFFFFF' },
   B: { bg: '#2B2118', fg: '#F1E9DD' },
@@ -12,12 +15,47 @@ export const MANA_COLORS: Record<string, { bg: string; fg: string }> = {
 };
 const GENERIC = { bg: '#D6CFC2', fg: '#2B2118' };
 
-/** One mana symbol as a small coloured disc. Hybrid and Phyrexian symbols ("R/G", "R/P") take their first colour and show their letters. */
-export function ManaSymbol({ code, size = 16 }: { code: string; size?: number }) {
+const COLOUR_NAMES: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless', S: 'snow' };
+const OTHER_NAMES: Record<string, string> = { X: 'X mana', Y: 'Y mana', Z: 'Z mana', P: 'Phyrexian mana', T: 'tap', Q: 'untap', E: 'energy' };
+
+/** One slash-separated part on its own: "W" -> "white mana", "2" -> "2 generic mana", "HW" -> "half white mana". */
+function partLabel(part: string): string {
+  if (/^\d+$/.test(part)) return `${part} generic mana`;
+  if (COLOUR_NAMES[part]) return `${COLOUR_NAMES[part]} mana`;
+  const half = /^H([WUBRG])$/.exec(part);
+  if (half) return `half ${COLOUR_NAMES[half[1]!]} mana`;
+  return OTHER_NAMES[part] ?? `${part} symbol`;
+}
+
+/**
+ * Spoken name of one symbol's inner code: "W" -> "white mana", "2/W" -> "2 generic mana
+ * or white mana", "W/P" -> "white mana or 2 life", "P" -> "Phyrexian mana".
+ */
+export function manaLabel(code: string): string {
+  const parts = code.toUpperCase().split('/');
+  const phyrexian = parts.length > 1 && parts[parts.length - 1] === 'P';
+  const named = (phyrexian ? parts.slice(0, -1) : parts).map(partLabel);
+  if (phyrexian) named.push('2 life');
+  return named.join(' or ');
+}
+
+/**
+ * One mana symbol, drawn from the bundled Scryfall art (manaSymbols.ts). Hybrid and
+ * Phyrexian codes ("R/G", "R/P") are looked up with the slash removed. An unknown
+ * code falls back to a small coloured disc with its letters.
+ */
+export function ManaSymbol({ code, size = 16, hidden = false }: { code: string; size?: number; hidden?: boolean }) {
+  const source = MANA_SYMBOL_IMAGES[code.replace(/\//g, '').toUpperCase()];
+  // Inside a ManaCost row the row carries the label, so each symbol steps out of the
+  // accessibility tree rather than being read twice.
+  const a11y = hidden
+    ? { accessible: false, importantForAccessibility: 'no-hide-descendants' as const }
+    : { accessible: true, accessibilityRole: 'image' as const, accessibilityLabel: manaLabel(code) };
+  if (source) return <Image source={source} style={{ width: size, height: size }} resizeMode="contain" {...a11y} />;
   const first = code.split('/')[0]!.toUpperCase();
-  const palette = MANA_COLORS[first] ?? GENERIC;
+  const palette = FALLBACK_COLORS[first] ?? GENERIC;
   return (
-    <View style={[styles.disc, { width: size, height: size, borderRadius: size / 2, backgroundColor: palette.bg }]}>
+    <View {...a11y} style={[styles.disc, { width: size, height: size, borderRadius: size / 2, backgroundColor: palette.bg }]}>
       <Text style={{ color: palette.fg, fontSize: Math.max(7, size * (code.length > 2 ? 0.42 : 0.6)), fontWeight: '800' }}>{code.replace('/', '')}</Text>
     </View>
   );
@@ -29,8 +67,8 @@ export function ManaCost({ cost, size = 16 }: { cost: string | null | undefined;
   const symbols = [...cost.matchAll(/\{([^}]+)\}/g)].map(m => m[1]!);
   if (!symbols.length) return null;
   return (
-    <View style={styles.row} accessibilityLabel={`Mana cost ${symbols.join(' ')}`}>
-      {symbols.map((s, i) => <ManaSymbol key={i} code={s} size={size} />)}
+    <View style={styles.row} accessible accessibilityLabel={`Mana cost ${symbols.map(manaLabel).join(', ')}`}>
+      {symbols.map((s, i) => <ManaSymbol key={i} code={s} size={size} hidden />)}
     </View>
   );
 }
