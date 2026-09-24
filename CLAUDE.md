@@ -91,6 +91,8 @@ src/
                             column. Second-largest piece of logic in the app.
     scryfall-stream.ts      streams the bulk export instead of buffering 500MB
     scryfall-upsert.ts      batched upsert with adaptive batch halving
+    scryfall-oracle.ts      oracle_cards export → `oracle_cards` row: mapper, fingerprint, diff
+    pg-copy.ts              COPY CSV encoding for the direct loader (no driver — pure text)
     auth/                   redirect (open-redirect guard) · invite · password
                             reauth · recovery
     cards/                  search · search-query
@@ -114,6 +116,9 @@ supabase/
 scripts/
   sync-scryfall.ts          the scheduled sync job
   sync-retry.ts             its retry/error-classification logic (network vs database)
+  sync-oracle-direct.ts     oracle_cards loader over a direct Postgres connection (COPY)
+  sync-oracle-connection.ts its connection options; with the loader, the only readers of
+                            SCRYFALL_SYNC_DATABASE_URL (constraint 4)
   export-catalog.ts  publish-catalog.ts  create-catalog-bucket.ts
                             the mobile catalog pipeline (see mobile.md)
   verify-migrations.sh      migrations against a throwaway Postgres
@@ -168,13 +173,26 @@ alerts. Each migration header carries the reasoning for its decision.
    explicitly, the same way the `card_instances` queries filter on
    `owner_user_id`.
 
-4. **Nothing under `src/` may construct a service-role client.** The service key
-   is read in exactly two places, `scripts/sync-scryfall.ts` and
-   `scripts/publish-catalog.ts` (the mobile catalog's publish step, added
-   2026-09) — both live in the repo-root `scripts/`, outside the Next build,
-   so neither can reach a browser bundle. That containment *is* the guard, and
-   it is why a new legitimate reader belongs in `scripts/` alongside these
-   two, not under `apps/` or `packages/`. There used to be a `src/lib/supabase/admin.ts` said to be protected by
+4. **Nothing under `src/`, `apps/` or `packages/` may hold a database
+   credential stronger than the signed-in user's — no service-role client, and
+   no direct Postgres connection.** Two such credentials exist and both are
+   confined to the repo-root `scripts/`, outside the Next build, so neither can
+   reach a browser or app bundle. The service key is read in exactly two
+   places, `scripts/sync-scryfall.ts` and `scripts/publish-catalog.ts` (the
+   mobile catalog's publish step, added 2026-09). The other is
+   `SCRYFALL_SYNC_DATABASE_URL`, a connection string for the least-privilege
+   `scryfall_loader` role (migration 44: select/insert/update on `oracle_cards`, and
+   its own `oracle_cards` rows in `scryfall_sync_runs`; no access to `cards` or
+   any user data), read only by
+   `scripts/sync-oracle-direct.ts` and its helper
+   `scripts/sync-oracle-connection.ts`. That role is deliberately narrow, but a
+   connection string is still a credential, so it gets the same containment.
+   That containment *is* the guard, and `eslint.config.mjs` now enforces it for
+   the second credential: a Postgres driver import (`postgres`, `pg`, …) or the
+   name `SCRYFALL_SYNC_DATABASE_*` anywhere under `src/`, `apps/` or `packages/`
+   fails lint. A new legitimate reader belongs in `scripts/` alongside these,
+   not under `apps/` or `packages/`, and not behind an ESLint exception. There
+   used to be a `src/lib/supabase/admin.ts` said to be protected by
    a `server-only` import; it had no importers, and it could never have had any —
    `server-only` throws unconditionally outside a React Server Component, so a
    `tsx` script importing it dies on load. It was deleted on 2026-09-09 rather
@@ -228,6 +246,7 @@ npm run test:db      # migrations against a throwaway Postgres; needs PGHOST/PGU
 npm run check:migrations         # local migrations vs the LINKED production project — apply, don't just merge
 npm run sync:scryfall            # ~500MB, several minutes
 npm run sync:scryfall -- --limit 5000   # quick smoke test
+npm run sync:oracle              # oracle_cards over direct Postgres; needs SCRYFALL_SYNC_DATABASE_URL
 ```
 
 Before proposing any change as done: `npm run lint && npm run typecheck && npm test`.

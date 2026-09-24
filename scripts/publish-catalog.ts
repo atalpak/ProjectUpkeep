@@ -117,6 +117,10 @@ async function main(bundlePath: string) {
   const { error: markError } = await db
     .from("scryfall_sync_runs")
     .update({ catalog_published_at: new Date().toISOString() })
+    // Oracle loads share this table (migration 44) but never feed the catalog
+    // and never set catalog_needs_publish; excluded by name anyway so that can
+    // not become a way for them to be stamped.
+    .neq("bulk_type", "oracle_cards")
     .in("status", ["succeeded", "skipped"])
     .eq("catalog_needs_publish", true)
     .is("catalog_published_at", null);

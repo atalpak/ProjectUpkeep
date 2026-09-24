@@ -3428,4 +3428,274 @@ end $$;
 
 rollback;
 
+-- ---------------------------------------------------------------------------
+-- 25. Migrations 43 + 44: oracle_cards is read-only to every client, and
+-- scryfall_loader can write exactly what the loader needs and nothing more.
+--
+-- Three separate claims, tested separately because each has a way of being
+-- silently untrue:
+--
+--   a. No client role can write oracle_cards. Checked as PRIVILEGES as well as
+--      behaviour: this schema's default privileges hand every new table to
+--      anon/authenticated/service_role, so with the migration's `revoke all`
+--      missing, RLS (no write policy) still blocks the write and a purely
+--      behavioural test stays green. The privilege check is what catches that.
+--   b. scryfall_loader can really write, under RLS. It has no BYPASSRLS, so a
+--      grant without policies yields "permission granted, zero rows", and an
+--      ON CONFLICT DO UPDATE needs select + insert + update policies at once.
+--      Rowcounts are asserted, not just the absence of an error.
+--   c. It can do nothing else: no delete or truncate, no user tables, and the
+--      role is NOLOGIN, not superuser and not BYPASSRLS as shipped.
+--
+-- FALSIFICATION: the sabotages actually run against scratch copies of
+-- migrations 43/44 are recorded in the commit that added this section, each
+-- with the assertion it tripped.
+-- ---------------------------------------------------------------------------
+begin;
+
+-- Runs one statement as a role. True if it was refused (insufficient_privilege
+-- covers both "permission denied" and "violates row-level security"), false if
+-- it ran. Anything else it raises propagates, so a typo cannot pass as a denial.
+create function pg_temp.denied(as_role text, stmt text) returns boolean
+language plpgsql as $f$
+begin
+  execute format('set local role %I', as_role);
+  begin
+    execute stmt;
+  exception when insufficient_privilege then
+    reset role;
+    return true;
+  end;
+  reset role;
+  return false;
+end $f$;
+
+-- Runs one statement as a role and returns how many rows it touched, so a
+-- policy that silently filters everything shows up as 0 instead of as success.
+create function pg_temp.rows_affected(as_role text, stmt text) returns bigint
+language plpgsql as $f$
+declare n bigint;
+begin
+  execute format('set local role %I', as_role);
+  execute stmt;
+  get diagnostics n = row_count;
+  reset role;
+  return n;
+end $f$;
+
+insert into public.oracle_cards (oracle_id, name, type_line, oracle_text, content_hash)
+values ('cccccccc-0000-0000-0000-000000000001', 'Lightning Bolt', 'Instant',
+        'Lightning Bolt deals 3 damage to any target.', 'seed');
+
+-- A printings run the loader must not be able to see, change or imitate.
+insert into public.scryfall_sync_runs (bulk_type, status, finished_at, catalog_needs_publish)
+values ('default_cards', 'succeeded', '2026-09-01 09:20+00', true);
+
+-- a. Clients ---------------------------------------------------------------
+do $$
+declare r text; p text;
+begin
+  foreach r in array array['anon', 'authenticated', 'service_role'] loop
+    foreach p in array array['insert', 'update', 'delete', 'truncate'] loop
+      assert not has_table_privilege(r, 'public.oracle_cards', p),
+        r || ' must not hold ' || p || ' on oracle_cards (the revoke in migration 43 is what removes the schema default; service_role is included on purpose, since the printings sync never writes oracle_cards)';
+    end loop;
+  end loop;
+
+  assert has_table_privilege('anon', 'public.oracle_cards', 'select')
+     and has_table_privilege('authenticated', 'public.oracle_cards', 'select'),
+    'oracle_cards must stay readable by anon and authenticated';
+
+  assert (select relrowsecurity from pg_class where oid = 'public.oracle_cards'::regclass),
+    'oracle_cards must have row level security on';
+
+  -- Only the loader may have a policy that is not a select.
+  assert not exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'oracle_cards'
+       and cmd <> 'SELECT' and roles <> array['scryfall_loader']::name[]),
+    'no client role may have a write policy on oracle_cards';
+end $$;
+
+do $$
+declare r text;
+begin
+  foreach r in array array['anon', 'authenticated', 'service_role'] loop
+    assert pg_temp.denied(r, $q$insert into public.oracle_cards (oracle_id, name, content_hash)
+                                values ('cccccccc-0000-0000-0000-0000000000ff', 'X', 'x')$q$),
+      r || ' must not be able to insert into oracle_cards';
+    assert pg_temp.denied(r, $q$update public.oracle_cards set name = 'Hacked'$q$),
+      r || ' must not be able to update oracle_cards';
+    assert pg_temp.denied(r, $q$delete from public.oracle_cards$q$),
+      r || ' must not be able to delete from oracle_cards';
+  end loop;
+
+  assert pg_temp.rows_affected('anon', 'select * from public.oracle_cards') = 1
+     and pg_temp.rows_affected('authenticated', 'select * from public.oracle_cards') = 1,
+    'anon and authenticated must be able to read oracle_cards';
+end $$;
+
+-- b. The loader works under RLS ---------------------------------------------
+do $$
+begin
+  -- A brand-new oracle id, and a conflicting one: the statement shape the
+  -- loader runs, which needs select, insert and update policies together.
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    insert into public.oracle_cards (oracle_id, name, type_line, legalities, content_hash)
+    values ('cccccccc-0000-0000-0000-000000000002', 'Counterspell', 'Instant',
+            '{"legacy":"legal","vintage":"restricted"}', 'h2')
+    on conflict (oracle_id) do update set name = excluded.name, content_hash = excluded.content_hash
+  $q$) = 1, 'the loader must be able to INSERT into oracle_cards under RLS (insert policy)';
+
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    insert into public.oracle_cards (oracle_id, name, type_line, content_hash)
+    values ('cccccccc-0000-0000-0000-000000000001', 'Lightning Bolt', 'Instant', 'seed-2')
+    on conflict (oracle_id) do update set content_hash = excluded.content_hash, updated_at = now()
+  $q$) = 1, 'the loader must be able to UPDATE an existing oracle_cards row via ON CONFLICT (update + select policies)';
+
+  assert (select content_hash from public.oracle_cards
+           where oracle_id = 'cccccccc-0000-0000-0000-000000000001') = 'seed-2',
+    'the loader''s upsert must actually have changed the row';
+
+  -- The staging table the loader builds is `like` the real one, in the session.
+  assert not has_schema_privilege('scryfall_loader', 'public', 'create'),
+    'the loader must not be able to create objects in public';
+  assert not pg_temp.denied('scryfall_loader',
+    'create temp table oracle_stage (like public.oracle_cards including defaults)'),
+    'the loader must be able to create its temp staging table';
+end $$;
+
+do $$
+begin
+  -- The run record: open, then close, on the identity column with no sequence grant.
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    insert into public.scryfall_sync_runs (bulk_type, status) values ('oracle_cards', 'running')
+  $q$) = 1, 'the loader must be able to open a sync run (and use the identity column without a sequence grant)';
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    update public.scryfall_sync_runs set status = 'succeeded', finished_at = now()
+     where bulk_type = 'oracle_cards' and status = 'running'
+  $q$) = 1, 'the loader must be able to close its sync run (update policy)';
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    select 1 from public.scryfall_sync_runs where bulk_type = 'oracle_cards'
+  $q$) = 1, 'the loader must be able to read sync runs (select policy)';
+end $$;
+
+-- c. ...and nothing else ----------------------------------------------------
+do $$
+declare t text;
+begin
+  -- `cards` is not the oracle loader's: the printings load still goes through
+  -- PostgREST, and moving it to COPY adds its own grants in its own migration.
+  assert pg_temp.denied('scryfall_loader', 'select 1 from public.cards limit 1'),
+    'the loader must not be able to read cards';
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+                              available_finishes, lang)
+    values ('aaaaaaaa-0000-0000-0000-0000000000c1', 'cccccccc-0000-0000-0000-000000000001',
+            'Lightning Bolt', 'tst', '1', '{nonfoil}', 'en')$q$),
+    'the loader must not be able to insert into cards';
+  assert pg_temp.denied('scryfall_loader', $q$update public.cards set name = 'x'$q$),
+    'the loader must not be able to update cards';
+
+  -- Run history: the loader can write oracle_cards rows and nothing that
+  -- reaches the printings sync or the catalog publish.
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.scryfall_sync_runs (bulk_type, status, finished_at)
+    values ('default_cards', 'succeeded', now())$q$),
+    'the loader must not be able to forge a default_cards run';
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.scryfall_sync_runs (bulk_type, status, catalog_needs_publish)
+    values ('oracle_cards', 'succeeded', true)$q$),
+    'the loader must not be able to set catalog_needs_publish';
+  assert pg_temp.denied('scryfall_loader', $q$
+    insert into public.scryfall_sync_runs (bulk_type, status, catalog_published_at)
+    values ('oracle_cards', 'succeeded', now())$q$),
+    'the loader must not be able to set catalog_published_at on insert';
+  assert pg_temp.denied('scryfall_loader', $q$
+    update public.scryfall_sync_runs set catalog_published_at = now() where bulk_type = 'oracle_cards'$q$),
+    'the loader must not be able to stamp catalog_published_at';
+  assert pg_temp.denied('scryfall_loader', $q$
+    update public.scryfall_sync_runs set bulk_type = 'default_cards' where bulk_type = 'oracle_cards'$q$),
+    'the loader must not be able to rewrite a run into another bulk_type';
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    select 1 from public.scryfall_sync_runs where bulk_type = 'default_cards'$q$) = 0,
+    'the loader must not be able to see printings runs';
+  assert pg_temp.rows_affected('scryfall_loader', $q$
+    update public.scryfall_sync_runs set status = 'failed'$q$) = 1,
+    'an unconditional loader update must reach only the oracle_cards run, never the printings run (UPDATE policy USING; no WHERE, so the select policy is not what hides it)';
+  assert (select status from public.scryfall_sync_runs where bulk_type = 'default_cards') = 'succeeded',
+    'the printings run must be untouched';
+
+  assert pg_temp.denied('scryfall_loader', 'delete from public.oracle_cards'),
+    'the loader must not be able to delete from oracle_cards';
+  assert pg_temp.denied('scryfall_loader', 'delete from public.cards'),
+    'the loader must not be able to delete from cards';
+  assert pg_temp.denied('scryfall_loader', 'delete from public.scryfall_sync_runs'),
+    'the loader must not be able to delete from scryfall_sync_runs';
+  assert pg_temp.denied('scryfall_loader', 'truncate public.oracle_cards'),
+    'the loader must not be able to truncate oracle_cards';
+  assert pg_temp.denied('scryfall_loader', 'truncate public.cards'),
+    'the loader must not be able to truncate cards';
+
+  -- No user data at all, and no ownership history.
+  foreach t in array array['card_instances', 'locations', 'profiles', 'trades',
+                           'trade_items', 'ownership_history', 'want_list', 'friendships',
+                           'deck_cards', 'feedback', 'notifications'] loop
+    assert pg_temp.denied('scryfall_loader', format('select * from public.%I', t)),
+      'the loader must not be able to read public.' || t;
+  end loop;
+  assert pg_temp.denied('scryfall_loader', 'select * from auth.users'),
+    'the loader must not be able to read auth.users';
+  assert pg_temp.denied('scryfall_loader',
+    $q$insert into public.profiles (id, username) values (gen_random_uuid(), 'nope')$q$),
+    'the loader must not be able to write profiles';
+
+  -- The role as shipped: cannot log in until the owner enables it by hand,
+  -- and carries no attribute that would make its grants beside the point.
+  assert (select not rolcanlogin from pg_roles where rolname = 'scryfall_loader'),
+    'scryfall_loader must be created NOLOGIN: the owner enables it, the migration never does';
+  assert (select not rolsuper and not rolbypassrls and not rolcreaterole and not rolcreatedb
+            from pg_roles where rolname = 'scryfall_loader'),
+    'scryfall_loader must not be superuser, bypassrls, createrole or createdb';
+  assert not exists (
+    select 1 from pg_auth_members m
+     where m.member = 'scryfall_loader'::regrole),
+    'scryfall_loader must not be a member of any role (that would inherit its grants)';
+end $$;
+
+rollback;
+
+-- ---------------------------------------------------------------------------
+-- 26. Migration 45: prices_as_of() ignores every run that is not a printings run.
+--
+-- The oracle loader records runs in the same table. Without the bulk_type
+-- filter, a night where the printings sync failed but the oracle load
+-- succeeded would report today as "prices as of". The oracle run below is
+-- deliberately NEWER than the default_cards one.
+-- Falsified against a scratch copy of migration 45 with the
+-- `r.bulk_type = 'default_cards'` line removed: the assertion below fails.
+-- ---------------------------------------------------------------------------
+begin;
+
+insert into auth.users (id, email, raw_user_meta_data)
+values ('11111111-1111-1111-1111-111111111111', 'alice26@example.com', '{"username":"alice26"}');
+
+insert into public.scryfall_sync_runs (bulk_type, status, started_at, finished_at) values
+  ('default_cards', 'succeeded', '2026-09-01 09:00+00', '2026-09-01 09:20+00'),
+  ('oracle_cards',  'succeeded', '2026-09-02 09:00+00', '2026-09-02 09:05+00');
+
+do $$
+declare got timestamptz;
+begin
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  set local role authenticated;
+  got := public.prices_as_of();
+  reset role;
+  assert got = '2026-09-01 09:20+00',
+    'prices_as_of() must return the newest succeeded default_cards run, not a newer oracle_cards one (got '
+    || coalesce(got::text, 'null') || ')';
+end $$;
+
+rollback;
+
 \echo 'schema_test.sql: all assertions passed'
