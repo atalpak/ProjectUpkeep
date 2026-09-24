@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput,
+  ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, ScrollView, StyleSheet, Text, TextInput,
   useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,8 +12,9 @@ import {
 import { searchCards, type CardSearchResult } from '../cardSearch';
 import { recordRecentSearch, readRecentSearches } from '../recentSearches';
 import { useApp } from '../AppProvider';
-import { Button, Choices } from './ui';
+import { Button, Choices, Tappable } from './ui';
 import { ManaSymbol } from './ManaCost';
+import { useRegisterOverlay } from '../overlays';
 import { CardDetails } from './CardDetails';
 import { FlipBadge } from './FlipBadge';
 import { useCardFace } from '../hooks/useCardFace';
@@ -43,6 +44,7 @@ const EMPTY_FACETS: Facets = { ...EMPTY_ADVANCED_FILTER };
  * every card Magic has, the same idea as the web app's Advanced Search.
  */
 export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(): void }) {
+  useRegisterOverlay(visible);
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { userId } = useApp();
@@ -153,27 +155,27 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
               autoCapitalize="none"
             />
             {!!query && (
-              <Pressable accessibilityLabel="Clear search" hitSlop={8} onPress={() => setQuery('')}>
+              <Tappable feedback="dim" accessibilityLabel="Clear search" hitSlop={8} onPress={() => setQuery('')}>
                 <Ionicons name="close-circle" size={18} color={text.secondary} />
-              </Pressable>
+              </Tappable>
             )}
           </View>
-          <Pressable accessibilityRole="button" onPress={onClose} hitSlop={8} style={styles.cancel}>
+          <Tappable feedback="dim" accessibilityRole="button" onPress={onClose} hitSlop={8} style={styles.cancel}>
             <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
+          </Tappable>
         </View>
 
         <View style={styles.toggleRow}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={styles.filtersToggle} disabled={!!parsed}>
+          <Tappable feedback="dim" accessibilityRole="button" accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={styles.filtersToggle} disabled={!!parsed}>
             <Ionicons name="options-outline" size={18} color={text.primary} />
             <Text style={styles.filtersLabel}>{parsed ? 'Using your typed syntax' : facetCount ? `Filters (${facetCount})` : 'Filters'}</Text>
             {!parsed && <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={16} color={text.secondary} />}
-          </Pressable>
+          </Tappable>
           {!!userId && (
-            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: ownedOnly }} accessibilityLabel="Owned only" onPress={() => setOwnedOnly(v => !v)} style={[styles.ownedPill, ownedOnly && styles.ownedPillOn]}>
+            <Tappable feedback="dim" accessibilityRole="checkbox" accessibilityState={{ checked: ownedOnly }} accessibilityLabel="Owned only" onPress={() => setOwnedOnly(v => !v)} style={[styles.ownedPill, ownedOnly && styles.ownedPillOn]}>
               <Ionicons name={ownedOnly ? 'checkbox' : 'square-outline'} size={16} color={ownedOnly ? text.onAccent : text.secondary} />
               <Text style={[styles.ownedLabel, ownedOnly && styles.ownedLabelOn]}>Owned only</Text>
-            </Pressable>
+            </Tappable>
           )}
         </View>
 
@@ -184,9 +186,9 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
               {COLORS.map(c => {
                 const on = facets.colors.includes(c);
                 return (
-                  <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipOn]}>
+                  <Tappable feedback="dim" key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipOn]}>
                     <ManaSymbol code={c} size={28} hidden />
-                  </Pressable>
+                  </Tappable>
                 );
               })}
             </View>
@@ -224,10 +226,10 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
               <View>
                 <Text style={styles.groupLabel}>Recent searches</Text>
                 {recent.map(term => (
-                  <Pressable key={term} accessibilityRole="button" onPress={() => pickRecent(term)} style={styles.recentRow}>
+                  <Tappable key={term} accessibilityRole="button" onPress={() => pickRecent(term)} style={styles.recentRow}>
                     <Ionicons name="time-outline" size={16} color={text.secondary} />
                     <Text style={styles.recentText}>{term}</Text>
-                  </Pressable>
+                  </Tappable>
                 ))}
               </View>
             ) : (
@@ -268,14 +270,14 @@ function SearchTile({ item, tile, onOpen }: { item: CardSearchResult; tile: numb
   const face = useCardFace({ name: item.name, layout: item.layout, image: item.image, imageSmall: item.imageSmall }, 'small');
   const name = face.name ?? item.name;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={name} onPress={onOpen} style={{ width: tile }}>
+    <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={name} onPress={onOpen} style={{ width: tile }}>
       {face.image
         ? <Image source={{ uri: face.image }} onError={face.onImageError} style={[styles.thumb, { width: tile, height: tile / CARD_ASPECT }]} />
         : <View style={[styles.thumb, styles.thumbEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.thumbName}>{name}</Text></View>}
       <Text numberOfLines={2} style={styles.cardName}>{name}</Text>
       {item.printingCount > 1 && <Text style={styles.printings}>{item.printingCount} printings</Text>}
       {face.canFlip && <FlipBadge onPress={face.flip} otherName={face.otherName} />}
-    </Pressable>
+    </Tappable>
   );
 }
 

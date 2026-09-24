@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, type CardIndex, type Candidate, type CollectionDraft, type Condition, type Finish, type Printing } from '@upkeep/scan-core';
 import { isSameCard, reconcileFinish } from '@upkeep/domain';
-import { Button, Choices } from '../components/ui';
+import { Button, Choices, Tappable, TextField } from '../components/ui';
 import { ListRow } from '../components/ListRow';
 import { MortStage } from '../mort/MortStage';
 import type { StagedCard } from './ScanScreen';
-import { border, fontFamily, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
+import { border, iconButtonSize, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
 import { makeStyles } from '../preferences';
 
 type Location = { id: string; name: string };
@@ -63,16 +63,16 @@ export function ScanSessionSummary({
       </View>
 
       <View style={styles.row}>
-        <TextInput
+        <TextField tone="canvas"
           accessibilityLabel="Filter this session"
-          style={[styles.input, styles.grow]}
+          style={styles.grow}
           placeholder="Filter by name"
           value={query}
           onChangeText={setQuery}
         />
-        <Pressable accessibilityRole="button" accessibilityLabel="Add a card by name" disabled={committing} style={styles.addButton} onPress={() => setAddingOpen(true)}>
+        <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel="Add a card by name" disabled={committing} style={styles.addButton} onPress={() => setAddingOpen(true)}>
           <Text style={styles.addButtonText}>+</Text>
-        </Pressable>
+        </Tappable>
       </View>
 
       {addingOpen && (
@@ -99,20 +99,20 @@ export function ScanSessionSummary({
       {!!staged.length && !filtered.length && <Text style={styles.body}>No staged card matches "{query}".</Text>}
       {filtered.map(item => (
         <View key={item.id} style={styles.stagedRow}>
-          <Pressable style={styles.grow} disabled={committing} onPress={() => setEditing(item)}>
+          <Tappable feedback="dim" style={styles.grow} disabled={committing} onPress={() => setEditing(item)}>
             <ListRow
               title={item.printing.name}
               subtitle={rowSubtitle(item)}
               imageUri={item.printing.imageUri}
             />
-          </Pressable>
+          </Tappable>
           <View style={styles.rowActions}>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => setEditing(item)}>
+            <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Edit ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => setEditing(item)}>
               <Text style={styles.iconText}>✎</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => onDelete(item.id)}>
+            </Tappable>
+            <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Remove ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => onDelete(item.id)}>
               <Text style={styles.iconText}>🗑</Text>
-            </Pressable>
+            </Tappable>
           </View>
         </View>
       ))}
@@ -152,27 +152,27 @@ function ManualAddSheet({ index, onAdd, onCancel }: { index: CardIndex; onAdd(pr
   return (
     <View style={styles.sheet}>
       <Text style={styles.label}>Find a card by name</Text>
-      <TextInput
+      <TextField tone="canvas"
         accessibilityLabel="Card name"
-        style={styles.input}
+       
         placeholder="Enter the full card name"
         value={name}
         onChangeText={t => { setName(t); runSearch(t, setCode, collectorNumber); }}
       />
       <View style={styles.row}>
-        <TextInput accessibilityLabel="Set code" style={[styles.input, styles.grow]} placeholder="Set (optional)" autoCapitalize="characters" value={setCode} onChangeText={t => { setSetCode(t); runSearch(name, t, collectorNumber); }} />
-        <TextInput accessibilityLabel="Collector number" style={[styles.input, styles.grow]} placeholder="# (optional)" value={collectorNumber} onChangeText={t => { setCollectorNumber(t); runSearch(name, setCode, t); }} />
+        <TextField tone="canvas" accessibilityLabel="Set code" style={styles.grow} placeholder="Set (optional)" autoCapitalize="characters" value={setCode} onChangeText={t => { setSetCode(t); runSearch(name, t, collectorNumber); }} />
+        <TextField tone="canvas" accessibilityLabel="Collector number" style={styles.grow} placeholder="# (optional)" value={collectorNumber} onChangeText={t => { setCollectorNumber(t); runSearch(name, setCode, t); }} />
       </View>
       {total > results.length && <Text style={styles.body}>Showing {results.length} of {total} matched — narrow with a set code or collector number.</Text>}
       {results.map(c => (
-        <Pressable key={c.printing.id} onPress={() => onAdd(c.printing)}>
+        <Tappable feedback="dim" key={c.printing.id} onPress={() => onAdd(c.printing)}>
           <ListRow
             title={c.printing.name}
             subtitle={`${c.printing.setName ?? c.printing.setCode.toUpperCase()} · #${c.printing.collectorNumber} · ${c.printing.language.toUpperCase()} · ${finishSummary(c.printing.finishes)}`}
             // The small picture, not the catalog's normal-size one: up to 50 rows are drawn at once.
             imageUri={thumbnailUri(c.printing.imageUri)}
           />
-        </Pressable>
+        </Tappable>
       ))}
       {name.length > 1 && !results.length && <Text style={styles.body}>No match in this catalog. Check the name or spelling.</Text>}
       <Button secondary label="Cancel" onPress={onCancel} />
@@ -234,7 +234,7 @@ function EditSheet({ item, locations, index, onCancel, onSave, onChangePrinting,
         labels={Object.fromEntries([['', 'Unsorted'], ...locations.map(l => [l.id, l.name])])}
       />
       <Text style={styles.label}>Quantity</Text>
-      <TextInput accessibilityLabel="Quantity" style={styles.input} value={quantity} onChangeText={setQuantity} keyboardType="number-pad" />
+      <TextField tone="canvas" accessibilityLabel="Quantity" value={quantity} onChangeText={setQuantity} keyboardType="number-pad" />
       <Button label="Save" onPress={save} />
       <Button secondary label="Cancel" onPress={onCancel} />
     </View>
@@ -283,11 +283,11 @@ function PrintingChangeSheet({ item, index, onChoose, onCancel }: {
     <View style={styles.sheet}>
       <Text style={styles.label}>Which printing is it really?</Text>
       <View style={styles.row}>
-        <TextInput accessibilityLabel="Set code" style={[styles.input, styles.grow]} placeholder="Set (optional)" autoCapitalize="characters" value={setCode} onChangeText={t => { setSetCode(t); runSearch(t, collectorNumber); }} />
-        <TextInput accessibilityLabel="Collector number" style={[styles.input, styles.grow]} placeholder="# (optional)" value={collectorNumber} onChangeText={t => { setCollectorNumber(t); runSearch(setCode, t); }} />
+        <TextField tone="canvas" accessibilityLabel="Set code" style={styles.grow} placeholder="Set (optional)" autoCapitalize="characters" value={setCode} onChangeText={t => { setSetCode(t); runSearch(t, collectorNumber); }} />
+        <TextField tone="canvas" accessibilityLabel="Collector number" style={styles.grow} placeholder="# (optional)" value={collectorNumber} onChangeText={t => { setCollectorNumber(t); runSearch(setCode, t); }} />
       </View>
       {results.map(c => (
-        <Pressable
+        <Tappable feedback="dim"
           key={c.printing.id}
           accessibilityRole="button"
           accessibilityState={{ selected: chosen?.id === c.printing.id }}
@@ -299,7 +299,7 @@ function PrintingChangeSheet({ item, index, onChoose, onCancel }: {
             subtitle={`${c.printing.setName ?? c.printing.setCode.toUpperCase()} · #${c.printing.collectorNumber} · ${finishSummary(c.printing.finishes)}`}
             imageUri={thumbnailUri(c.printing.imageUri)}
           />
-        </Pressable>
+        </Tappable>
       ))}
       {!results.length && <Text style={styles.body}>No other printing of this card is in the catalog.</Text>}
 
@@ -338,20 +338,16 @@ const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   section: { ...typeTokens.title, color: textColor.primary },
-  body: { ...typeTokens.body, fontSize: 13, lineHeight: 21, color: textColor.secondary },
-  label: { fontSize: 13, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: textColor.primary, marginTop: space.sm },
-  // radius.md is the token for inputs; this was `radius.sm + 2`, an
-  // arithmetic one-off that happened to land near it. type.input supplies the
-  // font family a bare `fontSize: 16` was missing.
-  input: { backgroundColor: surface.canvas, borderColor: border.hairline, borderWidth: 1, borderRadius: radius.md, padding: 14, color: textColor.primary, ...typeTokens.input },
-  row: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  body: { ...typeTokens.bodySm, color: textColor.secondary },
+  label: { ...typeTokens.fieldLabel, color: textColor.primary, marginTop: space.sm },
+  row: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
   grow: { flex: 1 },
-  addButton: { width: 48, height: 48, borderRadius: radius.sm + 2, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, alignItems: 'center', justifyContent: 'center' },
-  addButtonText: { fontSize: 22, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: textColor.primary },
+  addButton: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, alignItems: 'center', justifyContent: 'center' },
+  addButtonText: { ...typeTokens.title, fontSize: 22, color: textColor.primary },
   stagedRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  rowActions: { flexDirection: 'row', gap: 6 },
-  iconButton: { width: 36, height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, alignItems: 'center', justifyContent: 'center' },
-  iconText: { fontSize: 15 },
+  rowActions: { flexDirection: 'row', gap: space.xs },
+  iconButton: { width: iconButtonSize, height: iconButtonSize, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, alignItems: 'center', justifyContent: 'center' },
+  iconText: { ...typeTokens.body },
   footer: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
   sheet: { gap: space.sm, backgroundColor: surface.raised, padding: space.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: border.hairline },
   pickerRow: { borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent', padding: 2 },

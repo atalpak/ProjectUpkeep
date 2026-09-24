@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useApp } from '../AppProvider';
 import { PRIVACY_URL, SIGNUP_INVITE_REQUIRED, TERMS_URL, requestPasswordReset, signInWithPassword, signUpWithPassword, type AuthResult } from '../auth';
-import { Button, Notice } from '../components/ui';
+import { Button, Notice, Tappable, TextField } from '../components/ui';
 import { makeStyles } from '../preferences';
-import { border, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
+import { space, text as textColor, type as typeTokens } from '../theme';
 
 type Mode = 'signIn' | 'signUp' | 'forgot';
 
@@ -59,18 +59,18 @@ export function AuthScreen() {
         {mode === 'forgot' && !emailSent ? (
           <Text style={styles.body}>We will email you a link. You choose the new password on the Upkeep website, then come back here and sign in.</Text>
         ) : null}
-        <TextInput accessibilityLabel="Email" style={styles.input} value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={textColor.secondary} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" />
+        <TextField accessibilityLabel="Email" value={email} onChangeText={setEmail} placeholder="Email" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" />
         {mode === 'signUp' && (
-          <TextInput accessibilityLabel="Username" style={styles.input} value={username} onChangeText={setUsername} placeholder="Username (shown to friends)" placeholderTextColor={textColor.secondary} autoCapitalize="none" autoCorrect={false} autoComplete="username-new" />
+          <TextField accessibilityLabel="Username" value={username} onChangeText={setUsername} placeholder="Username (shown to friends)" autoCapitalize="none" autoCorrect={false} autoComplete="username-new" />
         )}
         {mode !== 'forgot' && (
-          <TextInput accessibilityLabel="Password" style={styles.input} value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor={textColor.secondary} secureTextEntry autoComplete={mode === 'signIn' ? 'current-password' : 'new-password'} />
+          <TextField accessibilityLabel="Password" value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry autoComplete={mode === 'signIn' ? 'current-password' : 'new-password'} />
         )}
         {mode === 'signUp' && (
-          <TextInput accessibilityLabel="Confirm password" style={styles.input} value={confirm} onChangeText={setConfirm} placeholder="Confirm password" placeholderTextColor={textColor.secondary} secureTextEntry autoComplete="new-password" />
+          <TextField accessibilityLabel="Confirm password" value={confirm} onChangeText={setConfirm} placeholder="Confirm password" secureTextEntry autoComplete="new-password" />
         )}
         {mode === 'signUp' && (
-          <TextInput accessibilityLabel="Invite code" style={styles.input} value={invite} onChangeText={setInvite} placeholder={SIGNUP_INVITE_REQUIRED ? 'Invite code' : 'Invite code (optional)'} placeholderTextColor={textColor.secondary} autoCapitalize="none" autoCorrect={false} />
+          <TextField accessibilityLabel="Invite code" value={invite} onChangeText={setInvite} placeholder={SIGNUP_INVITE_REQUIRED ? 'Invite code' : 'Invite code (optional)'} autoCapitalize="none" autoCorrect={false} />
         )}
         <Button label={cta} disabled={busy} onPress={() => void submit()} />
 
@@ -94,9 +94,9 @@ export function AuthScreen() {
 function Link({ label, onPress }: { label: string; onPress(): void }) {
   const styles = useStyles();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.link}>
+    <Tappable feedback="dim" accessibilityRole="button" onPress={onPress} style={styles.link}>
       <Text style={styles.linkText}>{label}</Text>
-    </Pressable>
+    </Tappable>
   );
 }
 
@@ -105,10 +105,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, gap: space.md },
   section: { ...typeTokens.title, color: textColor.primary },
   body: { ...typeTokens.bodySm, color: textColor.secondary },
-  // radius.md for inputs, type.input for the font family a bare
-  // `fontSize: 16` was missing -- same fix as Settings/ScanSessionSummary's
-  // own inputs (mobile UI brief Priority 4).
-  input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: radius.md, padding: 14, color: textColor.primary, ...typeTokens.input },
   links: { gap: space.xs, alignItems: 'center' },
   link: { paddingVertical: space.md, paddingHorizontal: space.lg, minHeight: 44, justifyContent: 'center' },
   linkText: { ...typeTokens.bodySm, color: textColor.secondary, textDecorationLine: 'underline' },

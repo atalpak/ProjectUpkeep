@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, type NavigationProp } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LANGUAGE_LABELS, type LanguageCode } from '@upkeep/domain';
 import { CardDetails } from '../components/CardDetails';
-import { Button, Notice } from '../components/ui';
+import { Button, GroupRow, ListGroup, Notice } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { fetchFriendTradables, fetchFriendWants, removeFriendship, type FriendCard } from '../friends';
 import type { FriendsStackParamList, TabParamList } from '../navigation';
 import { makeStyles } from '../preferences';
-import { border, radius, space, surface, text, type } from '../theme';
+import { radius, space, surface, text, type } from '../theme';
 
 /** One friend: what they have open for trade, and what they want. Tapping a card opens its details. */
 export function FriendProfileScreen({ route, navigation }: NativeStackScreenProps<FriendsStackParamList, 'FriendProfile'>) {
@@ -43,8 +43,8 @@ export function FriendProfileScreen({ route, navigation }: NativeStackScreenProp
 
   const list = (cards: FriendCard[], empty: string) => cards.length === 0
     ? <Text style={styles.sub}>{empty}</Text>
-    : cards.map(c => (
-      <Pressable key={c.id} accessibilityRole="button" accessibilityLabel={`${c.name}, details`} onPress={() => setDetails(c)} style={styles.row}>
+    : <ListGroup>{cards.map(c => (
+      <GroupRow key={c.id} accessibilityLabel={`${c.name}, details`} onPress={() => setDetails(c)}>
         <FlipThumb card={{ name: c.name, layout: c.layout, imageSmall: c.imageSmall }} thumbStyle={styles.thumb}>
           {name => (
             <View style={styles.grow}>
@@ -53,8 +53,8 @@ export function FriendProfileScreen({ route, navigation }: NativeStackScreenProp
             </View>
           )}
         </FlipThumb>
-      </Pressable>
-    ));
+      </GroupRow>
+    ))}</ListGroup>;
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -83,7 +83,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   heading: { ...type.title, color: text.primary, marginTop: space.md },
   sub: { ...type.bodySm, color: text.secondary },
   grow: { flex: 1, gap: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
-  thumb: { width: 56, height: 78, borderRadius: radius.sm, backgroundColor: surface.sunken },
-  name: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
+  thumb: { width: 56, height: 78, borderRadius: radius.thumb, backgroundColor: surface.sunken },
+  name: { ...type.rowTitle, color: text.primary },
 }));

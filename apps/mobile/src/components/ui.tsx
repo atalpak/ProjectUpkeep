@@ -5,12 +5,13 @@
  * routed through theme.ts tokens rather than Tailwind classes.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions, type DimensionValue, type PressableProps, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { accent, border, iconButtonSize, radius, scrim, space, surface, text as textColor, type } from '../theme';
 import { makeStyles } from '../preferences';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useRegisterOverlay } from '../overlays';
 
 /**
  * Primary/secondary action button, with the shared pressed/focused/disabled/
@@ -99,6 +100,136 @@ export function Badge({ value, style }: { value: string | number; style?: StyleP
   );
 }
 
+/**
+ * A Pressable that always answers a touch. Every tappable row, tile and link in
+ * the app used a bare `Pressable` with no pressed style, so a tap gave no
+ * feedback until the next screen arrived (mobile UI brief Priority 7).
+ * `fill` tints the surface (rows and list items, where the whole strip is the
+ * target); `dim` fades it (image tiles and cards, where a tint would fight the
+ * artwork). Layout, role and label stay the caller's -- this only owns the
+ * pressed treatment, so swapping it in for `Pressable` changes nothing else.
+ */
+export function Tappable({ feedback = 'fill', style, children, ...rest }: Omit<PressableProps, 'style' | 'children'> & {
+  feedback?: 'fill' | 'dim'; style?: StyleProp<ViewStyle>; children?: React.ReactNode;
+}) {
+  const styles = useStyles();
+  return (
+    <Pressable
+      {...rest}
+      style={({ pressed }) => [style, pressed && !rest.disabled && (feedback === 'dim' ? styles.pressedDim : styles.pressedFill)]}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+/**
+ * The one text field. Eight screens each hand-rolled a bordered `TextInput`
+ * that differed only in background, padding and a few props; this owns the
+ * look (radius.md, type.input, the 48pt height that keeps the target above
+ * 44pt, a focus ring matching Button's) and passes every other `TextInput`
+ * prop straight through, so multiline, autoCapitalize, autoCorrect, keyboard
+ * type and the rest stay each call site's own decision. `tone` is the one
+ * appearance choice: `raised` on the page canvas, `canvas` when the field sits
+ * inside a raised card or sheet (a raised field there would vanish).
+ * `accessibilityLabel` is required because a placeholder is not a label.
+ */
+export function TextField({ tone = 'raised', style, onFocus, onBlur, multiline, editable, ...rest }: TextInputProps & {
+  accessibilityLabel: string; tone?: 'raised' | 'canvas';
+}) {
+  const styles = useStyles();
+  const [focused, setFocused] = useState(false);
+  return (
+    <TextInput
+      placeholderTextColor={textColor.secondary}
+      {...rest}
+      multiline={multiline}
+      editable={editable}
+      onFocus={e => { setFocused(true); onFocus?.(e); }}
+      onBlur={e => { setFocused(false); onBlur?.(e); }}
+      style={[
+        styles.field,
+        tone === 'canvas' && styles.fieldCanvas,
+        multiline && styles.fieldMultiline,
+        focused && styles.fieldFocused,
+        editable === false && styles.disabled,
+        style,
+      ]}
+    />
+  );
+}
+
+/** The trailing "opens something" chevron on a tappable row. Replaces the `›` text glyph each screen used to set in the system font at its own size. */
+export function Chevron() {
+  return <Ionicons name="chevron-forward" size={18} color={textColor.secondary} accessibilityElementsHidden importantForAccessibility="no" />;
+}
+
+/**
+ * A grouped list surface: one raised, bordered panel whose rows are separated
+ * by hairline dividers, instead of each row being its own bordered card
+ * (mobile UI brief Priority 5). Use for routine lists -- locations, friends,
+ * trades, notifications. Stays a card for things that need to stand out
+ * (metrics, artwork tiles, forms). Rows are `GroupRow`s.
+ */
+export function ListGroup({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+  const styles = useStyles();
+  const rows = React.Children.toArray(children).filter(Boolean);
+  if (rows.length === 0) return null;
+  return (
+    <View style={[styles.group, style]}>
+      {rows.map((row, i) => (
+        <React.Fragment key={React.isValidElement(row) && row.key != null ? row.key : i}>
+          {i > 0 && <View style={styles.groupDivider} />}
+          {row}
+        </React.Fragment>
+      ))}
+    </View>
+  );
+}
+
+/** One row inside a `ListGroup`: tappable (with pressed feedback) when it has an `onPress`, otherwise a plain row. */
+export function GroupRow({ onPress, accessibilityLabel, accessibilityRole = 'button', style, children }: {
+  onPress?(): void; accessibilityLabel?: string; accessibilityRole?: 'button' | 'link'; style?: StyleProp<ViewStyle>; children: React.ReactNode;
+}) {
+  const styles = useStyles();
+  if (!onPress) return <View style={[styles.groupRow, style]}>{children}</View>;
+  return (
+    <Tappable accessibilityRole={accessibilityRole} accessibilityLabel={accessibilityLabel} onPress={onPress} style={[styles.groupRow, style]}>
+      {children}
+    </Tappable>
+  );
+}
+
+/**
+ * A placeholder block for content that is still loading, so the page keeps its
+ * final shape instead of jumping when data lands (Priority 7). Pulses gently;
+ * under reduced motion it holds still at the resting opacity. Decorative, so
+ * hidden from screen readers -- the screen announces loading some other way.
+ */
+export function Skeleton({ width = '100%', height, corner = radius.md, style }: {
+  width?: DimensionValue; height: number; corner?: number; style?: StyleProp<ViewStyle>;
+}) {
+  const styles = useStyles();
+  const reducedMotion = useReducedMotion();
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (reducedMotion) { pulse.setValue(0); return; }
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 0, duration: 800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [reducedMotion, pulse]);
+  return (
+    <Animated.View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[styles.skeleton, { width, height, borderRadius: corner, opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] }) }, style]}
+    />
+  );
+}
+
 export function Choices({ values, selected, disabled, onSelect, labels = {} }: {
   values: string[]; selected?: string; disabled?: boolean; onSelect(v: string): void; labels?: Record<string, string>;
 }) {
@@ -112,7 +243,7 @@ export function Choices({ values, selected, disabled, onSelect, labels = {} }: {
           accessibilityState={{ selected: v === selected, disabled }}
           disabled={disabled}
           onPress={() => onSelect(v)}
-          style={[styles.chip, v === selected && styles.chipSelected]}
+          style={({ pressed }) => [styles.chip, v === selected && styles.chipSelected, pressed && !disabled && styles.chipPressed]}
         >
           <Text style={v === selected ? styles.chipTextSelected : styles.body}>{labels[v] ?? v.toUpperCase()}</Text>
         </Pressable>
@@ -177,6 +308,7 @@ export function DismissingNotice({ children, onDone, style, holdMs = 5000 }: { c
 export function BottomSheet({ visible, onClose, title, footer, children, maxHeightRatio = 0.85 }: {
   visible: boolean; onClose(): void; title: string; footer?: React.ReactNode; children: React.ReactNode; maxHeightRatio?: number;
 }) {
+  useRegisterOverlay(visible);
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -249,12 +381,23 @@ const useStyles = makeStyles(() => StyleSheet.create({
   buttonFocused: { borderColor: accent.DEFAULT },
   buttonPressed: { opacity: 0.8 },
   buttonText: { ...type.buttonLabel, color: textColor.onAccent },
-  secondaryText: { ...type.buttonLabel, fontSize: 14, color: textColor.secondary },
+  secondaryText: { ...type.buttonLabel, color: textColor.secondary },
   disabled: { opacity: 0.4 },
-  notice: { backgroundColor: surface.sunken, padding: space.lg - 2, borderRadius: radius.md, color: textColor.primary, ...type.bodySm },
-  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  chip: { paddingVertical: 8, paddingHorizontal: 11, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline },
+  notice: { backgroundColor: surface.sunken, padding: space.md, borderRadius: radius.md, color: textColor.primary, ...type.bodySm },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  chip: { paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline },
   chipSelected: { backgroundColor: surface.inverse, borderColor: surface.inverse },
+  chipPressed: { opacity: 0.7 },
+  pressedFill: { backgroundColor: surface.sunken },
+  pressedDim: { opacity: 0.7 },
+  field: { minHeight: 48, paddingHorizontal: space.md, paddingVertical: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, color: textColor.primary, ...type.input },
+  fieldCanvas: { backgroundColor: surface.canvas },
+  fieldMultiline: { textAlignVertical: 'top' },
+  fieldFocused: { borderColor: accent.DEFAULT },
+  group: { borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, overflow: 'hidden' },
+  groupDivider: { height: StyleSheet.hairlineWidth, backgroundColor: border.hairline, marginLeft: space.lg },
+  groupRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 56, paddingHorizontal: space.lg, paddingVertical: space.md },
+  skeleton: { backgroundColor: surface.sunken },
   chipTextSelected: { ...type.bodySm, color: textColor.inverse },
   body: { ...type.bodySm, color: textColor.secondary },
   iconButton: { alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },

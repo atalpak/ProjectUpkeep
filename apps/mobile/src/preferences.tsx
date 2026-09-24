@@ -13,7 +13,9 @@ export type CollectionView = 'list' | 'grid';
 // `welcomeSeen` lives with the other device prefs rather than under its own
 // key: it is the same kind of thing (a one-line choice about this phone), and
 // "Show the welcome again" in Settings just sets it back to false.
-type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView; collectionSort: CollectionSort; welcomeSeen: boolean };
+// `scanHintSeen` is the same kind of flag for the one-time "hold Scan" coach
+// mark (see TabBar): shown once, then never again on this phone.
+type Prefs = { mode: ThemeMode; slots: NavSlots; collectionView: CollectionView; collectionSort: CollectionSort; welcomeSeen: boolean; scanHintSeen: boolean };
 
 type PreferencesValue = Prefs & {
   scheme: Scheme;
@@ -21,6 +23,7 @@ type PreferencesValue = Prefs & {
   setCollectionView(view: CollectionView): void;
   setCollectionSort(sort: CollectionSort): void;
   setWelcomeSeen(seen: boolean): void;
+  setScanHintSeen(seen: boolean): void;
   /** Put `page` in slot `index`; if it already sits in another slot the two swap. */
   setSlot(index: number, page: PageId): void;
   resetSlots(): void;
@@ -37,12 +40,12 @@ function readSlots(value: unknown): NavSlots {
 }
 
 function readPrefs(raw: string | null): Prefs {
-  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list', collectionSort: 'name', welcomeSeen: false };
+  const fallback: Prefs = { mode: 'system', slots: DEFAULT_SLOTS, collectionView: 'list', collectionSort: 'name', welcomeSeen: false, scanHintSeen: false };
   if (!raw) return fallback;
   try {
-    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown; collectionSort?: unknown; welcomeSeen?: unknown };
+    const parsed = JSON.parse(raw) as { mode?: unknown; slots?: unknown; collectionView?: unknown; collectionSort?: unknown; welcomeSeen?: unknown; scanHintSeen?: unknown };
     const mode: ThemeMode = parsed.mode === 'light' || parsed.mode === 'dark' ? parsed.mode : 'system';
-    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list', collectionSort: readCollectionSort(parsed.collectionSort), welcomeSeen: parsed.welcomeSeen === true };
+    return { mode, slots: readSlots(parsed.slots), collectionView: parsed.collectionView === 'grid' ? 'grid' : 'list', collectionSort: readCollectionSort(parsed.collectionSort), welcomeSeen: parsed.welcomeSeen === true, scanHintSeen: parsed.scanHintSeen === true };
   } catch { return fallback; }
 }
 
@@ -78,6 +81,7 @@ export function PreferencesProvider({ children }: { children: React.ReactNode })
       setCollectionView: collectionView => save({ ...prefs, collectionView }),
       setCollectionSort: collectionSort => save({ ...prefs, collectionSort }),
       setWelcomeSeen: welcomeSeen => save({ ...prefs, welcomeSeen }),
+      setScanHintSeen: scanHintSeen => save({ ...prefs, scanHintSeen }),
       setSlot: (index, page) => {
         const slots = [...prefs.slots] as NavSlots;
         const from = slots.indexOf(page);

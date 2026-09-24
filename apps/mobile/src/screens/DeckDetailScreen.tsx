@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { Condition, Finish } from '@upkeep/scan-core';
 import { groupDeck } from '@upkeep/domain';
@@ -7,7 +7,7 @@ import { deleteDeck, entryKey, fetchDeckCards, fetchDeckHeader, fetchSleevedStac
 import { CollectionAuthError } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
-import { Button, DismissingNotice, Notice } from '../components/ui';
+import { Button, DismissingNotice, Notice, Tappable } from '../components/ui';
 import { DeckDetailsEditor } from '../components/DeckDetailsEditor';
 import { CardDetails } from '../components/CardDetails';
 import { ManaCost } from '../components/ManaCost';
@@ -182,7 +182,7 @@ export function DeckDetailScreen({ route, navigation }: NativeStackScreenProps<D
               const picking = activePicker?.entryId === c.id;
               return (
                 <View key={c.id}>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`${c.name}, details`} onPress={() => setDetails({ name: c.name, cardId: c.cardId })} style={styles.row}>
+                  <Tappable accessibilityRole="button" accessibilityLabel={`${c.name}, details`} onPress={() => setDetails({ name: c.name, cardId: c.cardId })} style={styles.row}>
                     <Text style={styles.qty}>{c.quantity}</Text>
                     <View style={styles.rowMain}>
                       <View style={styles.rowTop}>
@@ -193,17 +193,17 @@ export function DeckDetailScreen({ route, navigation }: NativeStackScreenProps<D
                     </View>
                     <View style={styles.rowActions}>
                       {!fullySleeved && (
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Sleeve ${c.name}`} disabled={moveDisabled} onPress={() => setActivePicker(picking && activePicker?.mode === 'sleeve' ? null : { entryId: c.id, mode: 'sleeve' })} style={[styles.actionPill, picking && activePicker?.mode === 'sleeve' && styles.actionPillOn, moveDisabled && styles.actionPillDisabled]}>
+                        <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Sleeve ${c.name}`} disabled={moveDisabled} onPress={() => setActivePicker(picking && activePicker?.mode === 'sleeve' ? null : { entryId: c.id, mode: 'sleeve' })} style={[styles.actionPill, picking && activePicker?.mode === 'sleeve' && styles.actionPillOn, moveDisabled && styles.actionPillDisabled]}>
                           <Text style={styles.actionText}>{picking && activePicker?.mode === 'sleeve' ? 'Cancel' : 'Sleeve'}</Text>
-                        </Pressable>
+                        </Tappable>
                       )}
                       {c.sleeved > 0 && (
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Unsleeve ${c.name}`} disabled={moveDisabled} onPress={() => setActivePicker(picking && activePicker?.mode === 'unsleeve' ? null : { entryId: c.id, mode: 'unsleeve' })} style={[styles.actionPill, picking && activePicker?.mode === 'unsleeve' && styles.actionPillOn, moveDisabled && styles.actionPillDisabled]}>
+                        <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Unsleeve ${c.name}`} disabled={moveDisabled} onPress={() => setActivePicker(picking && activePicker?.mode === 'unsleeve' ? null : { entryId: c.id, mode: 'unsleeve' })} style={[styles.actionPill, picking && activePicker?.mode === 'unsleeve' && styles.actionPillOn, moveDisabled && styles.actionPillDisabled]}>
                           <Text style={styles.actionText}>{picking && activePicker?.mode === 'unsleeve' ? 'Cancel' : 'Unsleeve'}</Text>
-                        </Pressable>
+                        </Tappable>
                       )}
                     </View>
-                  </Pressable>
+                  </Tappable>
                   {picking && userId && (
                     <SleevePicker
                       userId={userId} deckId={deckId} entry={c} mode={activePicker!.mode} onMove={beginMove}
@@ -320,17 +320,17 @@ const useStyles = makeStyles(() => StyleSheet.create({
   manage: { gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   grow: { flex: 1 },
-  strong: { ...typeTokens.title, fontSize: 15, color: text.primary },
-  body: { fontSize: 13, lineHeight: 21, color: text.secondary },
-  label: { fontSize: 13, fontFamily: fontFamily.bodySemiBold, fontWeight: '700', color: text.primary, marginTop: space.sm },
+  strong: { ...typeTokens.rowTitle, color: text.primary },
+  body: { ...typeTokens.bodySm, color: text.secondary },
+  label: { ...typeTokens.fieldLabel, color: text.primary, marginTop: space.sm },
   banner: { borderRadius: radius.xl, overflow: 'hidden', borderWidth: 1, borderColor: border.hairline },
   // The same flat scrim the web banner uses, for the same reason.
   scrim: { backgroundColor: 'rgba(0,0,0,0.55)' },
   bannerBody: { padding: space.lg, gap: space.sm },
-  deckTitle: { fontFamily: fontFamily.display, fontSize: 26, lineHeight: 32 },
+  deckTitle: { ...typeTokens.display },
   commander: { ...typeTokens.body },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs },
-  pill: { ...typeTokens.label, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, overflow: 'hidden' },
+  pill: { ...typeTokens.label, paddingHorizontal: space.sm, paddingVertical: 3, borderRadius: radius.pill, borderWidth: 1, overflow: 'hidden' },
   pillArt: { color: 'rgba(245,237,224,0.9)', borderColor: 'rgba(245,237,224,0.4)' },
   pillArtStrong: { backgroundColor: 'rgba(245,237,224,0.2)', borderColor: 'rgba(245,237,224,0.7)' },
   pillPlain: { color: text.secondary, borderColor: border.strong },
@@ -338,19 +338,19 @@ const useStyles = makeStyles(() => StyleSheet.create({
   progress: { ...typeTokens.bodySm },
   progressStrong: { fontFamily: fontFamily.bodySemiBold },
   group: { gap: 0, marginTop: space.sm },
-  groupTitle: { ...typeTokens.title, fontSize: 16, lineHeight: 22, color: text.primary, marginBottom: space.xs },
+  groupTitle: { ...typeTokens.rowTitle, color: text.primary, marginBottom: space.xs },
   groupCount: { ...typeTokens.bodySm, color: text.secondary },
   // A compact list row: quantity, name and mana cost, one line of state, small actions.
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
-  qty: { width: 20, ...typeTokens.title, fontSize: 15, color: text.secondary, textAlign: 'right' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
+  qty: { width: space.xl, ...typeTokens.rowTitle, color: text.secondary, textAlign: 'right' },
   rowMain: { flex: 1, gap: 1 },
   rowTop: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: space.sm },
   cardName: { flex: 1, ...typeTokens.body, fontFamily: typeTokens.title.fontFamily, color: text.primary },
   stateText: { ...typeTokens.label, fontFamily: fontFamily.body, color: text.secondary },
   stateGood: { color: state.success },
   stateBad: { color: state.error },
-  rowActions: { gap: 4, alignItems: 'flex-end' },
-  actionPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: border.strong },
+  rowActions: { gap: space.xs, alignItems: 'flex-end' },
+  actionPill: { paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: border.strong },
   actionPillOn: { backgroundColor: accent.soft, borderColor: accent.DEFAULT },
   actionPillDisabled: { opacity: 0.4 },
   actionText: { ...typeTokens.label, color: text.primary },

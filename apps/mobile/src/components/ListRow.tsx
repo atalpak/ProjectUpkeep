@@ -1,7 +1,8 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { border, radius, surface, text, type } from '../theme';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import { border, radius, space, surface, text, type } from '../theme';
 import { makeStyles } from '../preferences';
+import { Chevron, Tappable } from './ui';
 
 /**
  * One row of the flat, hairline-bordered lists this app uses for decks,
@@ -21,24 +22,23 @@ export function ListRow({ title, subtitle, imageUri, onPress, disabled, dimmed }
         <Text style={[styles.title, dimmed && styles.titleDimmed]}>{title}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
       </View>
-      {onPress ? <Text style={styles.arrow}>›</Text> : null}
+      {onPress ? <Chevron /> : null}
     </View>
   );
   if (!onPress) return content;
   return (
-    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress}>
+    <Tappable feedback="dim" accessibilityRole="button" disabled={disabled} onPress={onPress}>
       {content}
-    </Pressable>
+    </Tappable>
   );
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  row: { flexDirection: 'row', gap: 14, alignItems: 'center', backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, padding: 14, borderRadius: radius.md },
+  row: { flexDirection: 'row', gap: space.md, alignItems: 'center', backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, padding: space.md, borderRadius: radius.md },
   rowDimmed: { opacity: 0.55, borderStyle: 'dashed' },
   grow: { flex: 1 },
   title: { ...type.rowTitle, color: text.primary },
   titleDimmed: { color: text.secondary },
   subtitle: { ...type.bodySm, color: text.secondary },
-  thumbnail: { width: 45, height: 63, borderRadius: 3 },
-  arrow: { fontSize: 28, color: text.secondary },
+  thumbnail: { width: 45, height: 63, borderRadius: radius.thumb },
 }));

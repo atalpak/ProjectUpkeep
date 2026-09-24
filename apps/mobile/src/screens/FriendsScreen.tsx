@@ -1,16 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
-import { Button, Notice } from '../components/ui';
+import { Button, Chevron, GroupRow, ListGroup, Notice, Tappable } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { acceptFriendRequest, fetchFriendEdges, removeFriendship, searchPeople, sendFriendRequest, type FriendEdge, type PersonResult } from '../friends';
 import { PAGES, type FriendsStackParamList } from '../navigation';
 import { makeStyles } from '../preferences';
-import { border, radius, space, surface, text, type } from '../theme';
+import { border, iconButtonSize, radius, space, surface, text, type } from '../theme';
 
 /**
  * Your trade circle: find people by username, answer requests, and open a
@@ -82,50 +82,56 @@ export function FriendsScreen({ navigation }: NativeStackScreenProps<FriendsStac
       <View style={styles.field}>
         <Ionicons name="search" size={20} color={text.secondary} />
         <TextInput accessibilityLabel="Find people by username" style={styles.input} value={query} onChangeText={setQuery} placeholder="Find people by username" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} />
-        {!!query && <Pressable accessibilityLabel="Clear" hitSlop={8} onPress={() => setQuery('')}><Ionicons name="close-circle" size={18} color={text.secondary} /></Pressable>}
+        {!!query && <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel="Clear" hitSlop={8} onPress={() => setQuery('')}><Ionicons name="close-circle" size={18} color={text.secondary} /></Tappable>}
       </View>
 
       {query.trim().length >= 2 && (
         <View style={styles.group}>
           {searching && results.length === 0 && <Text style={styles.sub}>Searching…</Text>}
           {!searching && results.length === 0 && <Text style={styles.sub}>No one found with that name.</Text>}
+          <ListGroup>
           {results.map(p => {
             const rel = relationOf(p.id);
             return (
-              <View key={p.id} style={styles.row}>
+              <GroupRow key={p.id}>
                 <Text style={[styles.name, styles.grow]}>{p.username}</Text>
                 {rel === 'friend' ? <Text style={styles.sub}>Friends</Text>
                   : rel === 'outgoing' ? <Text style={styles.sub}>Request sent</Text>
                   : rel === 'incoming' ? <Text style={styles.sub}>Asked you. See below.</Text>
                   : <Button secondary label={busyId === p.id ? 'Sending…' : 'Add'} disabled={!!busyId} onPress={() => void act(p.id, () => sendFriendRequest(userId!, p.id), `Request sent to ${p.username}.`)} />}
-              </View>
+              </GroupRow>
             );
           })}
+          </ListGroup>
         </View>
       )}
 
       {incoming.length > 0 && (
         <View style={styles.group}>
           <Text style={styles.heading}>Requests for you</Text>
+          <ListGroup>
           {incoming.map(e => (
-            <View key={e.id} style={styles.row}>
+            <GroupRow key={e.id}>
               <Text style={[styles.name, styles.grow]}>{e.username}</Text>
               <Button label={busyId === e.id ? '…' : 'Accept'} disabled={!!busyId} onPress={() => void act(e.id, () => acceptFriendRequest(e.id), `You and ${e.username} are now friends.`)} />
               <Button secondary label="Decline" disabled={!!busyId} onPress={() => void act(e.id, () => removeFriendship(e.id))} />
-            </View>
+            </GroupRow>
           ))}
+          </ListGroup>
         </View>
       )}
 
       {outgoing.length > 0 && (
         <View style={styles.group}>
           <Text style={styles.heading}>Waiting on</Text>
+          <ListGroup>
           {outgoing.map(e => (
-            <View key={e.id} style={styles.row}>
+            <GroupRow key={e.id}>
               <Text style={[styles.name, styles.grow]}>{e.username}</Text>
               <Button secondary label="Cancel" disabled={!!busyId} onPress={() => confirmRemove(e, 'Cancel this request?', `Your request to ${e.username} is withdrawn.`, 'Cancel request')} />
-            </View>
+            </GroupRow>
           ))}
+          </ListGroup>
         </View>
       )}
 
@@ -133,13 +139,15 @@ export function FriendsScreen({ navigation }: NativeStackScreenProps<FriendsStac
         <Text style={styles.heading}>Friends{friends.length ? ` (${friends.length})` : ''}</Text>
         {loading && <Text style={styles.sub}>Loading…</Text>}
         {!loading && friends.length === 0 && <Text style={styles.sub}>No friends yet. Search for a username above to send a request.</Text>}
-        {friends.map(e => (
-          <Pressable key={e.id} accessibilityRole="button" accessibilityLabel={`${e.username}, profile`} onPress={() => navigation.navigate('FriendProfile', { friendId: e.otherId, username: e.username, friendshipId: e.id })} style={styles.row}>
-            <Ionicons name="person-circle-outline" size={28} color={text.secondary} />
-            <Text style={[styles.name, styles.grow]}>{e.username}</Text>
-            <Text style={styles.chevron}>›</Text>
-          </Pressable>
-        ))}
+        <ListGroup>
+          {friends.map(e => (
+            <GroupRow key={e.id} accessibilityLabel={`${e.username}, profile`} onPress={() => navigation.navigate('FriendProfile', { friendId: e.otherId, username: e.username, friendshipId: e.id })}>
+              <Ionicons name="person-circle-outline" size={28} color={text.secondary} />
+              <Text style={[styles.name, styles.grow]}>{e.username}</Text>
+              <Chevron />
+            </GroupRow>
+          ))}
+        </ListGroup>
       </View>
     </ScrollView>
   );
@@ -151,9 +159,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
   heading: { ...type.title, color: text.primary },
   sub: { ...type.bodySm, color: text.secondary },
   grow: { flex: 1 },
-  chevron: { fontSize: 22, color: text.secondary },
-  field: { flexDirection: 'row', alignItems: 'center', gap: space.sm, height: 44, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
-  input: { flex: 1, ...type.body, color: text.primary, paddingVertical: 0 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, minHeight: 56 },
-  name: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
+  field: { flexDirection: 'row', alignItems: 'center', gap: space.sm, height: iconButtonSize, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  input: { flex: 1, ...type.input, color: text.primary, paddingVertical: 0 },
+  name: { ...type.rowTitle, color: text.primary },
 }));

@@ -36,5 +36,5 @@ export function FlipThumb({ card, thumbStyle, children }: {
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  image: { ...StyleSheet.absoluteFillObject, borderRadius: radius.sm / 2 },
+  image: { ...StyleSheet.absoluteFillObject, borderRadius: radius.thumb },
 }));

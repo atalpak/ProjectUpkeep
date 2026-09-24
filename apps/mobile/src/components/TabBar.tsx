@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Animated, Modal, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,7 +13,9 @@ import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles, usePreferences } from '../preferences';
 import { PAGES, type PageId } from '../navigation';
 import { useSearchOverlay } from '../searchOverlay';
-import { accent, border, brand, radius, surface, text, type } from '../theme';
+import { accent, border, brand, radius, space, surface, text, type } from '../theme';
+import { Tappable } from './ui';
+import { useAnyOverlayOpen } from '../overlays';
 
 const BAR_HEIGHT = 50;
 // How far the Scan button rises above the bar. The bar's own container is
@@ -36,7 +38,8 @@ const QUICK_HINT_MS = 4000;
 
 export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
   const styles = useStyles();
-  const { slots } = usePreferences();
+  const { slots, welcomeSeen, scanHintSeen, setScanHintSeen } = usePreferences();
+  const app = useApp();
   const search = useSearchOverlay();
   const [barWidth, setBarWidth] = useState(0);
   const itemWidth = barWidth > 0 ? (barWidth - 2 * ROW_INSET) / 5 : 0;
@@ -57,6 +60,25 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
 
   // The home indicator sits in the lower part of the inset; icons need not clear all of it.
   const bottom = Math.max(insets.bottom - 18, 6);
+  const barHeight = PROTRUDE + BAR_HEIGHT + bottom;
+
+  // One-time coach mark for the hold-to-fan gesture, which nothing on screen
+  // hints at. Held back until the welcome tour is done (so the two never stack)
+  // and while a catalog prompt is up, and never over the camera page. A short
+  // delay lets the screen settle first so it reads as a hint, not a glitch.
+  // Also held back while any sheet or modal is up (menu, search, card details,
+  // a screen's filter sheet, a scan review): it would present over or under it,
+  // and if one opens while the hint shows, the hint hides -- without being
+  // marked seen, so it returns after the idle delay once that sheet closes.
+  const overlayOpen = useAnyOverlayOpen() || !!app.review;
+  const hintEligible = welcomeSeen && !scanHintSeen && !app.catalogBusy && !app.catalogUpdate && !overlayOpen && current !== 'Scan';
+  const [hintReady, setHintReady] = useState(false);
+  useEffect(() => {
+    if (!hintEligible) { setHintReady(false); return; }
+    const t = setTimeout(() => setHintReady(true), 1200);
+    return () => clearTimeout(t);
+  }, [hintEligible]);
+
   return (
     <View
       accessibilityRole="tablist"
@@ -65,10 +87,11 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
       style={[styles.bar, { height: PROTRUDE + BAR_HEIGHT + bottom, paddingBottom: bottom, paddingTop: PROTRUDE, paddingHorizontal: ROW_INSET }]}
     >
       <View pointerEvents="none" style={styles.background} />
+      <ScanHint visible={hintEligible && hintReady} bottom={barHeight + space.sm} onDismiss={() => setScanHintSeen(true)} />
       {order.map((page, i) => {
         const info = PAGES[page];
         const selected = current === page;
-        if (i === CENTER) return <ScanButton key={page} width={itemWidth} selected={selected} onPress={() => go('Scan')} onSearch={search.open} />;
+        if (i === CENTER) return <ScanButton key={page} width={itemWidth} selected={selected} onPress={() => go('Scan')} onSearch={search.open} onFanOpen={() => { if (!scanHintSeen) setScanHintSeen(true); }} />;
         return (
           <TabBarItem
             key={page}
@@ -122,7 +145,7 @@ type FanOption = 'search' | 'scan';
  * whole touch, so the fan needs no hit-testing of its own -- the finger's
  * window position is compared to where the bubbles are drawn.
  */
-function ScanButton({ width, selected, onPress, onSearch }: { width: number; selected: boolean; onPress(): void; onSearch(): void }) {
+function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: number; selected: boolean; onPress(): void; onSearch(): void; onFanOpen(): void }) {
   const styles = useStyles();
   const reducedMotion = useReducedMotion();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -170,8 +193,8 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openRef = useRef(false);
   const hoverRef = useRef<FanOption | null>(null);
-  const actions = useRef({ onPress, onSearch });
-  actions.current = { onPress, onSearch };
+  const actions = useRef({ onPress, onSearch, onFanOpen });
+  actions.current = { onPress, onSearch, onFanOpen };
   const canQuick = scannerViewAvailable && !!permission?.granted && !app.demo && app.active && !app.disabled;
   const blocker = !scannerViewAvailable ? 'Quick scan needs the live scanner (iPhone).'
     : !permission ? 'Checking camera access…'
@@ -293,6 +316,8 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
   }
 
   function openFan() {
+    // Someone who found the gesture on their own no longer needs the coach mark.
+    actions.current.onFanOpen();
     openRef.current = true;
     setFanOpen(true);
     setHoverBoth(null);
@@ -390,10 +415,37 @@ function ScanButton({ width, selected, onPress, onSearch }: { width: number; sel
           <Text style={styles.quickHint}>{quickHint || SCAN_STATUS_TEXT[scanStatus]}</Text>
         </Animated.View>
       )}
-      <Animated.View ref={circle} style={[styles.scanCircle, { transform: [{ scale }] }]}>
+      <Animated.View ref={circle} style={[styles.scanCircle, selected && styles.scanCircleSelected, { transform: [{ scale }] }]}>
         <Ionicons name="scan" size={37} color={text.onAccent} />
       </Animated.View>
     </View>
+  );
+}
+
+/**
+ * The one-time coach mark over the bar: what holding Scan does. A transparent
+ * Modal rather than an inline bubble because the bar's container ends at the
+ * raised button's top, and iOS drops touches outside a parent's frame -- an
+ * inline bubble above it could not be tapped to dismiss. Tapping anywhere (or
+ * "Got it") dismisses; the caller persists the seen flag so it shows once.
+ * Reduced motion swaps the fade for an instant show.
+ */
+function ScanHint({ visible, bottom, onDismiss }: { visible: boolean; bottom: number; onDismiss(): void }) {
+  const styles = useStyles();
+  const reducedMotion = useReducedMotion();
+  return (
+    <Modal transparent visible={visible} animationType={reducedMotion ? 'none' : 'fade'} statusBarTranslucent onRequestClose={onDismiss}>
+      <Pressable accessibilityLabel="Dismiss hint" accessibilityRole="button" style={styles.hintScrim} onPress={onDismiss}>
+        <View style={[styles.hintBubble, { bottom }]} accessible={false}>
+          <Text style={styles.hintTitle}>Hold Scan for more</Text>
+          <Text style={styles.hintBody}>Press and hold the Scan button, then slide to Search or quick Scan.</Text>
+          <Tappable feedback="dim" accessibilityRole="button" onPress={onDismiss} style={styles.hintAction}>
+            <Text style={styles.hintActionText}>Got it</Text>
+          </Tappable>
+          <View style={styles.hintArrow} />
+        </View>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -485,6 +537,12 @@ const useStyles = makeStyles(() => StyleSheet.create({
   },
   item: { flex: 1, minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   itemPressed: { position: 'absolute', top: 4, bottom: 4, left: 4, right: 4, borderRadius: radius.md, backgroundColor: surface.sunken },
+  // The gold Scan button is always gold -- it is the app's primary action, not a
+  // tab that is only sometimes selected -- so "you are on Scan" is a separate
+  // signal: a ring in the ink colour, drawn only while Scan is the focused page.
+  // The 3pt border is always present (gold on gold when unselected) so the
+  // circle never changes size.
+  scanCircleSelected: { borderColor: text.primary },
   // Reaches up into the container's PROTRUDE padding so the whole circle is a
   // touch target, not just the part inside the bar.
   scanItem: { flex: 1, marginTop: -PROTRUDE, height: BAR_HEIGHT + PROTRUDE, alignItems: 'center', justifyContent: 'flex-start' },
@@ -493,6 +551,8 @@ const useStyles = makeStyles(() => StyleSheet.create({
     height: SCAN_SIZE,
     borderRadius: SCAN_SIZE / 2,
     backgroundColor: accent.DEFAULT,
+    borderWidth: 3,
+    borderColor: accent.DEFAULT,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: brand.ink,
@@ -533,4 +593,12 @@ const useStyles = makeStyles(() => StyleSheet.create({
   option: { width: OPTION, height: OPTION, borderRadius: OPTION / 2, alignItems: 'center', justifyContent: 'center', gap: 2 },
   optionHovered: { backgroundColor: accent.DEFAULT },
   fadeFlex: { flex: 1 },
+  hintScrim: { flex: 1 },
+  hintBubble: { position: 'absolute', alignSelf: 'center', maxWidth: 280, gap: space.xs, padding: space.lg, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.strong, shadowColor: brand.ink, shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 6 },
+  hintTitle: { ...type.rowTitle, color: text.primary },
+  hintBody: { ...type.bodySm, color: text.secondary },
+  hintAction: { alignSelf: 'flex-end', minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
+  hintActionText: { ...type.buttonLabel, color: text.primary },
+  // A square turned 45deg, half hidden under the bubble's edge: the pointer down at the Scan button.
+  hintArrow: { position: 'absolute', bottom: -8, alignSelf: 'center', width: 14, height: 14, backgroundColor: surface.raised, borderRightWidth: 1, borderBottomWidth: 1, borderColor: border.strong, transform: [{ rotate: '45deg' }] },
 }));

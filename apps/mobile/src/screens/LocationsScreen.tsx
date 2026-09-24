@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View, Pressable } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { ColorSwatches } from '../components/ColorSwatches';
-import { Button, Choices, EmptyState, Notice } from '../components/ui';
+import { Button, Choices, Chevron, EmptyState, GroupRow, ListGroup, Notice, TextField } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { createLocation, fetchLocations, LOCATION_COLOR_HEX, LOCATION_TYPE_LABELS, LOCATION_TYPES, type LocationColor, type LocationKind, type LocationRow } from '../locations';
@@ -64,24 +64,24 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
   const childrenOf = (id: string) => rows.filter(r => r.parentId === id);
   const topChoices = top;
 
-  function Row({ row, nested }: { row: LocationRow; nested?: boolean }) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${row.name}, ${row.cardCount} cards`}
-        onPress={() => navigation.navigate('LocationDetail', { locationId: row.id, title: row.name })}
-        style={[styles.row, nested && styles.nested]}
-      >
-        <View style={[styles.dot, { backgroundColor: row.color ? LOCATION_COLOR_HEX[row.color] : 'transparent', borderColor: row.color ? 'transparent' : border.strong }]} />
-        <Ionicons name={TYPE_ICONS[row.type] ?? 'folder-outline'} size={20} color={text.secondary} />
-        <View style={styles.grow}>
-          <Text style={styles.name}>{row.name}</Text>
-          <Text style={styles.sub}>{LOCATION_TYPE_LABELS[row.type] ?? row.type} · {row.cardCount} card{row.cardCount === 1 ? '' : 's'}{row.tradable ? ' · open for trade' : ''}</Text>
-        </View>
-        <Text style={styles.chevron}>›</Text>
-      </Pressable>
-    );
-  }
+  // A plain function rather than a nested component: a component declared
+  // inside the screen is a new type every render, so every row would remount.
+  const renderRow = (row: LocationRow, nested?: boolean) => (
+    <GroupRow
+      key={row.id}
+      accessibilityLabel={`${row.name}, ${row.cardCount} cards`}
+      onPress={() => navigation.navigate('LocationDetail', { locationId: row.id, title: row.name })}
+      style={nested && styles.nested}
+    >
+      <View style={[styles.dot, { backgroundColor: row.color ? LOCATION_COLOR_HEX[row.color] : 'transparent', borderColor: row.color ? 'transparent' : border.strong }]} />
+      <Ionicons name={TYPE_ICONS[row.type] ?? 'folder-outline'} size={20} color={text.secondary} />
+      <View style={styles.grow}>
+        <Text style={styles.name}>{row.name}</Text>
+        <Text style={styles.sub}>{LOCATION_TYPE_LABELS[row.type] ?? row.type} · {row.cardCount} card{row.cardCount === 1 ? '' : 's'}{row.tradable ? ' · open for trade' : ''}</Text>
+      </View>
+      <Chevron />
+    </GroupRow>
+  );
 
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
@@ -94,7 +94,7 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
         : (
           <View style={styles.form}>
             <Text style={styles.formTitle}>New location</Text>
-            <TextInput accessibilityLabel="Name" style={styles.input} value={name} onChangeText={setName} placeholder="e.g. Commander binder" placeholderTextColor={text.secondary} maxLength={80} autoFocus />
+            <TextField tone="canvas" accessibilityLabel="Name" value={name} onChangeText={setName} placeholder="e.g. Commander binder" maxLength={80} autoFocus />
             <Text style={styles.label}>Type</Text>
             <Choices values={[...LOCATION_TYPES]} selected={kind} labels={LOCATION_TYPE_LABELS} disabled={busy} onSelect={v => setKind(v as LocationKind)} />
             {topChoices.length > 0 && (
@@ -114,26 +114,23 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
 
       {!loading && !error && (
         <>
-          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LocationDetail', { locationId: null, title: 'Unsorted' })} style={styles.row}>
-            <View style={[styles.dot, { borderColor: 'transparent' }]} />
-            <Ionicons name="shuffle-outline" size={20} color={text.secondary} />
-            <View style={styles.grow}>
-              <Text style={styles.name}>Unsorted</Text>
-              <Text style={styles.sub}>{unsorted} card{unsorted === 1 ? '' : 's'} not filed anywhere yet</Text>
-            </View>
-            <Text style={styles.chevron}>›</Text>
-          </Pressable>
+          <ListGroup>
+            <GroupRow key="unsorted" accessibilityLabel={`Unsorted, ${unsorted} cards`} onPress={() => navigation.navigate('LocationDetail', { locationId: null, title: 'Unsorted' })}>
+              <View style={[styles.dot, { borderColor: 'transparent' }]} />
+              <Ionicons name="shuffle-outline" size={20} color={text.secondary} />
+              <View style={styles.grow}>
+                <Text style={styles.name}>Unsorted</Text>
+                <Text style={styles.sub}>{unsorted} card{unsorted === 1 ? '' : 's'} not filed anywhere yet</Text>
+              </View>
+              <Chevron />
+            </GroupRow>
+            {top.flatMap(t => [renderRow(t), ...childrenOf(t.id).map(c => renderRow(c, true))])}
+          </ListGroup>
           {top.length === 0 && !loading && !error && (
             <EmptyState title="No binders or boxes yet" body="A location is wherever a card physically sits. Make one to start filing cards, and it will show up here.">
               {!creating && <Button label="New location" onPress={() => setCreating(true)} />}
             </EmptyState>
           )}
-          {top.map(t => (
-            <View key={t.id} style={styles.group}>
-              <Row row={t} />
-              {childrenOf(t.id).map(c => <Row key={c.id} row={c} nested />)}
-            </View>
-          ))}
         </>
       )}
     </ScrollView>
@@ -142,17 +139,13 @@ export function LocationsScreen({ navigation }: NativeStackScreenProps<Locations
 
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, paddingBottom: 40, gap: space.md },
-  group: { gap: space.sm },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, minHeight: 56 },
-  nested: { marginLeft: space.xxl },
+  nested: { paddingLeft: space.lg + space.xl },
   grow: { flex: 1, gap: 2 },
   dot: { width: 12, height: 12, borderRadius: 6, borderWidth: 1 },
-  name: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
+  name: { ...type.rowTitle, color: text.primary },
   sub: { ...type.bodySm, color: text.secondary },
-  chevron: { fontSize: 22, color: text.secondary },
   form: { gap: space.sm, padding: space.lg, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
-  formTitle: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
+  formTitle: { ...type.rowTitle, color: text.primary },
   label: { ...type.label, color: text.secondary, marginTop: space.sm },
-  input: { height: 44, paddingHorizontal: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...type.body },
   formError: { ...type.bodySm, color: text.primary },
 }));

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../AppProvider';
 import { backend } from '../backend';
 import { PRIVACY_URL, TERMS_URL, deleteOwnAccount } from '../auth';
-import { Button, Choices } from '../components/ui';
+import { Button, Choices, Chevron, GroupRow, ListGroup, Tappable, TextField } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { makeStyles, usePreferences, type ThemeMode } from '../preferences';
 import { PAGES, PINNABLE, type NavSlots, type PageId } from '../navigation';
@@ -53,9 +53,7 @@ export function SettingsScreen() {
     <ScrollView contentContainerStyle={styles.page}>
       <PageTitle>{PAGES.Settings.title}</PageTitle>
       <Text style={styles.heading}>Appearance</Text>
-      <View style={styles.card}>
-        <Choices values={MODES} selected={mode} labels={MODE_LABELS} onSelect={v => setMode(v as ThemeMode)} />
-      </View>
+      <Choices values={MODES} selected={mode} labels={MODE_LABELS} onSelect={v => setMode(v as ThemeMode)} />
 
       <Text style={styles.heading}>Navigation bar</Text>
       <View style={styles.card}>
@@ -71,18 +69,16 @@ export function SettingsScreen() {
       />
 
       <Text style={styles.heading}>Welcome</Text>
-      <View style={styles.card}>
-        <Text style={styles.body}>A quick tour of what Upkeep does.</Text>
-        <Button secondary label="Show the welcome again" onPress={() => setWelcomeSeen(false)} />
-      </View>
+      <Text style={styles.body}>A quick tour of what Upkeep does.</Text>
+      <Button secondary label="Show the welcome again" onPress={() => setWelcomeSeen(false)} />
 
       <Text style={styles.heading}>Account</Text>
-      <View style={styles.card}>
-        <Text style={styles.body}>{userId ? (email ? `Signed in as ${email}` : 'Connected to Upkeep') : 'Not signed in'}</Text>
-        <Button label="Sign out" secondary disabled={disabled || !userId} onPress={() => void signOut()} />
-        <Text style={styles.link} accessibilityRole="link" onPress={() => void Linking.openURL(TERMS_URL)}>Terms of Service</Text>
-        <Text style={styles.link} accessibilityRole="link" onPress={() => void Linking.openURL(PRIVACY_URL)}>Privacy Policy</Text>
-      </View>
+      <ListGroup>
+        <GroupRow><Text style={styles.rowText}>{userId ? (email ? `Signed in as ${email}` : 'Connected to Upkeep') : 'Not signed in'}</Text></GroupRow>
+        <GroupRow accessibilityRole="link" onPress={() => void Linking.openURL(TERMS_URL)}><Text style={styles.rowText}>Terms of Service</Text><Chevron /></GroupRow>
+        <GroupRow accessibilityRole="link" onPress={() => void Linking.openURL(PRIVACY_URL)}><Text style={styles.rowText}>Privacy Policy</Text><Chevron /></GroupRow>
+      </ListGroup>
+      <Button label="Sign out" secondary disabled={disabled || !userId} onPress={() => void signOut()} />
 
       {!!userId && (
         <>
@@ -94,7 +90,7 @@ export function SettingsScreen() {
             ) : (
               <>
                 <Text style={styles.danger}>Type DELETE to confirm.</Text>
-                <TextInput accessibilityLabel="Type DELETE to confirm" style={styles.input} value={deleteWord} onChangeText={setDeleteWord} placeholder="DELETE" placeholderTextColor={text.secondary} autoCapitalize="characters" autoCorrect={false} />
+                <TextField tone="canvas" accessibilityLabel="Type DELETE to confirm" value={deleteWord} onChangeText={setDeleteWord} placeholder="DELETE" autoCapitalize="characters" autoCorrect={false} />
                 <Button label={deleteBusy ? 'Deleting…' : 'Permanently delete account'} loading={deleteBusy} disabled={deleteWord !== 'DELETE'} onPress={() => void confirmDelete()} />
                 <Button secondary label="Cancel" disabled={deleteBusy} onPress={() => { setDeleting(false); setDeleteWord(''); }} />
               </>
@@ -104,20 +100,18 @@ export function SettingsScreen() {
       )}
 
       <Text style={styles.heading}>Card database</Text>
-      <View style={styles.card}>
-        <Text style={styles.body}>
-          {demo
-            ? 'No card database on this phone yet. The scanner needs it to recognize cards.'
-            : `The scanner matches cards against a copy stored on this phone. Yours is from ${new Date(index.bundle.generatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}.`}
-        </Text>
+      <Text style={styles.body}>
         {demo
-          ? <Button label="Download card database" disabled={disabled} onPress={() => void syncCatalog()} />
-          : <Button secondary label="Check for updates" disabled={disabled} onPress={() => {
-            setUpdateStatus('Checking…');
-            void checkForCatalogUpdate(true).then(r => setUpdateStatus(r.status === 'current' ? 'You’re up to date.' : r.status === 'available' ? '' : 'Couldn’t check just now. Try again later.'));
-          }} />}
-        {!!updateStatus && <Text style={styles.body}>{updateStatus}</Text>}
-      </View>
+          ? 'No card database on this phone yet. The scanner needs it to recognize cards.'
+          : `The scanner matches cards against a copy stored on this phone. Yours is from ${new Date(index.bundle.generatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}.`}
+      </Text>
+      {demo
+        ? <Button label="Download card database" disabled={disabled} onPress={() => void syncCatalog()} />
+        : <Button secondary label="Check for updates" disabled={disabled} onPress={() => {
+          setUpdateStatus('Checking…');
+          void checkForCatalogUpdate(true).then(r => setUpdateStatus(r.status === 'current' ? 'You’re up to date.' : r.status === 'available' ? '' : 'Couldn’t check just now. Try again later.'));
+        }} />}
+      {!!updateStatus && <Text style={styles.body}>{updateStatus}</Text>}
     </ScrollView>
   );
 }
@@ -148,10 +142,10 @@ function SlotChip({ label, page, onPress }: { label: string; page: PageId; onPre
   const styles = useStyles();
   const info = PAGES[page];
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${info.title}. Tap to change.`} style={styles.chip} onPress={onPress}>
+    <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`${label}: ${info.title}. Tap to change.`} style={styles.chip} onPress={onPress}>
       <Ionicons name={info.outline} size={20} color={text.primary} />
       <Text style={styles.chipLabel} numberOfLines={1}>{info.short ?? info.title}</Text>
-    </Pressable>
+    </Tappable>
   );
 }
 
@@ -180,7 +174,7 @@ function SlotPicker({ slotIndex, slots, onSelect, onClose }: {
               const selected = page === current;
               const otherSlot = slots.findIndex((p, i) => p === page && i !== slotIndex);
               return (
-                <Pressable
+                <Tappable
                   key={page}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
@@ -191,7 +185,7 @@ function SlotPicker({ slotIndex, slots, onSelect, onClose }: {
                   <Text style={styles.pickerRowLabel}>{info.title}</Text>
                   {otherSlot >= 0 && !selected && <Text style={styles.pickerSwapNote}>swaps with {SLOT_LABELS[otherSlot]}</Text>}
                   {selected && <Ionicons name="checkmark" size={18} color={accent.DEFAULT} />}
-                </Pressable>
+                </Tappable>
               );
             })}
           </ScrollView>
@@ -211,13 +205,10 @@ const useStyles = makeStyles(() => StyleSheet.create({
   // radius.lg (16) is the token for cards/grouped panels -- this used to spell
   // the same value out as a literal `16`.
   card: { padding: space.lg, backgroundColor: surface.raised, borderRadius: radius.lg, gap: space.md, borderWidth: 1, borderColor: border.hairline },
-  link: { ...typeTokens.bodySm, color: text.secondary, textDecorationLine: 'underline', paddingVertical: space.xs },
+  rowText: { flex: 1, ...typeTokens.body, color: text.primary },
   danger: { ...typeTokens.label, color: state.error },
-  // radius.md (12) is the token for inputs/buttons -- this was a one-off `10`.
-  // type.input supplies the font family a bare `fontSize: 16` was missing.
-  input: { backgroundColor: surface.raised, borderColor: border.hairline, borderWidth: 1, borderRadius: radius.md, padding: 14, color: text.primary, ...typeTokens.input },
   preview: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
-  chip: { flex: 1, alignItems: 'center', gap: 4, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas },
+  chip: { flex: 1, alignItems: 'center', gap: space.xs, paddingVertical: space.sm, borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas },
   chipFixed: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
   chipLabel: { ...typeTokens.label, color: text.secondary, textTransform: 'none' },
   chipLabelFixed: { ...typeTokens.label, color: text.onAccent, textTransform: 'none' },

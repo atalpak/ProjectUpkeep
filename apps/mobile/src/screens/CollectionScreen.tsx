@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { FlatList, Image, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { CONDITIONS } from '@upkeep/scan-core';
@@ -7,7 +7,7 @@ import { COLLECTION_SORTS, COLLECTION_SORT_LABELS, entryPrice, filterCollection,
 import { CollectionAuthError, EMPTY_COLLECTION_FILTER, collectionFacetCount, fetchWholeCollection, type CollectionEntry, type CollectionFilter } from '../collection';
 import { errorMessage } from '../errors';
 import { useApp } from '../AppProvider';
-import { BottomSheet, Button, Choices, EmptyState, Notice } from '../components/ui';
+import { BottomSheet, Badge, Button, Choices, EmptyState, Notice, Tappable, TextField } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { ManaSymbol } from '../components/ManaCost';
 import { useSearchOverlay } from '../searchOverlay';
@@ -17,7 +17,7 @@ import { PAGES } from '../navigation';
 import { FoilOverlay, useFoilTilt } from '../components/FoilArt';
 import { FlipBadge } from '../components/FlipBadge';
 import { useCardFace } from '../hooks/useCardFace';
-import { border, radius, space, surface, text, type as typeTokens, accent } from '../theme';
+import { border, fontFamily, iconButtonSize, radius, space, surface, text, type as typeTokens, accent } from '../theme';
 import { makeStyles, usePreferences } from '../preferences';
 
 const COLORS = ['W', 'U', 'B', 'R', 'G'] as const;
@@ -141,18 +141,18 @@ function CollectionList({ userId }: { userId: string }) {
         <View style={styles.field}>
           <Ionicons name="search" size={18} color={text.secondary} />
           <TextInput accessibilityLabel="Search your collection" style={styles.input} value={query} onChangeText={setQuery} placeholder="Search your collection" placeholderTextColor={text.secondary} autoCorrect={false} autoCapitalize="none" returnKeyType="search" />
-          {!!query && <Pressable accessibilityLabel="Clear search" hitSlop={8} onPress={() => setQuery('')}><Ionicons name="close-circle" size={18} color={text.secondary} /></Pressable>}
+          {!!query && <Tappable feedback="dim" accessibilityLabel="Clear search" hitSlop={8} onPress={() => setQuery('')}><Ionicons name="close-circle" size={18} color={text.secondary} /></Tappable>}
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel={facetCount ? `Filters, ${facetCount} active` : 'Filters'} accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={[styles.iconButton, (showFilters || facetCount > 0) && styles.iconButtonOn]}>
+        <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={facetCount ? `Filters, ${facetCount} active` : 'Filters'} accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={[styles.iconButton, (showFilters || facetCount > 0) && styles.iconButtonOn]}>
           <Ionicons name="options-outline" size={20} color={text.primary} />
-          {facetCount > 0 && <View style={styles.badge}><Text style={styles.badgeText}>{facetCount}</Text></View>}
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={`Sort, ${COLLECTION_SORT_LABELS[collectionSort]}`} accessibilityState={{ expanded: showSort }} onPress={() => setShowSort(v => !v)} style={[styles.iconButton, (showSort || collectionSort !== 'name') && styles.iconButtonOn]}>
+          {facetCount > 0 && <Badge value={facetCount} style={styles.badge} />}
+        </Tappable>
+        <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Sort, ${COLLECTION_SORT_LABELS[collectionSort]}`} accessibilityState={{ expanded: showSort }} onPress={() => setShowSort(v => !v)} style={[styles.iconButton, (showSort || collectionSort !== 'name') && styles.iconButtonOn]}>
           <Ionicons name="swap-vertical" size={20} color={text.primary} />
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={collectionView === 'grid' ? 'Show as list' : 'Show card images'} onPress={() => setCollectionView(collectionView === 'grid' ? 'list' : 'grid')} style={styles.iconButton}>
+        </Tappable>
+        <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={collectionView === 'grid' ? 'Show as list' : 'Show card images'} onPress={() => setCollectionView(collectionView === 'grid' ? 'list' : 'grid')} style={styles.iconButton}>
           <Ionicons name={collectionView === 'grid' ? 'list-outline' : 'grid-outline'} size={20} color={text.primary} />
-        </Pressable>
+        </Tappable>
       </View>
 
       {showSort && (
@@ -222,14 +222,14 @@ function CollectionList({ userId }: { userId: string }) {
           {COLORS.map(c => {
             const on = facets.colors.includes(c);
             return (
-              <Pressable key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipRing]}>
+              <Tappable feedback="dim" key={c} accessibilityRole="checkbox" accessibilityState={{ checked: on }} accessibilityLabel={COLOR_NAMES[c]} onPress={() => toggleColor(c)} style={[styles.colorChip, on && styles.colorChipRing]}>
                 <ManaSymbol code={c} size={26} hidden />
-              </Pressable>
+              </Tappable>
             );
           })}
-          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: facets.colorless }} onPress={() => setFacets(f => ({ ...f, colorless: !f.colorless, colors: [] }))} style={[styles.pill, facets.colorless && styles.colorChipOn]}>
+          <Tappable feedback="dim" accessibilityRole="checkbox" accessibilityState={{ checked: facets.colorless }} onPress={() => setFacets(f => ({ ...f, colorless: !f.colorless, colors: [] }))} style={[styles.pill, facets.colorless && styles.colorChipOn]}>
             <Text style={[styles.colorText, facets.colorless && styles.colorTextOn]}>Colorless</Text>
-          </Pressable>
+          </Tappable>
         </View>
         {facets.colors.length > 1 && <Choices values={['all', 'any']} selected={facets.colorMode} labels={COLOR_MODE_LABELS} onSelect={v => setFacets(f => ({ ...f, colorMode: v as 'all' | 'any' }))} />}
 
@@ -245,9 +245,9 @@ function CollectionList({ userId }: { userId: string }) {
         <Choices values={['', ...CONDITIONS]} selected={facets.condition} labels={{ '': 'Any' }} onSelect={v => setFacets(f => ({ ...f, condition: v }))} />
 
         <Text style={styles.groupLabel}>Type</Text>
-        <TextInput accessibilityLabel="Type" style={styles.textInput} value={facets.type} onChangeText={t => setFacets(f => ({ ...f, type: t }))} placeholder="e.g. creature" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} />
+        <TextField tone="canvas" accessibilityLabel="Type" value={facets.type} onChangeText={t => setFacets(f => ({ ...f, type: t }))} placeholder="e.g. creature" autoCapitalize="none" autoCorrect={false} />
         <Text style={styles.groupLabel}>Set code</Text>
-        <TextInput accessibilityLabel="Set code" style={styles.textInput} value={facets.set} onChangeText={t => setFacets(f => ({ ...f, set: t }))} placeholder="e.g. fdn" placeholderTextColor={text.secondary} autoCapitalize="none" autoCorrect={false} maxLength={8} />
+        <TextField tone="canvas" accessibilityLabel="Set code" value={facets.set} onChangeText={t => setFacets(f => ({ ...f, set: t }))} placeholder="e.g. fdn" autoCapitalize="none" autoCorrect={false} maxLength={8} />
       </BottomSheet>
       <CardDetails
         name={details?.card_name ?? null}
@@ -271,14 +271,14 @@ function CollectionTile({ entry: e, tile, tilt, onOpen }: { entry: CollectionEnt
   const face = useCardFace({ name: e.card_name, layout: e.card_layout, image: e.card_image_uri, imageSmall: e.card_image_uri_small }, 'small');
   const name = face.name ?? e.card_name;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${name}, ${e.quantity} owned`} onPress={() => onOpen(e)} style={{ width: tile }}>
+    <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`${name}, ${e.quantity} owned`} onPress={() => onOpen(e)} style={{ width: tile }}>
       {face.image
         ? <Image source={{ uri: face.image }} onError={face.onImageError} style={[styles.tileImage, { width: tile, height: tile / CARD_ASPECT }]} />
         : <View style={[styles.tileImage, styles.tileEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.tileName}>{name}</Text></View>}
-      {e.finish !== 'nonfoil' && <FoilOverlay tilt={tilt} width={tile} height={tile / CARD_ASPECT} radius={6} strength={1.05} />}
+      {e.finish !== 'nonfoil' && <FoilOverlay tilt={tilt} width={tile} height={tile / CARD_ASPECT} radius={radius.tile} strength={1.05} />}
       {e.quantity > 1 && <View style={styles.qtyBadge}><Text style={styles.qtyBadgeText}>×{e.quantity}</Text></View>}
       {face.canFlip && <FlipBadge onPress={face.flip} otherName={face.otherName} />}
-    </Pressable>
+    </Tappable>
   );
 }
 
@@ -291,10 +291,10 @@ function CollectionRow({ entry: e, tilt, onOpen }: { entry: CollectionEntry; til
   // (`entryPrice`, `@upkeep/domain`) -- never a valuation the app claims to be exact.
   const price = entryPrice(e);
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`${name}, details`} onPress={() => onOpen(e)} style={styles.row}>
+    <Tappable accessibilityRole="button" accessibilityLabel={`${name}, details`} onPress={() => onOpen(e)} style={styles.row}>
       <View style={styles.thumb}>
         {face.image ? <Image source={{ uri: face.image }} onError={face.onImageError} style={styles.thumbImage} /> : null}
-        {e.finish !== 'nonfoil' && <FoilOverlay tilt={tilt} width={38} height={53} radius={4} strength={1.25} />}
+        {e.finish !== 'nonfoil' && <FoilOverlay tilt={tilt} width={38} height={53} radius={radius.thumb} strength={1.25} />}
         {face.canFlip && <FlipBadge onPress={face.flip} otherName={face.otherName} size={20} corner="bottom-right" />}
       </View>
       <View style={styles.grow}>
@@ -305,7 +305,7 @@ function CollectionRow({ entry: e, tilt, onOpen }: { entry: CollectionEntry; til
         {e.quantity > 1 && <Text style={styles.qty}>×{e.quantity}</Text>}
         <Text style={styles.price}>{formatPrice(price)}</Text>
       </View>
-    </Pressable>
+    </Tappable>
   );
 }
 
@@ -315,12 +315,11 @@ const useStyles = makeStyles(() => StyleSheet.create({
   top: { gap: space.sm, paddingTop: space.sm, paddingBottom: space.sm },
   pageTitle: { marginBottom: space.xs },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm, height: 42, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
-  input: { flex: 1, ...typeTokens.body, color: text.primary, paddingVertical: 0 },
-  iconButton: { width: 42, height: 42, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  field: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm, height: iconButtonSize, paddingHorizontal: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  input: { flex: 1, ...typeTokens.input, color: text.primary, paddingVertical: 0 },
+  iconButton: { width: iconButtonSize, height: iconButtonSize, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   iconButtonOn: { borderColor: accent.DEFAULT, backgroundColor: accent.soft },
-  badge: { position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: accent.DEFAULT },
-  badgeText: { ...typeTokens.label, color: text.onAccent },
+  badge: { position: 'absolute', top: -5, right: -5 },
   sortPanel: { padding: space.md, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   filterFooter: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   filterFooterPrimary: { flex: 1 },
@@ -331,26 +330,25 @@ const useStyles = makeStyles(() => StyleSheet.create({
   colorChipOn: { backgroundColor: accent.DEFAULT, borderColor: accent.DEFAULT },
   // A symbol keeps its own colours, so "on" is a ring and a soft wash rather than a solid accent fill.
   colorChipRing: { backgroundColor: accent.soft, borderColor: accent.DEFAULT, borderWidth: 2 },
-  colorText: { ...typeTokens.bodySm, color: text.primary, fontWeight: '700' },
+  colorText: { ...typeTokens.bodySm, fontFamily: fontFamily.bodySemiBold, color: text.primary },
   colorTextOn: { color: text.onAccent },
-  textInput: { height: 40, paddingHorizontal: space.md, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.canvas, color: text.primary, ...typeTokens.body },
   count: { ...typeTokens.label, color: text.secondary },
   empty: { paddingTop: space.lg, gap: space.md },
   body: { ...typeTokens.bodySm, color: text.secondary },
   // Compact row: a small thumbnail, name, one line of detail, the quantity on the right.
   row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
-  thumb: { width: 38, height: 53, borderRadius: 4, backgroundColor: surface.sunken, overflow: 'hidden' },
+  thumb: { width: 38, height: 53, borderRadius: radius.thumb, backgroundColor: surface.sunken, overflow: 'hidden' },
   thumbImage: { width: 38, height: 53 },
   grow: { flex: 1, gap: 1 },
   name: { ...typeTokens.body, fontFamily: typeTokens.title.fontFamily, color: text.primary },
   meta: { ...typeTokens.label, color: text.secondary, fontFamily: typeTokens.bodySm.fontFamily },
   trailing: { alignItems: 'flex-end', gap: 1 },
-  qty: { ...typeTokens.title, fontSize: 16, color: text.primary },
+  qty: { ...typeTokens.rowTitle, color: text.primary },
   price: { ...typeTokens.label, color: text.secondary },
   gridRow: { gap: space.sm, marginBottom: space.sm },
-  tileImage: { borderRadius: 6, backgroundColor: surface.sunken },
+  tileImage: { borderRadius: radius.tile, backgroundColor: surface.sunken },
   tileEmpty: { alignItems: 'center', justifyContent: 'center', padding: 6 },
   tileName: { ...typeTokens.label, color: text.secondary, textAlign: 'center' },
-  qtyBadge: { position: 'absolute', top: 4, right: 4, minWidth: 24, height: 22, borderRadius: 11, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: accent.DEFAULT },
-  qtyBadgeText: { ...typeTokens.label, color: text.onAccent, fontWeight: '800' },
+  qtyBadge: { position: 'absolute', top: space.xs, right: space.xs, minWidth: 24, height: 22, borderRadius: radius.pill, paddingHorizontal: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: accent.DEFAULT },
+  qtyBadgeText: { ...typeTokens.statusBadge, color: text.onAccent },
 }));

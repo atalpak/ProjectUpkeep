@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import {
   commitStacks, MAX_ROWS, parseImport, planImport, summarizePlan,
@@ -7,7 +7,7 @@ import {
 } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { writer } from '../backend';
-import { Button, Choices, DismissingNotice, Notice } from '../components/ui';
+import { Button, Choices, DismissingNotice, Notice, TextField } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { resolveRows } from '../importResolve';
@@ -145,14 +145,13 @@ export function ImportScreen() {
       {(step === 'paste' || step === 'checking') && (
         <>
           <Text style={styles.body}>Paste a list of cards, like “4 Lightning Bolt”, or a CSV copied from Moxfield, ManaBox or Archidekt. Nothing is added until you confirm.</Text>
-          <TextInput
+          <TextField
             style={styles.input}
             multiline
             value={input}
             onChangeText={setInput}
             editable={step === 'paste'}
             placeholder={'4 Lightning Bolt\n1 Sol Ring (C21) 263'}
-            placeholderTextColor={text.secondary}
             autoCapitalize="none"
             autoCorrect={false}
             accessibilityLabel="Cards to import"
@@ -226,12 +225,12 @@ export function ImportScreen() {
 
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, paddingBottom: 40, gap: space.md },
-  title: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
+  title: { ...type.rowTitle, color: text.primary },
   big: { ...type.title, color: text.primary },
   body: { ...type.bodySm, color: text.secondary },
   label: { ...type.bodySm, color: text.primary },
   bad: { ...type.bodySm, color: state.error },
-  input: { minHeight: 180, padding: space.md, textAlignVertical: 'top', borderRadius: radius.md, borderWidth: 1, borderColor: border.strong, backgroundColor: surface.raised, color: text.primary },
+  input: { minHeight: 180 },
   card: { padding: space.lg, gap: space.sm, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   track: { height: 10, borderRadius: radius.pill, backgroundColor: surface.sunken, overflow: 'hidden' },
   fill: { height: 10, borderRadius: radius.pill, backgroundColor: state.success },

@@ -4,8 +4,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles } from '../preferences';
+import { useRegisterOverlay } from '../overlays';
 import { BUILT, MENU_ORDER, PAGES, type PageId } from '../navigation';
-import { Badge, IconButton } from './ui';
+import { Badge, IconButton, Tappable } from './ui';
 import { accent, border, fontFamily, radius, scrim, space, surface, text, type } from '../theme';
 
 /**
@@ -47,6 +48,7 @@ export function MenuSheet({ visible, current, onSelect, onClose, unread = 0 }: {
   /** Unread notifications, shown as a count on the Notifications entry. */
   unread?: number;
 }) {
+  useRegisterOverlay(visible);
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -90,7 +92,7 @@ export function MenuSheet({ visible, current, onSelect, onClose, unread = 0 }: {
                   const page = PAGES[id];
                   const selected = id === current;
                   return (
-                    <Pressable
+                    <Tappable
                       key={id}
                       accessibilityRole="menuitem"
                       accessibilityState={{ selected }}
@@ -101,7 +103,7 @@ export function MenuSheet({ visible, current, onSelect, onClose, unread = 0 }: {
                       <Text style={[styles.itemLabel, selected && styles.itemLabelSelected]}>{page.title}</Text>
                       {!BUILT.has(id) && <Text style={styles.soon}>Soon</Text>}
                       {id === 'Notifications' && unread > 0 && <Badge value={unread > 99 ? '99+' : unread} style={styles.count} />}
-                    </Pressable>
+                    </Tappable>
                   );
                 })}
               </View>

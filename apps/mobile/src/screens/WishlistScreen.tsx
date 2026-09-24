@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, StyleSheet, Text, View } from 'react-native';
 import { MAX_WANT_QUANTITY, MIN_WANT_QUANTITY } from '@upkeep/domain';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,7 @@ import { useApp } from '../AppProvider';
 import { fetchFriendSupplyCounts, fetchWantList, removeWant, type WantEntry } from '../cardDetails';
 import { setWantQuantity } from '../wishlist';
 import { CardDetails } from '../components/CardDetails';
-import { Button, EmptyState, Notice } from '../components/ui';
+import { Button, EmptyState, Notice, Tappable } from '../components/ui';
 import { FlipThumb } from '../components/FlipThumb';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
@@ -140,7 +140,7 @@ function WishlistList({ userId }: { userId: string }) {
           const friends = supply.get(item.oracleId) ?? 0;
           return (
             <View style={styles.row}>
-              <Pressable accessibilityRole="button" accessibilityLabel={`${item.name}, details`} onPress={() => setDetails(item)} style={styles.main}>
+              <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`${item.name}, details`} onPress={() => setDetails(item)} style={styles.main}>
                 <FlipThumb card={{ name: item.name, layout: item.layout, imageSmall: item.imageSmall }} thumbStyle={[styles.thumb, !item.imageSmall && styles.thumbEmpty]}>
                   {name => (
                     <View style={styles.grow}>
@@ -150,19 +150,19 @@ function WishlistList({ userId }: { userId: string }) {
                     </View>
                   )}
                 </FlipThumb>
-              </Pressable>
+              </Tappable>
               <View style={styles.stepper}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Want fewer ${item.name}`} accessibilityState={{ disabled: item.quantity <= MIN_WANT_QUANTITY }} disabled={item.quantity <= MIN_WANT_QUANTITY} onPress={() => changeQuantity(item, -1)} hitSlop={6} style={styles.stepButton}>
+                <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Want fewer ${item.name}`} accessibilityState={{ disabled: item.quantity <= MIN_WANT_QUANTITY }} disabled={item.quantity <= MIN_WANT_QUANTITY} onPress={() => changeQuantity(item, -1)} hitSlop={6} style={styles.stepButton}>
                   <Ionicons name="remove" size={18} color={item.quantity <= MIN_WANT_QUANTITY ? text.secondary : text.primary} />
-                </Pressable>
+                </Tappable>
                 <Text accessibilityLabel={`Want ${item.quantity}`} style={styles.stepValue}>{item.quantity}</Text>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Want more ${item.name}`} onPress={() => changeQuantity(item, 1)} hitSlop={6} style={styles.stepButton}>
+                <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Want more ${item.name}`} onPress={() => changeQuantity(item, 1)} hitSlop={6} style={styles.stepButton}>
                   <Ionicons name="add" size={18} color={text.primary} />
-                </Pressable>
+                </Tappable>
               </View>
-              <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} onPress={() => confirmRemove(item)} hitSlop={8} style={styles.remove}>
+              <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} onPress={() => confirmRemove(item)} hitSlop={8} style={styles.remove}>
                 <Ionicons name="trash-outline" size={20} color={text.secondary} />
-              </Pressable>
+              </Tappable>
             </View>
           );
         }}
@@ -179,12 +179,12 @@ const useStyles = makeStyles(() => StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   main: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md },
   grow: { flex: 1, gap: 2 },
-  thumb: { width: 56, height: 78, borderRadius: radius.sm, backgroundColor: surface.sunken },
+  thumb: { width: 56, height: 78, borderRadius: radius.thumb, backgroundColor: surface.sunken },
   thumbEmpty: {},
-  name: { ...type.title, fontSize: 16, lineHeight: 22, color: text.primary },
+  name: { ...type.rowTitle, color: text.primary },
   friends: { ...type.bodySm, color: text.primary },
   stepper: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline },
   stepButton: { width: 32, height: 36, alignItems: 'center', justifyContent: 'center' },
-  stepValue: { ...type.title, fontSize: 15, minWidth: 24, textAlign: 'center', color: text.primary },
+  stepValue: { ...type.rowTitle, minWidth: 24, textAlign: 'center', color: text.primary },
   remove: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 }));

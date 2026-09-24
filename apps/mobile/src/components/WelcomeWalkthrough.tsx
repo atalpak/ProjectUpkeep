@@ -11,11 +11,11 @@
  * position (see RootShell's comment).
  */
 import React, { useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { makeStyles } from '../preferences';
 import { space, surface, text, type } from '../theme';
-import { Button } from './ui';
+import { Button, Tappable } from './ui';
 
 const STEPS = [
   { image: require('../mort/assets/mort_file.png'), title: 'Where is my card?', body: 'Upkeep remembers which binder, box or deck each copy actually sits in, so you can find it in seconds.' },
@@ -33,9 +33,9 @@ export function WelcomeWalkthrough({ visible, onDone }: { visible: boolean; onDo
     <Modal visible={visible} animationType="fade" onRequestClose={finish}>
       <SafeAreaView style={styles.page}>
         <View style={styles.skipRow}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Skip the welcome" onPress={finish} hitSlop={12}>
+          <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel="Skip the welcome" onPress={finish} hitSlop={12} style={styles.skipTap}>
             <Text style={styles.skip}>Skip</Text>
-          </Pressable>
+          </Tappable>
         </View>
         <View style={styles.body}>
           <Image source={current.image} style={styles.mort} accessibilityIgnoresInvertColors />
@@ -56,6 +56,7 @@ export function WelcomeWalkthrough({ visible, onDone }: { visible: boolean; onDo
 const useStyles = makeStyles(() => StyleSheet.create({
   page: { flex: 1, backgroundColor: surface.canvas, padding: space.xxl },
   skipRow: { alignItems: 'flex-end' },
+  skipTap: { minHeight: 44, justifyContent: 'center' },
   skip: { ...type.body, color: text.secondary },
   body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: space.lg },
   mort: { width: 180, height: 180, resizeMode: 'contain' },

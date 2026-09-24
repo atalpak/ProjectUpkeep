@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { expiryLabel } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
-import { Notice } from '../components/ui';
+import { Chevron, GroupRow, ListGroup, Notice } from '../components/ui';
 import { PageTitle } from '../components/PageTitle';
 import { errorMessage } from '../errors';
 import { PAGES, type TradesStackParamList } from '../navigation';
 import { makeStyles } from '../preferences';
-import { border, radius, space, state, surface, text, type } from '../theme';
+import { space, state, text, type } from '../theme';
 import { fetchTrades, TRADE_STATUS_LABELS, type Trade } from '../trades';
 
 const count = (lines: Trade['giving']) => lines.reduce((sum, l) => sum + l.quantity, 0);
@@ -47,7 +47,7 @@ export function TradesScreen({ navigation }: NativeStackScreenProps<TradesStackP
   const row = (t: Trade) => {
     const time = t.status === 'proposed' ? expiryLabel(t.expiresAt) : null;
     return (
-      <Pressable key={t.id} accessibilityRole="button" accessibilityLabel={`Trade with ${t.otherName}, details`} onPress={() => navigation.navigate('TradeDetail', { tradeId: t.id })} style={styles.row}>
+      <GroupRow key={t.id} accessibilityLabel={`Trade with ${t.otherName}, details`} onPress={() => navigation.navigate('TradeDetail', { tradeId: t.id })}>
         <View style={styles.grow}>
           <Text style={styles.name}>{t.iProposed ? 'You offered' : 'Offer from'} {t.otherName}</Text>
           <Text style={styles.sub}>
@@ -56,15 +56,15 @@ export function TradesScreen({ navigation }: NativeStackScreenProps<TradesStackP
           {!!time && <Text style={[styles.sub, t.expired && styles.expired]}>{time}</Text>}
         </View>
         <Text style={styles.badge}>{t.expired ? 'Expired' : TRADE_STATUS_LABELS[t.status]}</Text>
-        <Text style={styles.chevron}>›</Text>
-      </Pressable>
+        <Chevron />
+      </GroupRow>
     );
   };
 
   const section = (title: string, list: Trade[]) => list.length > 0 && (
     <View style={styles.group}>
       <Text style={styles.heading}>{title} ({list.length})</Text>
-      {list.map(row)}
+      <ListGroup>{list.map(row)}</ListGroup>
     </View>
   );
 
@@ -90,8 +90,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   sub: { ...type.bodySm, color: text.secondary },
   expired: { color: state.error },
   grow: { flex: 1, gap: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.md, minHeight: 56, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
   name: { ...type.body, color: text.primary },
   badge: { ...type.label, color: text.secondary },
-  chevron: { fontSize: 22, color: text.secondary },
 }));

@@ -114,7 +114,7 @@ type TypeToken = { fontSize: number; lineHeight: number; fontFamily: string; fon
  * exactly this size.
  */
 export const type: Record<
-  'display' | 'title' | 'body' | 'bodySm' | 'label' | 'eyebrow' | 'mort' | 'rowTitle' | 'caption' | 'buttonLabel' | 'input' | 'statusBadge',
+  'display' | 'title' | 'body' | 'bodySm' | 'label' | 'eyebrow' | 'mort' | 'rowTitle' | 'caption' | 'buttonLabel' | 'input' | 'statusBadge' | 'fieldLabel',
   TypeToken
 > = {
   display: { fontSize: 28, lineHeight: 34, fontFamily: fontFamily.display, fontWeight: '600' },
@@ -147,9 +147,17 @@ export const type: Record<
   // bolder, matching what AppHeader/MenuSheet/Collection's badges already
   // rendered by hand (each missing `fontFamily`).
   statusBadge: { fontSize: 11, lineHeight: 14, fontFamily: fontFamily.bodySemiBold, fontWeight: '700' },
+  // The small heading above a field or a group of controls in a form ("Type",
+  // "Condition", "Find a card by name"). Screens had each hand-rolled this as
+  // `{ fontSize: 13, fontWeight: '700' }`; bodySm's size, semibold.
+  fieldLabel: { fontSize: 13, lineHeight: 20, fontFamily: fontFamily.bodySemiBold, fontWeight: '600' },
 };
 
-export const radius = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
+// `thumb` and `tile` are for card-shaped artwork only. A printed card's corner
+// radius is about 4.8% of its width, so a 40-70pt thumbnail wants ~3-4pt and a
+// ~110pt grid tile ~5-6pt; `sm` (8) would clip real artwork corners. Everything
+// that is not a card image uses the four general steps.
+export const radius = { thumb: 4, tile: 6, sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const;
 
