@@ -14,6 +14,7 @@ import { recordRecentSearch, readRecentSearches } from '../recentSearches';
 import { useApp } from '../AppProvider';
 import { Button, Choices, Tappable } from './ui';
 import { ManaSymbol } from './ManaCost';
+import { useRegisterOverlay } from '../overlays';
 import { CardDetails } from './CardDetails';
 import { FlipBadge } from './FlipBadge';
 import { useCardFace } from '../hooks/useCardFace';
@@ -43,6 +44,7 @@ const EMPTY_FACETS: Facets = { ...EMPTY_ADVANCED_FILTER };
  * every card Magic has, the same idea as the web app's Advanced Search.
  */
 export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(): void }) {
+  useRegisterOverlay(visible);
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { userId } = useApp();

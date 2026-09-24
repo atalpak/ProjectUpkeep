@@ -100,20 +100,18 @@ export function SettingsScreen() {
       )}
 
       <Text style={styles.heading}>Card database</Text>
-      <>
-        <Text style={styles.body}>
-          {demo
-            ? 'No card database on this phone yet. The scanner needs it to recognize cards.'
-            : `The scanner matches cards against a copy stored on this phone. Yours is from ${new Date(index.bundle.generatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}.`}
-        </Text>
+      <Text style={styles.body}>
         {demo
-          ? <Button label="Download card database" disabled={disabled} onPress={() => void syncCatalog()} />
-          : <Button secondary label="Check for updates" disabled={disabled} onPress={() => {
-            setUpdateStatus('Checking…');
-            void checkForCatalogUpdate(true).then(r => setUpdateStatus(r.status === 'current' ? 'You’re up to date.' : r.status === 'available' ? '' : 'Couldn’t check just now. Try again later.'));
-          }} />}
-        {!!updateStatus && <Text style={styles.body}>{updateStatus}</Text>}
-      </>
+          ? 'No card database on this phone yet. The scanner needs it to recognize cards.'
+          : `The scanner matches cards against a copy stored on this phone. Yours is from ${new Date(index.bundle.generatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}.`}
+      </Text>
+      {demo
+        ? <Button label="Download card database" disabled={disabled} onPress={() => void syncCatalog()} />
+        : <Button secondary label="Check for updates" disabled={disabled} onPress={() => {
+          setUpdateStatus('Checking…');
+          void checkForCatalogUpdate(true).then(r => setUpdateStatus(r.status === 'current' ? 'You’re up to date.' : r.status === 'available' ? '' : 'Couldn’t check just now. Try again later.'));
+        }} />}
+      {!!updateStatus && <Text style={styles.body}>{updateStatus}</Text>}
     </ScrollView>
   );
 }

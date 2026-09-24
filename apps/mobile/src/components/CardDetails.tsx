@@ -21,6 +21,7 @@ import { useReducedMotion } from '../hooks/useReducedMotion';
 import { Button, Choices, Notice } from './ui';
 import { FoilArt } from './FoilArt';
 import { ManaCost } from './ManaCost';
+import { useRegisterOverlay } from '../overlays';
 
 const CARD_ASPECT = 488 / 680;
 /** Width of one printing tile in the printings strip; fixed so the windowed list can place tiles without measuring. */
@@ -86,6 +87,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   ownedFinish?: string | null;
   onClose(): void;
 }) {
+  useRegisterOverlay(name !== null);
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { width, height: windowHeight } = useWindowDimensions();

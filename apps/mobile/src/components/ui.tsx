@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { accent, border, iconButtonSize, radius, scrim, space, surface, text as textColor, type } from '../theme';
 import { makeStyles } from '../preferences';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useRegisterOverlay } from '../overlays';
 
 /**
  * Primary/secondary action button, with the shared pressed/focused/disabled/
@@ -307,6 +308,7 @@ export function DismissingNotice({ children, onDone, style, holdMs = 5000 }: { c
 export function BottomSheet({ visible, onClose, title, footer, children, maxHeightRatio = 0.85 }: {
   visible: boolean; onClose(): void; title: string; footer?: React.ReactNode; children: React.ReactNode; maxHeightRatio?: number;
 }) {
+  useRegisterOverlay(visible);
   const styles = useStyles();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();

@@ -15,6 +15,7 @@ import { PAGES, type PageId } from '../navigation';
 import { useSearchOverlay } from '../searchOverlay';
 import { accent, border, brand, radius, space, surface, text, type } from '../theme';
 import { Tappable } from './ui';
+import { useAnyOverlayOpen } from '../overlays';
 
 const BAR_HEIGHT = 50;
 // How far the Scan button rises above the bar. The bar's own container is
@@ -65,7 +66,12 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
   // hints at. Held back until the welcome tour is done (so the two never stack)
   // and while a catalog prompt is up, and never over the camera page. A short
   // delay lets the screen settle first so it reads as a hint, not a glitch.
-  const hintEligible = welcomeSeen && !scanHintSeen && !app.catalogBusy && !app.catalogUpdate && current !== 'Scan';
+  // Also held back while any sheet or modal is up (menu, search, card details,
+  // a screen's filter sheet, a scan review): it would present over or under it,
+  // and if one opens while the hint shows, the hint hides -- without being
+  // marked seen, so it returns after the idle delay once that sheet closes.
+  const overlayOpen = useAnyOverlayOpen() || !!app.review;
+  const hintEligible = welcomeSeen && !scanHintSeen && !app.catalogBusy && !app.catalogUpdate && !overlayOpen && current !== 'Scan';
   const [hintReady, setHintReady] = useState(false);
   useEffect(() => {
     if (!hintEligible) { setHintReady(false); return; }
@@ -430,7 +436,7 @@ function ScanHint({ visible, bottom, onDismiss }: { visible: boolean; bottom: nu
   return (
     <Modal transparent visible={visible} animationType={reducedMotion ? 'none' : 'fade'} statusBarTranslucent onRequestClose={onDismiss}>
       <Pressable accessibilityLabel="Dismiss hint" accessibilityRole="button" style={styles.hintScrim} onPress={onDismiss}>
-        <View style={[styles.hintBubble, { bottom }]} accessible accessibilityLabel="Tip. Press and hold Scan, then slide to Search or Scan.">
+        <View style={[styles.hintBubble, { bottom }]} accessible={false}>
           <Text style={styles.hintTitle}>Hold Scan for more</Text>
           <Text style={styles.hintBody}>Press and hold the Scan button, then slide to Search or quick Scan.</Text>
           <Tappable feedback="dim" accessibilityRole="button" onPress={onDismiss} style={styles.hintAction}>
