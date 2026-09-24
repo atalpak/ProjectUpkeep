@@ -138,7 +138,7 @@ function DeckTileView({ deck, width, height, onPress }: { deck: DeckTile; width:
       <View style={styles.tileBody}>
         <View style={styles.tileTop}>
           <View style={styles.pips}>
-            {deck.commanderColors.filter(c => 'WUBRG'.includes(c)).map(c => <ManaSymbol key={c} code={c} size={20} />)}
+            {deck.commanderColors.filter(c => c.length === 1 && 'WUBRG'.includes(c)).map(c => <ManaSymbol key={c} code={c} size={20} />)}
           </View>
           {deck.isPublic && <Text style={[styles.shared, { color: fg, borderColor: hasArt ? 'rgba(245,237,224,0.5)' : accent.DEFAULT }]}>Shared</Text>}
         </View>

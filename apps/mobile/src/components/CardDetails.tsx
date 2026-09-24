@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, FlatList, Image, Linking, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, Linking, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -88,8 +88,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
 }) {
   const styles = useStyles();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const { height: windowHeight } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
 
   // Sheet position: 0 is open, windowHeight is off-screen. One value drives the slide-in,
@@ -103,23 +102,40 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   // Animated + PanResponder pair, all on the native driver.
   const y = useRef(new Animated.Value(windowHeight)).current;
   const closing = useRef(false);
+  // True while the slide-in runs: a drag then would fight the native-driven timing for `y`.
+  const entering = useRef(false);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const motionRef = useRef({ reducedMotion, windowHeight });
   motionRef.current = { reducedMotion, windowHeight };
 
+  // The Modal is transparent and status-bar translucent, so neither platform resizes it for
+  // the keyboard. iOS: the ScrollView insets itself (automaticallyAdjustKeyboardInsets) and
+  // scrolls the focused field into view. Android: lift the sheet's bottom edge by the keyboard
+  // height so the ScrollView shrinks and Android scrolls the focused field into view.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', e => setKeyboardHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+
   const isOpen = !!name;
   useEffect(() => {
     if (!isOpen) return;
     closing.current = false;
+    entering.current = true;
     y.setValue(motionRef.current.windowHeight);
-    Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true })
+      .start(() => { entering.current = false; });
   }, [isOpen, y]);
 
   // Slides out from wherever the sheet is (mid-drag included), then asks the parent to close.
   const requestClose = useCallback(() => {
     if (closing.current) return;
     closing.current = true;
+    entering.current = false;
     const { reducedMotion: reduced, windowHeight: h } = motionRef.current;
     Animated.timing(y, { toValue: h, duration: reduced ? 0 : duration.micro, easing: Easing.in(Easing.cubic), useNativeDriver: true })
       .start(() => onCloseRef.current());
@@ -128,18 +144,23 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   requestCloseRef.current = requestClose;
 
   const dragZone = useRef(PanResponder.create({
-    onMoveShouldSetPanResponder: (_e, g) => g.dy > 4 && g.dy > Math.abs(g.dx),
+    onMoveShouldSetPanResponder: (_e, g) => !entering.current && !closing.current && g.dy > 4 && g.dy > Math.abs(g.dx),
     onPanResponderMove: (_e, g) => { if (!closing.current) y.setValue(Math.max(0, g.dy)); },
     onPanResponderRelease: (_e, g) => {
+      if (closing.current) return;
       if (g.dy > CLOSE_DRAG_DISTANCE || g.vy > CLOSE_DRAG_VELOCITY) { requestCloseRef.current(); return; }
       Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.micro, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
     },
     onPanResponderTerminate: () => {
+      // A close already under way must run to the end, not be pulled back open.
+      if (closing.current) return;
       Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.micro, useNativeDriver: true }).start();
     },
   })).current;
 
-  // Pulling the body down past its top (iOS rubber-band) and letting go closes it too.
+  // Pulling the body down past its top and letting go closes it too. iOS only: it relies on
+  // the rubber-band overscroll (negative contentOffset), which Android's ScrollView does not
+  // have; there the top-bar drag, the X and the back button are the ways to close.
   const onScrollEndDrag = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (e.nativeEvent.contentOffset.y < -OVERSCROLL_CLOSE) requestCloseRef.current();
   }, []);
@@ -329,7 +350,6 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
     setArtNote(null);
     select(p.id);
     setFaceIndex(0);
-   
     setExtras({ state: 'idle' });
     if (adding) { setFinish(p.finishes.includes(finish) ? finish : (p.finishes[0] ?? 'nonfoil')); operationId.current = Crypto.randomUUID(); }
   }
@@ -399,10 +419,11 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   return (
     <Modal transparent visible={!!name} animationType="none" statusBarTranslucent onRequestClose={requestClose}>
       <View style={styles.root}>
-        <Animated.View style={[styles.scrim, { opacity: y.interpolate({ inputRange: [0, windowHeight], outputRange: [1, 0], extrapolate: 'clamp' }) }]}>
-          <Pressable accessibilityLabel="Close" style={styles.scrimFill} onPress={requestClose} />
+        {/* Hidden from screen readers: the sheet's own Close button is the one they should find. */}
+        <Animated.View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={[styles.scrim, { opacity: y.interpolate({ inputRange: [0, windowHeight], outputRange: [1, 0], extrapolate: 'clamp' }) }]}>
+          <Pressable accessible={false} style={styles.scrimFill} onPress={requestClose} />
         </Animated.View>
-        <Animated.View style={[styles.sheet, { top: insets.top + space.md, transform: [{ translateY: y }] }]}>
+        <Animated.View style={[styles.sheet, { top: insets.top + space.md, bottom: keyboardHeight, transform: [{ translateY: y }] }]}>
         {/* The drag zone: the grabber and the whole top bar, so a pull anywhere along the top edge closes the sheet. */}
         <View style={styles.topBar} {...dragZone.panHandlers}>
           <View style={styles.grabber} />
@@ -417,7 +438,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
             <Button secondary label="Try again" onPress={() => { setLoadError(null); setLoading(true); setListTick(t => t + 1); }} />
           </View>
         ) : selected && (
-          <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled" onScrollEndDrag={onScrollEndDrag} scrollEventThrottle={16}>
+          <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} onScrollEndDrag={onScrollEndDrag} scrollEventThrottle={16}>
             {!!artNote && (
               <View style={styles.artNote} accessibilityRole="alert">
                 <Text style={styles.artNoteText}>{artNote}</Text>

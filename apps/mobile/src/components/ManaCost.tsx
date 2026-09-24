@@ -15,15 +15,28 @@ const FALLBACK_COLORS: Record<string, { bg: string; fg: string }> = {
 };
 const GENERIC = { bg: '#D6CFC2', fg: '#2B2118' };
 
-const COLOUR_NAMES: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless', S: 'snow', X: 'X', Y: 'Y', Z: 'Z', P: 'Phyrexian' };
+const COLOUR_NAMES: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless', S: 'snow' };
+const OTHER_NAMES: Record<string, string> = { X: 'X mana', Y: 'Y mana', Z: 'Z mana', P: 'Phyrexian mana', T: 'tap', Q: 'untap', E: 'energy' };
 
-/** Spoken name of one symbol's inner code: "W" -> "white mana", "R/G" -> "red or green mana", "2" -> "2 generic mana". */
+/** One slash-separated part on its own: "W" -> "white mana", "2" -> "2 generic mana", "HW" -> "half white mana". */
+function partLabel(part: string): string {
+  if (/^\d+$/.test(part)) return `${part} generic mana`;
+  if (COLOUR_NAMES[part]) return `${COLOUR_NAMES[part]} mana`;
+  const half = /^H([WUBRG])$/.exec(part);
+  if (half) return `half ${COLOUR_NAMES[half[1]!]} mana`;
+  return OTHER_NAMES[part] ?? `${part} symbol`;
+}
+
+/**
+ * Spoken name of one symbol's inner code: "W" -> "white mana", "2/W" -> "2 generic mana
+ * or white mana", "W/P" -> "white mana or 2 life", "P" -> "Phyrexian mana".
+ */
 export function manaLabel(code: string): string {
   const parts = code.toUpperCase().split('/');
-  const named = parts.map(p => (/^\d+$/.test(p) ? p : COLOUR_NAMES[p] ?? p));
-  if (parts.length === 1) return /^\d+$/.test(parts[0]!) ? `${parts[0]} generic mana` : `${named[0]} mana`;
-  if (parts[parts.length - 1] === 'P') return `${named.slice(0, -1).join(' or ')} or 2 life`;
-  return `${named.join(' or ')} mana`;
+  const phyrexian = parts.length > 1 && parts[parts.length - 1] === 'P';
+  const named = (phyrexian ? parts.slice(0, -1) : parts).map(partLabel);
+  if (phyrexian) named.push('2 life');
+  return named.join(' or ');
 }
 
 /**
