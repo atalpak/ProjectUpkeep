@@ -71,6 +71,8 @@ const LEGALITY_LABELS: Record<Legality, string> = { legal: 'Legal', not_legal: '
 // How far or how fast a pull must go to count as "close", not "wobble".
 const CLOSE_DRAG_DISTANCE = 100;
 const CLOSE_DRAG_VELOCITY = 0.8;
+// A flick only counts as one after this much travel, so a tap with a twitchy velocity reading cannot close.
+const CLOSE_DRAG_MIN_TRAVEL = 12;
 const OVERSCROLL_CLOSE = 70;
 
 export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChanged, onClose }: {
@@ -125,6 +127,7 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   useEffect(() => {
     if (!isOpen) return;
     closing.current = false;
+    dragStart.current = 0;
     y.setValue(motionRef.current.windowHeight);
     Animated.timing(y, { toValue: 0, duration: motionRef.current.reducedMotion ? 0 : duration.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true })
       .start();
@@ -147,22 +150,34 @@ export function CardDetails({ name, printingId, seed, scan, ownedFinish, onChang
   // refused to start while the slide-in ran and needed >4pt of mostly-vertical travel) never
   // engaged on a real phone. A drag grabs the sheet wherever it is, stopping the slide-in if it
   // is still running, and moves it from that position.
+  //
+  // `yNow` mirrors the sheet's position through a value listener, so a grab reads it
+  // synchronously (stopAnimation's callback is async, and a move landing before it ran would
+  // use a stale start). The close decision uses finger travel and velocity only, never the
+  // sheet's absolute position: a tap or grab during the slide-in has no travel and must not
+  // close it.
+  const yNow = useRef(windowHeight);
   const dragStart = useRef(0);
+  useEffect(() => {
+    const id = y.addListener(({ value }) => { yNow.current = value; });
+    return () => y.removeListener(id);
+  }, [y]);
   const settle = (toValue: number) => Animated.timing(y, { toValue, duration: motionRef.current.reducedMotion ? 0 : duration.micro, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   const dragZone = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => !closing.current,
-    onMoveShouldSetPanResponder: () => !closing.current,
     // Once the zone has the finger nothing (the ScrollView, a parent) gets to take it away mid-drag.
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { y.stopAnimation(v => { dragStart.current = v; }); },
+    onPanResponderGrant: () => { dragStart.current = yNow.current; y.stopAnimation(); },
     onPanResponderMove: (_e, g) => { if (!closing.current) y.setValue(Math.max(0, dragStart.current + g.dy)); },
     onPanResponderRelease: (_e, g) => {
+      dragStart.current = 0;
       if (closing.current) return;
-      if (dragStart.current + g.dy > CLOSE_DRAG_DISTANCE || g.vy > CLOSE_DRAG_VELOCITY) { requestCloseRef.current(); return; }
+      if (g.dy > CLOSE_DRAG_DISTANCE || (g.dy > CLOSE_DRAG_MIN_TRAVEL && g.vy > CLOSE_DRAG_VELOCITY)) { requestCloseRef.current(); return; }
       settle(0);
     },
     onPanResponderTerminate: () => {
       // A close already under way must run to the end, not be pulled back open.
+      dragStart.current = 0;
       if (!closing.current) settle(0);
     },
   })).current;
