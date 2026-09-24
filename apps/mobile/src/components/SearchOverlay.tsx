@@ -20,7 +20,7 @@ import { FlipBadge } from './FlipBadge';
 import { useCardFace } from '../hooks/useCardFace';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles } from '../preferences';
-import { accent, border, fontFamily, radius, scrim, space, surface, text, type } from '../theme';
+import { accent, border, radius, scrim, space, surface, text, type } from '../theme';
 
 const COLOR_NAMES: Record<Color, string> = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' };
 const COLOR_MODE_LABELS: Record<string, string> = { all: 'Includes', any: 'Any of', exactly: 'Exactly', atMost: 'At most' };
