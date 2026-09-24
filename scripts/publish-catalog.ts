@@ -18,6 +18,11 @@
  * than growing the bucket) and independent of clock skew, unlike a
  * timestamp.
  *
+ * After a successful upload it also stamps `catalog_published_at` on the sync
+ * runs that were waiting on a publish (migration 42), through the same
+ * service-role client — which is why the marker lives here rather than in a
+ * third script that would need the key.
+ *
  * Usage:
  *   npx tsx scripts/publish-catalog.ts /tmp/catalog-v1.json
  */
@@ -93,6 +98,41 @@ async function main(bundlePath: string) {
     .upload("v1/latest.json", JSON.stringify(latest), { contentType: "application/json", upsert: true, cacheControl: "300" });
   if (latestError) throw new Error(`Upload of "${BUCKET}/v1/latest.json" failed: ${latestError.message}`);
   console.log(`[publish-catalog] latest.json now points at ${parsed.version}`);
+
+  // Record that the catalog landed, so the next sync does not have to guess.
+  // Only reached after both uploads succeeded. It marks every succeeded (or
+  // skipped) sync run still waiting on a publish, not just the latest: the
+  // bundle was built from `cards` as it stands now, which contains what all of
+  // them wrote.
+  //
+  // That is only true because sync, export, build and publish run as steps of
+  // ONE job (.github/workflows/scryfall-sync.yml), under the `scryfall-sync`
+  // concurrency group, so no sync can write between the export and this stamp
+  // and no run can be stamped whose rows the bundle never saw. Run this from
+  // anywhere else — a second workflow, a laptop while a sync is in flight —
+  // and the stamp would be wrong: it could mark a run published whose changes
+  // are not in the bundle. Change the workflow shape, change this.
+  // Best-effort: the publish itself succeeded, so failing the step here would
+  // be wrong. The cost of a missed mark is one redundant republish tomorrow.
+  const { error: markError } = await db
+    .from("scryfall_sync_runs")
+    .update({ catalog_published_at: new Date().toISOString() })
+    .in("status", ["succeeded", "skipped"])
+    .eq("catalog_needs_publish", true)
+    .is("catalog_published_at", null);
+  if (markError) {
+    // A GitHub Actions annotation, so a stamp that keeps failing shows up on
+    // the run summary instead of only in a log nobody opens — while still not
+    // failing a step whose upload succeeded. (Harmless text outside Actions.)
+    console.log(
+      `::warning title=Catalog published but not recorded::${markError.message}. ` +
+        `The next sync will republish the catalog until this stamp succeeds.`,
+    );
+    console.error(
+      `[publish-catalog] WARNING: published, but could not record it in scryfall_sync_runs ` +
+        `(the next sync will republish): ${markError.message}`,
+    );
+  }
 }
 
 const [bundlePath] = process.argv.slice(2);

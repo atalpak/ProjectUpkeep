@@ -27,7 +27,12 @@ import type { CardRow } from "@/lib/scryfall";
 /** Just enough of a PostgREST error to decide what to do about it. */
 export type WriteError = { code?: string | null; message: string };
 export type WriteResult = { error: WriteError | null };
-export type ChunkWriter = (rows: CardRow[]) => Promise<WriteResult>;
+/**
+ * Generic over the row shape because the sync writes two: full rows, and rows
+ * that deliberately omit `prices_updated_at` (see scryfall-diff.ts). Defaults
+ * to CardRow so existing callers are unchanged.
+ */
+export type ChunkWriter<Row = CardRow> = (rows: Row[]) => Promise<WriteResult>;
 
 /**
  * SQLSTATE 57014, `query_canceled` — what Postgres raises when
@@ -40,8 +45,8 @@ export function isStatementTimeout(error: WriteError | null | undefined): boolea
   return /statement timeout|canceling statement/i.test(error.message);
 }
 
-export type ChunkedWriterOptions = {
-  write: ChunkWriter;
+export type ChunkedWriterOptions<Row = CardRow> = {
+  write: ChunkWriter<Row>;
   /** Rows per statement to start with. */
   startSize: number;
   /**
@@ -53,14 +58,22 @@ export type ChunkedWriterOptions = {
   minSize?: number;
   /** Attempts for errors that are not timeouts, e.g. a dropped connection. */
   maxRetries?: number;
+  /**
+   * Called with the rows of every chunk that was actually written, as soon as
+   * it lands. Exists because `write()` throws when a LATER chunk of the same
+   * call fails, and the caller then has no way to know how many earlier chunks
+   * went through — which is exactly what a failed run must record and what a
+   * retry (which will see those rows as unchanged) must not forget.
+   */
+  onWritten?: (rows: Row[]) => void;
   /** Injected so tests do not actually wait. */
   sleep?: (ms: number) => Promise<void>;
   onNotice?: (message: string) => void;
 };
 
-export type ChunkedWriter = {
+export type ChunkedWriter<Row = CardRow> = {
   /** Writes every row, splitting and retrying as needed. Throws if it cannot. */
-  write: (rows: CardRow[]) => Promise<void>;
+  write: (rows: Row[]) => Promise<void>;
   /** The chunk size currently in use, after any shrinking. */
   chunkSize: () => number;
   /** How many times a chunk had to be split. Reported at the end of a run. */
@@ -71,7 +84,9 @@ export type ChunkedWriter = {
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export function createChunkedWriter(options: ChunkedWriterOptions): ChunkedWriter {
+export function createChunkedWriter<Row = CardRow>(
+  options: ChunkedWriterOptions<Row>,
+): ChunkedWriter<Row> {
   const {
     write,
     startSize,
@@ -79,6 +94,7 @@ export function createChunkedWriter(options: ChunkedWriterOptions): ChunkedWrite
     maxRetries = 3,
     sleep = defaultSleep,
     onNotice = () => {},
+    onWritten = () => {},
   } = options;
 
   if (!Number.isFinite(startSize) || startSize <= 0) {
@@ -90,7 +106,7 @@ export function createChunkedWriter(options: ChunkedWriterOptions): ChunkedWrite
   let retries = 0;
 
   /** One statement, with the escalation attached. */
-  async function writeChunk(rows: CardRow[]): Promise<void> {
+  async function writeChunk(rows: Row[]): Promise<void> {
     if (rows.length === 0) return;
 
     let { error } = await write(rows);
@@ -110,7 +126,10 @@ export function createChunkedWriter(options: ChunkedWriterOptions): ChunkedWrite
       error = (await write(rows)).error;
     }
 
-    if (!error) return;
+    if (!error) {
+      onWritten(rows);
+      return;
+    }
 
     if (isStatementTimeout(error)) {
       if (rows.length <= minSize) {
@@ -142,7 +161,7 @@ export function createChunkedWriter(options: ChunkedWriterOptions): ChunkedWrite
   }
 
   return {
-    async write(rows: CardRow[]) {
+    async write(rows: Row[]) {
       for (let start = 0; start < rows.length; ) {
         // Re-read `size` each pass: a timeout inside the previous chunk may
         // have shrunk it, and the rest of this batch should feel that too.

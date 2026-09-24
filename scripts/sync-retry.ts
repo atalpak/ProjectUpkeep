@@ -14,8 +14,10 @@
  * — and lets everything else fail on the first attempt with its real message.
  *
  * Restarting from the beginning is safe because every write is an upsert on
- * `cards.scryfall_id`, the primary key: replaying rows already written just
- * refreshes them.
+ * `cards.scryfall_id`, the primary key, and each row's content_hash lands in
+ * the same statement as the row. The retried pass re-reads the stored hashes,
+ * so rows the failed pass already wrote match and are skipped rather than
+ * replayed; only what is still outstanding gets written.
  *
  * Kept out of scripts/sync-scryfall.ts, which runs `main()` on import, so the
  * policy can be tested with an injected sleep and clock rather than by waiting.

@@ -3310,4 +3310,122 @@ end $$;
 
 rollback;
 
+-- ---------------------------------------------------------------------------
+-- 23. Migration 42: the cards indexes the sync's write cost depends on.
+--
+-- These assert what must NOT exist as much as what must. Each dropped index
+-- was carrying write cost for nothing, and cards_price_usd_idx in particular
+-- is what made a price change a non-HOT update; a later migration quietly
+-- recreating any of them would bring the sync's timeouts back with no other
+-- signal. The trigram indexes are asserted present because card search runs
+-- on them and migration 42 promised to leave them alone.
+-- Falsified, each against a scratch copy of migration 42, by making the block
+-- fail on exactly the assertion it names:
+--   - re-adding `create index cards_price_usd_idx ... (price_usd desc nulls
+--     last)`                                  -> "cards_price_usd_idx must stay dropped"
+--   - declaring content_hash `not null default ''`
+--                                            -> "content_hash must be nullable"
+--   - declaring it `varchar(60)` (not text)  -> "must exist as text"
+--   - adding `create index on public.cards (content_hash)`
+--                                            -> "must not be indexed"
+-- Same method for the other index assertions: recreate each dropped index, and
+-- drop each surviving one, and the matching message fires.
+-- ---------------------------------------------------------------------------
+do $$
+declare col record;
+begin
+  assert not exists (select 1 from pg_indexes where schemaname = 'public'
+                      and indexname = 'cards_price_usd_idx'),
+    'cards_price_usd_idx must stay dropped: it makes every price update non-HOT';
+  assert not exists (select 1 from pg_indexes where schemaname = 'public'
+                      and indexname = 'cards_name_lower_idx'),
+    'cards_name_lower_idx must stay dropped: nothing filters on lower(name)';
+  assert not exists (select 1 from pg_indexes where schemaname = 'public'
+                      and indexname = 'cards_set_code_number_idx'),
+    'cards_set_code_number_idx must stay dropped: duplicate of cards_set_collector_idx';
+
+  assert exists (select 1 from pg_indexes where schemaname = 'public'
+                  and indexname = 'cards_set_collector_idx'),
+    'cards_set_collector_idx is the surviving (set_code, collector_number) index';
+  assert exists (select 1 from pg_indexes where schemaname = 'public'
+                  and indexname = 'cards_name_idx'),
+    'cards_name_idx serves the exact-name lookups in import and printings';
+  assert (select count(*) from pg_indexes where schemaname = 'public'
+             and indexname in ('cards_name_trgm_idx', 'cards_type_line_trgm_idx',
+                               'cards_oracle_text_trgm_idx')) = 3,
+    'the three trigram search indexes must be left in place';
+
+  select data_type, is_nullable into col from information_schema.columns
+   where table_schema = 'public' and table_name = 'cards' and column_name = 'content_hash';
+  assert col.data_type = 'text', 'cards.content_hash must exist as text';
+  assert col.is_nullable = 'YES',
+    'cards.content_hash must be nullable: null means never fingerprinted, so the sync rewrites the row';
+
+  -- Any index touching content_hash would put the write cost straight back.
+  assert not exists (
+    select 1 from pg_index i
+      join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any (i.indkey)
+     where i.indrelid = 'public.cards'::regclass and a.attname = 'content_hash'),
+    'cards.content_hash must not be indexed';
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 24. Migration 42: prices_as_of(), the one window into scryfall_sync_runs.
+--
+-- The table stays unreadable to end users (RLS on, no policies); this function
+-- is SECURITY DEFINER and so is exactly the kind of thing that must not leak.
+-- Asserts: a signed-in user gets the finished_at of the newest SUCCEEDED run
+-- (not a newer skipped, failed or running one), still sees zero rows if they
+-- select from the table directly, and anon cannot call it at all. The catalog
+-- bookkeeping columns default to "nothing needed, nothing published".
+-- Falsified against scratch copies of migration 42 by, in turn: granting
+-- execute to anon, dropping the `revoke ... from public, anon` line, removing
+-- the status filter, and adding a select policy on scryfall_sync_runs.
+-- ---------------------------------------------------------------------------
+begin;
+
+insert into public.scryfall_sync_runs (bulk_type, status, started_at, finished_at) values
+  ('default_cards', 'succeeded', '2026-09-01 09:00+00', '2026-09-01 09:20+00'),
+  ('default_cards', 'succeeded', '2026-09-02 09:00+00', '2026-09-02 09:25+00'),
+  ('default_cards', 'skipped',   '2026-09-03 09:00+00', '2026-09-03 09:00+00'),
+  ('default_cards', 'failed',    '2026-09-04 09:00+00', '2026-09-04 09:10+00'),
+  ('default_cards', 'running',   '2026-09-05 09:00+00', null);
+
+do $$
+declare got timestamptz; visible int; needs boolean; published timestamptz;
+begin
+  select catalog_needs_publish, catalog_published_at into needs, published
+    from public.scryfall_sync_runs order by id limit 1;
+  assert needs = false and published is null,
+    'a new run must default to catalog_needs_publish = false, catalog_published_at null';
+
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  set local role authenticated;
+
+  got := public.prices_as_of();
+  assert got = '2026-09-02 09:25+00',
+    'prices_as_of() must return the newest SUCCEEDED run finished_at, not a later skipped/failed/running one (got '
+    || coalesce(got::text, 'null') || ')';
+
+  select count(*) into visible from public.scryfall_sync_runs;
+  assert visible = 0,
+    'a signed-in user must still see no rows of scryfall_sync_runs directly (saw ' || visible || ')';
+
+  reset role;
+end $$;
+
+do $$
+begin
+  set local role anon;
+  begin
+    perform public.prices_as_of();
+    reset role;
+    raise exception 'anon must not be able to execute prices_as_of()';
+  exception when insufficient_privilege then
+    reset role;
+  end;
+end $$;
+
+rollback;
+
 \echo 'schema_test.sql: all assertions passed'

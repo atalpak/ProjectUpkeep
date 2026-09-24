@@ -12,7 +12,7 @@ import { test } from "node:test";
 import {
   displayPrice,
   formatPrice,
-  mostRecentPriceDate,
+  parsePricesAsOf,
   priceFor,
   rowValue,
   summariseValue,
@@ -205,30 +205,18 @@ test("displayPrice leaves priceFor's collection-value semantics untouched", () =
 });
 
 // ---------------------------------------------------------------------------
-// mostRecentPriceDate — the "as of" freshness caption
+// parsePricesAsOf — the "as of" freshness caption (from prices_as_of())
 // ---------------------------------------------------------------------------
 
-test("mostRecentPriceDate picks the newest of several timestamps", () => {
-  assert.equal(
-    mostRecentPriceDate([
-      "2026-09-01T00:00:00Z",
-      "2026-09-08T00:00:00Z",
-      "2026-08-20T00:00:00Z",
-    ]),
-    "2026-09-08T00:00:00Z",
-  );
+test("parsePricesAsOf passes a real timestamp through unchanged", () => {
+  assert.equal(parsePricesAsOf("2026-09-08T09:20:00+00:00"), "2026-09-08T09:20:00+00:00");
 });
 
-test("mostRecentPriceDate skips missing rows rather than treating them as newest", () => {
-  assert.equal(
-    mostRecentPriceDate([null, undefined, "2026-09-01T00:00:00Z", null]),
-    "2026-09-01T00:00:00Z",
-  );
-});
-
-test("mostRecentPriceDate is null when nothing is priced yet", () => {
-  assert.equal(mostRecentPriceDate([]), null);
-  assert.equal(mostRecentPriceDate([null, undefined]), null);
+test("parsePricesAsOf is null when there is no succeeded run yet or the call failed", () => {
+  // rpc returns null data for a null result, and undefined/garbage on a bad call.
+  for (const bad of [null, undefined, "", "not a date", 12345, {}]) {
+    assert.equal(parsePricesAsOf(bad), null, `${JSON.stringify(bad)} must not become a date`);
+  }
 });
 
 // ---------------------------------------------------------------------------

@@ -5,8 +5,14 @@
  * public.cards. Designed to be run on a schedule (see
  * .github/workflows/scryfall-sync.yml) rather than by hand:
  *
- *   - Idempotent. Upserts on the primary key, so re-running is a no-op beyond
- *     refreshing last_synced_at.
+ *   - Idempotent. Upserts on the primary key, so re-running is safe.
+ *   - Writes only what changed. Rewriting all ~118,000 rows a day, most of them
+ *     identical, is what timed the database write out: every rewrite touches
+ *     every index on `cards`. The sync reads the stored per-row fingerprints
+ *     (cards.content_hash, migration 42) up front and upserts only new or
+ *     changed rows; see src/lib/scryfall-diff.ts. That makes last_synced_at
+ *     mean "when this row was last written", and prices_updated_at "when a
+ *     price last changed".
  *   - Cheap when nothing changed. Scryfall stamps each export with its own
  *     updated_at; if that matches our last successful run we record a `skipped`
  *     run and exit without downloading ~500MB. Pass --force to override.
@@ -15,11 +21,18 @@
  *     batches.
  *   - Observable. Every run writes a row to public.scryfall_sync_runs with its
  *     status, row count, and any error.
- *   - Reports whether it actually upserted anything via $GITHUB_OUTPUT
+ *   - Reports whether it actually wrote anything via $GITHUB_OUTPUT
  *     (upserted=true|false), when running under Actions. Added so the
  *     publish-a-mobile-catalog step in scryfall-sync.yml can skip a ~30MB
- *     re-publish on a day the upstream export did not change — see that
- *     workflow for the consumer.
+ *     re-publish on a day nothing changed — see that workflow for the
+ *     consumer. True means the catalog needs rebuilding: this run wrote a
+ *     row the catalog contains (price-only changes do not count, the catalog
+ *     has no prices), or an earlier run died after writing, or an earlier
+ *     succeeded run's publish was never recorded (scryfall_sync_runs
+ *     .catalog_published_at, stamped by publish-catalog.ts), or --force was
+ *     given. A skipped run reports the same, since "export unchanged" does
+ *     not mean the last publish landed. Otherwise false: the catalog is built
+ *     from `cards`, and nothing it contains has changed.
  *
  * Usage:
  *   npm run sync:scryfall
@@ -40,8 +53,18 @@ import {
   type CardRow,
   type ScryfallBulkEntry,
 } from "../src/lib/scryfall";
+import {
+  catalogMayBeStale,
+  checkHashReadComplete,
+  loadExistingHashes,
+  planWrites,
+  shouldPublishCatalog,
+  type PriorRun,
+  type SyncRow,
+} from "../src/lib/scryfall-diff";
 import { streamCardRows } from "../src/lib/scryfall-stream";
 import { createChunkedWriter } from "../src/lib/scryfall-upsert";
+import { isMissingColumnError } from "../src/lib/supabase/errors";
 import { withRetry } from "./sync-retry";
 
 // The web app reads .env.local via Next; this script runs outside Next, so load
@@ -145,7 +168,7 @@ async function main() {
   // ---- 2. Skip if upstream has not changed --------------------------------
   const { data: lastRun, error: lastRunError } = await db
     .from("scryfall_sync_runs")
-    .select("bulk_updated_at")
+    .select("id, bulk_updated_at")
     .eq("bulk_type", bulkType)
     .eq("status", "succeeded")
     .order("started_at", { ascending: false })
@@ -154,6 +177,71 @@ async function main() {
 
   if (lastRunError) {
     throw new Error(`Could not read sync history: ${lastRunError.message}`);
+  }
+
+  // Did an earlier run write rows and then die before the catalog was rebuilt?
+  // Those rows now carry their new hashes, so this run will find nothing to
+  // write and would otherwise report "nothing changed" — see catalogMayBeStale.
+  // Read before the skip check and before this run opens its own row, so it
+  // cannot see itself and a skipped day still republishes a catalog that never landed.
+  const { data: sinceSuccess, error: sinceError } = await db
+    .from("scryfall_sync_runs")
+    .select("id, status, cards_upserted")
+    .eq("bulk_type", bulkType)
+    .in("status", ["failed", "running"])
+    .gt("id", lastRun?.id ?? 0);
+  if (sinceError) {
+    throw new Error(`Could not read sync history: ${sinceError.message}`);
+  }
+  // The newest run of ANY status that a catalog publish has been stamped on,
+  // skipped ones included. A failed run behind that stamp has been published
+  // over; see catalogMayBeStale for why this is the exit from the skip loop.
+  const { data: lastPublished, error: lastPublishedError } = await db
+    .from("scryfall_sync_runs")
+    .select("id")
+    .eq("bulk_type", bulkType)
+    .not("catalog_published_at", "is", null)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lastPublishedError) {
+    throw new Error(
+      isMissingColumnError(lastPublishedError.code)
+        ? "scryfall_sync_runs.catalog_published_at does not exist. Apply migration 42 " +
+            "(supabase db push --linked) before running this sync."
+        : `Could not read sync history: ${lastPublishedError.message}`,
+    );
+  }
+  const priorRunUnpublished = catalogMayBeStale(
+    (sinceSuccess ?? []) as PriorRun[],
+    lastPublished?.id ?? 0,
+  );
+  if (priorRunUnpublished) {
+    log("an earlier run wrote rows without finishing; the catalog will be republished");
+  }
+
+  // A succeeded (or skipped) run that needed a catalog publish and never recorded one: the
+  // publish step failed (or was cancelled) after a good sync. The catalog is
+  // built from `cards`, so publishing now covers whatever that run changed.
+  const { data: unpublished, error: unpublishedError } = await db
+    .from("scryfall_sync_runs")
+    .select("id")
+    .eq("bulk_type", bulkType)
+    .in("status", ["succeeded", "skipped"])
+    .eq("catalog_needs_publish", true)
+    .is("catalog_published_at", null)
+    .limit(1);
+  if (unpublishedError) {
+    throw new Error(
+      isMissingColumnError(unpublishedError.code)
+        ? "scryfall_sync_runs.catalog_needs_publish does not exist. Apply migration 42 " +
+            "(supabase db push --linked) before running this sync."
+        : `Could not read sync history: ${unpublishedError.message}`,
+    );
+  }
+  const unpublishedEarlier = (unpublished ?? []).length > 0;
+  if (unpublishedEarlier) {
+    log("an earlier run's catalog was never published; the catalog will be republished");
   }
 
   const upToDate =
@@ -166,9 +254,25 @@ async function main() {
       bulk_type: bulkType,
       bulk_updated_at: entry.updated_at,
       status: "skipped",
+      // A skipped day that publishes because an earlier run died after writing
+      // says so on its own row, so the publish step stamps THIS row and the
+      // failed one is behind a stamp from then on. Without it nothing would
+      // ever clear the failure, and every later skipped day would republish.
+      catalog_needs_publish: priorRunUnpublished,
       finished_at: new Date().toISOString(),
     });
-    await setActionsOutput("upserted", "false");
+    // Nothing to sync, but a catalog that never landed still has to.
+    await setActionsOutput(
+      "upserted",
+      shouldPublishCatalog({
+        catalogChanged: 0,
+        priorRunIncomplete: priorRunUnpublished,
+        unpublishedEarlier,
+        force: false,
+      })
+        ? "true"
+        : "false",
+    );
     return;
   }
 
@@ -186,9 +290,17 @@ async function main() {
   const runId = run.id as number;
   const syncedAt = new Date().toISOString();
 
-  // Per pass, reset at the top of each attempt. A retry starts the download
-  // over, so carrying the failed pass's count forward would report rows twice.
+  // `upserted` counts rows actually written and is NOT reset between attempts:
+  // a retry re-reads the stored hashes, so rows the failed pass already wrote
+  // are skipped as unchanged rather than written twice, and resetting would
+  // lose them — a run that wrote 90,000 rows before a dropped connection could
+  // then finish "with nothing to publish". The other two are per pass, because
+  // a retry starts the download over and would count them twice.
   let upserted = 0;
+  // Rows written that the mobile catalog can see, i.e. everything except
+  // price-only changes. Also kept across attempts, for the same reason.
+  let catalogChanged = 0;
+  let unchanged = 0;
   let skippedRecords = 0;
 
   // Visible to the last-resort handlers below, which run outside this function.
@@ -202,7 +314,7 @@ async function main() {
     // catalog steps that follow.
     await withRetry(
       async (attempt) => {
-        upserted = 0;
+        unchanged = 0;
         skippedRecords = 0;
         await runPass(attempt);
       },
@@ -225,6 +337,41 @@ async function main() {
   }
 
   async function runPass(attempt: number) {
+    // Up front, before the download: a database without migration 42 should
+    // fail here, in seconds, not after streaming half a gigabyte.
+    log("reading stored card fingerprints");
+    const existing = await loadExistingHashes(async (after, size) => {
+      let query = db
+        .from("cards")
+        .select("scryfall_id, content_hash")
+        .order("scryfall_id", { ascending: true })
+        .limit(size);
+      if (after !== null) query = query.gt("scryfall_id", after);
+      const { data, error } = await query;
+      if (error && isMissingColumnError(error.code)) {
+        throw new Error(
+          "cards.content_hash does not exist. Apply migration 42 " +
+            "(supabase db push --linked) before running this sync.",
+        );
+      }
+      return {
+        rows: (data ?? []) as { scryfall_id: string; content_hash: string | null }[],
+        error,
+      };
+    });
+    log(`${existing.size.toLocaleString()} stored printings`);
+
+    // A short read would turn into a silent full rewrite; see the guard.
+    const { count: tableCount, error: countError } = await db
+      .from("cards")
+      .select("scryfall_id", { count: "exact", head: true });
+    if (countError) throw new Error(`Could not count cards: ${countError.message}`);
+    const shortRead = checkHashReadComplete(existing.size, tableCount ?? 0);
+    if (shortRead) {
+      if (!force) throw new Error(shortRead);
+      log(`WARNING: ${shortRead} (continuing because of --force)`);
+    }
+
     log(`downloading ${entry!.jsonl_download_uri} (attempt ${attempt})`);
     const download = await fetch(entry!.jsonl_download_uri, {
       headers: scryfallHeaders(contact),
@@ -253,11 +400,13 @@ async function main() {
 
     // A statement timeout used to fail the whole run — see scryfall-upsert.ts.
     // Now it halves the chunk, keeps the smaller size, and carries on.
-    const writer = createChunkedWriter({
+    const writer = createChunkedWriter<SyncRow>({
       startSize: batchSize,
       write: async (rows) => {
         // Upsert on the primary key: new printings insert, existing ones
-        // refresh. Awaited rather than returned: the query builder is a
+        // refresh. Each call is homogeneous (planWrites keeps rows with and
+        // without prices_updated_at apart), so the column list PostgREST
+        // derives from the batch is right for every row in it. Awaited rather than returned: the query builder is a
         // thenable, not a promise, and the writer wants a settled result.
         const { error } = await db
           .from("cards")
@@ -265,15 +414,31 @@ async function main() {
         return { error };
       },
       onNotice: log,
+      onWritten: (written) => {
+        const before = upserted;
+        upserted += written.length;
+        for (const row of written) {
+          if (!priceOnlyIds.has(row.scryfall_id)) catalogChanged += 1;
+        }
+        if (Math.floor(upserted / 25_000) > Math.floor(before / 25_000)) {
+          log(`upserted ${upserted.toLocaleString()} printings...`);
+        }
+      },
     });
+    // Which ids in the batch being written changed only in price; set per batch.
+    let priceOnlyIds: ReadonlySet<string> = new Set();
 
     const upsertBatch = async (rows: CardRow[]) => {
-      await writer.write(rows);
-      const before = upserted;
-      upserted += rows.length;
-      if (Math.floor(upserted / 25_000) > Math.floor(before / 25_000)) {
-        log(`upserted ${upserted.toLocaleString()} printings...`);
-      }
+      const plan = planWrites(rows, existing);
+      unchanged += plan.unchanged;
+      priceOnlyIds = plan.priceOnly;
+
+      // Counting happens per chunk, in the writer's onWritten callback, not
+      // here after the fact: if a later chunk of this batch throws, the chunks
+      // before it are already in the database, and the failed run's count and
+      // the retry's view of "what did I write" both have to include them.
+      await writer.write(plan.full);
+      await writer.write(plan.metaOnly);
     };
 
     const result = await streamCardRows(cards, {
@@ -287,11 +452,24 @@ async function main() {
     if (result.stoppedEarly) log(`--limit ${limit} reached; stopped early`);
 
     // ---- 5. Close the run -------------------------------------------------
+    // Decided before the row closes so it is recorded with it. Stored as
+    // catalog_needs_publish, and cleared by publish-catalog.ts only once the
+    // upload succeeds — that is what lets a later run see a publish that never
+    // landed. Deliberately just this run's own reason to publish, not the
+    // earlier-unpublished flag: those earlier rows are still unmarked and keep
+    // the demand alive on their own until a publish succeeds.
+    const publish = shouldPublishCatalog({
+      catalogChanged,
+      priorRunIncomplete: priorRunUnpublished,
+      unpublishedEarlier,
+      force,
+    });
     const { error: closeError } = await db
       .from("scryfall_sync_runs")
       .update({
         status: "succeeded",
         cards_upserted: upserted,
+        catalog_needs_publish: catalogChanged > 0 || priorRunUnpublished || force,
         finished_at: new Date().toISOString(),
       })
       .eq("id", runId);
@@ -306,7 +484,8 @@ async function main() {
     }
 
     log(
-      `done: ${upserted.toLocaleString()} printings upserted` +
+      `done: ${upserted.toLocaleString()} printings upserted, ` +
+        `${unchanged.toLocaleString()} unchanged and left alone` +
         (skippedRecords > 0 ? `, ${skippedRecords} unusable records skipped` : "") +
         // Worth saying out loud: a run that needed splitting still succeeded,
         // but it is the early warning that the table is outgrowing the
@@ -318,7 +497,12 @@ async function main() {
     );
     // Only after the run is closed as succeeded, and only once however many
     // attempts it took: the catalog steps gate on this being exactly `true`.
-    await setActionsOutput("upserted", "true");
+    // Gated on what the catalog actually contains, not on "any row written":
+    // the catalog carries no prices, so a day of price-only changes has nothing
+    // to publish. Republish also when an earlier run died after writing (its
+    // rows are already stored, so this run cannot see them as changes), and on
+    // --force, so a forced run can always republish.
+    await setActionsOutput("upserted", publish ? "true" : "false");
   }
 }
 

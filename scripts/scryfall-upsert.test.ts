@@ -208,3 +208,68 @@ test("writing nothing does nothing", async () => {
   await writer.write([]);
   assert.equal(calls, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Reporting what was written, including when a later chunk fails
+// ---------------------------------------------------------------------------
+
+test("onWritten sees every chunk that landed, even when a later chunk throws", async () => {
+  // Chunks of 10: the first two succeed, the third fails with a non-timeout
+  // error that outlasts the retries. The caller must still be told about the
+  // 20 rows that are already in the database.
+  let calls = 0;
+  const landed: string[] = [];
+  const writer = createChunkedWriter({
+    startSize: 10,
+    minSize: 10,
+    maxRetries: 1,
+    sleep: noSleep,
+    write: async () => {
+      calls += 1;
+      return calls <= 2 ? ok : { error: { code: "08006", message: "connection failure" } };
+    },
+    onWritten: (written) => landed.push(...written.map((r) => r.scryfall_id)),
+  });
+
+  await assert.rejects(writer.write(rows(30)), /connection failure/);
+  assert.equal(landed.length, 20);
+  assert.deepEqual(landed.slice(0, 2), ["card-0", "card-1"]);
+});
+
+test("onWritten counts a chunk once even after it was split by a timeout", async () => {
+  let first = true;
+  let total = 0;
+  const writer = createChunkedWriter({
+    startSize: 8,
+    minSize: 1,
+    sleep: noSleep,
+    write: async () => {
+      if (first) {
+        first = false;
+        return timeout;
+      }
+      return ok;
+    },
+    onWritten: (written) => {
+      total += written.length;
+    },
+  });
+  await writer.write(rows(8));
+  assert.equal(total, 8, "the failed statement wrote nothing; only the two halves count");
+});
+
+test("onWritten is not called for a chunk that failed", async () => {
+  let called = false;
+  const writer = createChunkedWriter({
+    startSize: 5,
+    minSize: 5,
+    maxRetries: 0,
+    sleep: noSleep,
+    write: async () => ({ error: { code: "XX000", message: "boom" } }),
+    onWritten: () => {
+      called = true;
+    },
+  });
+  await assert.rejects(writer.write(rows(5)));
+  assert.equal(called, false);
+});
