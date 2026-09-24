@@ -58,6 +58,64 @@ const eslintConfig = [
     files: ["apps/**/*.{ts,tsx}"],
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
+  {
+    // Hard constraint 4 (CLAUDE.md), second half. The Scryfall loader connects
+    // to Postgres directly as a purpose-made role, and its connection string is
+    // as powerful as that role: it must exist only in the repo-root scripts/,
+    // outside every bundle. The service-role key is contained by where it is
+    // read; this makes the same containment mechanical for the connection
+    // string, because a Postgres driver imported anywhere under src/, apps/ or
+    // packages/ is one import away from a browser or app bundle. Two bans: the
+    // drivers themselves, and the variable's name (any SCRYFALL_SYNC_DATABASE_*,
+    // which also covers its CA companion). scripts/ is deliberately not listed.
+    // Add a legitimate reader to scripts/, not an exception here.
+    files: ["src/**/*.{js,jsx,mjs,ts,tsx}", ...MOBILE_GLOBS.map((g) => `${g}/**/*.{js,jsx,mjs,ts,tsx}`)],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "postgres",
+                "postgres/*",
+                "pg",
+                "pg/*",
+                "pg-*",
+                "@vercel/postgres",
+                "@neondatabase/serverless",
+              ],
+              message:
+                "A direct Postgres driver belongs in the repo-root scripts/ only (CLAUDE.md hard constraint 4): its connection string is as powerful as the service key.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name='require'][arguments.0.value=/^(postgres|pg)$/]",
+          message:
+            "A direct Postgres driver belongs in the repo-root scripts/ only (CLAUDE.md hard constraint 4).",
+        },
+        {
+          selector: "Identifier[name=/^SCRYFALL_SYNC_DATABASE_/]",
+          message:
+            "SCRYFALL_SYNC_DATABASE_* is the loader's database credential: read it in the repo-root scripts/ only (CLAUDE.md hard constraint 4).",
+        },
+        {
+          selector: "Literal[value=/SCRYFALL_SYNC_DATABASE_/]",
+          message:
+            "SCRYFALL_SYNC_DATABASE_* is the loader's database credential: read it in the repo-root scripts/ only (CLAUDE.md hard constraint 4).",
+        },
+        {
+          selector: "TemplateElement[value.raw=/SCRYFALL_SYNC_DATABASE_/]",
+          message:
+            "SCRYFALL_SYNC_DATABASE_* is the loader's database credential: read it in the repo-root scripts/ only (CLAUDE.md hard constraint 4).",
+        },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

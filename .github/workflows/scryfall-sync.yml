@@ -26,6 +26,23 @@
 # scryfall_sync_runs.catalog_published_at only after its uploads succeed, and
 # the next sync republishes while a run that needed one is still unstamped.
 # That is why a failed publish here is retried tomorrow rather than forgotten.
+#
+# Oracle loader (added with migrations 43-44): the LAST steps, loading Scryfall's
+# oracle_cards export into public.oracle_cards over a direct Postgres connection
+# (scripts/sync-oracle-direct.ts). Two properties are deliberate:
+#   - It can never fail or delay the printings sync or the catalog. It runs after
+#     them, and `continue-on-error` keeps its own failure from turning the job red
+#     (the run is still recorded as `failed` in scryfall_sync_runs, and a warning
+#     annotation is written to the run summary). It runs even when the printings
+#     sync failed (`!cancelled()`), because the two touch different tables.
+#   - It exists only when its secret does. Add SCRYFALL_SYNC_DATABASE_URL (the
+#     session-pooler string for the scryfall_loader role, port 5432) and, if the
+#     pooler's certificate does not chain to a public CA, SCRYFALL_SYNC_DATABASE_CA
+#     (PEM). Without the URL the step logs that it is skipping and the job is
+#     exactly what it was before. See migration 44 for how to enable the role.
+# It shares this job, and therefore the concurrency group below: two loaders
+# writing at once buys nothing, and the loader's own lock_timeout (5s) keeps it
+# from queueing behind anything.
 
 name: Scryfall sync
 
@@ -53,6 +70,10 @@ jobs:
     # The full default_cards export is a few hundred MB; a slow run should fail
     # loudly rather than burn Actions minutes for six hours.
     timeout-minutes: 45
+    env:
+      # `secrets` cannot be tested in a step's `if:` directly, only through an
+      # env value; this is true only when the loader's secret has been added.
+      HAS_LOADER_DB: ${{ secrets.SCRYFALL_SYNC_DATABASE_URL != '' }}
 
     steps:
       - uses: actions/checkout@v5
@@ -98,3 +119,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/publish-catalog.ts /tmp/catalog-v1.json
+
+      # Oracle loader: see the header. Last on purpose, never fatal.
+      - name: Oracle loader skipped (no SCRYFALL_SYNC_DATABASE_URL secret)
+        if: ${{ !cancelled() && env.HAS_LOADER_DB != 'true' }}
+        run: echo "SCRYFALL_SYNC_DATABASE_URL is not set, so the direct-Postgres oracle_cards load is skipped. Nothing else is affected."
+
+      - name: Load oracle_cards (direct Postgres)
+        id: oracle
+        if: ${{ !cancelled() && env.HAS_LOADER_DB == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          SCRYFALL_SYNC_DATABASE_URL: ${{ secrets.SCRYFALL_SYNC_DATABASE_URL }}
+          SCRYFALL_SYNC_DATABASE_CA: ${{ secrets.SCRYFALL_SYNC_DATABASE_CA }}
+          SCRYFALL_CONTACT: "project-upkeep (+https://github.com/${{ github.repository }})"
+        run: npm run sync:oracle ${{ inputs.force && '-- --force' || '' }}
+
+      - name: Oracle load failed (warning only)
+        if: ${{ !cancelled() && steps.oracle.outcome == 'failure' }}
+        run: echo "::warning title=oracle_cards load failed::The direct-Postgres oracle_cards load failed. The printings sync and the catalog are unaffected. See the step log and the newest oracle_cards row in scryfall_sync_runs."

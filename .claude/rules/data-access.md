@@ -22,7 +22,8 @@ RLS-bypassing client in the web app, and adding one is not on the table.** Two
 things in this codebase bypass RLS, both under the repo-root `scripts/`
 directory (outside the Next build, so neither can reach a browser bundle),
 each building its own service-role client inline rather than importing a
-shared admin client:
+shared admin client. A third script holds a different kind of elevated
+credential, a direct Postgres connection, listed after them:
 
 - `scripts/sync-scryfall.ts`, the Scryfall sync job, writes only to `cards`
   and `scryfall_sync_runs`.
@@ -34,6 +35,21 @@ shared admin client:
   reads the input for the catalog build, is deliberately **not** on this
   list: `cards` already grants `select` to `anon` (migration 3), so it reads
   with `NEXT_PUBLIC_SUPABASE_ANON_KEY`, not the service-role key.
+
+- `scripts/sync-oracle-direct.ts` (with its helper
+  `scripts/sync-oracle-connection.ts`) loads Scryfall's `oracle_cards` export
+  into `oracle_cards` over a **direct Postgres connection** through the
+  session pooler (port 5432), using `COPY`. It does not use the service key and
+  does not bypass RLS: it connects as `scryfall_loader` (migration 44), a role
+  with no `BYPASSRLS`, `select/insert/update` on `cards`, `oracle_cards` and
+  `scryfall_sync_runs` only, and explicit per-role policies on those three
+  tables. `supabase/tests/schema_test.sql` section 25 asserts that it can write
+  exactly that and nothing else, and that no client role can write
+  `oracle_cards`. The connection string (`SCRYFALL_SYNC_DATABASE_URL`) is
+  as powerful as that role, so it gets the service key's containment: read in
+  `scripts/` only, and `eslint.config.mjs` bans both the Postgres drivers and
+  the variable name under `src/`, `apps/` and `packages/`. Do not add an
+  exception there; add the reader to `scripts/`.
 
 A `supabase/admin.ts` used to sit in this table, described as protected by a
 `server-only` import. It had no importers and could not have had any: the
@@ -118,3 +134,12 @@ read in exactly two places, `scripts/sync-scryfall.ts` and
 `scripts/publish-catalog.ts`/`scripts/create-catalog-bucket.ts` (added for the
 mobile catalog pipeline, 2026-09), both via the same local `requireEnv`
 pattern — see the client table above for why both are safe.
+
+`SCRYFALL_SYNC_DATABASE_URL` (and its optional companion
+`SCRYFALL_SYNC_DATABASE_CA`, a PEM to verify the pooler's certificate against)
+is the other credential with this rule. It is a Postgres connection string for
+the `scryfall_loader` role and is read in exactly one place,
+`scripts/sync-oracle-direct.ts` (through `scripts/sync-oracle-connection.ts`).
+It is not a `NEXT_PUBLIC_*` variable and nothing under `src/`, `apps/` or
+`packages/` may read it — ESLint fails the build if one tries. The role's
+password is never in a migration: the owner sets it by hand (see migration 44).
