@@ -296,7 +296,7 @@ function RootShell({ fontsLoaded, page, backInfo, onNavigatorMounted }: { fontsL
       {signedIn && <CatalogDownloadModal />}
       {/* Held back while the catalog ask is up: two iOS modals cannot present at once. */}
       {signedIn && <WelcomeWalkthrough visible={!welcomeSeen && !app.catalogBusy && !app.catalogUpdate} onDone={() => setWelcomeSeen(true)} />}
-      {signedIn && <CardDetails name={cardTarget?.name ?? null} printingId={cardTarget?.printingId} scan={cardTarget?.scan} onClose={() => setCardTarget(null)} />}
+      {signedIn && <CardDetails name={cardTarget?.name ?? null} printingId={cardTarget?.printingId} scan={cardTarget?.scan} logId={cardTarget?.logId} onClose={() => setCardTarget(null)} />}
       {signedIn && <SearchOverlay visible={searchOpen} onClose={() => setSearchOpen(false)} />}
       {signedIn && (
         <MenuSheet

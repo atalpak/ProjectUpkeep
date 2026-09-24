@@ -12,3 +12,8 @@ export const pendingMoveKey = (userId: string) => `upkeep.pending-move.${userId}
 // layout. One JSON blob under one key -- SecureStore is fine for a few dozen
 // bytes and it is already the app's only key-value store.
 export const PREFS_KEY = 'upkeep.prefs.v1'; // also holds `welcomeSeen` (first-run walkthrough)
+
+// Scan diagnostics (Settings -> Scan diagnostics): the last ~30 scan reads and
+// the evidence behind them, so a wrong printing can be explained from the phone.
+// Device-level like PREFS_KEY; written only while the switch is on.
+export const SCAN_LOG_KEY = 'upkeep.scanlog.v1';

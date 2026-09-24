@@ -5,10 +5,11 @@ import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flushStatus, initialPacer, isScanStatus, paceStatus, describeRejection, printingHints, quickMatch, quickRejectionHint, rankPrintings, type PacerState, type ScanStatus } from '@upkeep/scan-core';
+import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flushStatus, initialPacer, isScanStatus, paceStatus, describeRejection, printingHints, quickMatch, quickRejectionHint, rankPrintings, clipLines, describeCandidates, describeRanking, explainGuess, hintsForLog, type PacerState, type ScanLogEntry, type ScanStatus } from '@upkeep/scan-core';
 import { UpkeepScannerView, cardImageRankingAvailable, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
 import { useApp } from '../AppProvider';
 import { useOpenCardDetails } from '../cardDetailsHost';
+import { newScanLogId, recordScan, scanLogEnabled } from '../scanLog';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { makeStyles, usePreferences } from '../preferences';
 import { PAGES, type PageId } from '../navigation';
@@ -285,10 +286,21 @@ function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: 
     handleRead(event.nativeEvent);
   }
 
-  function handleRead({ lines, printingLines, imageUri }: CardReadEvent) {
+  function handleRead({ title, lines, printingLines, imageUri, source }: CardReadEvent) {
     const candidates = env.current.pipeline.matchEvidence({ lines, printingLines }).candidates;
     const match = quickMatch(candidates);
+    // Scan diagnostics (Settings): describes this read; changes nothing about it. Only built when the switch is on.
+    const logging = scanLogEnabled();
+    const logBase = () => ({
+      id: newScanLogId(), at: Date.now(), source: (source === 'guide' ? 'quick/guide' : 'quick/outline') as ScanLogEntry['source'], title: title ?? '',
+      printingLines: clipLines(printingLines), hints: hintsForLog(printingHints(printingLines, env.current.index.setCodes)),
+    });
     if ('reason' in match) {
+      if (logging) {
+        const top = candidates[0];
+        recordScan({ ...logBase(), match: `rejected (${match.reason}); top ${top ? `${top.printing.name} score ${top.score.toFixed(2)} ${top.evidence}` : 'none'}; retry ${retries.current + 1}; lines ${JSON.stringify(clipLines(lines).slice(0, 3))}`,
+          candidates: describeCandidates(candidates, 4), guess: null, artPlanned: null });
+      }
       // The card does not need taking away: bumping the token has native re-read it
       // (~0.4s later). The retries are silent (what was read is not something the
       // person can act on); after QUICK_RETRY_CAP tries the line turns into advice
@@ -306,13 +318,20 @@ function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: 
     // background inside the sheet and may refine the selection later; see
     // printingVerify.ts and CardDetails. The catalog is local, so ranking is instant.
     const index = env.current.index;
-    const ranking = rankPrintings(index.printingsOf(match.printing.oracleId), printingHints(printingLines, index.setCodes));
+    const hints = printingHints(printingLines, index.setCodes);
+    const ranking = rankPrintings(index.printingsOf(match.printing.oracleId), hints);
     const guess = bestGuessPrinting(ranking);
     const artPool = imageUri && cardImageRankingAvailable ? artCandidates(ranking) : null;
+    let logId: string | undefined;
+    if (logging) {
+      logId = newScanLogId();
+      recordScan({ ...logBase(), id: logId, match: `accepted ${match.printing.name} (${match.exactPrinting ? 'name + exact footer' : 'name'}); ${ranking.ranked.length} printing(s) in catalog; footer confidence ${ranking.printingConfidence}`,
+        candidates: describeRanking(ranking), guess: explainGuess(ranking, hints), artPlanned: !!artPool });
+    }
     doneRef.current = true;
     stopQuick();
     closeFan();
-    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined });
+    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined, logId });
   }
 
   function openFan() {

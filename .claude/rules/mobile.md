@@ -344,6 +344,16 @@ choice: the add form already has one option. The main Scan tab (`ScanScreen`) do
 not use the picture step. `npm run accuracy -w @upkeep/scan-core` reports the
 footer's "needs verification" rate, on the illustrative sample only.
 
+**Scan diagnostics** (Settings -> "Scan diagnostics", off by default). While on, each
+read from quick scan (`TabBar.handleRead`, including rejected reads) and the main Scan
+tab (`ScanScreen.onCardRead`) is recorded in a 30-entry ring buffer (`src/scanLog.ts`,
+memory plus a debounced SecureStore write; pure shapes and text in scan-core
+`scan-log.ts`): the title and footer lines read, the hints, each candidate with its
+evidence, the best guess and why, and later, from `CardDetails` via `logId`, the picture
+check (distances, ratio, winner, applied or not and why) and the printing finally shown.
+It only describes; nothing reads it back. The "Scan log" modal lists and copies it via
+the share sheet (a direct clipboard write needs `expo-clipboard`, a native module).
+
 **Open items** (none of these are bugs to fix in passing): the rest of the
 alternate-art plan (`apps/mobile/docs/SCANNER_ALTERNATE_ART_PLAN.md`: still-photo
 footer capture, catalog printing-type flags, a real-card test set);
