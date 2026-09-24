@@ -17,10 +17,15 @@
 # elevated privilege.
 #
 # Mobile catalog (added mobile-app initiative phase 5): export -> build ->
-# publish only runs when this run's own sync actually upserted rows — see
-# sync-scryfall.ts's $GITHUB_OUTPUT write. Scryfall's export usually does not
-# change day to day, and the mobile catalog is a ~30MB Storage upload; there
-# is no reason to redo it on an unchanged day.
+# publish only runs when the sync says the catalog needs it — see
+# sync-scryfall.ts's $GITHUB_OUTPUT write (`upserted`, kept under that name for
+# the steps below). The sync writes only rows that changed, and the catalog has
+# no prices, so on most days nothing it contains has changed and a ~30MB upload
+# would be wasted. It still reports true when an earlier run died after
+# writing, or when an earlier publish never landed: the publish step stamps
+# scryfall_sync_runs.catalog_published_at only after its uploads succeed, and
+# the next sync republishes while a run that needed one is still unstamped.
+# That is why a failed publish here is retried tomorrow rather than forgotten.
 
 name: Scryfall sync
 

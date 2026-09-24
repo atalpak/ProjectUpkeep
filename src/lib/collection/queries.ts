@@ -39,7 +39,7 @@ import {
 import { countAvailableAcrossDecks, type DeckEntryRow } from "@/lib/collection/deck-state";
 import { locateCards, MIN_TERM, type LocatableRow, type LocatedCard } from "@/lib/collection/locate";
 import {
-  mostRecentPriceDate,
+  parsePricesAsOf,
   rowValue,
   summariseValue,
   topCardLabel,
@@ -605,9 +605,9 @@ export type DashboardSummary = {
   /** The collection split by colour and by set. */
   breakdown: CollectionBreakdown;
   /**
-   * The newest `prices_updated_at` across every priced row, so the value hero
-   * can say when its number is from. Null when nothing in the collection has
-   * a price yet.
+   * When the last successful Scryfall sync finished (`prices_as_of()`), so the
+   * value hero can say how fresh its number is. Null when no sync has
+   * succeeded yet or the lookup failed: no date is shown, the page still is.
    */
   pricesAsOf: string | null;
 };
@@ -635,13 +635,14 @@ export async function getDashboardSummary(
     { data: priceable, error: priceError },
     { data: shape, error: shapeError },
     { data: recent, error: recentError },
+    { data: pricesAsOf, error: pricesAsOfError },
   ] = await Promise.all([
     supabase.from("locations").select("*").eq("user_id", owner).order("name", { ascending: true }),
     supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
     supabase
       .from("card_instances")
       .select(
-        "quantity, finish, cards ( name, flavor_name, price_usd, price_usd_foil, price_usd_etched, prices_updated_at )",
+        "quantity, finish, cards ( name, flavor_name, price_usd, price_usd_foil, price_usd_etched )",
       )
       .eq("owner_user_id", owner)
       .limit(MAX_ROWS),
@@ -666,6 +667,9 @@ export async function getDashboardSummary(
       // accident of every insert path leaving it at its `default now()`.
       .order("acquired_at", { ascending: false })
       .limit(recentLimit),
+    // Not derived from the collection: scryfall_sync_runs is unreadable to
+    // users, and this function returns the one value from it they may see.
+    supabase.rpc("prices_as_of"),
   ]);
 
   if (locError) throw new Error(`Could not load locations: ${locError.message}`);
@@ -676,6 +680,8 @@ export async function getDashboardSummary(
   // The breakdown is decoration, like the value — a failed read leaves it empty
   // rather than taking the page down.
   if (shapeError) console.error("Could not break the collection down:", shapeError.message);
+  // Decoration too: without the date the hero simply drops its "As of" hint.
+  if (pricesAsOfError) console.error("Could not read prices-as-of:", pricesAsOfError.message);
   if (recentError) {
     throw new Error(`Could not load recent additions: ${recentError.message}`);
   }
@@ -691,10 +697,6 @@ export async function getDashboardSummary(
     return bTotal - aTotal;
   });
 
-  const priceableRows = (priceable ?? []) as unknown as Array<{
-    cards: { prices_updated_at: string | null } | null;
-  }>;
-
   return {
     value: summariseValue((priceable ?? []) as unknown as CardInstanceWithCard[]),
     totalCards: summary.totalCards,
@@ -704,7 +706,7 @@ export async function getDashboardSummary(
     locations: ranked,
     recent: (recent ?? []) as unknown as CardInstanceWithCard[],
     breakdown: summariseBreakdown((shape ?? []) as unknown as BreakdownRow[]),
-    pricesAsOf: mostRecentPriceDate(priceableRows.map((r) => r.cards?.prices_updated_at)),
+    pricesAsOf: pricesAsOfError ? null : parsePricesAsOf(pricesAsOf),
   };
 }
 

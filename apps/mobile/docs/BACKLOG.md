@@ -21,7 +21,7 @@ Say so again wherever it would otherwise read like invented demand.
 
 | # | Item | Ease | Impact | Status | Where |
 |---|---|---|---|---|---|
-| 1 | Daily sync: the database write is failing, not just the export step | Med | High | Open — one green run (2026-09-22 manual), cause still undiagnosed | `scripts/sync-scryfall.ts`, migration 33 |
+| 1 | Daily sync: the database write is failing, not just the export step | Med | High | Doing — cause diagnosed 2026-09-23 (write amplification); Phase 0 fix built in PR, needs migration 42 applied + a watched `--force` run. Rebuild (oracle_cards, rulings, oracle tags, direct Postgres load) mapped by architect, awaiting owner decisions | `scripts/sync-scryfall.ts`, migrations 33, 42 |
 | 2 | ~~Collection actions still create duplicate rows outside `bulkMerge`~~ | — | — | **Done (2026-09-23)** — migration 41 (`apply_stack_rekey`) + every web call site rewired onto it | `collection/actions.ts`, `bulk-actions.ts`, `decks/actions.ts` |
 | 3 | ~~Migration 40 not applied in production~~ | — | — | **Done (2026-09-22)** — applied, PR #78 adds a CI check so it can't recur silently | — |
 | 4 | One real session on a physical iPhone | Owner only | High | Blocks ~10 other items | scanner, item 8 steps 3–4, dark mode |
@@ -61,6 +61,27 @@ sign-off before any implementer work starts, per `.claude/ORGANIZATION.md`'s del
 rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been.
 
 ### Notes behind the ranking
+
+- **1 (sync database write), diagnosed 2026-09-23.** Measured on the live database:
+  `cards` carries 11 indexes; of ~3.0M updates only ~0.89M were in-place (HOT); the sync
+  rewrote every row daily because it stamped `last_synced_at`/`prices_updated_at` on all
+  of them; ~100MB of the 211MB table was dead space. Migration 33's two text indexes
+  (the `oracle_text` one has never been scanned) made each rewrite costlier, matching the
+  09-12 onset. **Phase 0 (migration 42, uncommitted until the PR merges):** drops
+  `cards_price_usd_idx`, `cards_set_code_number_idx` (exact duplicate) and
+  `cards_name_lower_idx`; adds `content_hash` so the sync writes only new/changed rows;
+  `prices_updated_at` now means "price last changed", so the dashboard's "as of" date
+  comes from `public.prices_as_of()` (latest succeeded sync); a short-read guard; and a
+  `catalog_needs_publish`/`catalog_published_at` marker so the mobile catalog is
+  republished after a run that wrote rows and then died. **Production order:** apply
+  migration 42 (not while a sync is running), then a watched manual `--force` run (the
+  first run rewrites all ~118k rows once). Not yet proven until that run and the next
+  scheduled one. **Still to do (architect impact map delivered, owner decisions
+  pending):** `oracle_cards` table, rulings, oracle tags (item 9), direct-Postgres
+  `COPY` load via the session pooler, a compatibility view named `cards` so the
+  installed phone build keeps working, size-limit ordering (362MB now vs 500MB).
+  Price history was scoped and deliberately parked by the owner (Scryfall keeps none;
+  its dated bulk exports are still downloadable for about a month back and may vanish).
 
 - **1 (sync database write).** The file used to say the export step was the only
   problem; it was fixed (PR #68) and today's manual run proves it (100,237 rows

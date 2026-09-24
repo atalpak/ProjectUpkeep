@@ -161,24 +161,23 @@ export function formatPrice(value: number | null | undefined): string {
 export const PRICES_STORAGE_KEY = "project-upkeep-show-prices";
 
 /**
- * The most recent `cards.prices_updated_at` across a set of rows.
+ * Normalises the result of `rpc("prices_as_of")` into the dashboard's "as of"
+ * date: an ISO timestamp, or null when there is nothing honest to show.
  *
- * Scryfall's sync walks the whole `cards` table in one pass, but a printing
- * added or refreshed between runs can carry a different timestamp than the
- * rest, so the honest "as of" date for a collection is the newest one it
- * actually holds, not a single global run time. ISO timestamps from Postgres
- * sort correctly as plain strings, so this needs no `Date` parsing to compare
- * them.
+ * The date is when the last successful Scryfall sync finished, not anything
+ * derived from the cards a user owns. It used to be the newest per-row
+ * `prices_updated_at`, which stopped meaning "as of" once the sync began
+ * advancing that column only when a card's price actually changed: a
+ * collection of cards whose prices had held still would have looked weeks
+ * stale on a day the sync ran fine.
+ *
+ * Anything that is not a parseable date becomes null, so a failed call, an
+ * empty table (no succeeded run yet) or an unexpected shape all mean the same
+ * thing to the caller: show no date, rather than a wrong one or a crash.
  */
-export function mostRecentPriceDate(
-  dates: Array<string | null | undefined>,
-): string | null {
-  let latest: string | null = null;
-  for (const raw of dates) {
-    if (!raw) continue;
-    if (!latest || raw > latest) latest = raw;
-  }
-  return latest;
+export function parsePricesAsOf(value: unknown): string | null {
+  if (typeof value !== "string" || value === "") return null;
+  return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
 /**
