@@ -163,14 +163,20 @@ export PGHOST=localhost PGPORT=55433 PGUSER=postgres DBNAME=mtg_verify_playtest 
 
 ## Verified vs unverified (as of this update)
 
-Verified by running it: lint, the full unit suite (playtest tests), the property test, migrations 46/47 and schema tests
-27/28 against a scratch PostgreSQL 16 (every assertion falsified, see the test headers), the share leak test failing when
-`library` is added to the projection.
+Verified by running it after step 10: `npm run lint && npm run typecheck && npm test` passed (919 tests, 5 existing
+`apps/mobile` hook warnings, no errors). Migrations 46/47 and schema tests 27/28 previously passed against a scratch
+PostgreSQL 16 (every assertion falsified, see the test headers); the share leak test failed as designed when `library`
+was added to the projection. No schema file changed in steps 9–10, so `npm run test:db` was not rerun.
 
-Verified in a browser through the dev-only fixture: start, mulligan/bottom/keep, local recovery, playing a card via keyboard menu, pointer hand menu, and library browser. `npm run build` succeeds using Next webpack with an offline font mock; Turbopack cannot bind its internal font worker socket in this sandbox. NOT verified yet: live account saves/shares or DB-backed pages; token search against the live
-catalog (`/api/cards/search?type=Token` is read from code, not exercised); Scryfall's rules on hot-linking card images in
-shared tables (the projection only ever keeps `https://cards.scryfall.io/...` URLs; the owner should confirm); real
-production behaviour of migrations 46/47 (not applied).
+Verified in a browser through the dev-only fixture: start, mulligan/bottom/keep, local recovery, playing a card via
+keyboard menu, pointer hand menu, library browser, and Next turn from 0 to 1. The standard `npm run build` could not
+fetch Google Fonts in this offline environment. `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/tmp/playtest-font-mock.js npx next
+build --webpack` passed, including the play, popout, and share routes. Turbopack with the font mock failed resolving
+its internal font CSS module. NOT verified yet: live account saves/shares or DB-backed pages; token search against the
+live catalog (`/api/cards/search?type=Token` is read from code, not exercised); 200% zoom/touch/accessibility pass;
+Scryfall's rules on hot-linking card images in shared tables (the projection only keeps
+`https://cards.scryfall.io/...` URLs; the owner should confirm); real production behaviour of migrations 46/47 (not
+applied).
 
 ## Prompt to paste into the next tool
 
