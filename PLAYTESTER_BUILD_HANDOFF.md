@@ -86,7 +86,7 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 - Done: page owner check, slim entries, server SHA-256 fingerprint, saves/session loaders, bound actions; popout and signed-in share routes; sign-out local-key clearing in both nav forms.
 - Done: initial start dialog (format, life, partner, first-turn draw, free mulligan); London mulligan with ordered bottom choices and inspect; board, hand, card menu, zone browser, tracker bar, palette/shortcut sheet, local recovery, basic save/share/settings/log/metrics/export/token/simulator panels.
 - Browser fixture: `/?playtest-fixture=1` in development only, before the home page's auth query. No account or database needed. It is guarded by `NODE_ENV === "development"` and is absent as a reachable feature in production.
-- Added in the UI refinement: token catalog search and custom extras, notes/counters/offsets/reveal/library insertion in the card menu, image-based full-hand overlay, all tracker paths, all five metric series, fingerprint mismatch choice for direct session URLs, simulator odds controls, hand fan and turn feedback. Remaining verification: keyboard and touch QA at 200% zoom, live token catalog verification, and account save/share testing against a migrated non-production database. The share route was compiled but not exercised against live DB/migrations. No production migration applied. The optional keep-search-open-while-dragging setting is exposed but the zone overlay does not yet support dragging while open; treat it as a known P1 interaction gap.
+- Added in the UI refinement: token catalog search and custom extras, notes/counters/offsets/reveal/library insertion in the card menu, image-based full-hand overlay, all tracker paths, all five metric series, fingerprint mismatch choice for direct session URLs, simulator odds controls, hand fan and turn feedback. Remaining verification: keyboard and touch QA at 200% zoom, live token catalog verification, and account save/share testing against a migrated non-production database. The share route was compiled but not exercised against live DB/migrations. No production migration applied. ~~The optional keep-search-open-while-dragging setting is exposed but the zone overlay does not yet support dragging while open.~~ Closed in the follow-up pass below.
 - Visual: the full-screen dark table uses Project Upkeep palette/typography. The browser fixture verified the hand bottom-left, three piles bottom-right, toolbar bottom, and small controls top. The battlefield fit bug and hand pointer menu dismissal bug were found in browser and fixed. The next-turn control was exercised from turn 0 to turn 1.
 
 ### Step 10 documentation
@@ -94,6 +94,13 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 - `CLAUDE.md` maps the play, popout and share routes and the board/opponent library directories; its test count is 79.
 - The data-access and app-router rules document owner-only saves, the authenticated share RPC, and route conventions.
 - The coordinator should update BACKLOG item 24 after review; this branch does not edit `apps/mobile/docs/BACKLOG.md`.
+
+### Follow-up pass (2026-09-25): zone overlay drag while open
+
+- With `keepSearchOpenWhileDragging` on, the zone overlay is a docked, non-modal side sheet (`PlayBoard.tsx` `TableDialogs`, `data-docked`), and its cards can be dragged with a mouse or pen onto the battlefield, the hand or a pile (`ZoneBrowser.tsx` reuses `startHandDrag` with `fromZone`). Touch does not drag out of the overlay (a finger on a scrolling list cannot tell a drag from a scroll); the card menu (click, or Enter) has every move and is the touch and keyboard path.
+- The overlay rules live in `src/components/playtester/zone-overlay.ts`: what it lists, `shouldShuffleOnClose`, and `closeZoneOverlay`, the ONE function Done, X, Escape and a click outside all call. It flips the dialog state to closed before it dispatches, so a second close finds nothing open: shuffle on close is resolved exactly once, however many drags happened while it was open.
+- Tests: `scripts/playtest-zone-overlay.test.ts` (9). The once-only guard was falsified by removing it: two tests failed, then it was restored and all passed.
+- Known limit: shuffle on close depends on the overlay having been OPENED as a library search, not on which zone the dropdown is showing when it closes.
 
 ## Migrations and the production order (nothing has been applied to production)
 

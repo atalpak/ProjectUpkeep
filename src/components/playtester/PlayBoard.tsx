@@ -8,6 +8,7 @@ import { Hand } from "@/components/playtester/Hand";
 import { OpeningHand } from "@/components/playtester/OpeningHand";
 import { CardMenu } from "@/components/playtester/CardMenu";
 import { ZoneBrowser } from "@/components/playtester/ZoneBrowser";
+import { closeZoneOverlay } from "@/components/playtester/zone-overlay";
 import { AuxPanel } from "@/components/playtester/AuxPanels";
 import { RecoveryManager } from "@/components/playtester/hooks/useRecovery";
 import { TrackerBar } from "@/components/playtester/TrackerBar";
@@ -187,6 +188,11 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
   const store = usePlayStore();
   const env = usePlayEnv();
   const dialog = useExternal(env.ui, (s) => s.dialog);
+  const keepOpen = useSettings().keepSearchOpenWhileDragging;
+  // "Keep search open while dragging": the zone overlay becomes a docked side
+  // sheet over the battlefield instead of a modal, so the table, the hand and
+  // the piles stay reachable as drop targets while it is open.
+  const docked = dialog === "zone" && keepOpen;
   const [format, setFormat] = useState<GameFormat>(commanderCardId ? "commander" : "constructed");
   const [life, setLife] = useState(commanderCardId ? 40 : 20);
   const [partnerId, setPartnerId] = useState("");
@@ -201,13 +207,22 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
     panel.current?.querySelector<HTMLElement>("button, input, select")?.focus();
     return () => opener.current?.focus();
   }, [dialog]);
+  useEffect(() => {
+    if (!docked) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || env.ui.get().menu || env.ui.get().dragging) return;
+      event.preventDefault();
+      closeZoneOverlay(store, env.ui, env.settings, () => crypto.getRandomValues(new Uint32Array(1))[0]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [docked, env, store]);
   if (!dialog) return null;
   const close = () => {
     if (env.ui.get().dialog !== dialog) return;
-    const request = env.ui.get().zone;
-    if (dialog === "zone" && request?.zone === "library" && request.mode === "search" && env.settings.get().shuffleOnClose) {
-      store.dispatch({ type: "SHUFFLE", zone: "library", seed: crypto.getRandomValues(new Uint32Array(1))[0] });
-    }
+    // Every way of closing the zone overlay goes through one function, so the
+    // shuffle-on-close choice is resolved exactly once (zone-overlay.ts).
+    if (dialog === "zone") { closeZoneOverlay(store, env.ui, env.settings, () => crypto.getRandomValues(new Uint32Array(1))[0]); return; }
     env.ui.set((s) => ({ ...s, dialog: null, zone: null }));
   };
   const valid = entries.some((e) => e.quantity > 0 && e.cards !== null);
@@ -218,10 +233,10 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
     close();
   };
   const matches = matchPalette(query, 30);
-  return <div className="absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && dialog !== "start") close(); }}>
-    <section ref={panel} role="dialog" aria-modal="true" aria-label={dialog} className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/20 bg-[#25231f] p-5 shadow-2xl" onKeyDown={(e) => {
+  return <div data-docked={docked || undefined} className={docked ? "pointer-events-none absolute inset-x-0 top-12 bottom-[17rem] z-[5000] flex justify-end px-3" : "absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4"} onMouseDown={(e) => { if (!docked && e.target === e.currentTarget && dialog !== "start") close(); }}>
+    <section ref={panel} role="dialog" aria-modal={docked ? "false" : "true"} aria-label={dialog} className={docked ? "pointer-events-auto flex h-full min-h-40 w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-4 shadow-[var(--shadow-raised)]" : "max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/20 bg-[#25231f] p-5 shadow-2xl"} onKeyDown={(e) => {
       if (e.key === "Escape" && dialog !== "start") { e.preventDefault(); close(); }
-      if (e.key === "Tab") {
+      if (e.key === "Tab" && !docked) {
         const items = Array.from(panel.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]") ?? []);
         const first = items[0]; const last = items[items.length - 1];
         if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
@@ -238,7 +253,7 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
         <label className="block"><input type="checkbox" checked={freeMulligan} onChange={(e) => setFreeMulligan(e.target.checked)} /> First mulligan free</label>
         <label className="block"><input type="checkbox" checked={firstTurnDraws} onChange={(e) => setFirstTurnDraws(e.target.checked)} /> Draw on turn one</label>
         <button onClick={start} disabled={!valid || life < 1 || life > 999} className="rounded bg-accent px-4 py-2 text-accent-ink disabled:opacity-40 coarse:min-h-11">{dialog === "confirm-restart" ? "Restart game" : "Start game"}</button>
-      </div> : dialog === "zone" ? <ZoneBrowser onClose={close} /> : dialog === "palette" ? <div>
+      </div> : dialog === "zone" ? <ZoneBrowser onClose={close} docked={docked} /> : dialog === "palette" ? <div>
         <input autoFocus aria-label="Search actions" placeholder="Type an action, like draw 3" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && matches[0]) { env.perform(matches[0].id, matches[0].arg, matches[0].mode); close(); } }} className="mb-3 w-full rounded bg-black/40 p-2" />
         <div className="max-h-[50vh] overflow-auto">{matches.map((item, index) => <button key={`${item.id}:${index}`} type="button" onClick={() => { env.perform(item.id, item.arg, item.mode); close(); }} className="block w-full rounded p-2 text-left text-sm hover:bg-white/10 coarse:min-h-11">{item.label}</button>)}</div>
       </div> : dialog === "shortcuts" ? <div className="grid grid-cols-2 gap-2">{PALETTE_ACTIONS.filter((a) => a.shortcut).map((a) => <div key={a.id} className="flex justify-between gap-2 text-sm"><span>{a.label}</span><kbd className="text-white/60">{a.shortcut}</kbd></div>)}</div> : <AuxPanel dialog={dialog} close={close} />}
