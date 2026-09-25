@@ -5,7 +5,7 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { BattlefieldCard } from "@/components/playtester/BattlefieldCard";
 import { nudge } from "@/components/playtester/board-actions";
 import { useSettings, usePlayEnv, useUi } from "@/components/playtester/context";
-import { createBoardDrag, DROP_LABELS } from "@/components/playtester/drag";
+import { createBoardDrag } from "@/components/playtester/drag";
 import { GroupFrame } from "@/components/playtester/GroupFrame";
 import { useSize } from "@/components/playtester/hooks/useFit";
 import { useGame, usePlayStore } from "@/components/playtester/hooks/useStore";
@@ -45,16 +45,6 @@ const GuideLines = memo(function GuideLines() {
     </>
   );
 });
-
-function DropBadge({ zone }: { zone: string }) {
-  const hover = useUi((s) => s.hoverZone);
-  if (hover !== zone) return null;
-  return (
-    <div className="pointer-events-none absolute inset-0 z-[3000] flex items-start justify-center rounded-xl border-2 border-dashed border-accent bg-accent/10 pt-3" aria-hidden="true">
-      <span className="rounded-full bg-accent px-3 py-1 text-sm font-semibold text-accent-ink shadow">{DROP_LABELS[zone]}</span>
-    </div>
-  );
-}
 
 function boxOf(game: GameState, gid: string, positions: Map<string, { x: number; y: number }>) {
   let x0 = Infinity;
@@ -208,7 +198,6 @@ export function Battlefield() {
               y={pos.y}
               z={zIndex.get(id) ?? 0}
               scale={scale}
-              showLabels={settings.showLabels}
               countersOnTop={settings.countersOnTop}
               registerEl={registerEl}
               onPointerDown={drag.onCardPointerDown}
@@ -221,7 +210,6 @@ export function Battlefield() {
 
         <div ref={marqueeRef} hidden className="pointer-events-none absolute z-[2500] border border-accent bg-accent/15" />
         <GuideLines />
-        <DropBadge zone="battlefield" />
       </div>
     </div>
   );

@@ -9,12 +9,13 @@ import { CardMenu } from "@/components/playtester/CardMenu";
 import { ZoneBrowser } from "@/components/playtester/ZoneBrowser";
 import { closeZoneOverlay, openDialog } from "@/components/playtester/zone-overlay";
 import { shortcutTargets } from "@/components/playtester/targets";
+import { handCardPx } from "@/components/playtester/card-size";
+import { useViewportHeight } from "@/components/playtester/hooks/useWidth";
 import { AuxPanel } from "@/components/playtester/AuxPanels";
 import { RecoveryManager } from "@/components/playtester/hooks/useRecovery";
 import { TrackerBar } from "@/components/playtester/TrackerBar";
 import { ExternalIcon, KebabIcon, QuestionIcon } from "@/components/playtester/icons";
 import { CardDock, CardDockToggle } from "@/components/playtester/CardDock";
-import { UndoRedo } from "@/components/playtester/UndoRedo";
 import { OtherZonesTab, Piles } from "@/components/playtester/Piles";
 import { CardInspector } from "@/components/playtester/CardInspector";
 import { PopoutBridge } from "@/components/playtester/PopoutBridge";
@@ -175,6 +176,7 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  const cardPx = handCardPx(settings.handSize, useViewportHeight());
   const turn = game?.turn;
   useEffect(() => {
     if (turn === undefined || turn === 0) return;
@@ -194,20 +196,19 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
     return () => window.removeEventListener("keydown", onKey);
   }, [env]);
   const totals = game ? selectionTotals(game, selection) : null;
-  return <div ref={root} data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="dark group/table playtester-table pt-mat fixed inset-0 z-40 flex h-dvh text-ink" style={{ backgroundColor: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
-    <div className="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
-    <div className="flex items-start justify-between gap-3 px-3 pt-3 text-sm max-[900px]:pt-2">
-      <div className="flex flex-col items-start gap-0.5 [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:gap-1"><TopText label="Playtester actions" id="palette" icon={<KebabIcon />} /><TopText label="Keybinds" id="keybinds" icon={<QuestionIcon />} /><TopText label="Full interaction log" id="log" icon={<ExternalIcon />} /><CardDockToggle /></div>
-      <div className="flex items-center gap-3"><UndoRedo /><span className="truncate text-xs text-ink-muted max-sm:hidden">{game ? `Turn ${game.turn}` : "Ready to play"}</span></div>
-      <div aria-hidden="true" className="w-8" />
+  return <div ref={root} data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="dark group/table playtester-table pt-mat fixed inset-0 z-40 flex h-dvh text-ink" style={{ backgroundColor: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value, "--pt-card": `${cardPx}px` } as React.CSSProperties}>
+    <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+    <TrackerBar />
+    <div className="relative flex min-h-24 flex-1">
+      <Battlefield />
+      {/* Sit ON the mat, directly under the bar, so a card can be put anywhere, top included. */}
+      <div className="pointer-events-none absolute left-2 top-2 z-20 flex flex-col items-start gap-0.5 [&>*]:pointer-events-auto [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:gap-1"><TopText label="Playtester actions" id="palette" icon={<KebabIcon />} /><TopText label="Keybinds" id="keybinds" icon={<QuestionIcon />} /><TopText label="Full interaction log" id="log" icon={<ExternalIcon />} /><CardDockToggle /></div>
+      {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
+      {totals && totals.count > 0 ? <div className="absolute left-3 top-[7.75rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
     </div>
-    <div className="flex min-h-24 flex-1 p-2"><Battlefield /></div>
-    {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
-    {totals && totals.count > 0 ? <div className="absolute left-3 top-[9.5rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
     {/* No pop-up for a move: undo is in the top bar. The text is still announced to a screen reader. */}
     <div role="status" aria-live="polite" className="sr-only">{toast?.text ?? ""}</div>
-    <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3"><Hand /><div className="flex shrink-0 items-stretch gap-3"><Piles /><OtherZonesTab /></div></div>
-    <TrackerBar /></div>
+    <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3"><Hand /><div className="flex shrink-0 items-stretch gap-3"><Piles /><OtherZonesTab /></div></div></div>
     </div>
     <CardDock />
     <RecoveryManager /><PopoutBridge /><OpeningHand /><TableDialogs entries={entries} commanderCardId={commanderCardId} /><CardMenu /><CardInspector />
@@ -221,6 +222,8 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
   const env = usePlayEnv();
   const dialog = useExternal(env.ui, (s) => s.dialog);
   const keepOpen = useSettings().keepSearchOpenWhileDragging;
+  const recovery = useExternal(env.ui, (s) => s.recovery);
+  const dragging = useExternal(env.ui, (s) => s.dragging);
   // "Keep search open while dragging": the zone overlay becomes a docked side
   // sheet over the battlefield instead of a modal, so the table, the hand and
   // the piles stay reachable as drop targets while it is open.
@@ -271,7 +274,8 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
     close();
   };
   const matches = matchPalette(query, 30);
-  return <div data-docked={docked || undefined} className={docked ? "pointer-events-none absolute inset-x-0 top-20 bottom-[var(--pt-bottom,17rem)] z-[5000] flex justify-end px-3" : "absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4"} onMouseDown={(e) => { if (!docked && e.target === e.currentTarget && dialog !== "start") close(); }}>
+  return <div data-docked={docked || undefined} className={(dialog === "zones" && dragging) ? "pointer-events-none absolute inset-0 z-[5000] opacity-0" : docked ? "pointer-events-none absolute inset-x-0 top-14 bottom-[var(--pt-bottom,14rem)] z-[5000] flex justify-end px-3" : "absolute inset-0 z-[5000] flex flex-col items-center justify-center gap-3 bg-black/65 p-4"} onMouseDown={(e) => { if (!docked && e.target === e.currentTarget && dialog !== "start") close(); }}>
+    {dialog === "start" && recovery ? <div role="group" aria-label="Continue your last game" className="w-full max-w-lg rounded-lg border border-border-strong bg-surface-raised p-3 text-sm shadow-[var(--shadow-raised)]"><p className="font-medium">Continue your last game?</p><p className="mt-0.5 text-xs text-ink-muted">From {recovery.age}.{recovery.changed ? " The deck has changed since; the saved game keeps its original cards." : ""}</p><div className="mt-2 flex gap-2"><button type="button" autoFocus className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink coarse:min-h-11" onClick={() => env.ui.set((s) => ({ ...s, recoveryChoice: "continue" }))}>Continue</button><button type="button" className="rounded border border-border px-3 py-1.5 text-xs coarse:min-h-11" onClick={() => env.ui.set((s) => ({ ...s, recoveryChoice: "dismiss" }))}>Start fresh</button></div></div> : null}
     <section ref={panel} role="dialog" aria-modal={docked ? "false" : "true"} aria-label={dialog} className={docked ? "pointer-events-auto flex h-full min-h-40 w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-4 shadow-[var(--shadow-raised)]" : "max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border-strong bg-surface-raised p-5 shadow-2xl"} onKeyDown={(e) => {
       if (e.key === "Escape" && dialog !== "start") { e.preventDefault(); close(); }
       if (e.key === "Tab" && !docked) {

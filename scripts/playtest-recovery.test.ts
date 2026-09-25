@@ -129,14 +129,14 @@ test("write throttle: 1s after the last change, never more than 5s while changes
 test("settings: any input yields a complete valid object; the OS reduced-motion preference always wins", () => {
   assert.deepEqual(sanitizeSettings(undefined), DEFAULT_SETTINGS);
   assert.deepEqual(sanitizeSettings("junk"), DEFAULT_SETTINGS);
-  const mixed = sanitizeSettings({ cardSize: "huge", handSize: "large", maxVisibleHand: 9999, playmat: "nope", sleeve: "plum", motion: "full", showLabels: "yes" });
+  const mixed = sanitizeSettings({ cardSize: "huge", handSize: "large", maxVisibleHand: 9999, playmat: "nope", sleeve: "plum", motion: "full", countersOnTop: "yes" });
   assert.equal(mixed.cardSize, DEFAULT_SETTINGS.cardSize);
   assert.equal(mixed.handSize, "large");
   assert.equal(mixed.maxVisibleHand, 40);
   assert.equal(mixed.playmat, DEFAULT_SETTINGS.playmat);
   assert.equal(mixed.sleeve, "plum");
   assert.equal(mixed.motion, "system", "there is no 'force animations on'");
-  assert.equal(mixed.showLabels, DEFAULT_SETTINGS.showLabels, "a wrong-typed value falls back to the default");
+  assert.equal(mixed.countersOnTop, DEFAULT_SETTINGS.countersOnTop, "a wrong-typed value falls back to the default");
   assert.equal(sanitizeSettings({ maxVisibleHand: 1 }).maxVisibleHand, 4);
   assert.equal(animationsEnabled("system", false), true);
   assert.equal(animationsEnabled("system", true), false);

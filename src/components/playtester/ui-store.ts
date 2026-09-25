@@ -58,6 +58,10 @@ export type UiState = {
   diceResult: { text: string; id: number } | null;
   /** Held on the library: show its card back large, for as long as it is held. */
   backPreview: boolean;
+  /** A locally saved game was found for this deck: shown inside the Start dialog. */
+  recovery: { age: string; changed: boolean } | null;
+  /** The player answered it; the recovery manager acts on this and resets it. */
+  recoveryChoice: "continue" | "dismiss" | null;
   /** The player pressed Next turn and is deciding on an upkeep / interaction step. */
   pendingTurn: boolean;
   announce: string;
@@ -79,6 +83,8 @@ export function createUiStore(): UiStore {
     handHidden: false,
     diceResult: null,
     backPreview: false,
+    recovery: null,
+    recoveryChoice: null,
     pendingTurn: false,
     announce: "",
   });

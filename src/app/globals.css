@@ -423,15 +423,3 @@ body {
   background-image: radial-gradient(color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1.4px);
   background-size: 22px 22px;
 }
-
-/*
- * Pile width, written as a plain fallback first and the fitted value second. A
- * browser that cannot evaluate the second declaration keeps the first, so a pile
- * can never collapse to nothing (an earlier version relied on one long width
- * expression and container queries and a piles row vanished in Safari).
- */
-.pt-pile {
-  width: 5.5rem;
-  width: max(3.5rem, min(6.6rem, 18vh, 22vw));
-  min-width: 3.5rem;
-}

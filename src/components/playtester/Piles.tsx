@@ -113,7 +113,7 @@ function Pile({ zone }: { zone: PileZone }) {
   const activate = () => env.perform(zone === "library" ? "draw" : `view-${zone}`);
 
   return (
-    <div className="pt-pile relative flex shrink-0 flex-col gap-1">
+    <div className="relative flex shrink-0 flex-col gap-1" style={{ width: "var(--pt-card, 6.6rem)" }}>
       <PileMenu zone={zone} count={count} open={menuOpen} onOpenChange={setMenuOpen} />
       <button
         type="button"

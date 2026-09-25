@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePlayEnv } from "../context";
-import { usePlayStore } from "./useStore";
+import { useExternal, usePlayStore } from "./useStore";
 import { agoText, buildEnvelope, foreignKeys, gameKey, indexKey, parseEnvelope, parseIndex, touchIndex } from "@/lib/playtest/recovery";
 import type { ParsedEnvelope } from "@/lib/playtest/recovery";
 
@@ -46,5 +46,22 @@ export function RecoveryManager() {
     window.addEventListener("pagehide", write); document.addEventListener("visibilitychange", visibility);
     return () => { unsub(); window.clearTimeout(timer); window.removeEventListener("pagehide", write); document.removeEventListener("visibilitychange", visibility); };
   }, [env, store]);
-  return <>{notice ? <div role="status" className="absolute left-3 top-12 z-30 rounded bg-amber-900 p-2 text-xs">{notice}<button onClick={() => setNotice("")} className="ml-2 underline">Dismiss</button></div> : null}{pending !== null ? <div role="alertdialog" aria-label="Continue your last game" className="pointer-events-auto absolute left-1/2 z-[5100] w-[min(92vw,22rem)] -translate-x-1/2 rounded-lg border border-border-strong bg-surface-raised p-3 text-sm shadow-[var(--shadow-raised)]" style={{ bottom: "calc(50% + 12rem)" }}><p className="font-medium">Continue your last game?</p><p className="mt-0.5 text-xs text-ink-muted">From {pending.age}.{pending.fingerprint !== env.fingerprint ? " The deck has changed since; the saved game keeps its original cards." : ""}</p><div className="mt-2 flex gap-2"><button autoFocus className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink coarse:min-h-11" onClick={() => { store.replace(pending.state, { session: pending.sessionId && pending.sessionUpdatedAt ? { id: pending.sessionId, title: "Recovered game", updatedAt: pending.sessionUpdatedAt } : null }); setPending(null); env.ui.set((s) => ({ ...s, dialog: null })); }}>Continue</button><button className="rounded border border-border px-3 py-1.5 text-xs coarse:min-h-11" onClick={() => setPending(null)}>Start fresh</button></div></div> : null}</>;
+  // Publish the found game to the Start dialog, which shows the question (a
+  // separate floating box could end up on the wrong screen, behind a dialog).
+  useEffect(() => {
+    env.ui.set((s) => ({ ...s, recovery: pending ? { age: pending.age, changed: pending.fingerprint !== env.fingerprint } : null }));
+  }, [pending, env]);
+  const choice = useExternal(env.ui, (s) => s.recoveryChoice);
+  useEffect(() => {
+    if (!choice) return;
+    env.ui.set((s) => ({ ...s, recoveryChoice: null }));
+    if (choice === "continue" && pending) {
+      store.replace(pending.state, { session: pending.sessionId && pending.sessionUpdatedAt ? { id: pending.sessionId, title: "Recovered game", updatedAt: pending.sessionUpdatedAt } : null });
+      env.ui.set((s) => ({ ...s, dialog: null }));
+    }
+    window.setTimeout(() => setPending(null), 0);
+  }, [choice, pending, env, store]);
+  // A new game started some other way: the question no longer applies.
+  useEffect(() => store.subscribe(() => { if (store.get().game) setPending(null); }), [store]);
+  return <>{notice ? <div role="status" className="absolute left-3 top-12 z-30 rounded bg-amber-900 p-2 text-xs">{notice}<button onClick={() => setNotice("")} className="ml-2 underline">Dismiss</button></div> : null}</>;
 }

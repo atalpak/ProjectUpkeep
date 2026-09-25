@@ -66,7 +66,6 @@ export type BattlefieldCardProps = {
   y: number;
   z: number;
   scale: number;
-  showLabels: boolean;
   countersOnTop: boolean;
   registerEl: (id: string, el: HTMLElement | null) => void;
   onPointerDown: (event: React.PointerEvent, id: string) => void;
@@ -81,7 +80,6 @@ export const BattlefieldCard = memo(function BattlefieldCard({
   y,
   z,
   scale,
-  showLabels,
   countersOnTop,
   registerEl,
   onPointerDown,
@@ -176,11 +174,7 @@ export const BattlefieldCard = memo(function BattlefieldCard({
           {card.note ? <span className="absolute right-[3%] top-[12%] size-[9%] rounded-full border border-black/40 bg-accent" title="Has a note" aria-hidden="true" /> : null}
         </span>
 
-        {showLabels ? (
-          <span className="mt-[2px] block truncate text-center text-[clamp(8px,1cqw,12px)] leading-tight text-white/85 drop-shadow" aria-hidden="true">
-            {faceDown ? "Face down" : card.name}
-          </span>
-        ) : null}
+
       </button>
 
       {/* The touch-friendly menu button: always present, faint until hovered or

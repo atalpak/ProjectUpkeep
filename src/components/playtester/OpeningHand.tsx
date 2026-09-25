@@ -55,7 +55,7 @@ export function OpeningHand() {
             Free mulligan
           </button>
         </div>
-        <div className="flex items-end justify-center px-6 pb-10 pt-16">
+        <div className="flex items-end justify-center" style={{ padding: "4rem 1.5rem 2.5rem", minHeight: "16rem" }}>
           {ids.map((id, i) => {
             const card = game.cards[id];
             const order = selected.indexOf(id);
@@ -63,8 +63,8 @@ export function OpeningHand() {
             return (
               <div
                 key={id}
-                className="group/pick relative -ml-5 w-[clamp(5.5rem,12vw,10rem)] shrink-0 first:ml-0 hover:z-30 focus-within:z-30"
-                style={{ transform: `rotate(${(i - mid) * 3}deg) translateY(${Math.abs(i - mid) * 5}px)`, zIndex: i }}
+                className="group/pick relative shrink-0 hover:z-30 focus-within:z-30"
+                style={{ width: "min(10rem, max(5.5rem, 12vw))", marginLeft: i === 0 ? 0 : "-1.25rem", transform: `rotate(${(i - mid) * 3}deg) translateY(${Math.abs(i - mid) * 5}px)`, zIndex: i }}
                 onPointerEnter={() => glance(id)}
                 onPointerLeave={unglance}
               >

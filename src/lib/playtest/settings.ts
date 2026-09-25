@@ -45,7 +45,6 @@ export type Settings = {
   handClick: HandClickMode;
   handHover: boolean;
   maxVisibleHand: number;
-  showLabels: boolean;
   countersOnTop: boolean;
   motion: MotionPref;
   playmat: keyof typeof PLAYMATS;
@@ -66,7 +65,6 @@ export const DEFAULT_SETTINGS: Settings = {
   handClick: "menu",
   handHover: true,
   maxVisibleHand: 12,
-  showLabels: true,
   countersOnTop: true,
   motion: "system",
   playmat: "ink",
@@ -96,7 +94,6 @@ export function sanitizeSettings(input: unknown): Settings {
     handClick: pickKey(r.handClick, ["play", "menu"] as const, d.handClick),
     handHover: bool(r.handHover, d.handHover),
     maxVisibleHand: max,
-    showLabels: bool(r.showLabels, d.showLabels),
     countersOnTop: bool(r.countersOnTop, d.countersOnTop),
     motion: pickKey(r.motion, ["system", "reduce"] as const, d.motion),
     playmat: pickKey(r.playmat, Object.keys(PLAYMATS) as Array<keyof typeof PLAYMATS>, d.playmat),

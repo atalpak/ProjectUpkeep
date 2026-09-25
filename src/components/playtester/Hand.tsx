@@ -3,7 +3,7 @@
 import { memo, useRef } from "react";
 
 import { CardArt } from "@/components/playtester/CardArt";
-import { HAND_WIDTH_REM } from "@/components/playtester/card-size";
+import { handCardPx } from "@/components/playtester/card-size";
 import { useSettings, usePlayEnv, useUi } from "@/components/playtester/context";
 import { startHandDrag } from "@/components/playtester/drag";
 import { useCard, usePlayStore, useZoneIds } from "@/components/playtester/hooks/useStore";
@@ -32,7 +32,6 @@ const GAP_PX = 8;
 const HandCard = memo(function HandCard({
   id,
   index,
-  widthRem,
   overlapPx,
   covered,
   hover,
@@ -41,7 +40,6 @@ const HandCard = memo(function HandCard({
 }: {
   id: string;
   index: number;
-  widthRem: number;
   overlapPx: number;
   covered: boolean;
   hover: boolean;
@@ -64,7 +62,7 @@ const HandCard = memo(function HandCard({
       ref={ref}
       data-hand-card={id}
       className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30! focus-within:z-30!")}
-      style={{ width: `min(${widthRem}rem, 16vh)`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
+      style={{ width: "var(--pt-card, 6.6rem)", marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
       onFocusCapture={() => env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }))}
       onBlurCapture={() => env.ui.set((s) => (s.inspect && !s.inspect.big ? { ...s, inspect: null } : s))}
       onPointerEnter={(e) => {
@@ -166,8 +164,7 @@ export function Hand() {
   const areaWidth = useWidth(areaRef);
   const viewportHeight = useViewportHeight();
 
-  const widthRem = HAND_WIDTH_REM[settings.handSize];
-  const cardPx = viewportHeight === 0 ? widthRem * 16 : Math.min(widthRem * 16, viewportHeight * 0.16);
+  const cardPx = handCardPx(settings.handSize, viewportHeight);
   const shown = ids.slice(0, settings.maxVisibleHand);
   const extra = ids.length - shown.length;
   // Squeeze the cards together only when they do not fit: the margin between
@@ -206,7 +203,7 @@ export function Hand() {
         >
           {ids.length === 0 ? <p className="self-center text-sm text-white/50">Your hand is empty.</p> : null}
           {shown.map((id, i) => (
-            <HandCard key={id} id={id} index={i} widthRem={widthRem} overlapPx={overlapPx} covered={hidden} hover={settings.handHover} clickPlays={settings.handClick === "play"} reduced={settings.motion === "reduce"} />
+            <HandCard key={id} id={id} index={i} overlapPx={overlapPx} covered={hidden} hover={settings.handHover} clickPlays={settings.handClick === "play"} reduced={settings.motion === "reduce"} />
           ))}
           {extra > 0 ? (
             <button type="button" onClick={() => env.perform("hand-overlay")} className="ml-2 shrink-0 self-center rounded-full bg-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/25 coarse:min-h-11">

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePlayEnv, useUi } from "./context";
 import { useExternal, useGame, usePlayStore } from "./hooks/useStore";
 import { useWidth } from "./hooks/useWidth";
+import { UndoRedo } from "./UndoRedo";
 import { BoltIcon, HeartIcon, KebabIcon, MenuIcon, NextIcon, SkullIcon, SparkIcon } from "./icons";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { ManaSymbol } from "@/components/ManaCost";
@@ -13,16 +14,16 @@ import { cx } from "@/lib/cx";
 import { MANA_KEYS } from "@/lib/playtest/board/types";
 
 /**
- * The bottom toolbar. It is ALWAYS one row.
+ * The top toolbar, under which the play area starts. It is ALWAYS one row.
  *
- * Left to right: the brand mark (back to the deck), the game menu, life with a
- * minus and a plus either side, the mana pool, then the save status, Next turn
- * and More. Right-click on life (or the context-menu key, or the dots button on
+ * Left to right: the brand mark (back to the deck), the game menu, undo and redo,
+ * life with a minus and a plus either side, the mana pool, then the save status,
+ * the turn, Next turn and More. Right-click on life (or the context-menu key, or the dots button on
  * a touch screen) opens the other trackers: poison, experience, energy, the
  * second life total, damage and commander damage.
  *
  * The bar measures itself. Under `MANA_COLLAPSE_PX` the six mana counters fold
- * into one button that opens them in a panel above the bar; under
+ * into one button that opens them in a panel below the bar; under
  * `LABELS_HIDE_PX` the words go and the icons stay. Nothing wraps.
  */
 
@@ -56,7 +57,7 @@ function StepRow({ label, value, path, icon }: { label: string; value: number; p
   );
 }
 
-const PANEL = "absolute bottom-full z-40 mb-2 w-72 space-y-2 rounded-lg border border-border bg-surface-raised p-3 text-ink shadow-[var(--shadow-raised)]";
+const PANEL = "absolute top-full z-40 mt-2 w-72 space-y-2 rounded-lg border border-border bg-surface-raised p-3 text-ink shadow-[var(--shadow-raised)]";
 
 function ManaPip({ letter }: { letter: string }) {
   return <ManaSymbol code={letter} className="size-5" />;
@@ -104,10 +105,13 @@ function Life({ onMore }: { onMore: () => void }) {
             set(value + (e.key === "ArrowUp" ? 1 : -1));
           }
         }}
-        className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus-ring coarse:min-h-11"
+        className="flex items-center rounded-lg px-0.5 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus-ring coarse:min-h-11"
       >
-        <HeartIcon />
-        <span key={value} className="pt-pop inline-block min-w-5 text-left font-medium tabular-nums">{value}</span>
+        {/* The heart sits softly BEHIND the number: it costs no width of its own. */}
+        <span className="relative inline-flex min-w-9 items-center justify-center">
+          <HeartIcon className="pointer-events-none absolute size-8 text-ink opacity-20" />
+          <span key={value} className="pt-pop relative inline-block font-semibold tabular-nums">{value}</span>
+        </span>
       </button>
       <button type="button" aria-label="Increase life" onClick={() => set(value + 1)} className={stepButton}>+</button>
       <button type="button" aria-label="Other trackers" onClick={onMore} className="hidden size-11 items-center justify-center rounded text-ink-muted hover:text-ink coarse:flex">
@@ -240,12 +244,13 @@ export function TrackerBar() {
 
   const manaTotal = game ? MANA_KEYS.reduce((sum, key) => sum + game.trackers.manaPool[key], 0) : 0;
   return (
-    <div ref={bar} className="relative flex flex-nowrap items-center gap-x-2 overflow-visible border-t border-border bg-canvas px-3 py-1.5">
+    <div ref={bar} className="relative flex flex-nowrap items-center gap-x-2 overflow-visible border-b border-border bg-canvas px-3 py-1.5">
       <Link href={`/decks/${env.deckId}`} aria-label="Back to the deck" title="Back to the deck" className="flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-white/10 coarse:size-11">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/icon.svg" alt="" className="size-6" />
       </Link>
       <GameMenu iconOnly={iconOnly} />
+      <UndoRedo />
 
       {game ? (
         <>
@@ -314,6 +319,7 @@ export function TrackerBar() {
             {status.state === "saved" ? "Saved locally" : status.state === "off" ? "Crash recovery is off in this browser — save to your account to keep this game." : ""}
           </span>
         ) : null}
+        {game && !iconOnly ? <span className="text-xs text-ink-muted tabular-nums">Turn {game.turn}</span> : null}
         <button
           type="button"
           onClick={() => env.perform("next-turn")}
