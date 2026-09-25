@@ -10,11 +10,11 @@ import { useEffect, useState, type RefObject } from "react";
  * matters. Zero until first measured; the caller renders nothing meaningful at
  * zero, so no wrong-sized flash.
  */
-export function useFit(ref: RefObject<HTMLElement | null>, aspect: number): { width: number; height: number } {
+export function useFit(ref: RefObject<HTMLElement | null>, aspect: number, enabled = true): { width: number; height: number } {
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || !enabled) return;
     const measure = () => {
       const w = el.clientWidth;
       const h = el.clientHeight;
@@ -27,6 +27,6 @@ export function useFit(ref: RefObject<HTMLElement | null>, aspect: number): { wi
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref, aspect]);
+  }, [ref, aspect, enabled]);
   return size;
 }

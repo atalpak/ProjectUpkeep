@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { signOut } from "@/app/auth/actions";
+import { allPlaytestKeys } from "@/lib/playtest/recovery";
 import { setCardPreviewMode, useCardPreviewMode } from "@/components/CardPreviewMode";
 import { toggleDarkTheme, useIsDarkTheme } from "@/components/ThemeToggle";
 import { useViewportFit } from "@/hooks/useViewportFit";
@@ -124,7 +125,7 @@ export function AccountMenu({ label }: { label: string }) {
           >
             Settings
           </Link>
-          <form action={signOut} className="border-t border-border">
+          <form action={signOut} className="border-t border-border" onSubmit={() => { try { const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((key): key is string => key !== null); for (const key of allPlaytestKeys(keys)) localStorage.removeItem(key); } catch { /* Sign out still proceeds. */ } }}>
             <button
               type="submit"
               role="menuitem"

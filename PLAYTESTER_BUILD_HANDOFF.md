@@ -3,7 +3,7 @@
 Written so a fresh AI tool with **no memory of the conversation that started this** can pick the build up and finish it.
 Keep this file truthful: update the checklist and the "what remains" section in the same commit as the work.
 
-Last updated: 2026-09-25, during step 9 after the first renderable table checkpoint.
+Last updated: 2026-09-25, during step 9 after browser fixture exercise.
 
 ## Goal, and the one-pass rule
 
@@ -79,59 +79,16 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 | 6 | `share.ts` + leak test, metrics, export, opponent generator/presets, recovery, settings, dice, palette (pure modules + tests) | DONE | `5cfd3d9` |
 | 7 | Migrations 46 and 47, schema tests 27 and 28, deliberate breaks run | DONE | `dfd9f42`, `ff40728` |
 | 8 | Server actions (`play/actions.ts`), read-only loaders (`play/sessions.ts`), `session.ts`/`slim.ts`, `errors.ts` mapping, boundary test reading the real files, session tests | DONE (the page wiring listed below moved into step 9 because it needs the new `PlayBoard` props) | see `git log` (commit "Playtester step 8") |
-| 9 | UI and page/route wiring | IN PROGRESS — first renderable table shell and play page wired. `PlayBoard` now mounts the existing battlefield and hand, draws the three piles and bottom toolbar, starts a game, and dispatches basic actions. `page.tsx` scopes the deck to the signed-in owner, slims entries, computes the fingerprint, loads saves and the requested session, and binds actions. Typecheck has only the four documented missing-`postgres` errors. Remaining: opening/mulligan UI, full dialogs/menus, recovery, sharing/read-only routes, popout, simulator, accessibility polish and browser fixture. The webpack build is blocked by the sandbox's unavailable Google Fonts; Turbopack also rejects the worktree's symlinked `node_modules`. | first-table checkpoint (this commit) |
+| 9 | UI and page/route wiring | IN PROGRESS — first table commit `447eeb6`; current sub-step adds mulligan/partner start, menus, zones, trackers, command palette, recovery, account saves/shares, logs/metrics/export, settings, simulator, public share/popout pages, and a dev-only fixture on `/?playtest-fixture=1`. Browser fixture verified start, mulligan/bottom/keep, local restore, menu via pointer and keyboard, play to battlefield, and library browser. Remaining limitations listed below. | this UI sub-step (this commit) |
 | 10 | Docs: privacy page, CLAUDE.md directory map, data-access.md, app-router.md | TODO | |
 
-### Step 8 leftovers (do these at the start of step 9, they need the new `PlayBoard` props)
-- Rewrite `src/app/(app)/decks/[id]/play/page.tsx`: `getDeck`, `getDeckList`, slim the entries (`slimEntry`), compute the
-  deck fingerprint on the SERVER (`fingerprintText` then node `crypto` SHA-256, commander = `deck.commander_card_id`),
-  `getCurrentUser()` for the local-storage namespace, `loadSaves`, and `loadSession` for `?session=<id>`. Pass the bound
-  actions (`saveSession.bind(null, id)` and so on) to `PlayBoard` as props. Add `popout/page.tsx`.
-- `createGameStart` now takes `StartEntry[]` (from `slim.ts`) semantically; today its type is still `DeckListEntry[]`
-  (a `DeckListEntry` is assignable to `StartEntry`). Switch the parameter type to `StartEntry` when wiring the page.
-- Add `src/app/(app)/shared/playtest/[token]/page.tsx` (signed-in only, inside the `(app)` group, `force-dynamic`,
-  `robots` noindex,nofollow, `referrer` no-referrer, calls `supabase.rpc("get_playtest_share", { p_token })`, validates
-  with `readProjection`, renders `PublicBoard`, shows the Fan Content Policy notice) and clear `upkeep:playtest:` keys in
-  the sign-out form in `src/components/AppNav.tsx` before submitting (`allPlaytestKeys` in `recovery.ts`).
+### Step 9 current state and remaining work
 
-### Step 9, what remains (the whole UI; nothing of it is written yet)
-The existing components in `src/components/playtester/` (`PlayBoard`, `Battlefield`, `Hand`, `ZonePile`, `GameCard`,
-`CardMenu`, `GameControls`, `ActionLog`, `TokenForm`) still target the **v1** state and do not compile against v2. Replace
-them; do not patch them. Order (from the map): store first, then the rest.
-1. `store.ts` (`useSyncExternalStore`): state, history (`board/history.ts`), selection, a **stable** `dispatch` that stamps
-   `ts` and skips the undo entry when `applyCommand` returns the same reference (and for `PEEK`); `useCard(id)`
-   per-card subscriptions. `PlayBoard` becomes a thin shell. One shared `CardMenu` anchored to the selected card;
-   `BattlefieldCard` memoised so tapping one card does not rerender 100.
-2. Free-placement `Battlefield` on the proportional board (`layout.ts` constants; 16:9 virtual board scaled to fit):
-   pointer events with pointer capture, drag via a ref + `requestAnimationFrame` with no store updates, ONE `SET_LAYOUT`
-   on drop (with `order` to bring to front); snap/alignment guides (`snapPosition`); `Marquee` box select (`cardsInRect`);
-   `GroupFrame`; keyboard nudges merged into one undo step (~500ms); screen-reader order via `readingOrder`.
-3. Hand row (fan, undo/redo round buttons at each end, "Cards in hand: N", "Hand options": sort, random discard, hide, move
-   all, full-hand overlay `HandOverlay`), zone piles with counts and "No cards" placeholders (library pile visibly shrinks),
-   docked "View other zones" tab, `ZoneBrowser` (search/peek, shuffle-on-close resolved once), `StartDialog` (format,
-   partners, free mulligan, first-turn draw), `OpeningHand` (staggered fan, London bottoming controls for keyboard and touch,
-   mulligan sweep), `CardInspector` (hold-key/long-press full card; oracle text from the entries else `/api/cards/[id]`).
-4. `TrackerBar` (game menu, life with count animation and red/green flash, poison/experience/energy, mana pool, Next turn,
-   More), `DiceMenu` (roll with `rollResult`, send `ROLL`), turn banner (also the upkeep reminder slot), undo toast chip
-   after every action, floating selected count and total power/toughness (`selectionTotals`), drop-target highlights
-   ("Graveyard", "Top of library"), Tidy button (`tidyLayout`), card-shaped image placeholders so the board never jumps.
-5. Command palette on `/` and Ctrl/Cmd-K plus `ShortcutSheet`, both driven by `palette.ts` (`matchPalette`,
-   `resolveShortcut`); shortcuts never fire while a text field is focused.
-6. Recovery (`hooks/`): localStorage via `recovery.ts` (read only after mount; write 1s after the last change, at most 5s
-   while changing, and on `visibilitychange` hidden / `pagehide`; catch every storage error; banner "Crash recovery is off in
-   this browser..."; restore prompt "Continue your game from N minutes ago?"; autosave indicator "Saved locally" + time with a
-   plain failure warning; delete keys belonging to another user id on load).
-7. `SessionList`/`SaveDialog` (save, overwrite with conflict handling, save as, rename, duplicate, restore with a dirty
-   confirmation, delete; fingerprint mismatch offers "Continue saved state" / "Start with current deck"), `SettingsDialog`
-   (`settings.ts`), `LogPanel` (turn-grouped, void an entry with the "log no longer matches" warning), `MetricsPanel`
-   (plain SVG, no chart library, prints `CONVENTIONS`), `ExportDialog` (`compactLog`, `fullLogJson`, copy and download),
-   `ShareDialog` (create / update / stop sharing, show-hand toggle), `PublicBoard` (read-only, shared by the share page and
-   the pop-out), `PopoutBridge` (BroadcastChannel, same browser), `InteractionPanel` (opponent prompts: Next turn records a
-   pending prompt via `generateInteraction`, then ignore / resolve manually / reroll, then `NEXT_TURN`).
-8. Accessibility: every drag has a menu and a keyboard equivalent, focus returns predictably, card images have alt text,
-   counters and tap state are announced as text, touch targets 44px under the `coarse:` variant.
-9. A dev-only fixture/harness route so the board can be exercised without auth or a database (delete it or keep it strictly
-   dev-guarded, and say which in the report).
+- Done: page owner check, slim entries, server SHA-256 fingerprint, saves/session loaders, bound actions; popout and signed-in share routes; sign-out local-key clearing in both nav forms.
+- Done: initial start dialog (format, life, partner, first-turn draw, free mulligan); London mulligan with ordered bottom choices and inspect; board, hand, card menu, zone browser, tracker bar, palette/shortcut sheet, local recovery, basic save/share/settings/log/metrics/export/token/simulator panels.
+- Browser fixture: `/?playtest-fixture=1` in development only, before the home page's auth query. No account or database needed. It is guarded by `NODE_ENV === "development"` and is absent as a reachable feature in production.
+- Still needs refinement: token catalog search, full card action menu (notes, custom counters, offsets, reveal and ordered library insertion), richer full-hand overlay, zone reorder, confirmation for a fingerprint-mismatched session loaded directly by URL, simulator odds controls beyond category chances, and a more complete accessibility pass at touch size/zoom. The share route was compiled but not exercised against live DB/migrations. No production migration applied.
+- Visual: the full-screen dark table uses Project Upkeep palette/typography. The screenshot fixture verified the hand bottom-left, three piles bottom-right, toolbar bottom, and small controls top. The battlefield fit bug and hand pointer menu dismissal bug were found in browser and fixed.
 
 ### Step 10, what remains
 - `src/app/privacy/page.tsx`: it says data is never shared with anyone outside the app. That stops being true once a user
@@ -214,7 +171,7 @@ Verified by running it: lint, the full unit suite (playtest tests), the property
 27/28 against a scratch PostgreSQL 16 (every assertion falsified, see the test headers), the share leak test failing when
 `library` is added to the projection.
 
-NOT verified yet: anything in a browser (the UI does not exist yet); `npm run build`; token search against the live
+Verified in a browser through the dev-only fixture: start, mulligan/bottom/keep, local recovery, playing a card via keyboard menu, pointer hand menu, and library browser. `npm run build` succeeds using Next webpack with an offline font mock; Turbopack cannot bind its internal font worker socket in this sandbox. NOT verified yet: live account saves/shares or DB-backed pages; token search against the live
 catalog (`/api/cards/search?type=Token` is read from code, not exercised); Scryfall's rules on hot-linking card images in
 shared tables (the projection only ever keeps `https://cards.scryfall.io/...` URLs; the owner should confirm); real
 production behaviour of migrations 46/47 (not applied).

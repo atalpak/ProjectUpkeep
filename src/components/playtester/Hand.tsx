@@ -89,9 +89,12 @@ const HandCard = memo(function HandCard({
         aria-label={`${card.name}${covered ? " (hand hidden)" : ""}, hand card ${index + 1}. Enter for actions, Space to play.`}
         onPointerDown={(e) => {
           if (!ref.current) return;
+          const opener = e.currentTarget;
           startHandDrag(e, id, ref.current, { store, ui: env.ui, board: () => document.querySelector<HTMLElement>("[data-board]") }, () => {
             if (clickPlays) env.perform("play-card", id);
-            else openMenu(e.currentTarget as HTMLElement);
+            // Pointerup precedes click. Mounting the backdrop now would let
+            // the same click close the menu immediately.
+            else window.setTimeout(() => openMenu(opener), 0);
           });
         }}
         onContextMenu={(e) => {

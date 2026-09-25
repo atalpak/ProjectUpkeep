@@ -81,7 +81,7 @@ export function Battlefield() {
   const boardRef = useRef<HTMLDivElement>(null);
   const marqueeRef = useRef<HTMLDivElement>(null);
   const [els] = useState(() => new Map<string, HTMLElement>());
-  const fit = useFit(areaRef, BOARD_ASPECT);
+  const fit = useFit(areaRef, BOARD_ASPECT, game !== null);
 
   const registerEl = useCallback(
     (id: string, el: HTMLElement | null) => {

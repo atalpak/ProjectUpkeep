@@ -9,6 +9,7 @@ import { NavLink } from "@/components/NavLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button, Dialog, cx } from "@/components/ui";
 import { Wordmark } from "@/components/Wordmark";
+import { allPlaytestKeys } from "@/lib/playtest/recovery";
 
 /**
  * The signed-in navigation, at both sizes.
@@ -152,7 +153,7 @@ export function AppNavDrawer({ username }: { username: string | null }) {
             </Link>
             <div className="flex items-center gap-2">
               <ThemeToggle />
-              <form action={signOut} className="flex-1">
+              <form action={signOut} className="flex-1" onSubmit={() => { try { for (const key of allPlaytestKeys(Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter((key): key is string => key !== null))) localStorage.removeItem(key); } catch { /* Storage can be blocked; sign out anyway. */ } }}>
                 <Button variant="secondary" type="submit" className="w-full">
                   Sign out
                 </Button>

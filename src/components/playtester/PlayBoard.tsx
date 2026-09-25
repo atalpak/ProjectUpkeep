@@ -1,10 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Battlefield } from "@/components/playtester/Battlefield";
 import { Hand } from "@/components/playtester/Hand";
-import { PlayEnvProvider, usePlayEnv, type PlayActionsApi, type RecoveryStatus } from "@/components/playtester/context";
+import { OpeningHand } from "@/components/playtester/OpeningHand";
+import { CardMenu } from "@/components/playtester/CardMenu";
+import { ZoneBrowser } from "@/components/playtester/ZoneBrowser";
+import { AuxPanel } from "@/components/playtester/AuxPanels";
+import { RecoveryManager } from "@/components/playtester/hooks/useRecovery";
+import { TrackerBar } from "@/components/playtester/TrackerBar";
+import { CardInspector } from "@/components/playtester/CardInspector";
+import { PopoutBridge } from "@/components/playtester/PopoutBridge";
+import { focusedCardId } from "@/components/playtester/board-actions";
+import { matchPalette, resolveShortcut, PALETTE_ACTIONS } from "@/lib/playtest/palette";
+import { PlayEnvProvider, usePlayEnv, useSettings, type PlayActionsApi, type RecoveryStatus } from "@/components/playtester/context";
 import { useExternal, usePlayStore, useSelector, PlayStoreProvider } from "@/components/playtester/hooks/useStore";
 import { createExternalStore, createPlayStore } from "@/components/playtester/store";
 import { createUiStore } from "@/components/playtester/ui-store";
@@ -13,7 +24,8 @@ import { createGameStart } from "@/lib/playtest/game-start";
 import { sortedHandOrder, randomIndex } from "@/lib/playtest/hand";
 import { tidyLayout } from "@/lib/playtest/board/layout";
 import { tryValidateSnapshot } from "@/lib/playtest/board/serialize";
-import { DEFAULT_SETTINGS, sanitizeSettings } from "@/lib/playtest/settings";
+import { DEFAULT_SETTINGS, PLAYMATS, SLEEVES, sanitizeSettings } from "@/lib/playtest/settings";
+import { selectionTotals } from "@/lib/playtest/board/selectors";
 import { prefsKey } from "@/lib/playtest/recovery";
 import type { StartEntry } from "@/lib/playtest/slim";
 import type { SavesSummary } from "@/lib/playtest/session";
@@ -49,10 +61,28 @@ export function PlayBoard(props: PlayBoardProps) {
     if (id === "draw" || id === "draw-n") return dispatch({ type: "DRAW", count: typeof arg === "number" ? arg : 1 });
     if (id === "mill") return dispatch({ type: "MILL", count: typeof arg === "number" ? arg : 1 });
     if (id === "shuffle") return dispatch({ type: "SHUFFLE", zone: "library", seed: crypto.getRandomValues(new Uint32Array(1))[0] });
-    if (id === "next-turn") return dispatch({ type: "NEXT_TURN" });
+    if (id === "next-turn") return game.simulator.settings.enabled || settings.get().upkeepReminder ? open("interaction") : dispatch({ type: "NEXT_TURN" });
     if (id === "tidy") return dispatch(tidyLayout(game));
+    if (id === "inspect") { const cardId = focusedCardId(); if (cardId) ui.set((s) => ({ ...s, inspect: { cardId, big: true } })); return; }
     if (id === "select-all") return store.setSelection(game.zones.battlefield);
     if (id === "clear-selection") return store.setSelection([]);
+    if (id === "group" && selected.length) {
+      const label = prompt("Group name", "Group"); if (label === null) return;
+      const arrangement = prompt("Arrangement: row, column or stack", "row");
+      dispatch({ type: "SET_GROUP", ids: [...selected], groupId: crypto.randomUUID().slice(0, 40), group: { label, arrangement: arrangement === "column" || arrangement === "stack" ? arrangement : "row" } }); return;
+    }
+    if (id === "ungroup") return dispatch({ type: "SET_GROUP", ids: [...selected], groupId: null });
+    if (id === "proliferate") return dispatch({ type: "PROLIFERATE", ids: [...selected] });
+    if (id === "add-counter" || id === "remove-counter") {
+      const name = typeof arg === "string" ? arg : id === "remove-counter" ? "+1/+1" : prompt("Counter name", "+1/+1");
+      if (name && selected.length) dispatch({ type: "BATCH", commands: selected.map((cardId) => ({ type: "ADD_COUNTER", cardId, name, delta: id === "remove-counter" ? -1 : 1 })) });
+      return;
+    }
+    if (id === "delete") { const ids = selected.filter((cardId) => game.cards[cardId]?.kind !== "deck-card"); if (ids.length) dispatch({ type: "BATCH", commands: ids.map((cardId) => ({ type: "DELETE_OBJECT", cardId })) }); return; }
+    if (id === "copy-token" && selected.length) {
+      const source = game.cards[selected[0]];
+      dispatch({ type: "CREATE_EXTRA", ids: [crypto.randomUUID()], spec: { name: source.name, typeLine: source.typeLine, power: source.power, toughness: source.toughness, manaValue: source.manaValue, imageSmall: source.imageSmall, imageNormal: source.imageNormal, cardId: source.cardId, oracleId: source.oracleId }, kind: "copy", copiedFromId: source.id, zone: "battlefield" }); return;
+    }
     if (id === "play-card" || id === "play-card-tapped") {
       if (typeof arg === "string") dispatch({ type: "MOVE_MANY", ids: [arg], to: "battlefield", at: "top", tapped: id === "play-card-tapped" });
       return;
@@ -76,15 +106,18 @@ export function PlayBoard(props: PlayBoardProps) {
     }
     if (id === "hand-random-discard") { const i = randomIndex(game.zones.hand.length, Math.random); if (i >= 0) dispatch({ type: "RANDOM_DISCARD", cardId: game.zones.hand[i] }); return; }
     if (id.startsWith("hand-sort-")) { const key = id.slice(10) as "name" | "type" | "color" | "mv"; dispatch({ type: "REORDER_ZONE", zone: "hand", order: sortedHandOrder(game, key, (c) => catalog.get(c.cardId ?? "")?.colors ?? []) }); return; }
-    if (id === "hand-all-to-graveyard" || id === "hand-all-to-library") { if (game.zones.hand.length) dispatch({ type: "MOVE_MANY", ids: [...game.zones.hand], to: id === "hand-all-to-library" ? "library" : "graveyard", at: "top" }); return; }
-    if (id === "life-set" && typeof arg === "number") return dispatch(mode === "delta" ? { type: "SET_LIFE", delta: arg } : { type: "SET_TRACKER", path: "life", value: arg });
-    if (id.startsWith("tracker-") && typeof arg === "number") return dispatch({ type: "SET_TRACKER", path: id.slice(8), value: arg });
-    if (id === "set-turn" && typeof arg === "number") return dispatch({ type: "SET_TURN", turn: arg });
+    if (id === "hand-all-to-graveyard" || id === "hand-all-to-library") { if (game.zones.hand.length) { const moveHand: GameCommand = { type: "MOVE_MANY", ids: [...game.zones.hand], to: id === "hand-all-to-library" ? "library" : "graveyard", at: "top" }; dispatch(id === "hand-all-to-library" ? { type: "BATCH", commands: [moveHand, { type: "SHUFFLE", zone: "library", seed: crypto.getRandomValues(new Uint32Array(1))[0] }] } : moveHand); } return; }
+    if (id === "random-draw" && game.zones.library.length) return dispatch({ type: "MOVE_MANY", ids: [game.zones.library[randomIndex(game.zones.library.length, Math.random)]], to: "hand", at: "bottom" });
+    if (id === "top-to-graveyard" && game.zones.library.length) return dispatch({ type: "MOVE_MANY", ids: [game.zones.library[0]], to: "graveyard", at: "top" });
+    if (id === "life-set") { const n = typeof arg === "number" ? arg : Number(prompt("Set life", String(game.trackers.life))); if (Number.isFinite(n)) dispatch(mode === "delta" ? { type: "SET_LIFE", delta: n } : { type: "SET_TRACKER", path: "life", value: n }); return; }
+    if (id.startsWith("tracker-")) { const path = id.slice(8); const n = typeof arg === "number" ? arg : Number(prompt(`Set ${path}`, String(game.trackers[path as "poison" | "energy" | "experience"]))); if (Number.isFinite(n)) dispatch({ type: "SET_TRACKER", path, value: n }); return; }
+    if (id === "set-turn") { const n = typeof arg === "number" ? arg : Number(prompt("Set turn", String(game.turn))); if (Number.isFinite(n)) dispatch({ type: "SET_TURN", turn: n }); return; }
     if (id === "view-graveyard" || id === "view-exile" || id === "view-command" || id === "view-zones" || id === "search-library" || id === "peek-top" || id === "peek-bottom") {
       const zone: ZoneId = id === "view-exile" ? "exile" : id === "view-command" ? "command" : id === "view-graveyard" ? "graveyard" : id === "view-zones" ? "sideboard" : "library";
       ui.set((s) => ({ ...s, dialog: "zone", zone: { zone, mode: id.startsWith("peek") ? "peek" : id === "search-library" ? "search" : "browse", from: id === "peek-bottom" ? "bottom" : "top", count: typeof arg === "number" ? arg : 3 } }));
+      if (id.startsWith("peek")) dispatch({ type: "PEEK", zone: "library", from: id === "peek-bottom" ? "bottom" : "top", count: typeof arg === "number" ? arg : 3 });
     }
-  }, [store, ui, catalog]);
+  }, [store, ui, catalog, settings]);
   const env = useMemo(() => ({ deckId: props.deckId, deckName: props.deckName, userId: props.userId, fingerprint: props.fingerprint, ui, settings, catalog, actions: props.actions, saves: props.saves, perform, recovery, origin: () => window.location.origin }), [props.deckId, props.deckName, props.userId, props.fingerprint, ui, settings, catalog, props.actions, props.saves, perform, recovery]);
 
   useEffect(() => {
@@ -98,15 +131,33 @@ export function PlayBoard(props: PlayBoardProps) {
 }
 
 function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderCardId: string | null }) {
-  const store = usePlayStore();
   const game = useSelector((s) => s.game);
-  return <div className="playtester-table relative flex h-[calc(100dvh-5rem)] min-h-[36rem] flex-col overflow-hidden rounded-xl border border-white/15 bg-[#141310] text-white" style={{ fontFamily: "var(--font-sans), sans-serif" }}>
-    <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs"><div className="flex gap-2"><TopButton label="Playtester actions" id="palette" /><TopButton label="Keybinds" id="keybinds" /></div><span className="truncate text-white/60">{game ? `Turn ${game.turn}` : "Ready to play"}</span><TopButton label="Full interaction log" id="log" /></div>
-    <div className="min-h-0 flex-1 p-2"><Battlefield /></div>
+  const selection = useSelector((s) => s.selection);
+  const toast = useSelector((s) => s.toast);
+  const store = usePlayStore();
+  const env = usePlayEnv();
+  const settings = useSettings();
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const el = event.target;
+      if (el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      if (env.ui.get().dialog || env.ui.get().menu) return;
+      const id = resolveShortcut({ key: event.key, ctrl: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey, alt: event.altKey });
+      if (id) { event.preventDefault(); env.perform(id); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [env]);
+  const totals = game ? selectionTotals(game, selection) : null;
+  return <div className="playtester-table fixed inset-0 z-40 flex h-dvh min-h-[36rem] flex-col overflow-hidden border border-white/15 text-white" style={{ background: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
+    <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs"><div className="flex gap-2"><Link href={`/decks/${env.deckId}`} className="rounded border border-white/20 px-2 py-1.5">← Deck</Link><TopButton label="Playtester actions" id="palette" /><TopButton label="Keybinds" id="keybinds" /></div><span className="truncate text-white/60">{game ? `Turn ${game.turn}` : "Ready to play"}</span><div className="flex gap-2"><Link href={`/decks/${env.deckId}/play/popout`} target="_blank" className="rounded border border-white/20 px-2 py-1.5">Pop out</Link><TopButton label="Full interaction log" id="log" /></div></div>
+    <div className="flex min-h-0 flex-1 p-2"><Battlefield /></div>
+    {totals && totals.count > 0 ? <div className="absolute left-3 top-12 z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
+    {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#302b24] px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
     <div className="flex min-h-[12rem] gap-3 border-t border-white/10 bg-black/25 p-2"><Hand /><div className="flex w-48 shrink-0 gap-1 sm:w-64"><Pile zone="library" /><Pile zone="graveyard" /><Pile zone="exile" /></div></div>
     <div className="flex justify-end bg-black/25 px-2"><TopButton label="View other zones" id="view-zones" /></div>
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/15 bg-black/40 px-3 py-2"><div className="flex items-center gap-2"><TopButton label="Game" id="saves" />{game ? <><span className="text-sm">Life {game.trackers.life}</span><button onClick={() => store.dispatch({ type: "SET_LIFE", delta: -1 })} aria-label="Lose one life" className="px-2">−</button><button onClick={() => store.dispatch({ type: "SET_LIFE", delta: 1 })} aria-label="Gain one life" className="px-2">+</button><span className="text-xs text-white/70">Poison {game.trackers.poison} · Energy {game.trackers.energy} · Experience {game.trackers.experience}</span></> : null}</div><div className="flex gap-2"><TopButton label="Next turn" id="next-turn" /><TopButton label="More" id="palette" /></div></div>
-    <TableDialogs entries={entries} commanderCardId={commanderCardId} />
+    <TrackerBar />
+    <RecoveryManager /><PopoutBridge /><OpeningHand /><TableDialogs entries={entries} commanderCardId={commanderCardId} /><CardMenu /><CardInspector />
   </div>;
 }
 
@@ -114,9 +165,57 @@ function TopButton({ label, id }: { label: string; id: string }) { const { perfo
 function Pile({ zone }: { zone: "library" | "graveyard" | "exile" }) { const { perform } = usePlayEnv(); const game = useSelector((s) => s.game); const count = game?.zones[zone].length ?? 0; return <button type="button" onClick={() => perform(zone === "library" ? "search-library" : `view-${zone}`)} className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border border-white/20 bg-white/5 p-1 text-center text-xs hover:bg-white/10 coarse:min-h-11"><span className="font-semibold capitalize">{zone}</span><span>{count}</span><span className="text-white/50">{count ? "View cards" : "No cards"}</span></button>; }
 
 function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; commanderCardId: string | null }) {
-  const store = usePlayStore(); const env = usePlayEnv(); const dialog = useExternal(env.ui, (s) => s.dialog); const [format, setFormat] = useState<GameFormat>(commanderCardId ? "commander" : "constructed");
+  const store = usePlayStore();
+  const env = usePlayEnv();
+  const dialog = useExternal(env.ui, (s) => s.dialog);
+  const [format, setFormat] = useState<GameFormat>(commanderCardId ? "commander" : "constructed");
+  const [life, setLife] = useState(commanderCardId ? 40 : 20);
+  const [partnerId, setPartnerId] = useState("");
+  const [freeMulligan, setFreeMulligan] = useState(false);
+  const [firstTurnDraws, setFirstTurnDraws] = useState(false);
+  const [query, setQuery] = useState("");
+  const panel = useRef<HTMLElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!dialog) return;
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panel.current?.querySelector<HTMLElement>("button, input, select")?.focus();
+    return () => opener.current?.focus();
+  }, [dialog]);
   if (!dialog) return null;
   const close = () => env.ui.set((s) => ({ ...s, dialog: null }));
-  const start = () => { store.replace(createGameStart({ deckId: env.deckId, fingerprint: env.fingerprint, entries, commanderCardIds: commanderCardId ? [commanderCardId] : [], format }, crypto.getRandomValues(new Uint32Array(1))[0])); close(); };
-  return <div className="absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && dialog !== "start") close(); }}><section role="dialog" aria-modal="true" aria-label={dialog} className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/20 bg-[#25231f] p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold capitalize">{dialog.replaceAll("-", " ")}</h2>{dialog !== "start" ? <button onClick={close} aria-label="Close" className="rounded px-2 py-1 hover:bg-white/10">✕</button> : null}</div>{dialog === "start" || dialog === "confirm-restart" ? <div className="space-y-4"><p>Shuffle and deal an opening hand from the current deck.</p><label className="block text-sm">Format <select value={format} onChange={(e) => setFormat(e.target.value as GameFormat)} className="ml-2 rounded bg-black/40 p-2"><option value="commander">Commander · 40 life</option><option value="constructed">Constructed · 20 life</option></select></label><button onClick={start} className="rounded bg-accent px-4 py-2 text-accent-ink">Start game</button></div> : <p className="text-sm text-white/70">Choose an action from the table controls.</p>}</section></div>;
+  const valid = entries.some((e) => e.quantity > 0 && e.cards !== null);
+  const start = () => {
+    if (!valid) return;
+    const commanderCardIds = format === "commander" ? [commanderCardId, partnerId || null].filter((x): x is string => x !== null) : [];
+    store.replace(createGameStart({ deckId: env.deckId, fingerprint: env.fingerprint, entries, commanderCardIds, format, startingLife: life, freeMulligan: freeMulligan ? "first" : "none", firstTurnDraws }, crypto.getRandomValues(new Uint32Array(1))[0]));
+    close();
+  };
+  const matches = matchPalette(query, 30);
+  return <div className="absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && dialog !== "start") close(); }}>
+    <section ref={panel} role="dialog" aria-modal="true" aria-label={dialog} className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/20 bg-[#25231f] p-5 shadow-2xl" onKeyDown={(e) => {
+      if (e.key === "Escape" && dialog !== "start") { e.preventDefault(); close(); }
+      if (e.key === "Tab") {
+        const items = Array.from(panel.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]") ?? []);
+        const first = items[0]; const last = items[items.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    }}>
+      <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold capitalize">{dialog.replaceAll("-", " ")}</h2>{dialog !== "start" ? <button onClick={close} aria-label="Close" className="rounded px-2 py-1 hover:bg-white/10">✕</button> : null}</div>
+      {dialog === "start" || dialog === "confirm-restart" ? <div className="space-y-4 text-sm">
+        <p>{dialog === "confirm-restart" ? "Start a new game? The current table will be replaced." : "Shuffle and deal an opening hand from the current deck."}</p>
+        {!valid ? <p role="alert" className="text-amber-200">This deck has no usable cards. Add cards to its decklist before playing.</p> : null}
+        <label className="block">Format <select value={format} onChange={(e) => { const next = e.target.value as GameFormat; setFormat(next); setLife(next === "commander" ? 40 : 20); }} className="ml-2 rounded bg-black/40 p-2"><option value="commander">Commander · 40 life</option><option value="constructed">Constructed · 20 life</option></select></label>
+        <label className="block">Starting life <input type="number" min="1" max="999" value={life} onChange={(e) => setLife(Number(e.target.value))} className="ml-2 w-20 rounded bg-black/40 p-2" /></label>
+        {format === "commander" ? <label className="block">Partner commander <select value={partnerId} onChange={(e) => setPartnerId(e.target.value)} className="ml-2 max-w-full rounded bg-black/40 p-2"><option value="">None</option>{entries.filter((e) => e.cards && e.card_id !== commanderCardId).map((e) => <option key={e.id} value={e.card_id}>{e.cards?.name}</option>)}</select></label> : null}
+        <label className="block"><input type="checkbox" checked={freeMulligan} onChange={(e) => setFreeMulligan(e.target.checked)} /> First mulligan free</label>
+        <label className="block"><input type="checkbox" checked={firstTurnDraws} onChange={(e) => setFirstTurnDraws(e.target.checked)} /> Draw on turn one</label>
+        <button onClick={start} disabled={!valid || life < 1 || life > 999} className="rounded bg-accent px-4 py-2 text-accent-ink disabled:opacity-40 coarse:min-h-11">{dialog === "confirm-restart" ? "Restart game" : "Start game"}</button>
+      </div> : dialog === "zone" ? <ZoneBrowser onClose={close} /> : dialog === "palette" ? <div>
+        <input autoFocus aria-label="Search actions" placeholder="Type an action, like draw 3" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && matches[0]) { env.perform(matches[0].id, matches[0].arg, matches[0].mode); close(); } }} className="mb-3 w-full rounded bg-black/40 p-2" />
+        <div className="max-h-[50vh] overflow-auto">{matches.map((item, index) => <button key={`${item.id}:${index}`} type="button" onClick={() => { env.perform(item.id, item.arg, item.mode); close(); }} className="block w-full rounded p-2 text-left text-sm hover:bg-white/10 coarse:min-h-11">{item.label}</button>)}</div>
+      </div> : dialog === "shortcuts" ? <div className="grid grid-cols-2 gap-2">{PALETTE_ACTIONS.filter((a) => a.shortcut).map((a) => <div key={a.id} className="flex justify-between gap-2 text-sm"><span>{a.label}</span><kbd className="text-white/60">{a.shortcut}</kbd></div>)}</div> : <AuxPanel dialog={dialog} close={close} />}
+    </section>
+  </div>;
 }

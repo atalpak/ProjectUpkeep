@@ -11,6 +11,7 @@ import { DeckStateMark } from "@/components/decks/DeckStateMark";
 import { entryState } from "@/lib/collection/deck-state";
 import { MortStage } from "@/components/mort/MortStage";
 import { MortLine } from "@/components/mort/MortLine";
+import { PlayFixture } from "@/components/playtester/PlayFixture";
 
 /**
  * A stand-in for a real deck list, built from the same entryState() logic
@@ -301,7 +302,9 @@ function PlaytestVisual() {
   );
 }
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ "playtest-fixture"?: string }> }) {
+  // Reuse the already-public home route for a local harness; no auth or DB access.
+  if (process.env.NODE_ENV === "development" && (await searchParams)["playtest-fixture"] === "1") return <PlayFixture />;
   // Signed-in visitors have no use for the marketing page; the dashboard is
   // their home.
   if (await getCurrentUser()) redirect("/dashboard");
