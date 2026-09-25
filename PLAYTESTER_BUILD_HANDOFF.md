@@ -3,7 +3,7 @@
 Written so a fresh AI tool with **no memory of the conversation that started this** can pick the build up and finish it.
 Keep this file truthful: update the checklist and the "what remains" section in the same commit as the work.
 
-Last updated: 2026-09-25, after UI and documentation implementation.
+Last updated: 2026-09-25, after the follow-up pass (zone overlay drag, table look, zoom/keyboard checks, scratch-database contract check).
 
 ## Goal, and the one-pass rule
 
@@ -155,7 +155,7 @@ export PGHOST=localhost PGPORT=55433 PGUSER=postgres DBNAME=mtg_verify_playtest 
 
   Short socket path matters only for unix sockets, which the `unix_socket_directories=''` flag avoids. Stop the cluster when
   finished: `pg_ctl -D <scratch>/pgdata stop`. Do not point `test:db` at anything but a throwaway database.
-- Dev server: `mcp__Claude_Browser__preview_start` with config name `dev` (`.claude/launch.json`, `npm run dev`, port 3000,
+- Dev server: NOTE the preview tool runs `.claude/launch.json` from the MAIN checkout, so in a worktree it serves the main branch (no fixture route). In this pass the worktree's own server was started with `npm run dev -- --port 3100` and opened with the browser's `navigate`. Otherwise: `mcp__Claude_Browser__preview_start` with config name `dev` (`.claude/launch.json`, `npm run dev`, port 3000,
   auto port). Signing in as a real user is not possible in the sandbox (the `.env.local` points at production Supabase):
   do NOT create accounts or enter credentials. Exercise the board through the fixture/harness route (see step 9 item 9;
   not written yet).
@@ -181,22 +181,24 @@ export PGHOST=localhost PGPORT=55433 PGUSER=postgres DBNAME=mtg_verify_playtest 
 - The "use server" file may export only async functions. Bound arguments (`action.bind(null, deckId)`) are encrypted by Next.
 - A worktree-isolated shell refuses some compound commands; keep bash calls simple and use literal paths.
 
-## Verified vs unverified (as of this update)
+## Verified vs unverified (as of the follow-up pass, 2026-09-25)
 
-Verified by running it after step 10: `npm run lint && npm run typecheck && npm test` passed (919 tests, 5 existing
-`apps/mobile` hook warnings, no errors). Migrations 46/47 and schema tests 27/28 previously passed against a scratch
-PostgreSQL 16 (every assertion falsified, see the test headers); the share leak test failed as designed when `library`
-was added to the projection. No schema file changed in steps 9–10, so `npm run test:db` was not rerun.
+Verified by running it:
+- `npm run lint && npm run typecheck && npm test`: 0 errors (5 existing `apps/mobile` hook warnings), typecheck clean, **931 tests pass** (81 files, 28 of them playtest). `npm run build` (the standard Turbopack build) **passes** in this pass: fonts could be fetched this time, so the font-mock workaround below was not needed. The routes `/decks/[id]/play`, `/decks/[id]/play/popout` and `/shared/playtest/[token]` all compile.
+- Scratch database: `./scripts/verify-migrations.sh` applied migrations 1 to 47 to a fresh PostgreSQL 16.15 and `schema_test.sql` (including sections 27 and 28) passed. Then `scripts/playtest-db-contract.ts` (new) fed the app's REAL output through those tables: a save built by `prepareSave` from a played Commander game was inserted as the owner and read back byte-for-byte equal; two shares built by `projectPublic` (hand hidden, hand shown) were inserted; a second signed-in user read each through `get_playtest_share` and got only `title`, `projection`, `updatedAt`, `expiresAt`, with no owner or deck id, no private note and no arbitrary image host; that second user saw none of the first user's saves or share rows. On the TypeScript side the canonical snapshot passed `validateSnapshot` and both projections passed `readProjection`. The assertions were shown to fail (one pointed at text that is in the payload tripped). The contract SQL is a transaction that rolls back. Run it on a throwaway database only:
+  `npx tsx scripts/playtest-db-contract.ts | psql -v ON_ERROR_STOP=1 -h localhost -p <port> -U postgres <scratch db>`.
+- Token search: `scripts/playtest-token-search.test.ts` shows `/api/cards/search?type=Token&q=...` takes the advanced (direct `cards` query) branch with type and name intact, and that hostile text is carried as data.
+- Browser fixture: everything listed under the follow-up pass sections above, plus the earlier start, mulligan, recovery, hand menu, library browser and Next turn checks.
 
-Verified in a browser through the dev-only fixture: start, mulligan/bottom/keep, local recovery, playing a card via
-keyboard menu, pointer hand menu, library browser, and Next turn from 0 to 1. The standard `npm run build` could not
-fetch Google Fonts in this offline environment. `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/tmp/playtest-font-mock.js npx next
-build --webpack` passed, including the play, popout, and share routes. Turbopack with the font mock failed resolving
-its internal font CSS module. NOT verified yet: live account saves/shares or DB-backed pages; token search against the
-live catalog (`/api/cards/search?type=Token` is read from code, not exercised); 200% zoom/touch/accessibility pass;
-Scryfall's rules on hot-linking card images in shared tables (the projection only keeps
-`https://cards.scryfall.io/...` URLs; the owner should confirm); real production behaviour of migrations 46/47 (not
-applied).
+NOT verified (say so honestly in any report):
+- The server actions and pages talking to a real Supabase project (auth cookies, PostgREST, the `.rpc` call from `shared/playtest/[token]/page.tsx`). The scratch database has the schema and the row security but no Supabase auth or API layer, and this environment's `.env.local` points at production, so no account was created or used. The contract check covers the SQL boundary, not the Next server boundary.
+- Token search against the live catalogue: whether the `cards` table returns token rows for `type_line ilike %Token%` with `digital = false` was not run. Only the request shape was tested.
+- Real touch input and assistive technology (screen reader), high-contrast mode, and a real 200% browser zoom on a physical display (checked with viewport emulation at 768x450 and 700x450).
+- Scryfall's rules on hot-linking card images in shared tables (the projection only keeps `https://cards.scryfall.io/...` URLs; the owner should confirm).
+- Production behaviour of migrations 46/47: not applied. Nothing was applied to production.
+- The `reviewer` agent has not reviewed this branch; the handoff requires it before merge.
+
+The earlier offline-build note: when Google Fonts cannot be fetched, `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/tmp/playtest-font-mock.js npx next build --webpack` passed with local font fixtures in the previous session; Turbopack with the mock failed resolving its internal font CSS module.
 
 ## Prompt to paste into the next tool
 
