@@ -6,7 +6,7 @@ import { CardArt } from "@/components/playtester/CardArt";
 import { useSettings, usePlayEnv, useUi } from "@/components/playtester/context";
 import { startHandDrag } from "@/components/playtester/drag";
 import { useCard, usePlayStore, useSelector, useZoneIds } from "@/components/playtester/hooks/useStore";
-import { useWidth } from "@/components/playtester/hooks/useWidth";
+import { useViewportHeight, useWidth } from "@/components/playtester/hooks/useWidth";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { cx } from "@/lib/cx";
 import type { CardSize } from "@/lib/playtest/settings";
@@ -80,7 +80,7 @@ const HandCard = memo(function HandCard({
       ref={ref}
       data-hand-card={id}
       className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30 focus-within:z-30")}
-      style={{ width: `min(${widthRem}rem, 16dvh)`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index, }}
+      style={{ width: `min(${widthRem}rem, 16dvh)`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
       onPointerEnter={(e) => {
         if (hover && e.pointerType === "mouse") env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }));
       }}
@@ -181,9 +181,10 @@ export function Hand() {
   const canRedo = useSelector((s) => s.history.future.length > 0);
   const areaRef = useRef<HTMLDivElement>(null);
   const areaWidth = useWidth(areaRef);
+  const viewportHeight = useViewportHeight();
 
   const widthRem = HAND_WIDTH_REM[settings.handSize];
-  const cardPx = typeof window === "undefined" ? widthRem * 16 : Math.min(widthRem * 16, window.innerHeight * 0.16);
+  const cardPx = viewportHeight === 0 ? widthRem * 16 : Math.min(widthRem * 16, viewportHeight * 0.16);
   const shown = ids.slice(0, settings.maxVisibleHand);
   const extra = ids.length - shown.length;
   // Squeeze the cards together only when they do not fit: the margin between

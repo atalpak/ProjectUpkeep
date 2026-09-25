@@ -14,6 +14,7 @@ import { createUiStore } from "../src/components/playtester/ui-store";
 import {
   closeZoneOverlay,
   filterOverlayIds,
+  openDialog,
   overlayDragEnabled,
   overlayZoneIds,
   shouldShuffleOnClose,
@@ -149,4 +150,38 @@ test("dragging out of the overlay is opt-in and never for touch", () => {
   assert.equal(overlayDragEnabled({ keepSearchOpenWhileDragging: true }, "mouse"), true);
   assert.equal(overlayDragEnabled({ keepSearchOpenWhileDragging: true }, "pen"), true);
   assert.equal(overlayDragEnabled({ keepSearchOpenWhileDragging: true }, "touch"), false);
+});
+
+test("opening another dialog while a library search is open resolves the shuffle once", () => {
+  const t = setup({ keepSearchOpenWhileDragging: true });
+  t.openSearch();
+  const before = [...t.store.get().game!.zones.library];
+  openDialog(t.store, t.ui, t.settings, t.seed, "settings");
+  assert.equal(t.ui.get().dialog, "settings");
+  assert.equal(t.ui.get().zone, null);
+  assert.equal(t.shuffleEvents(), 1, "switching away from the search shuffles");
+  assert.notDeepEqual(t.store.get().game!.zones.library, before);
+  // Closing the new dialog, or a stray zone close, must not shuffle again.
+  t.ui.set((s) => ({ ...s, dialog: null }));
+  assert.equal(closeZoneOverlay(t.store, t.ui, t.settings, t.seed), false);
+  assert.equal(t.shuffleEvents(), 1);
+});
+
+test("re-targeting the open search to a peek shuffles; asking for the same search again does not", () => {
+  const t = setup();
+  openDialog(t.store, t.ui, t.settings, t.seed, "zone", { zone: "library", mode: "search" });
+  openDialog(t.store, t.ui, t.settings, t.seed, "zone", { zone: "library", mode: "search" });
+  assert.equal(t.shuffleEvents(), 0, "same request: the sheet is only re-targeted");
+  openDialog(t.store, t.ui, t.settings, t.seed, "zone", { zone: "library", mode: "peek", from: "top", count: 3 });
+  assert.equal(t.shuffleEvents(), 1, "the search ended, so it shuffled");
+  assert.deepEqual(t.ui.get().zone, { zone: "library", mode: "peek", from: "top", count: 3 });
+  closeZoneOverlay(t.store, t.ui, t.settings, t.seed);
+  assert.equal(t.shuffleEvents(), 1, "closing a peek never shuffles");
+});
+
+test("opening a dialog with no overlay open just opens it", () => {
+  const t = setup();
+  openDialog(t.store, t.ui, t.settings, t.seed, "settings");
+  assert.equal(t.ui.get().dialog, "settings");
+  assert.equal(t.shuffleEvents(), 0);
 });

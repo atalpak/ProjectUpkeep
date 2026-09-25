@@ -60,12 +60,18 @@ export function ZoneBrowser({ onClose, docked }: { onClose: () => void; docked: 
             <div key={id} data-zone-card={id} className="relative rounded">
               <button
                 type="button"
-                aria-label={`${card.name}. Enter for actions${docked ? ", or drag it out" : ""}.`}
+                aria-label={`${card.name}, ${ZONE_LABELS[zone]}. Press Enter for actions${docked ? ", or drag it out" : ""}.`}
                 onPointerDown={(e) => {
                   if (!overlayDragEnabled(settings, e.pointerType) || !e.currentTarget.parentElement) return;
                   const button = e.currentTarget;
                   pressed.current = true;
-                  window.addEventListener("pointerup", () => window.setTimeout(() => { pressed.current = false; }, 0), { once: true });
+                  const release = () => {
+                    window.removeEventListener("pointerup", release);
+                    window.removeEventListener("pointercancel", release);
+                    window.setTimeout(() => { pressed.current = false; }, 0);
+                  };
+                  window.addEventListener("pointerup", release);
+                  window.addEventListener("pointercancel", release);
                   startHandDrag(
                     e,
                     id,

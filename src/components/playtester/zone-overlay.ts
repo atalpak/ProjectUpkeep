@@ -13,7 +13,7 @@
  */
 
 import type { ExternalStore, PlayStore } from "@/components/playtester/store";
-import type { UiStore, ZoneBrowserRequest } from "@/components/playtester/ui-store";
+import type { DialogId, UiStore, ZoneBrowserRequest } from "@/components/playtester/ui-store";
 import type { GameState, ZoneId } from "@/lib/playtest/board/types";
 import type { Settings } from "@/lib/playtest/settings";
 
@@ -62,4 +62,28 @@ export function closeZoneOverlay(
     store.dispatch({ type: "SHUFFLE", zone: "library", seed: seed() });
   }
   return true;
+}
+
+/**
+ * Opens a dialog, and the zone overlay when `request` is given. If a zone
+ * overlay is already open it is closed FIRST, through `closeZoneOverlay`, so
+ * its shuffle-on-close is resolved: the docked sheet is non-modal, so the
+ * toolbar can open Settings (or a different search) while a library search is
+ * still open, and switching away must not skip the shuffle. Asking for the
+ * same zone and mode again just re-targets the open sheet and does not shuffle.
+ */
+export function openDialog(
+  store: Pick<PlayStore, "dispatch">,
+  ui: UiStore,
+  settings: ExternalStore<Settings>,
+  seed: () => number,
+  dialog: DialogId,
+  request: ZoneBrowserRequest | null = null,
+): void {
+  const current = ui.get();
+  if (current.dialog === "zone") {
+    const same = dialog === "zone" && request !== null && current.zone !== null && current.zone.zone === request.zone && current.zone.mode === request.mode;
+    if (!same) closeZoneOverlay(store, ui, settings, seed);
+  }
+  ui.set((s) => ({ ...s, dialog, zone: dialog === "zone" ? request : null }));
 }

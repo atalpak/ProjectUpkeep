@@ -8,7 +8,7 @@ import { Hand } from "@/components/playtester/Hand";
 import { OpeningHand } from "@/components/playtester/OpeningHand";
 import { CardMenu } from "@/components/playtester/CardMenu";
 import { ZoneBrowser } from "@/components/playtester/ZoneBrowser";
-import { closeZoneOverlay } from "@/components/playtester/zone-overlay";
+import { closeZoneOverlay, openDialog } from "@/components/playtester/zone-overlay";
 import { AuxPanel } from "@/components/playtester/AuxPanels";
 import { RecoveryManager } from "@/components/playtester/hooks/useRecovery";
 import { TrackerBar } from "@/components/playtester/TrackerBar";
@@ -51,7 +51,8 @@ export function PlayBoard(props: PlayBoardProps) {
   const catalog = useMemo(() => buildCatalog(props.entries), [props.entries]);
   const perform = useCallback((id: string, arg?: number | string | null, mode?: "set" | "delta" | null) => {
     const game = store.get().game;
-    const open = (dialog: Parameters<Parameters<typeof ui.set>[0]>[0]["dialog"]) => ui.set((s) => ({ ...s, dialog }));
+    const seed = () => crypto.getRandomValues(new Uint32Array(1))[0];
+    const open = (dialog: Parameters<Parameters<typeof ui.set>[0]>[0]["dialog"]) => { if (dialog) openDialog(store, ui, settings, seed, dialog); };
     const dispatch = (command: GameCommand) => store.dispatch(command);
     const selected = store.get().selection;
     const move = (to: ZoneId, at: "top" | "bottom" = "top") => { if (selected.length) dispatch({ type: "MOVE_MANY", ids: [...selected], to, at }); };
@@ -118,7 +119,7 @@ export function PlayBoard(props: PlayBoardProps) {
     if (id === "set-turn") { const n = typeof arg === "number" ? arg : Number(prompt("Set turn", String(game.turn))); if (Number.isFinite(n)) dispatch({ type: "SET_TURN", turn: n }); return; }
     if (id === "view-graveyard" || id === "view-exile" || id === "view-command" || id === "view-zones" || id === "search-library" || id === "peek-top" || id === "peek-bottom") {
       const zone: ZoneId = id === "view-exile" ? "exile" : id === "view-command" ? "command" : id === "view-graveyard" ? "graveyard" : id === "view-zones" ? "sideboard" : "library";
-      ui.set((s) => ({ ...s, dialog: "zone", zone: { zone, mode: id.startsWith("peek") ? "peek" : id === "search-library" ? "search" : "browse", from: id === "peek-bottom" ? "bottom" : "top", count: typeof arg === "number" ? arg : 3 } }));
+      openDialog(store, ui, settings, seed, "zone", { zone, mode: id.startsWith("peek") ? "peek" : id === "search-library" ? "search" : "browse", from: id === "peek-bottom" ? "bottom" : "top", count: typeof arg === "number" ? arg : 3 });
       if (id.startsWith("peek")) dispatch({ type: "PEEK", zone: "library", from: id === "peek-bottom" ? "bottom" : "top", count: typeof arg === "number" ? arg : 3 });
     }
   }, [store, ui, catalog, settings]);
@@ -254,7 +255,7 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
   };
   const matches = matchPalette(query, 30);
   return <div data-docked={docked || undefined} className={docked ? "pointer-events-none absolute inset-x-0 top-20 bottom-[var(--pt-bottom,17rem)] z-[5000] flex justify-end px-3" : "absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4"} onMouseDown={(e) => { if (!docked && e.target === e.currentTarget && dialog !== "start") close(); }}>
-    <section ref={panel} role="dialog" aria-modal={docked ? "false" : "true"} aria-label={dialog} className={docked ? "pointer-events-auto flex h-full min-h-40 w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-4 shadow-[var(--shadow-raised)]" : "max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/20 bg-[#25231f] p-5 shadow-2xl"} onKeyDown={(e) => {
+    <section ref={panel} role="dialog" aria-modal={docked ? "false" : "true"} aria-label={dialog} className={docked ? "pointer-events-auto flex h-full min-h-40 w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-4 shadow-[var(--shadow-raised)]" : "max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border-strong bg-surface-raised p-5 shadow-2xl"} onKeyDown={(e) => {
       if (e.key === "Escape" && dialog !== "start") { e.preventDefault(); close(); }
       if (e.key === "Tab" && !docked) {
         const items = Array.from(panel.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]") ?? []);

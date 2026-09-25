@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState, useSyncExternalStore, type RefObject } from "react";
 
 /** The live content width of an element, via ResizeObserver. 0 until measured. */
 export function useWidth(ref: RefObject<HTMLElement | null>): number {
@@ -15,4 +15,15 @@ export function useWidth(ref: RefObject<HTMLElement | null>): number {
     return () => observer.disconnect();
   }, [ref]);
   return width;
+}
+
+function subscribeResize(listener: () => void) {
+  window.addEventListener("resize", listener);
+  return () => window.removeEventListener("resize", listener);
+}
+
+/** The live window height, so anything sized from it re-renders on a
+ *  height-only resize. 0 on the server and during hydration. */
+export function useViewportHeight(): number {
+  return useSyncExternalStore(subscribeResize, () => window.innerHeight, () => 0);
 }
