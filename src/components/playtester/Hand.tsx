@@ -1,87 +1,251 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useCallback, useRef } from "react";
 
-import { CardMenu } from "@/components/playtester/CardMenu";
-import { GameCard } from "@/components/playtester/GameCard";
-import type { GameCommand } from "@/lib/playtest/board/commands";
-import { getZone } from "@/lib/playtest/board/selectors";
-import type { GameState } from "@/lib/playtest/board/types";
+import { CardArt } from "@/components/playtester/CardArt";
+import { useSettings, usePlayEnv, useUi } from "@/components/playtester/context";
+import { startHandDrag } from "@/components/playtester/drag";
+import { useCard, usePlayStore, useSelector, useZoneIds } from "@/components/playtester/hooks/useStore";
+import { useWidth } from "@/components/playtester/hooks/useWidth";
+import { FloatingMenu } from "@/components/FloatingMenu";
+import { cx } from "@/lib/cx";
+import type { CardSize } from "@/lib/playtest/settings";
 
 /**
- * The hand: a fanned, overlapping row (plan section 3.2). Reordering is
- * plain drag-and-drop within the row; every card's `CardMenu` also offers
- * "Move to <zone>" directly, which is the keyboard-only and touch-only path
- * onto the battlefield or any other zone (interaction contract, section 3.4
- * — dragging is one way in, never the only one).
+ * The hand: a row of cards between the undo and redo buttons, with the count
+ * and the hand options above it. It is a drop target (`data-drop="hand"`):
+ * dropping a hand card back on it re-orders, dropping a table card on it
+ * returns that card to the hand.
+ *
+ * Every hand card can be played four ways, none of them drag-only: click (when
+ * the setting is "click plays"), Space (Shift+Space plays it tapped), the card
+ * menu (Enter, right-click, or the dots button), or the number keys 1 to 9
+ * (Shift plays tapped). Drag is a fifth, faster way for a pointer.
+ *
+ * "Hide hand" covers the pictures, never the hand: the cards stay in the tab
+ * order with their real names for the owner, and a Show hand button is always
+ * on screen. A setting that hid the game from its own player would be a bug.
  */
-export function Hand({
-  state,
-  dispatch,
-  selectedId,
-  onSelect,
-  bottomSelection,
+
+const HAND_WIDTH_REM: Record<CardSize, number> = { small: 4.6, medium: 5.8, large: 7.2 };
+const GAP_PX = 8;
+
+function RoundButton({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="mb-4 flex size-11 shrink-0 items-center justify-center rounded-full bg-white/12 text-white transition hover:bg-white/20 disabled:opacity-35 motion-safe:active:scale-95"
+    >
+      {children}
+    </button>
+  );
+}
+
+const HandCard = memo(function HandCard({
+  id,
+  index,
+  widthRem,
+  overlapPx,
+  covered,
+  hover,
+  clickPlays,
 }: {
-  state: GameState;
-  dispatch: (command: GameCommand) => void;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  /** Non-null only during a London mulligan's bottom-selection step (see
-   *  `GameControls.tsx`'s mulligan flow) — while set, clicking a card toggles
-   *  it for the bottom instead of selecting it for the normal card menu. */
-  bottomSelection?: {
-    toBottom: number;
-    selected: Set<string>;
-    onToggle: (cardId: string) => void;
-  } | null;
+  id: string;
+  index: number;
+  widthRem: number;
+  overlapPx: number;
+  covered: boolean;
+  hover: boolean;
+  clickPlays: boolean;
 }) {
-  const cards = getZone(state, "hand");
-  const [menuFor, setMenuFor] = useState<string | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const card = useCard(id);
+  const store = usePlayStore();
+  const env = usePlayEnv();
+  const ref = useRef<HTMLDivElement>(null);
+  if (!card) return null;
+
+  function openMenu(opener: HTMLElement) {
+    const box = opener.getBoundingClientRect();
+    env.ui.set((s) => ({ ...s, menu: { cardId: id, x: box.left + box.width / 2, y: box.top, opener } }));
+  }
 
   return (
     <div
-      className="flex min-h-[8rem] flex-wrap items-end gap-2 rounded-xl border border-border bg-surface p-3"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        if (bottomSelection) return;
-        const cardId = e.dataTransfer.getData("text/game-card-id");
-        if (cardId) dispatch({ type: "MOVE_CARD", cardId, to: "hand", index: dragOverIndex });
-        setDragOverIndex(null);
+      ref={ref}
+      data-hand-card={id}
+      className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", hover && "hover:z-30 hover:-translate-y-3 focus-within:z-30 focus-within:-translate-y-3")}
+      style={{ width: `${widthRem}rem`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
+      onPointerEnter={(e) => {
+        if (hover && e.pointerType === "mouse") env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }));
       }}
+      onPointerLeave={() => env.ui.set((s) => (s.inspect && !s.inspect.big ? { ...s, inspect: null } : s))}
     >
-      {cards.length === 0 ? <p className="px-2 py-4 text-sm text-ink-muted">Your hand is empty.</p> : null}
-      {cards.map((card, index) => (
-        <div
-          key={card.id}
-          className="relative"
-          onDragOver={(e) => {
+      <button
+        type="button"
+        aria-label={`${card.name}${covered ? " (hand hidden)" : ""}, hand card ${index + 1}. Enter for actions, Space to play.`}
+        onPointerDown={(e) => {
+          if (!ref.current) return;
+          startHandDrag(e, id, ref.current, { store, ui: env.ui, board: () => document.querySelector<HTMLElement>("[data-board]") }, () => {
+            if (clickPlays) env.perform("play-card", id);
+            else openMenu(e.currentTarget as HTMLElement);
+          });
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          openMenu(e.currentTarget);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
             e.preventDefault();
-            setDragOverIndex(index);
-          }}
-        >
-          <GameCard
-            card={card}
-            selected={bottomSelection ? bottomSelection.selected.has(card.id) : selectedId === card.id}
-            draggable={!bottomSelection}
-            onDragStart={(e) => e.dataTransfer.setData("text/game-card-id", card.id)}
-            onSelect={() => (bottomSelection ? bottomSelection.onToggle(card.id) : onSelect(card.id))}
-            onOpenMenu={() => (bottomSelection ? bottomSelection.onToggle(card.id) : setMenuFor(card.id))}
-          />
-          {bottomSelection ? null : (
-            <CardMenu
-              card={card}
-              zone="hand"
-              groupIds={[]}
-              dispatch={dispatch}
-              open={menuFor === card.id}
-              onOpenChange={(open) => setMenuFor(open ? card.id : null)}
-              trigger={({ setTriggerRef }) => <span ref={setTriggerRef as never} className="absolute inset-0 -z-10" />}
-            />
-          )}
-        </div>
-      ))}
+            openMenu(e.currentTarget);
+          } else if (e.key === " ") {
+            e.preventDefault();
+            env.perform(e.shiftKey ? "play-card-tapped" : "play-card", id);
+          } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            const siblings = Array.from(document.querySelectorAll<HTMLElement>("[data-hand-card] > button"));
+            const at = siblings.indexOf(e.currentTarget);
+            siblings[at + (e.key === "ArrowLeft" ? -1 : 1)]?.focus();
+            e.preventDefault();
+          }
+        }}
+        className="block w-full touch-none rounded-[5%] outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+      >
+        <CardArt src={card.imageSmall} alt={covered ? "Hidden hand card" : card.name} label={card.name} faceDown={covered} />
+      </button>
     </div>
+  );
+});
+
+function HandOptions() {
+  const env = usePlayEnv();
+  const hidden = useUi((s) => s.handHidden);
+  const item = (id: string, label: string, close: () => void) => (
+    <button
+      key={id}
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        env.perform(id);
+        close();
+      }}
+      className="block w-full rounded-md px-2.5 py-1.5 text-left text-sm hover:bg-surface-muted coarse:min-h-11"
+    >
+      {label}
+    </button>
+  );
+  return (
+    <FloatingMenu
+      align="right"
+      trigger={({ toggle, setTriggerRef, open }) => (
+        <button ref={setTriggerRef} type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} className="rounded-md px-2 py-1 text-sm text-white/90 hover:bg-white/10 coarse:min-h-11">
+          Hand options <span aria-hidden="true">⋮</span>
+        </button>
+      )}
+      panelClassName="w-64 rounded-xl border border-border bg-surface-raised p-1.5 text-ink shadow-[var(--shadow-raised)]"
+    >
+      {({ close }) => (
+        <div role="menu" aria-label="Hand options">
+          {item("hand-overlay", "Show the whole hand", close)}
+          {item("hand-hide", hidden ? "Show my hand" : "Hide my hand", close)}
+          <p className="px-2.5 pt-1.5 text-xs font-medium text-ink-muted">Sort</p>
+          {item("hand-sort-name", "By name", close)}
+          {item("hand-sort-type", "By type", close)}
+          {item("hand-sort-color", "By colour", close)}
+          {item("hand-sort-mv", "By mana value", close)}
+          <p className="px-2.5 pt-1.5 text-xs font-medium text-ink-muted">Move</p>
+          {item("hand-random-discard", "Discard a random card", close)}
+          {item("hand-all-to-graveyard", "Move the whole hand to the graveyard", close)}
+          {item("hand-all-to-library", "Shuffle the hand into the library", close)}
+        </div>
+      )}
+    </FloatingMenu>
+  );
+}
+
+export function Hand() {
+  const store = usePlayStore();
+  const settings = useSettings();
+  const ids = useZoneIds("hand");
+  const hidden = useUi((s) => s.handHidden);
+  const env = usePlayEnv();
+  const canUndo = useSelector((s) => s.history.past.length > 0);
+  const canRedo = useSelector((s) => s.history.future.length > 0);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const areaWidth = useWidth(areaRef);
+
+  const widthRem = HAND_WIDTH_REM[settings.handSize];
+  const cardPx = widthRem * 16;
+  const shown = ids.slice(0, settings.maxVisibleHand);
+  const extra = ids.length - shown.length;
+  // Squeeze the cards together only when they do not fit: the margin between
+  // neighbours goes from a gap (-GAP_PX of overlap) to however negative it must
+  // be for the whole row to fit. With auto size off the row scrolls instead.
+  const fitOverlap = shown.length > 1 && areaWidth > 0 ? (shown.length * cardPx - areaWidth) / (shown.length - 1) : -GAP_PX;
+  const overlapPx = settings.autoSize ? Math.max(-GAP_PX, fitOverlap) : -GAP_PX;
+  const isDropTarget = useUi((s) => s.hoverZone === "hand");
+  const undo = useCallback(() => store.undo(), [store]);
+  const redo = useCallback(() => store.redo(), [store]);
+
+  return (
+    <section aria-label="Hand" className="min-w-0 flex-1">
+      <div className="flex items-center justify-between px-1">
+        <h2 className="text-sm font-medium text-white/90" aria-live="polite">
+          Cards in hand: {ids.length}
+        </h2>
+        <div className="flex items-center gap-1">
+          {hidden ? (
+            <button type="button" onClick={() => env.perform("hand-hide")} className="rounded-md bg-accent px-2 py-1 text-sm font-medium text-accent-ink coarse:min-h-11">
+              Show my hand
+            </button>
+          ) : null}
+          <HandOptions />
+        </div>
+      </div>
+
+      <div className="flex items-end gap-2">
+        <RoundButton label="Undo" disabled={!canUndo} onClick={undo}>
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 14 4 9l5-5" />
+            <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
+          </svg>
+        </RoundButton>
+
+        <div
+          ref={areaRef}
+          data-drop="hand"
+          className={cx(
+            "relative flex min-h-[9.6rem] min-w-0 flex-1 items-end justify-center rounded-lg pb-3 pt-4",
+            settings.autoSize ? "overflow-visible" : "overflow-x-auto",
+            isDropTarget && "ring-2 ring-accent ring-offset-2 ring-offset-transparent",
+          )}
+        >
+          {ids.length === 0 ? <p className="self-center text-sm text-white/50">Your hand is empty.</p> : null}
+          {shown.map((id, i) => (
+            <HandCard key={id} id={id} index={i} widthRem={widthRem} overlapPx={overlapPx} covered={hidden} hover={settings.handHover} clickPlays={settings.handClick === "play"} />
+          ))}
+          {extra > 0 ? (
+            <button type="button" onClick={() => env.perform("hand-overlay")} className="ml-2 shrink-0 self-center rounded-full bg-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/25 coarse:min-h-11">
+              +{extra} more
+            </button>
+          ) : null}
+          {isDropTarget ? (
+            <span className="pointer-events-none absolute -top-1 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-0.5 text-xs font-semibold text-accent-ink" aria-hidden="true">
+              Hand
+            </span>
+          ) : null}
+        </div>
+
+        <RoundButton label="Redo" disabled={!canRedo} onClick={redo}>
+          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 14 5-5-5-5" />
+            <path d="M20 9H10a6 6 0 0 0 0 12h3" />
+          </svg>
+        </RoundButton>
+      </div>
+    </section>
   );
 }

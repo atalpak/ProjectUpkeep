@@ -44,6 +44,14 @@ export type SessionPreview = {
   command: number;
 };
 
+/** What the play page hands the client: the caller's saves and shares for one
+ *  deck, or `available: false` when the tables do not exist yet. */
+export type SavesSummary = {
+  available: boolean;
+  sessions: SessionSummary[];
+  shares: ShareSummary[];
+};
+
 export type ShareSummary = {
   id: string;
   token: string;

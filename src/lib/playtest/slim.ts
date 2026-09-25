@@ -23,6 +23,7 @@ export type StartCard = Pick<
   | "name"
   | "type_line"
   | "cmc"
+  | "colors"
   | "mana_cost"
   | "produced_mana"
   | "oracle_text"
@@ -67,6 +68,7 @@ export function slimEntry(entry: DeckListEntry): StartEntry {
           name: card.name,
           type_line: card.type_line,
           cmc: card.cmc,
+          colors: card.colors,
           mana_cost: card.mana_cost,
           produced_mana: card.produced_mana,
           oracle_text: card.oracle_text,

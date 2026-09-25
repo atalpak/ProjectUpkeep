@@ -50,7 +50,6 @@ export type Settings = {
   motion: MotionPref;
   playmat: keyof typeof PLAYMATS;
   sleeve: keyof typeof SLEEVES;
-  foil: boolean;
   /** Show the "Upkeep" reminder in the turn banner before the draw. */
   upkeepReminder: boolean;
   shuffleOnClose: boolean;
@@ -70,8 +69,7 @@ export const DEFAULT_SETTINGS: Settings = {
   motion: "system",
   playmat: "ink",
   sleeve: "ochre",
-  foil: true,
-  upkeepReminder: true,
+  upkeepReminder: false,
   shuffleOnClose: true,
   keepSearchOpenWhileDragging: false,
   showInteractionLog: false,
@@ -100,7 +98,6 @@ export function sanitizeSettings(input: unknown): Settings {
     motion: pickKey(r.motion, ["system", "reduce"] as const, d.motion),
     playmat: pickKey(r.playmat, Object.keys(PLAYMATS) as Array<keyof typeof PLAYMATS>, d.playmat),
     sleeve: pickKey(r.sleeve, Object.keys(SLEEVES) as Array<keyof typeof SLEEVES>, d.sleeve),
-    foil: bool(r.foil, d.foil),
     upkeepReminder: bool(r.upkeepReminder, d.upkeepReminder),
     shuffleOnClose: bool(r.shuffleOnClose, d.shuffleOnClose),
     keepSearchOpenWhileDragging: bool(r.keepSearchOpenWhileDragging, d.keepSearchOpenWhileDragging),

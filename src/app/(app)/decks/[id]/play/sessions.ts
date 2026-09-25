@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
-import { readPreview, type SessionSummary, type ShareSummary } from "@/lib/playtest/session";
+import { readPreview, type SavesSummary } from "@/lib/playtest/session";
 
 /**
  * Read-only loaders for the play page: the caller's saved games and shares for
@@ -22,11 +22,7 @@ import { readPreview, type SessionSummary, type ShareSummary } from "@/lib/playt
  * seatbelt, not the plan.
  */
 
-export type SavesState = {
-  available: boolean;
-  sessions: SessionSummary[];
-  shares: ShareSummary[];
-};
+export type SavesState = SavesSummary;
 
 function missingTable(error: { code?: string | null } | null): boolean {
   return error?.code === "42P01" || error?.code === "PGRST205";
