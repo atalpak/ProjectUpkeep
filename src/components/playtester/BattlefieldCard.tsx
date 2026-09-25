@@ -111,11 +111,11 @@ export const BattlefieldCard = memo(function BattlefieldCard({
     <div
       ref={setRef}
       data-card-wrapper={id}
-      className={cx("group/card absolute touch-none", arrived && "pt-arrive")}
+      className={cx("group/card absolute touch-none hover:z-[1500]!", arrived && "pt-arrive")}
       style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${CARD_W * 100 * scale}%`, zIndex: z + 1 }}
-      onPointerEnter={(e) => { if (e.pointerType === "mouse" && !faceDown) glance(id); }}
+      onPointerEnter={(e) => { if (e.pointerType === "mouse") glance(id); }}
       onPointerLeave={() => unglance()}
-      onFocusCapture={() => { if (!faceDown) glance(id); }}
+      onFocusCapture={() => glance(id)}
     >
       <button
         type="button"
@@ -130,7 +130,7 @@ export const BattlefieldCard = memo(function BattlefieldCard({
           onOpenMenu(id, e.currentTarget, e.clientX, e.clientY);
         }}
         className={cx(
-          "block w-full touch-none rounded-[5%] outline-none",
+          "block w-full touch-none origin-center rounded-[5%] outline-none transition-transform duration-150 group-hover/card:scale-[1.14] motion-reduce:transition-none",
           "focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1 focus-visible:ring-offset-canvas",
           selected && "ring-2 ring-accent ring-offset-1 ring-offset-canvas",
         )}

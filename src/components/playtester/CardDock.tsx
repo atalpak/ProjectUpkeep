@@ -52,12 +52,15 @@ export function CardDock() {
   }, [scryfallId, show]);
 
   if (!settings.cardDetails) return null;
-  const known = scryfallId !== null && show !== null;
+  const faceDown = card?.face === "face-down";
+  const known = !faceDown && scryfallId !== null && show !== null;
   const text = card ? textFor(env.catalog.get(card.cardId ?? ""), card.face === "back" ? "back" : "front") : null;
   return (
-    <aside aria-label="Card details" aria-live="polite" className="hidden w-72 shrink-0 overflow-y-auto border-l border-border bg-canvas/60 p-3 xl:block">
+    <aside aria-label="Card details" aria-live="polite" className="hidden h-full w-72 shrink-0 overflow-y-auto border-l border-border bg-canvas/80 p-3 xl:block">
       {known ? (
         <CardDetailsDock />
+      ) : faceDown ? (
+        <p className="text-sm text-ink-muted">Face-down card.</p>
       ) : card ? (
         <div className="space-y-2 text-sm">
           <CardArt src={card.imageNormal ?? card.imageSmall} alt={card.name} label={card.name} />

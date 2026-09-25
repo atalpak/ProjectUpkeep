@@ -1,19 +1,19 @@
 "use client";
 
-import { memo, useCallback, useRef } from "react";
+import { memo, useRef } from "react";
 
 import { CardArt } from "@/components/playtester/CardArt";
+import { HAND_WIDTH_REM } from "@/components/playtester/card-size";
 import { useSettings, usePlayEnv, useUi } from "@/components/playtester/context";
 import { startHandDrag } from "@/components/playtester/drag";
-import { useCard, usePlayStore, useSelector, useZoneIds } from "@/components/playtester/hooks/useStore";
+import { useCard, usePlayStore, useZoneIds } from "@/components/playtester/hooks/useStore";
 import { useViewportHeight, useWidth } from "@/components/playtester/hooks/useWidth";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { cx } from "@/lib/cx";
-import type { CardSize } from "@/lib/playtest/settings";
 
 /**
- * The hand: a row of cards between the undo and redo buttons, with the count
- * and the hand options above it. It is a drop target (`data-drop="hand"`):
+ * The hand: a row of cards with the count and the hand options above it (undo
+ * and redo live in the top bar). It is a drop target (`data-drop="hand"`):
  * dropping a hand card back on it re-orders, dropping a table card on it
  * returns that card to the hand.
  *
@@ -27,23 +27,7 @@ import type { CardSize } from "@/lib/playtest/settings";
  * on screen. A setting that hid the game from its own player would be a bug.
  */
 
-const HAND_WIDTH_REM: Record<CardSize, number> = { small: 4.6, medium: 5.8, large: 7.2 };
 const GAP_PX = 8;
-
-function RoundButton({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="mb-3 flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-raised text-ink transition hover:brightness-125 disabled:opacity-35 motion-safe:active:scale-95"
-    >
-      {children}
-    </button>
-  );
-}
 
 const HandCard = memo(function HandCard({
   id,
@@ -174,13 +158,10 @@ function HandOptions() {
 }
 
 export function Hand() {
-  const store = usePlayStore();
   const settings = useSettings();
   const ids = useZoneIds("hand");
   const hidden = useUi((s) => s.handHidden);
   const env = usePlayEnv();
-  const canUndo = useSelector((s) => s.history.past.length > 0);
-  const canRedo = useSelector((s) => s.history.future.length > 0);
   const areaRef = useRef<HTMLDivElement>(null);
   const areaWidth = useWidth(areaRef);
   const viewportHeight = useViewportHeight();
@@ -195,8 +176,6 @@ export function Hand() {
   const fitOverlap = shown.length > 1 && areaWidth > 0 ? (shown.length * cardPx - areaWidth) / (shown.length - 1) : -GAP_PX;
   const overlapPx = settings.autoSize ? Math.max(-GAP_PX, fitOverlap) : -GAP_PX;
   const isDropTarget = useUi((s) => s.hoverZone === "hand");
-  const undo = useCallback(() => store.undo(), [store]);
-  const redo = useCallback(() => store.redo(), [store]);
 
   return (
     <section aria-label="Hand" className="min-w-0 flex-1">
@@ -215,18 +194,11 @@ export function Hand() {
       </div>
 
       <div className="flex items-end gap-2">
-        <RoundButton label="Undo" disabled={!canUndo} onClick={undo}>
-          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M9 14 4 9l5-5" />
-            <path d="M4 9h10a6 6 0 0 1 0 12h-3" />
-          </svg>
-        </RoundButton>
-
         <div
           ref={areaRef}
           data-drop="hand"
           className={cx(
-            "relative flex min-h-[clamp(6.5rem,24dvh,9.6rem)] min-w-0 flex-1 items-end justify-center rounded-lg pb-3 pt-2",
+            "relative flex min-h-[clamp(7rem,27dvh,11rem)] min-w-0 flex-1 items-end justify-center rounded-lg pb-3 pt-2",
             settings.autoSize ? "overflow-visible" : "overflow-x-auto",
             isDropTarget && "ring-2 ring-accent ring-offset-2 ring-offset-transparent",
           )}
@@ -247,12 +219,6 @@ export function Hand() {
           ) : null}
         </div>
 
-        <RoundButton label="Redo" disabled={!canRedo} onClick={redo}>
-          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="m15 14 5-5-5-5" />
-            <path d="M20 9H10a6 6 0 0 0 0 12h3" />
-          </svg>
-        </RoundButton>
       </div>
     </section>
   );

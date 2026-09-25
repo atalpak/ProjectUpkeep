@@ -17,15 +17,18 @@ import type { GameCommand } from "./commands";
 import { cardBucket, own } from "./reducers/util";
 import type { GameCard, GameState, Group, Pos } from "./types";
 
-export const BOARD_ASPECT = 16 / 9;
+/** Wider than 16:9: the table sits in a short, wide window (the hand, piles and
+ *  toolbar take the bottom), so a 2:1 board fills more of it. */
+export const BOARD_ASPECT = 2;
 /** Card size as a fraction of board width / height. A card is 5:7 in pixels,
  *  so its height as a fraction of the board's HEIGHT is 1.4 * w * aspect. */
-export const CARD_W = 0.07;
+export const CARD_W = 0.115;
 export const CARD_H = Number((1.4 * CARD_W * BOARD_ASPECT).toFixed(4));
 
-const ROW_STEP = 0.08;
-const COLUMN_STEP = 0.055;
-const STACK_STEP = { x: 0.012, y: 0.02 };
+// Scaled with CARD_W / CARD_H so a group keeps its shape when the card size changes.
+const ROW_STEP = 0.131;
+const COLUMN_STEP = 0.102;
+const STACK_STEP = { x: 0.02, y: 0.037 };
 
 export const round4 = (n: number): number => Math.round(n * 10000) / 10000;
 

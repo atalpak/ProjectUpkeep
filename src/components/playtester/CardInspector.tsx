@@ -3,17 +3,20 @@
 import { useEffect, useState } from "react";
 import { CardArt } from "./CardArt";
 import { usePlayEnv, useSettings, useUi } from "./context";
-import { useCard } from "./hooks/useStore";
+import { useCard, useZoneIds } from "./hooks/useStore";
 import { textFor } from "@/lib/playtest/catalog";
 
 export function CardInspector() {
-  const env = usePlayEnv(); const settings = useSettings(); const inspect = useUi((s) => s.inspect); const card = useCard(inspect?.cardId ?? ""); const [fetched, setFetched] = useState<{ id: string; text: string | null } | null>(null);
+  const env = usePlayEnv(); const settings = useSettings(); const inspect = useUi((s) => s.inspect); const backPreview = useUi((s) => s.backPreview); const libraryCount = useZoneIds("library").length; const card = useCard(inspect?.cardId ?? ""); const [fetched, setFetched] = useState<{ id: string; text: string | null } | null>(null);
   useEffect(() => {
     if (!card?.cardId || env.catalog.has(card.cardId)) return;
     const controller = new AbortController();
     fetch(`/api/cards/${encodeURIComponent(card.cardId)}`, { signal: controller.signal }).then((r) => r.ok ? r.json() : null).then((v) => { if (v?.card) setFetched({ id: card.cardId!, text: v.card.oracle_text ?? null }); }).catch(() => {});
     return () => controller.abort();
   }, [card?.cardId, env.catalog]);
+  // Holding the library shows its back, large, for as long as it is held. It
+  // shows the back and the count, never the top card: the library is hidden.
+  if (backPreview) return <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[6500] flex flex-col items-center justify-center gap-3 bg-black/60"><div className="w-56 sm:w-72"><CardArt src={null} alt="Library" label="Library" faceDown /></div><p className="rounded-full bg-surface-raised px-4 py-1 text-sm text-ink">Library · {libraryCount} card{libraryCount === 1 ? "" : "s"}</p></div>;
   if (!inspect || !card) return null;
   const text = textFor(env.catalog.get(card.cardId ?? ""), card.face === "back" ? "back" : "front");
   const close = () => env.ui.set((s) => ({ ...s, inspect: null }));

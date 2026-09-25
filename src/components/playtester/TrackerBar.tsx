@@ -7,6 +7,7 @@ import { usePlayEnv, useUi } from "./context";
 import { useExternal, useGame, usePlayStore } from "./hooks/useStore";
 import { BoltIcon, HeartIcon, KebabIcon, MenuIcon, NextIcon, SkullIcon, SparkIcon } from "./icons";
 import { FloatingMenu } from "@/components/FloatingMenu";
+import { ManaSymbol } from "@/components/ManaCost";
 import { cx } from "@/lib/cx";
 import { MANA_KEYS } from "@/lib/playtest/board/types";
 
@@ -21,21 +22,9 @@ import { MANA_KEYS } from "@/lib/playtest/board/types";
  * keyboard or a finger can do everything a mouse can.
  */
 
-const MANA_STYLE: Record<string, string> = {
-  W: "bg-w text-[#1f1f1f]",
-  U: "bg-u text-[#1f1f1f]",
-  B: "bg-b text-[#1f1f1f]",
-  R: "bg-r text-[#1f1f1f]",
-  G: "bg-g text-[#1f1f1f]",
-  C: "bg-ink-muted text-[#1f1f1f]",
-};
-
+/** The real mana symbol (the same Scryfall art the rest of the app draws). */
 function ManaDot({ letter }: { letter: string }) {
-  return (
-    <span aria-hidden="true" className={cx("flex size-4 items-center justify-center rounded-full text-[10px] font-bold leading-none", MANA_STYLE[letter] ?? "bg-ink-muted text-[#1f1f1f]")}>
-      {letter}
-    </span>
-  );
+  return <ManaSymbol code={letter} className="size-5" />;
 }
 
 type CounterProps = {
@@ -211,7 +200,7 @@ export function TrackerBar() {
         </Link>
         <GameMenu />
       </div>
-      <div className="order-3 flex min-w-0 basis-full flex-wrap items-center gap-x-1 gap-y-1 xl:order-2 xl:flex-1 xl:basis-0">
+      <div className="order-3 flex min-w-0 basis-full flex-wrap items-center gap-x-1 gap-y-1 2xl:order-2 2xl:flex-1 2xl:basis-0">
         {game ? (
           <>
             <Counter id="life" label="Life" value={game.trackers.life} path="life" icon={<HeartIcon />} flash {...shared} />
@@ -250,7 +239,7 @@ export function TrackerBar() {
           </>
         ) : null}
       </div>
-      <div className="order-2 ml-auto flex items-center gap-2 xl:order-3">
+      <div className="order-2 ml-auto flex items-center gap-2 2xl:order-3">
         <span className="max-w-64 max-sm:hidden text-xs text-ink-muted" role="status">
           {status.state === "saved" ? "Saved locally" : status.state === "off" ? "Crash recovery is off in this browser — save to your account to keep this game." : ""}
         </span>

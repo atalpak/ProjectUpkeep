@@ -9,11 +9,13 @@ import { OpeningHand } from "@/components/playtester/OpeningHand";
 import { CardMenu } from "@/components/playtester/CardMenu";
 import { ZoneBrowser } from "@/components/playtester/ZoneBrowser";
 import { closeZoneOverlay, openDialog } from "@/components/playtester/zone-overlay";
+import { shortcutTargets } from "@/components/playtester/targets";
 import { AuxPanel } from "@/components/playtester/AuxPanels";
 import { RecoveryManager } from "@/components/playtester/hooks/useRecovery";
 import { TrackerBar } from "@/components/playtester/TrackerBar";
 import { ExternalIcon, KebabIcon, QuestionIcon } from "@/components/playtester/icons";
 import { CardDock, CardDockToggle } from "@/components/playtester/CardDock";
+import { UndoRedo } from "@/components/playtester/UndoRedo";
 import { OtherZonesTab, Piles } from "@/components/playtester/Piles";
 import { CardInspector } from "@/components/playtester/CardInspector";
 import { PopoutBridge } from "@/components/playtester/PopoutBridge";
@@ -55,11 +57,23 @@ export function PlayBoard(props: PlayBoardProps) {
     const seed = () => crypto.getRandomValues(new Uint32Array(1))[0];
     const open = (dialog: Parameters<Parameters<typeof ui.set>[0]>[0]["dialog"]) => { if (dialog) openDialog(store, ui, settings, seed, dialog); };
     const dispatch = (command: GameCommand) => store.dispatch(command);
-    const selected = store.get().selection;
-    const move = (to: ZoneId, at: "top" | "bottom" = "top") => { if (selected.length) dispatch({ type: "MOVE_MANY", ids: [...selected], to, at }); };
+    // A shortcut acts on the card under the pointer if there is one, so hovering
+    // a permanent and pressing T taps it with no click first; otherwise on the
+    // selection. Zone moves (G, E, ...) also take a hovered hand card; the
+    // table-only actions (tap, counters, groups) only take a hovered permanent.
+    const uiNow = ui.get();
+    const hoveredId = uiNow.inspect && !uiNow.inspect.big ? uiNow.inspect.cardId : null;
+    const { onTable: selected, movable } = shortcutTargets({
+      hoveredId,
+      battlefield: game?.zones.battlefield ?? [],
+      exists: (cardId) => game?.cards[cardId] !== undefined,
+      selection: store.get().selection,
+    });
+    const move = (to: ZoneId, at: "top" | "bottom" = "top") => { if (movable.length) dispatch({ type: "MOVE_MANY", ids: [...movable], to, at }); };
     if (id === "undo") return store.undo();
     if (id === "redo") return store.redo();
     if (id === "new-game") return open("confirm-restart");
+    if (id === "view-zones") return open("zones");
     if (id === "hand-hide") return ui.set((s) => ({ ...s, handHidden: !s.handHidden }));
     const dialogs: Record<string, Parameters<Parameters<typeof ui.set>[0]>[0]["dialog"]> = { "hand-overlay": "hand", save: "sessions", saves: "sessions", share: "share", settings: "settings", log: "log", metrics: "metrics", export: "export", keybinds: "shortcuts", palette: "palette", interaction: "interaction", roll: "dice-result", "create-token": "token" };
     if (id in dialogs) return open(dialogs[id]);
@@ -118,8 +132,8 @@ export function PlayBoard(props: PlayBoardProps) {
     if (id === "life-set") { const n = typeof arg === "number" ? arg : Number(prompt("Set life", String(game.trackers.life))); if (Number.isFinite(n)) dispatch(mode === "delta" ? { type: "SET_LIFE", delta: n } : { type: "SET_TRACKER", path: "life", value: n }); return; }
     if (id.startsWith("tracker-")) { const path = id.slice(8); const n = typeof arg === "number" ? arg : Number(prompt(`Set ${path}`, String(game.trackers[path as "poison" | "energy" | "experience"]))); if (Number.isFinite(n)) dispatch({ type: "SET_TRACKER", path, value: n }); return; }
     if (id === "set-turn") { const n = typeof arg === "number" ? arg : Number(prompt("Set turn", String(game.turn))); if (Number.isFinite(n)) dispatch({ type: "SET_TURN", turn: n }); return; }
-    if (id === "view-graveyard" || id === "view-exile" || id === "view-command" || id === "view-zones" || id === "search-library" || id === "peek-top" || id === "peek-bottom") {
-      const zone: ZoneId = id === "view-exile" ? "exile" : id === "view-command" ? "command" : id === "view-graveyard" ? "graveyard" : id === "view-zones" ? "sideboard" : "library";
+    if (id === "view-graveyard" || id === "view-exile" || id === "view-command" || id === "search-library" || id === "peek-top" || id === "peek-bottom") {
+      const zone: ZoneId = id === "view-exile" ? "exile" : id === "view-command" ? "command" : id === "view-graveyard" ? "graveyard" : "library";
       openDialog(store, ui, settings, seed, "zone", { zone, mode: id.startsWith("peek") ? "peek" : id === "search-library" ? "search" : "browse", from: id === "peek-bottom" ? "bottom" : "top", count: typeof arg === "number" ? arg : 3 });
       if (id.startsWith("peek")) dispatch({ type: "PEEK", zone: "library", from: id === "peek-bottom" ? "bottom" : "top", count: typeof arg === "number" ? arg : 3 });
     }
@@ -182,18 +196,21 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
     return () => window.removeEventListener("keydown", onKey);
   }, [env]);
   const totals = game ? selectionTotals(game, selection) : null;
-  return <div ref={root} data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="dark group/table playtester-table pt-mat fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto text-ink" style={{ backgroundColor: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
+  return <div ref={root} data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="dark group/table playtester-table pt-mat fixed inset-0 z-40 flex h-dvh text-ink" style={{ backgroundColor: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
+    <div className="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
     <div className="flex items-start justify-between gap-3 px-3 pt-3 text-sm max-[900px]:pt-2">
       <div className="flex flex-col items-start gap-0.5 [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:gap-1"><TopText label="Playtester actions" id="palette" icon={<KebabIcon />} /><TopText label="Keybinds" id="keybinds" icon={<QuestionIcon />} /><CardDockToggle /></div>
-      <span className="mt-1.5 truncate text-xs text-ink-muted max-sm:hidden">{game ? `Turn ${game.turn}` : "Ready to play"}</span>
+      <div className="flex items-center gap-3"><UndoRedo /><span className="truncate text-xs text-ink-muted max-sm:hidden">{game ? `Turn ${game.turn}` : "Ready to play"}</span></div>
       <div className="flex flex-col items-end gap-1"><button type="button" aria-label="Full interaction log" onClick={() => env.perform("log")} className="flex items-center gap-2 rounded-lg bg-surface-raised px-4 py-2.5 text-sm font-semibold text-ink hover:brightness-125 coarse:min-h-11"><span className="max-sm:hidden">Full interaction log</span><span className="sm:hidden">Log</span> <ExternalIcon /></button><Link href={`/decks/${env.deckId}/play/popout`} target="_blank" className="rounded px-1 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline">Pop out the table</Link></div>
     </div>
-    <div className="flex min-h-24 flex-1"><div className="flex min-w-0 flex-1 p-2"><Battlefield /></div><CardDock /></div>
+    <div className="flex min-h-24 flex-1 p-2"><Battlefield /></div>
     {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
     {totals && totals.count > 0 ? <div className="absolute left-3 top-[5.5rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
     {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-surface-raised px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
     <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3 max-sm:flex-col max-sm:gap-0 max-sm:pl-0"><Hand /><div className="flex items-stretch gap-3 max-sm:items-end max-sm:justify-between max-sm:gap-2 max-sm:px-3"><Piles /><OtherZonesTab /></div></div>
     <TrackerBar /></div>
+    </div>
+    <CardDock />
     <RecoveryManager /><PopoutBridge /><OpeningHand /><TableDialogs entries={entries} commanderCardId={commanderCardId} /><CardMenu /><CardInspector />
   </div>;
 }
@@ -265,7 +282,7 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
         else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
       }
     }}>
-      <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold capitalize">{dialog.replaceAll("-", " ")}</h2>{dialog !== "start" ? <button onClick={close} aria-label="Close" className="rounded px-2 py-1 hover:bg-white/10">✕</button> : null}</div>
+      <div className="mb-4 flex items-center justify-between"><h2 className="text-lg font-semibold capitalize">{dialog === "zones" ? "Other zones" : dialog.replaceAll("-", " ")}</h2>{dialog !== "start" ? <button onClick={close} aria-label="Close" className="rounded px-2 py-1 hover:bg-white/10">✕</button> : null}</div>
       {dialog === "start" || dialog === "confirm-restart" ? <div className="space-y-4 text-sm">
         <p>{dialog === "confirm-restart" ? "Start a new game? The current table will be replaced." : "Shuffle and deal an opening hand from the current deck."}</p>
         {!valid ? <p role="alert" className="text-amber-200">This deck has no usable cards. Add cards to its decklist before playing.</p> : null}

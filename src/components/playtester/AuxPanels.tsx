@@ -34,6 +34,8 @@ const SETTING_LABELS = {
   cardDetails: "Show the card details column (wide windows)",
 } as const;
 
+import { OtherZonesPanel } from "./OtherZones";
+
 export function AuxPanel({ dialog, close }: { dialog: string; close: () => void }) {
   switch (dialog) {
     case "sessions": return <SessionsPanel close={close} />;
@@ -46,6 +48,7 @@ export function AuxPanel({ dialog, close }: { dialog: string; close: () => void 
     case "token": return <TokenPanel close={close} />;
     case "interaction": return <InteractionPanel close={close} />;
     case "hand": return <FullHand />;
+    case "zones": return <OtherZonesPanel />;
     default: return <p className="text-sm text-white/70">Choose an action from the table controls.</p>;
   }
 }

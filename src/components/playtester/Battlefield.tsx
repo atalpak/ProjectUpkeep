@@ -10,7 +10,9 @@ import { GroupFrame } from "@/components/playtester/GroupFrame";
 import { useFit } from "@/components/playtester/hooks/useFit";
 import { useGame, usePlayStore } from "@/components/playtester/hooks/useStore";
 import { cx } from "@/lib/cx";
-import { BOARD_ASPECT, cardRect, readingOrder, resolvedPositions } from "@/lib/playtest/board/layout";
+import { BOARD_ASPECT, CARD_W, cardRect, readingOrder, resolvedPositions } from "@/lib/playtest/board/layout";
+import { boardCardScale, handCardPx } from "@/components/playtester/card-size";
+import { useViewportHeight } from "@/components/playtester/hooks/useWidth";
 import { CARD_SCALE } from "@/lib/playtest/settings";
 import type { GameState } from "@/lib/playtest/board/types";
 
@@ -82,6 +84,7 @@ export function Battlefield() {
   const marqueeRef = useRef<HTMLDivElement>(null);
   const [els] = useState(() => new Map<string, HTMLElement>());
   const fit = useFit(areaRef, BOARD_ASPECT, game !== null);
+  const viewportHeight = useViewportHeight();
 
   const registerEl = useCallback(
     (id: string, el: HTMLElement | null) => {
@@ -147,7 +150,8 @@ export function Battlefield() {
     [store],
   );
 
-  const scale = CARD_SCALE[settings.cardSize];
+  // Drawn at the hand card's pixel width, so the two match (card-size.ts).
+  const scale = boardCardScale(handCardPx(settings.handSize, viewportHeight), CARD_SCALE[settings.cardSize], fit.width, CARD_W);
   const ordered = useMemo(() => (game ? readingOrder(game, game.zones.battlefield) : []), [game]);
   const positions = useMemo(() => (game ? resolvedPositions(game) : new Map()), [game]);
   const zIndex = useMemo(() => {
@@ -166,14 +170,14 @@ export function Battlefield() {
   const empty = game.zones.battlefield.length === 0;
 
   return (
-    <div ref={areaRef} className="relative flex min-h-0 flex-1 items-center justify-center p-1.5 sm:p-2">
+    <div ref={areaRef} data-drop="battlefield" className="relative flex min-h-0 flex-1 items-center justify-center p-1.5 sm:p-2">
       <div
         ref={boardRef}
-        data-drop="battlefield"
         data-board
+        data-card-scale={scale}
         onPointerDown={drag.onBoardPointerDown}
         className={cx(
-          "relative touch-none select-none overflow-hidden rounded-xl border border-transparent transition-colors group-data-[dragging]/table:border-border [container-type:inline-size]",
+          "relative touch-none select-none overflow-hidden rounded-xl border border-border-strong/60 bg-white/[0.025] transition-colors group-data-[dragging]/table:border-accent/70 group-data-[dragging]/table:bg-white/[0.05] [container-type:inline-size]",
           fit.width === 0 && "invisible",
         )}
         style={{ width: fit.width, height: fit.height }}

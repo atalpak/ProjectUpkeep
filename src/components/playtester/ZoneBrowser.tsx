@@ -48,7 +48,7 @@ export function ZoneBrowser({ onClose, docked }: { onClose: () => void; docked: 
     <div className={cx("space-y-3", docked && "flex min-h-0 flex-1 flex-col space-y-0 gap-3")}>
       <div className="flex gap-2">
         <select aria-label="Zone" value={zone} onChange={(e) => setZoneOverride(e.target.value as ZoneId)} className="rounded bg-black/40 p-2">
-          {ZONE_IDS.map((z) => <option key={z} value={z}>{ZONE_LABELS[z]} ({game.zones[z].length})</option>)}
+          {ZONE_IDS.filter((z) => z !== "temporary" || game.zones.temporary.length > 0 || zone === "temporary").map((z) => <option key={z} value={z}>{ZONE_LABELS[z]} ({game.zones[z].length})</option>)}
         </select>
         <input aria-label="Search zone" placeholder="Search cards" value={filter} onChange={(e) => setFilter(e.target.value)} className="min-w-0 flex-1 rounded bg-black/40 p-2" />
       </div>

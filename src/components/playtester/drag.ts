@@ -366,7 +366,9 @@ export function startHandDrag(
       const boardEl = host.board();
       if (!boardEl) return;
       const rect = boardEl.getBoundingClientRect();
-      const pos = clampPos({ x: (last.x - rect.left) / rect.width - CARD_W / 2, y: (last.y - rect.top) / rect.height - CARD_H / 2 });
+      // The card lands centred on the pointer at the size it is DRAWN at.
+      const drawn = Number(boardEl.dataset.cardScale) || 1;
+      const pos = clampPos({ x: (last.x - rect.left) / rect.width - (CARD_W * drawn) / 2, y: (last.y - rect.top) / rect.height - (CARD_H * drawn) / 2 });
       store.dispatch({ type: "MOVE_MANY", ids: [cardId], to: "battlefield", at: "bottom", pos, tapped: shiftHeld });
     } else if (target === "hand" && fromZone !== "hand") {
       store.dispatch(dropCommand([cardId], "hand"));

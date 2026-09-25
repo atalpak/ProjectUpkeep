@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef, useState } from "react";
+
 import { CardArt } from "./CardArt";
 import { usePlayEnv, useUi } from "./context";
 import { useCard, useZoneIds } from "./hooks/useStore";
@@ -38,11 +40,13 @@ const MENU: Record<PileZone, Item[]> = {
   exile: [{ id: "view-exile", label: "View the exile zone" }],
 };
 
-function PileMenu({ zone, count }: { zone: PileZone; count: number }) {
+function PileMenu({ zone, count, open, onOpenChange }: { zone: PileZone; count: number; open: boolean; onOpenChange: (open: boolean) => void }) {
   const env = usePlayEnv();
   return (
     <FloatingMenu
       align="left"
+      open={open}
+      onOpenChange={onOpenChange}
       trigger={({ toggle, setTriggerRef, open }) => (
         <button
           ref={setTriggerRef}
@@ -95,16 +99,53 @@ function Pile({ zone }: { zone: PileZone }) {
   const hovered = useUi((s) => s.hoverZone === zone);
   const count = ids.length;
   const topId = zone === "library" ? null : ids[ids.length - 1] ?? null;
-  const open = () => env.perform(zone === "library" ? "search-library" : `view-${zone}`);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // The library reads as a deck you touch: a click draws, holding shows the back
+  // large for as long as it is held, right-click opens the same menu as the
+  // header. The other piles open their cards on a click. A keyboard press
+  // (click with no pointer, `detail` 0) does the same as a click.
+  const hold = useRef<{ timer: number; held: boolean } | null>(null);
+  const end = () => {
+    if (hold.current) window.clearTimeout(hold.current.timer);
+    hold.current = null;
+    env.ui.set((s) => (s.backPreview ? { ...s, backPreview: false } : s));
+  };
+  const activate = () => env.perform(zone === "library" ? "draw" : `view-${zone}`);
 
   return (
-    <div className="@container relative flex w-[max(4.25rem,min(6.5rem,9vw,18dvh))] shrink-0 flex-col gap-1">
-      <PileMenu zone={zone} count={count} />
+    <div className="@container relative flex w-[max(4.25rem,min(6.6rem,9vw,18dvh))] shrink-0 flex-col gap-1">
+      <PileMenu zone={zone} count={count} open={menuOpen} onOpenChange={setMenuOpen} />
       <button
         type="button"
         data-drop={zone}
-        onClick={open}
-        aria-label={count > 0 ? `${LABEL[zone]}, ${count} cards. ${zone === "library" ? "Search" : "View cards"}.` : `${LABEL[zone]}, no cards.`}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenuOpen(true);
+        }}
+        onPointerDown={zone === "library" ? (e) => {
+          if (e.button !== 0 || count === 0) return;
+          const state = { held: false, timer: 0 };
+          state.timer = window.setTimeout(() => {
+            state.held = true;
+            env.ui.set((s) => ({ ...s, backPreview: true }));
+          }, 450);
+          hold.current = state;
+        } : undefined}
+        onPointerUp={zone === "library" ? () => {
+          const state = hold.current;
+          const wasHeld = state?.held === true;
+          const started = state !== null;
+          end();
+          if (started && !wasHeld) activate();
+        } : undefined}
+        onPointerLeave={zone === "library" ? end : undefined}
+        onPointerCancel={zone === "library" ? end : undefined}
+        onClick={(e) => {
+          // Pointer clicks are handled above for the library; a keyboard press has no pointer.
+          if (zone === "library" && e.detail !== 0) return;
+          activate();
+        }}
+        aria-label={count > 0 ? `${LABEL[zone]}, ${count} cards. ${zone === "library" ? "Draw a card. Hold to look at the back." : "View cards."}` : `${LABEL[zone]}, no cards.`}
         className={cx(
           "relative aspect-[5/7] w-full overflow-hidden rounded-md text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
           count === 0 ? "bg-white/5 text-ink-muted hover:bg-white/10" : "hover:brightness-110",

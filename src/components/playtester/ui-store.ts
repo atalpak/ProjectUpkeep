@@ -29,6 +29,7 @@ export type DialogId =
   | "counters"
   | "hand"
   | "zone"
+  | "zones"
   | "interaction"
   | "note"
   | "confirm-restart"
@@ -55,6 +56,8 @@ export type UiState = {
   /** True while the hand is covered (Hand options > Hide hand). */
   handHidden: boolean;
   diceResult: { text: string; id: number } | null;
+  /** Held on the library: show its card back large, for as long as it is held. */
+  backPreview: boolean;
   /** The player pressed Next turn and is deciding on an upkeep / interaction step. */
   pendingTurn: boolean;
   announce: string;
@@ -75,6 +78,7 @@ export function createUiStore(): UiStore {
     guides: { x: null, y: null },
     handHidden: false,
     diceResult: null,
+    backPreview: false,
     pendingTurn: false,
     announce: "",
   });
