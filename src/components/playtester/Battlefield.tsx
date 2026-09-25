@@ -98,9 +98,9 @@ export function Battlefield() {
         board: () => boardRef.current,
         els,
         marquee: () => marqueeRef.current,
-        reducedMotion: () => false,
+        reducedMotion: () => settings.motion === "reduce" || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
       }),
-    [store, env.ui, els],
+    [store, env.ui, els, settings.motion],
   );
   const drag = useMemo(() => ({
     onBoardPointerDown: (event: React.PointerEvent<HTMLElement>) => dragHost().onBoardPointerDown(event),

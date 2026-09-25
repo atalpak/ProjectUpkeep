@@ -3,7 +3,7 @@
 Written so a fresh AI tool with **no memory of the conversation that started this** can pick the build up and finish it.
 Keep this file truthful: update the checklist and the "what remains" section in the same commit as the work.
 
-Last updated: 2026-09-25, during step 9 after browser fixture exercise.
+Last updated: 2026-09-25, after UI refinement and before the docs commit.
 
 ## Goal, and the one-pass rule
 
@@ -87,7 +87,7 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 - Done: page owner check, slim entries, server SHA-256 fingerprint, saves/session loaders, bound actions; popout and signed-in share routes; sign-out local-key clearing in both nav forms.
 - Done: initial start dialog (format, life, partner, first-turn draw, free mulligan); London mulligan with ordered bottom choices and inspect; board, hand, card menu, zone browser, tracker bar, palette/shortcut sheet, local recovery, basic save/share/settings/log/metrics/export/token/simulator panels.
 - Browser fixture: `/?playtest-fixture=1` in development only, before the home page's auth query. No account or database needed. It is guarded by `NODE_ENV === "development"` and is absent as a reachable feature in production.
-- Still needs refinement: token catalog search, full card action menu (notes, custom counters, offsets, reveal and ordered library insertion), richer full-hand overlay, zone reorder, confirmation for a fingerprint-mismatched session loaded directly by URL, simulator odds controls beyond category chances, and a more complete accessibility pass at touch size/zoom. The share route was compiled but not exercised against live DB/migrations. No production migration applied.
+- Added in the UI refinement: token catalog search and custom extras, notes/counters/offsets/reveal/library insertion in the card menu, image-based full-hand overlay, all tracker paths, all five metric series, fingerprint mismatch choice for direct session URLs, and simulator odds controls. Remaining: keyboard and touch QA at 200% zoom, live token catalog verification, and account save/share testing against a migrated non-production database. The share route was compiled but not exercised against live DB/migrations. No production migration applied.
 - Visual: the full-screen dark table uses Project Upkeep palette/typography. The screenshot fixture verified the hand bottom-left, three piles bottom-right, toolbar bottom, and small controls top. The battlefield fit bug and hand pointer menu dismissal bug were found in browser and fixed.
 
 ### Step 10, what remains

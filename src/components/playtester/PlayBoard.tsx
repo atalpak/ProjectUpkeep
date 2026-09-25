@@ -44,6 +44,7 @@ export function PlayBoard(props: PlayBoardProps) {
   const [ui] = useState(createUiStore);
   const [settings] = useState(() => createExternalStore(DEFAULT_SETTINGS));
   const [recovery] = useState(() => createExternalStore<RecoveryStatus>({ state: "idle", savedAt: null }));
+  const handledSession = useRef<string | null>(null);
   const catalog = useMemo(() => buildCatalog(props.entries), [props.entries]);
   const perform = useCallback((id: string, arg?: number | string | null, mode?: "set" | "delta" | null) => {
     const game = store.get().game;
@@ -121,11 +122,16 @@ export function PlayBoard(props: PlayBoardProps) {
   const env = useMemo(() => ({ deckId: props.deckId, deckName: props.deckName, userId: props.userId, fingerprint: props.fingerprint, ui, settings, catalog, actions: props.actions, saves: props.saves, perform, recovery, origin: () => window.location.origin }), [props.deckId, props.deckName, props.userId, props.fingerprint, ui, settings, catalog, props.actions, props.saves, perform, recovery]);
 
   useEffect(() => {
+    if (props.initialSession && handledSession.current === props.initialSession.id) return;
+    handledSession.current = props.initialSession?.id ?? null;
     try { settings.set(() => sanitizeSettings(JSON.parse(localStorage.getItem(prefsKey(props.userId)) ?? "null"))); } catch { /* preferences are optional */ }
     const restored = props.initialSession ? tryValidateSnapshot(props.initialSession.snapshot) : null;
-    if (restored && restored.deckId === props.deckId) store.replace(restored, { saved: true, session: { id: props.initialSession!.id, title: props.initialSession!.title, updatedAt: props.initialSession!.updatedAt } });
-    else ui.set((s) => ({ ...s, dialog: "start" }));
-  }, [props.deckId, props.initialSession, props.userId, settings, store, ui]);
+    if (restored && restored.deckId === props.deckId) {
+      const continueSaved = restored.source.fingerprint === props.fingerprint || window.confirm("This deck has changed since the game was saved. OK: Continue saved state. Cancel: Start with current deck.");
+      if (continueSaved) store.replace(restored, { saved: true, session: { id: props.initialSession!.id, title: props.initialSession!.title, updatedAt: props.initialSession!.updatedAt } });
+      else ui.set((s) => ({ ...s, dialog: "start" }));
+    } else ui.set((s) => ({ ...s, dialog: "start" }));
+  }, [props.deckId, props.fingerprint, props.initialSession, props.userId, settings, store, ui]);
 
   return <PlayStoreProvider value={store}><PlayEnvProvider value={env}><Table entries={props.entries} commanderCardId={props.commanderCardId} /></PlayEnvProvider></PlayStoreProvider>;
 }
@@ -137,6 +143,7 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
   const store = usePlayStore();
   const env = usePlayEnv();
   const settings = useSettings();
+  const dragging = useExternal(env.ui, (s) => s.dragging);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target;
@@ -149,9 +156,9 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
     return () => window.removeEventListener("keydown", onKey);
   }, [env]);
   const totals = game ? selectionTotals(game, selection) : null;
-  return <div className="playtester-table fixed inset-0 z-40 flex h-dvh min-h-[36rem] flex-col overflow-hidden border border-white/15 text-white" style={{ background: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
+  return <div data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="playtester-table fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto border border-white/15 text-white" style={{ background: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
     <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs"><div className="flex gap-2"><Link href={`/decks/${env.deckId}`} className="rounded border border-white/20 px-2 py-1.5">← Deck</Link><TopButton label="Playtester actions" id="palette" /><TopButton label="Keybinds" id="keybinds" /></div><span className="truncate text-white/60">{game ? `Turn ${game.turn}` : "Ready to play"}</span><div className="flex gap-2"><Link href={`/decks/${env.deckId}/play/popout`} target="_blank" className="rounded border border-white/20 px-2 py-1.5">Pop out</Link><TopButton label="Full interaction log" id="log" /></div></div>
-    <div className="flex min-h-0 flex-1 p-2"><Battlefield /></div>
+    <div className="flex min-h-32 flex-1 p-2"><Battlefield /></div>
     {totals && totals.count > 0 ? <div className="absolute left-3 top-12 z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
     {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#302b24] px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
     <div className="flex min-h-[12rem] gap-3 border-t border-white/10 bg-black/25 p-2"><Hand /><div className="flex w-48 shrink-0 gap-1 sm:w-64"><Pile zone="library" /><Pile zone="graveyard" /><Pile zone="exile" /></div></div>
@@ -183,7 +190,14 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
     return () => opener.current?.focus();
   }, [dialog]);
   if (!dialog) return null;
-  const close = () => env.ui.set((s) => ({ ...s, dialog: null }));
+  const close = () => {
+    if (env.ui.get().dialog !== dialog) return;
+    const request = env.ui.get().zone;
+    if (dialog === "zone" && request?.zone === "library" && request.mode === "search" && env.settings.get().shuffleOnClose) {
+      store.dispatch({ type: "SHUFFLE", zone: "library", seed: crypto.getRandomValues(new Uint32Array(1))[0] });
+    }
+    env.ui.set((s) => ({ ...s, dialog: null, zone: null }));
+  };
   const valid = entries.some((e) => e.quantity > 0 && e.cards !== null);
   const start = () => {
     if (!valid) return;
