@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Battlefield } from "@/components/playtester/Battlefield";
 import { Hand } from "@/components/playtester/Hand";
@@ -12,6 +12,8 @@ import { closeZoneOverlay } from "@/components/playtester/zone-overlay";
 import { AuxPanel } from "@/components/playtester/AuxPanels";
 import { RecoveryManager } from "@/components/playtester/hooks/useRecovery";
 import { TrackerBar } from "@/components/playtester/TrackerBar";
+import { ExternalIcon, KebabIcon, QuestionIcon } from "@/components/playtester/icons";
+import { OtherZonesTab, Piles } from "@/components/playtester/Piles";
 import { CardInspector } from "@/components/playtester/CardInspector";
 import { PopoutBridge } from "@/components/playtester/PopoutBridge";
 import { focusedCardId } from "@/components/playtester/board-actions";
@@ -146,6 +148,19 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
   const settings = useSettings();
   const dragging = useExternal(env.ui, (s) => s.dragging);
   const [banner, setBanner] = useState<number | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const bottom = useRef<HTMLDivElement>(null);
+  // The docked zone sheet must stop above the hand, piles and toolbar, whatever
+  // height those come to (they scale with the viewport, and wrap at 200% zoom).
+  useLayoutEffect(() => {
+    const el = bottom.current; const host = root.current;
+    if (!el || !host || typeof ResizeObserver === "undefined") return;
+    const measure = () => host.style.setProperty("--pt-bottom", `${el.offsetHeight}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const turn = game?.turn;
   useEffect(() => {
     if (turn === undefined || turn === 0) return;
@@ -165,24 +180,23 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
     return () => window.removeEventListener("keydown", onKey);
   }, [env]);
   const totals = game ? selectionTotals(game, selection) : null;
-  return <div data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="playtester-table fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto border border-white/15 text-white" style={{ background: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
-    <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs"><div className="flex gap-2"><Link href={`/decks/${env.deckId}`} className="rounded border border-white/20 px-2 py-1.5">← Deck</Link><TopButton label="Playtester actions" id="palette" /><TopButton label="Keybinds" id="keybinds" /></div><span className="truncate text-white/60">{game ? `Turn ${game.turn}` : "Ready to play"}</span><div className="flex gap-2"><Link href={`/decks/${env.deckId}/play/popout`} target="_blank" className="rounded border border-white/20 px-2 py-1.5">Pop out</Link><TopButton label="Full interaction log" id="log" /></div></div>
-    <div className="flex min-h-32 flex-1 p-2"><Battlefield /></div>
+  return <div ref={root} data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="dark group/table playtester-table pt-mat fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto text-ink" style={{ backgroundColor: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
+    <div className="flex items-start justify-between gap-3 px-3 pt-3 text-sm max-[900px]:pt-2">
+      <div className="flex flex-col items-start gap-0.5 [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:gap-1"><TopText label="Playtester actions" id="palette" icon={<KebabIcon />} /><TopText label="Keybinds" id="keybinds" icon={<QuestionIcon />} /></div>
+      <span className="mt-1.5 truncate text-xs text-ink-muted max-sm:hidden">{game ? `Turn ${game.turn}` : "Ready to play"}</span>
+      <div className="flex flex-col items-end gap-1"><button type="button" aria-label="Full interaction log" onClick={() => env.perform("log")} className="flex items-center gap-2 rounded-lg bg-surface-raised px-4 py-2.5 text-sm font-semibold text-ink hover:brightness-125 coarse:min-h-11"><span className="max-sm:hidden">Full interaction log</span><span className="sm:hidden">Log</span> <ExternalIcon /></button><Link href={`/decks/${env.deckId}/play/popout`} target="_blank" className="rounded px-1 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline">Pop out the table</Link></div>
+    </div>
+    <div className="flex min-h-24 flex-1 p-2"><Battlefield /></div>
     {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
-    {totals && totals.count > 0 ? <div className="absolute left-3 top-12 z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
-    {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#302b24] px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
-    <div className="flex min-h-[12rem] gap-3 border-t border-white/10 bg-black/25 p-2"><Hand /><div className="flex w-48 shrink-0 gap-1 sm:w-64"><Pile zone="library" /><Pile zone="graveyard" /><Pile zone="exile" /></div></div>
-    <div className="flex justify-end bg-black/25 px-2"><TopButton label="View other zones" id="view-zones" /></div>
-    <TrackerBar />
+    {totals && totals.count > 0 ? <div className="absolute left-3 top-[5.5rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
+    {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-surface-raised px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
+    <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3 max-sm:flex-col max-sm:gap-0 max-sm:pl-0"><Hand /><div className="flex items-stretch gap-3 max-sm:items-end max-sm:justify-between max-sm:gap-2 max-sm:px-3"><Piles /><OtherZonesTab /></div></div>
+    <TrackerBar /></div>
     <RecoveryManager /><PopoutBridge /><OpeningHand /><TableDialogs entries={entries} commanderCardId={commanderCardId} /><CardMenu /><CardInspector />
   </div>;
 }
 
-function TopButton({ label, id }: { label: string; id: string }) { const { perform } = usePlayEnv(); return <button type="button" onClick={() => perform(id)} className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20 coarse:min-h-11">{label}</button>; }
-function Pile({ zone }: { zone: "library" | "graveyard" | "exile" }) {
-  const { perform } = usePlayEnv(); const game = useSelector((s) => s.game); const count = game?.zones[zone].length ?? 0;
-  return <button type="button" onClick={() => perform(zone === "library" ? "search-library" : `view-${zone}`)} className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border border-white/20 bg-white/5 p-1 text-center text-xs hover:bg-white/10 coarse:min-h-11"><span className="font-semibold capitalize">{zone}</span>{count > 0 ? <span aria-hidden="true" className="my-1 block h-8 w-6 rounded-sm border border-[#b9954f] bg-[#5d4628] shadow-[2px_2px_0_#302519,4px_4px_0_#241c14]" style={{ transform: `scaleY(${0.5 + Math.min(count, 100) / 200})` }} /> : null}<span>{count}</span><span className="text-white/50">{count ? "View cards" : "No cards"}</span></button>;
-}
+function TopText({ label, id, icon }: { label: string; id: string; icon: React.ReactNode }) { const { perform } = usePlayEnv(); return <button type="button" onClick={() => perform(id)} className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-ink-muted hover:bg-white/10 hover:text-ink coarse:min-h-11">{icon}{label}</button>; }
 
 function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; commanderCardId: string | null }) {
   const store = usePlayStore();
@@ -207,16 +221,22 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
     panel.current?.querySelector<HTMLElement>("button, input, select")?.focus();
     return () => opener.current?.focus();
   }, [dialog]);
+  // Escape closes whatever dialog is open, wherever focus is: a resize, a
+  // click on the backdrop or a menu closing can leave focus on the page, and a
+  // handler that only listens inside the panel would then never hear it. The
+  // opening-hand start dialog is the one that cannot be dismissed.
   useEffect(() => {
-    if (!docked) return;
+    if (!dialog || dialog === "start") return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || env.ui.get().menu || env.ui.get().dragging) return;
+      const ui = env.ui.get();
+      if (event.key !== "Escape" || ui.menu || ui.dragging || !ui.dialog || ui.dialog === "start") return;
       event.preventDefault();
-      closeZoneOverlay(store, env.ui, env.settings, () => crypto.getRandomValues(new Uint32Array(1))[0]);
+      if (ui.dialog === "zone") closeZoneOverlay(store, env.ui, env.settings, () => crypto.getRandomValues(new Uint32Array(1))[0]);
+      else env.ui.set((s) => ({ ...s, dialog: null, zone: null }));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [docked, env, store]);
+  }, [dialog, env, store]);
   if (!dialog) return null;
   const close = () => {
     if (env.ui.get().dialog !== dialog) return;
@@ -233,7 +253,7 @@ function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; com
     close();
   };
   const matches = matchPalette(query, 30);
-  return <div data-docked={docked || undefined} className={docked ? "pointer-events-none absolute inset-x-0 top-12 bottom-[17rem] z-[5000] flex justify-end px-3" : "absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4"} onMouseDown={(e) => { if (!docked && e.target === e.currentTarget && dialog !== "start") close(); }}>
+  return <div data-docked={docked || undefined} className={docked ? "pointer-events-none absolute inset-x-0 top-20 bottom-[var(--pt-bottom,17rem)] z-[5000] flex justify-end px-3" : "absolute inset-0 z-[5000] flex items-center justify-center bg-black/65 p-4"} onMouseDown={(e) => { if (!docked && e.target === e.currentTarget && dialog !== "start") close(); }}>
     <section ref={panel} role="dialog" aria-modal={docked ? "false" : "true"} aria-label={dialog} className={docked ? "pointer-events-auto flex h-full min-h-40 w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-4 shadow-[var(--shadow-raised)]" : "max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl border border-white/20 bg-[#25231f] p-5 shadow-2xl"} onKeyDown={(e) => {
       if (e.key === "Escape" && dialog !== "start") { e.preventDefault(); close(); }
       if (e.key === "Tab" && !docked) {

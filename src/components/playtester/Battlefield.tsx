@@ -173,15 +173,15 @@ export function Battlefield() {
         data-board
         onPointerDown={drag.onBoardPointerDown}
         className={cx(
-          "relative touch-none select-none overflow-hidden rounded-xl border border-white/10 [container-type:inline-size]",
+          "relative touch-none select-none overflow-hidden rounded-xl border border-transparent transition-colors group-data-[dragging]/table:border-border [container-type:inline-size]",
           fit.width === 0 && "invisible",
         )}
-        style={{ width: fit.width, height: fit.height, background: "var(--mat-tint, transparent)" }}
+        style={{ width: fit.width, height: fit.height }}
         role="group"
         aria-label={`Battlefield, ${game.zones.battlefield.length} card${game.zones.battlefield.length === 1 ? "" : "s"}`}
       >
         {empty ? (
-          <p className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-white/45">
+          <p className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ink-muted">
             The table is empty. Drag a card here from your hand, or select it and press Enter for its menu.
           </p>
         ) : null}

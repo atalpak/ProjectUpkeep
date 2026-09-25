@@ -127,7 +127,7 @@ scripts/
   verify-migrations.sh      migrations against a throwaway Postgres
   catalog-snapshot.sh       exports + builds the catalog into the mobile app before
                             a native build (`npm run catalog:snapshot`)
-  *.test.ts                 79 unit-test files over pure logic, including 26 playtest tests
+  *.test.ts                 81 unit-test files over pure logic, including 28 playtest tests
 ```
 
 ## Data model in one paragraph

@@ -413,3 +413,13 @@ body {
 }
 [data-still] .pt-arrive, [data-still] .pt-pop, [data-still] .pt-banner { animation: none; }
 [data-still] .pt-turn { transition: none; }
+
+/*
+ * The play table's mat: the playmat colour with a faint dot grid, like a
+ * tabletop under a lamp. The dots take the ink colour at low strength so they
+ * read on any playmat and never fight the cards.
+ */
+.pt-mat {
+  background-image: radial-gradient(color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+}

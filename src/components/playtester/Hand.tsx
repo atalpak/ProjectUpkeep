@@ -38,7 +38,7 @@ function RoundButton({ label, disabled, onClick, children }: { label: string; di
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="mb-4 flex size-11 shrink-0 items-center justify-center rounded-full bg-white/12 text-white transition hover:bg-white/20 disabled:opacity-35 motion-safe:active:scale-95"
+      className="mb-3 flex size-11 shrink-0 items-center justify-center rounded-full bg-surface-raised text-ink transition hover:brightness-125 disabled:opacity-35 motion-safe:active:scale-95"
     >
       {children}
     </button>
@@ -48,7 +48,6 @@ function RoundButton({ label, disabled, onClick, children }: { label: string; di
 const HandCard = memo(function HandCard({
   id,
   index,
-  total,
   widthRem,
   overlapPx,
   covered,
@@ -58,7 +57,6 @@ const HandCard = memo(function HandCard({
 }: {
   id: string;
   index: number;
-  total: number;
   widthRem: number;
   overlapPx: number;
   covered: boolean;
@@ -82,7 +80,7 @@ const HandCard = memo(function HandCard({
       ref={ref}
       data-hand-card={id}
       className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30 focus-within:z-30")}
-      style={{ width: `${widthRem}rem`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index, transform: `rotate(${(index - (total - 1) / 2) * 1.5}deg) translate3d(0, ${Math.abs(index - (total - 1) / 2) * 2}px, 0)` }}
+      style={{ width: `min(${widthRem}rem, 16dvh)`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index, }}
       onPointerEnter={(e) => {
         if (hover && e.pointerType === "mouse") env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }));
       }}
@@ -148,7 +146,7 @@ function HandOptions() {
     <FloatingMenu
       align="right"
       trigger={({ toggle, setTriggerRef, open }) => (
-        <button ref={setTriggerRef} type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} className="rounded-md px-2 py-1 text-sm text-white/90 hover:bg-white/10 coarse:min-h-11">
+        <button ref={setTriggerRef} type="button" onClick={toggle} aria-haspopup="menu" aria-expanded={open} className="whitespace-nowrap rounded-md px-2 py-1 text-sm text-ink hover:bg-white/10 coarse:min-h-11">
           Hand options <span aria-hidden="true">⋮</span>
         </button>
       )}
@@ -185,7 +183,7 @@ export function Hand() {
   const areaWidth = useWidth(areaRef);
 
   const widthRem = HAND_WIDTH_REM[settings.handSize];
-  const cardPx = widthRem * 16;
+  const cardPx = typeof window === "undefined" ? widthRem * 16 : Math.min(widthRem * 16, window.innerHeight * 0.16);
   const shown = ids.slice(0, settings.maxVisibleHand);
   const extra = ids.length - shown.length;
   // Squeeze the cards together only when they do not fit: the margin between
@@ -200,7 +198,7 @@ export function Hand() {
   return (
     <section aria-label="Hand" className="min-w-0 flex-1">
       <div className="flex items-center justify-between px-1">
-        <h2 className="text-sm font-medium text-white/90" aria-live="polite">
+        <h2 className="whitespace-nowrap text-sm text-ink" aria-live="polite">
           Cards in hand: {ids.length}
         </h2>
         <div className="flex items-center gap-1">
@@ -225,14 +223,14 @@ export function Hand() {
           ref={areaRef}
           data-drop="hand"
           className={cx(
-            "relative flex min-h-[9.6rem] min-w-0 flex-1 items-end justify-center rounded-lg pb-3 pt-4",
+            "relative flex min-h-[clamp(6.5rem,24dvh,9.6rem)] min-w-0 flex-1 items-end justify-center rounded-lg pb-3 pt-2",
             settings.autoSize ? "overflow-visible" : "overflow-x-auto",
             isDropTarget && "ring-2 ring-accent ring-offset-2 ring-offset-transparent",
           )}
         >
           {ids.length === 0 ? <p className="self-center text-sm text-white/50">Your hand is empty.</p> : null}
           {shown.map((id, i) => (
-            <HandCard key={id} id={id} index={i} total={shown.length} widthRem={widthRem} overlapPx={overlapPx} covered={hidden} hover={settings.handHover} clickPlays={settings.handClick === "play"} reduced={settings.motion === "reduce"} />
+            <HandCard key={id} id={id} index={i} widthRem={widthRem} overlapPx={overlapPx} covered={hidden} hover={settings.handHover} clickPlays={settings.handClick === "play"} reduced={settings.motion === "reduce"} />
           ))}
           {extra > 0 ? (
             <button type="button" onClick={() => env.perform("hand-overlay")} className="ml-2 shrink-0 self-center rounded-full bg-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/25 coarse:min-h-11">
