@@ -55,6 +55,8 @@ export type Settings = {
   shuffleOnClose: boolean;
   keepSearchOpenWhileDragging: boolean;
   showInteractionLog: boolean;
+  /** A docked card-detail column beside the table (wide windows only). */
+  cardDetails: boolean;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -73,6 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shuffleOnClose: true,
   keepSearchOpenWhileDragging: false,
   showInteractionLog: false,
+  cardDetails: true,
 };
 
 const SIZES: readonly CardSize[] = ["small", "medium", "large"];
@@ -102,6 +105,7 @@ export function sanitizeSettings(input: unknown): Settings {
     shuffleOnClose: bool(r.shuffleOnClose, d.shuffleOnClose),
     keepSearchOpenWhileDragging: bool(r.keepSearchOpenWhileDragging, d.keepSearchOpenWhileDragging),
     showInteractionLog: bool(r.showInteractionLog, d.showInteractionLog),
+    cardDetails: bool(r.cardDetails, d.cardDetails),
   };
 }
 

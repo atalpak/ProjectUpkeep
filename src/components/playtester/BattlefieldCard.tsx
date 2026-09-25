@@ -3,6 +3,7 @@
 import { memo, useCallback } from "react";
 
 import { CardArt } from "@/components/playtester/CardArt";
+import { usePlayEnv } from "@/components/playtester/context";
 import { useCard, useIsSelected, useSelector } from "@/components/playtester/hooks/useStore";
 import { cx } from "@/lib/cx";
 import { CARD_W } from "@/lib/playtest/board/layout";
@@ -88,12 +89,17 @@ export const BattlefieldCard = memo(function BattlefieldCard({
   onKey,
   onToggleTapped,
 }: BattlefieldCardProps) {
+  const env = usePlayEnv();
   const card = useCard(id);
   const selected = useIsSelected(id);
   const arrived = useSelector((s) => s.arrived.includes(id));
   const setRef = useCallback((el: HTMLDivElement | null) => registerEl(id, el), [registerEl, id]);
   if (!card) return null;
 
+  // A glance feeds the card-details column and the small preview; it never
+  // opens a dialog, so it cannot take the hover away from the card.
+  const glance = (cardId: string) => env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId, big: false } }));
+  const unglance = () => env.ui.set((s) => (s.inspect && !s.inspect.big ? { ...s, inspect: null } : s));
   const faceDown = card.face === "face-down";
   const src = faceDown ? null : card.face === "back" && card.imageBack ? card.imageBack : card.imageSmall;
   const turn = ((card.tapped ? 90 : 0) + card.rotation) % 360;
@@ -107,6 +113,9 @@ export const BattlefieldCard = memo(function BattlefieldCard({
       data-card-wrapper={id}
       className={cx("group/card absolute touch-none", arrived && "pt-arrive")}
       style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${CARD_W * 100 * scale}%`, zIndex: z + 1 }}
+      onPointerEnter={(e) => { if (e.pointerType === "mouse" && !faceDown) glance(id); }}
+      onPointerLeave={() => unglance()}
+      onFocusCapture={() => { if (!faceDown) glance(id); }}
     >
       <button
         type="button"

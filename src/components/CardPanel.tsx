@@ -475,6 +475,24 @@ export function useCardPanel(): { open: (source: Card | string) => void } {
 }
 
 /**
+ * For a host that docks its own copy of the sidebar (the playtester table is a
+ * full-screen layer above the page, so the page's sidebar is hidden behind it).
+ * `useShowCardDetails` points the panel at a card, and `CardDetailsDock` draws
+ * the same `CardDetails` the sidebar draws, so the two can never drift apart.
+ * Both are null-safe outside the provider (the development fixture has none).
+ */
+export function useShowCardDetails(): ((source: Card | string) => void) | null {
+  const ctx = useContext(Ctx);
+  return useMemo(() => (ctx ? (source) => ctx.show(source, "sidebar") : null), [ctx]);
+}
+
+export function CardDetailsDock() {
+  const ctx = useContext(Ctx);
+  if (!ctx) return null;
+  return <CardDetails card={ctx.card} state={ctx.state} idleMessage="Hover a card to see it here." />;
+}
+
+/**
  * A thumbnail that feeds the panel, for use from server components.
  *
  * Focusable by default so keyboard users get the same behaviour as pointer

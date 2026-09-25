@@ -22,6 +22,9 @@ import { cx } from "@/lib/cx";
  * (`--sleeve` on the table root). The alt text says what a screen reader
  * should hear, which for a face-down card is deliberately not its name.
  */
+/** The standard Magic card back, as Scryfall serves it. */
+export const CARD_BACK_URL = "https://backs.scryfall.io/large/0/a/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg";
+
 export const CardArt = memo(function CardArt({
   src,
   alt,
@@ -39,6 +42,7 @@ export const CardArt = memo(function CardArt({
   className?: string;
 }) {
   const [failed, setFailed] = useState<string | null>(null);
+  const [backFailed, setBackFailed] = useState(false);
   const broken = failed === src;
 
   if (faceDown) {
@@ -49,7 +53,10 @@ export const CardArt = memo(function CardArt({
         className={cx("relative aspect-[5/7] w-full overflow-hidden rounded-[5%] border border-black/40 shadow-[var(--shadow-card)]", className)}
         style={{ background: "repeating-linear-gradient(45deg, var(--sleeve, #c9a34a) 0 6px, color-mix(in srgb, var(--sleeve, #c9a34a) 70%, black) 6px 12px)" }}
       >
-        <span className="absolute inset-[7%] rounded-[6%] border border-white/25" aria-hidden="true" />
+        {/* The back of a Magic card, from Scryfall's CDN like every other card
+            picture here. The sleeve pattern underneath is the fallback when it
+            cannot load (offline), and still honours the sleeve colour setting. */}
+        {!backFailed ? <Image src={CARD_BACK_URL} alt="" fill sizes="200px" unoptimized draggable={false} className="object-cover" onError={() => setBackFailed(true)} /> : <span className="absolute inset-[7%] rounded-[6%] border border-white/25" aria-hidden="true" />}
       </div>
     );
   }

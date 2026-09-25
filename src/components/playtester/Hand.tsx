@@ -79,8 +79,10 @@ const HandCard = memo(function HandCard({
     <div
       ref={ref}
       data-hand-card={id}
-      className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30 focus-within:z-30")}
+      className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30! focus-within:z-30!")}
       style={{ width: `min(${widthRem}rem, 16dvh)`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
+      onFocusCapture={() => env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }))}
+      onBlurCapture={() => env.ui.set((s) => (s.inspect && !s.inspect.big ? { ...s, inspect: null } : s))}
       onPointerEnter={(e) => {
         if (hover && e.pointerType === "mouse") env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }));
       }}
@@ -117,7 +119,7 @@ const HandCard = memo(function HandCard({
             e.preventDefault();
           }
         }}
-        className={cx("block w-full touch-none rounded-[5%] outline-none focus-visible:ring-2 focus-visible:ring-focus-ring", hover && "hover:-translate-y-3 focus-visible:-translate-y-3")}
+        className={cx("block w-full touch-none rounded-[5%] outline-none focus-visible:ring-2 focus-visible:ring-focus-ring", "origin-bottom transition-transform duration-150 motion-reduce:transition-none", hover && !reduced && "group-hover/hand:-translate-y-4 group-hover/hand:scale-110 focus-visible:-translate-y-4 focus-visible:scale-110", hover && reduced && "group-hover/hand:-translate-y-2")}
       >
         <CardArt src={card.imageSmall} alt={covered ? "Hidden hand card" : card.name} label={card.name} faceDown={covered} />
       </button>
