@@ -21,7 +21,7 @@ test("DRAW moves N cards from the top of the library into the hand, in order", (
   assert.deepEqual(next.zones.hand, top3);
   assert.deepEqual(next.zones.library, state.zones.library.slice(3));
   // Nothing else about the state changed.
-  assert.equal(next.life, state.life);
+  assert.equal(next.trackers.life, state.trackers.life);
   assert.equal(next.turn, state.turn);
   assert.deepEqual(next.zones.battlefield, state.zones.battlefield);
 });
@@ -48,21 +48,41 @@ test("MOVE_CARD relocates exactly one card and nothing else", () => {
   }
 });
 
-test("MOVE_CARD onto the battlefield records the requested group; leaving it clears the group", () => {
+test("MOVE_CARD onto the battlefield joins an EXISTING group; leaving it clears group and position", () => {
   const state = fixtureSixtyCardStart();
-  const cardId = state.zones.library[0];
+  const [first, second] = state.zones.library;
 
-  const onBoard = applyCommand(state, {
-    type: "MOVE_CARD",
-    cardId,
-    to: "battlefield",
-    index: null,
-    groupId: "group-a",
-  });
-  assert.equal(onBoard.cards[cardId].groupId, "group-a");
+  // A group must exist before a card can be moved into it (SET_GROUP creates it).
+  const onBoard = applyCommand(state, { type: "MOVE_CARD", cardId: first, to: "battlefield", index: null });
+  const grouped = applyCommand(onBoard, { type: "SET_GROUP", ids: [first], groupId: "group-a", group: { label: "Ramp" } });
+  const joined = applyCommand(grouped, { type: "MOVE_CARD", cardId: second, to: "battlefield", index: null, groupId: "group-a" });
+  assert.equal(joined.cards[second].groupId, "group-a");
+  assert.equal(joined.cards[second].pos, null);
 
-  const toGraveyard = applyCommand(onBoard, { type: "MOVE_CARD", cardId, to: "graveyard", index: null });
-  assert.equal(toGraveyard.cards[cardId].groupId, null);
+  const toGraveyard = applyCommand(joined, { type: "MOVE_CARD", cardId: second, to: "graveyard", index: null });
+  assert.equal(toGraveyard.cards[second].groupId, null);
+  assert.equal(toGraveyard.cards[second].pos, null);
+
+  // An unknown group id is ignored rather than creating a phantom group.
+  const phantom = applyCommand(state, { type: "MOVE_CARD", cardId: first, to: "battlefield", index: null, groupId: "nope" });
+  assert.equal(phantom.cards[first].groupId, null);
+  assert.notEqual(phantom.cards[first].pos, null);
+});
+
+test("leaving the battlefield wipes tapped state, counters and offsets; notes and commander tax survive", () => {
+  let state = fixtureSixtyCardStart();
+  const id = state.zones.library[0];
+  state = applyCommand(state, { type: "MOVE_CARD", cardId: id, to: "battlefield", index: null });
+  state = applyCommand(state, { type: "SET_CARD_FLAGS", ids: [id], flags: { tapped: true, ptOffset: { power: 2, toughness: 2 }, commanderTax: 4 } });
+  state = applyCommand(state, { type: "ADD_COUNTER", cardId: id, name: "+1/+1", delta: 2 });
+  state = applyCommand(state, { type: "SET_NOTE", cardId: id, note: "keep me" });
+  state = applyCommand(state, { type: "MOVE_CARD", cardId: id, to: "graveyard", index: null });
+  const card = state.cards[id];
+  assert.equal(card.tapped, false);
+  assert.deepEqual(card.counters, {});
+  assert.deepEqual(card.ptOffset, { power: 0, toughness: 0 });
+  assert.equal(card.note, "keep me");
+  assert.equal(card.commanderTax, 4);
 });
 
 test("MOVE_CARD for an unknown card id is a no-op", () => {
@@ -117,15 +137,16 @@ test("ADD_COUNTER adds, and removes the key entirely once it returns to zero", (
   assert.ok(!("+1/+1" in backToZero.cards[cardId].counters));
 });
 
-test("CREATE_TOKEN adds new objects without touching deck-card counts or the library", () => {
+test("CREATE_EXTRA adds new objects without touching deck-card counts or the library", () => {
   const state = fixtureSixtyCardStart();
   const deckCardCountBefore = Object.values(state.cards).filter((c) => c.kind === "deck-card").length;
   const libraryBefore = [...state.zones.library];
 
   const next = applyCommand(state, {
-    type: "CREATE_TOKEN",
+    type: "CREATE_EXTRA",
     ids: ["token-1", "token-2"],
-    token: { name: "Soldier", power: "1", toughness: "1", imageUri: null },
+    spec: { name: "Soldier", power: "1", toughness: "1", imageSmall: null, imageNormal: null },
+    kind: "token",
     zone: "battlefield",
   });
 
@@ -140,9 +161,10 @@ test("CREATE_TOKEN adds new objects without touching deck-card counts or the lib
 test("DELETE_OBJECT removes a token without altering deck-card counts or the library", () => {
   const state = fixtureSixtyCardStart();
   const withToken = applyCommand(state, {
-    type: "CREATE_TOKEN",
+    type: "CREATE_EXTRA",
     ids: ["token-1"],
-    token: { name: "Soldier", power: "1", toughness: "1", imageUri: null },
+    spec: { name: "Soldier", power: "1", toughness: "1", imageSmall: null, imageNormal: null },
+    kind: "token",
     zone: "battlefield",
   });
   const libraryBefore = [...withToken.zones.library];
@@ -167,21 +189,20 @@ test("SHUFFLE reorders only the requested zone", () => {
   assert.deepEqual(next.zones.hand, handBefore);
 });
 
-test("SET_LIFE and NEXT_TURN change only their own field", () => {
+test("SET_LIFE changes only life; NEXT_TURN moves the turn and leaves life alone", () => {
   const state = fixtureCommanderStart();
   const afterLife = applyCommand(state, { type: "SET_LIFE", delta: -3 });
-  assert.equal(afterLife.life, state.life - 3);
+  assert.equal(afterLife.trackers.life, state.trackers.life - 3);
   assert.equal(afterLife.turn, state.turn);
 
   const afterTurn = applyCommand(state, { type: "NEXT_TURN" });
   assert.equal(afterTurn.turn, state.turn + 1);
-  assert.equal(afterTurn.life, state.life);
+  assert.equal(afterTurn.trackers.life, state.trackers.life);
 });
 
 test("RESTORE_SNAPSHOT replaces the whole state with the given snapshot", () => {
   const a = fixtureSixtyCardStart();
-  const b: GameState = { ...fixtureCommanderStart(), turn: 9 };
-  const next = applyCommand(a, { type: "RESTORE_SNAPSHOT", snapshot: b });
+  const b: GameState = { ...fixtureCommanderStart(), turn: 9 };  const next = applyCommand(a, { type: "RESTORE_SNAPSHOT", snapshot: b });
   assert.deepEqual(next, b);
 });
 
@@ -210,5 +231,6 @@ test("identical starting state plus identical command sequence yields byte-ident
     b = applyCommand(b, command);
   }
   assert.deepEqual(a, b);
-  assert.deepEqual(a.log, b.log);
+  assert.deepEqual(a.events, b.events);
+  assert.ok(a.events.length >= 3, "each command left a structured event");
 });
