@@ -3730,7 +3730,10 @@ rollback;
 --   b  add a friend-read policy (using are_friends(...)) -> (b) "saw 1"
 --   c  remove the `deck_owner <> new.owner_user_id` test -> (c) "must be refused"
 --   d  `with check (true)` on the insert policy -> (d) "owner=alice must be refused"
---   e  `using (true)` on the update policy -> (e) "touched 1 row"
+--   e  `using (true)` on the delete policy ALONE passes, by design: a row you
+--      cannot SELECT cannot be deleted either, so two policies guard it. With
+--      both the select and delete policies loosened and block (b) (which trips
+--      first) cut from a scratch copy of this file, (e) fails with "touched 1"
 --   f  remove the `deck_type <> 'deck'` test -> (f) "binder must be refused"
 --   g  `grant update on public.playtest_sessions` (all columns) -> (g) "deck_id"
 --   h  drop constraint playtest_sessions_snapshot_size -> (h) "300KB"
