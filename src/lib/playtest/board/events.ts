@@ -81,7 +81,7 @@ export function describeEvent(event: GameEvent): string {
     case "shuffle":
       return `Shuffled the ${zoneName(String(data.zone ?? "library"))}.`;
     case "mulligan":
-      return `Mulligan ${num(data.number)}.`;
+      return data.free === true ? "Free mulligan." : `Mulligan ${num(data.number)}.`;
     case "keep":
       return num(data.bottom) > 0 ? `Kept, bottoming ${plural(num(data.bottom), "card")}.` : "Kept the hand.";
     case "peek":
@@ -124,7 +124,7 @@ const PUBLIC_DATA_KEYS: Record<EventKind, readonly string[]> = {
   create: ["count", "kind"],
   delete: [],
   shuffle: ["zone"],
-  mulligan: ["number"],
+  mulligan: ["number", "free"],
   keep: ["bottom"],
   peek: [],
   reveal: ["revealed"],

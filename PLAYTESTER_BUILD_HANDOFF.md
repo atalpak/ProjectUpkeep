@@ -144,6 +144,16 @@ Not verified: real touch input (no touch device here; the mobile emulation sends
 - The "N selected" badge moved below the three top-left items (it overlapped "Card details").
 - The details column being absent in the owner's screenshot most likely means the "Card details" toggle was off (it is saved per browser); it is on by default.
 
+### Follow-up pass 5 (2026-09-25): toolbar, zones, mulligan
+
+- **Mulligan buttons** are one size, and there is a **Free mulligan** button: new `free` flag on the `MULLIGAN` command; it reshuffles and deals seven again WITHOUT counting, so it adds no card to put on the bottom and can be pressed as often as wanted (`playtest-board-mulligan.test.ts`, 12 tests). The start dialog's "first mulligan free" option is unchanged.
+- **Full interaction log** moved to the top-left stack in the same plain style; the "Pop out the table" link is removed from the UI (the `/decks/[id]/play/popout` route and `PopoutBridge` still exist, unlinked).
+- **No pop-ups for moves.** The "Rearranged 1 card on the table / Undo" toast is no longer drawn; the text is still announced through a visually hidden `role="status"` region, and undo is the top-bar button. The store still produces toasts; only their display went.
+- **Hover preview** (used when the details column is off or the window is under xl) now sits in the top-right corner. With the column on, the column's own image is the top-right image.
+- **Zones** keep their size and place when the window narrows horizontally (`.pt-pile` no longer shrinks with width until under about 480px, where 22vw takes over so three piles still leave the hand some room), and the hand overlaps more and more instead (capped so a strip of each card always shows). The phone stacking of the bottom strip was removed. Piles are bottom-aligned with the hand cards (both use the same bottom padding; the hand section is a column so its cards sit at the bottom).
+- **Bottom bar is always one row** (`TrackerBar.tsx` rewritten; it measures itself): brand mark, Game menu, life with a minus and a plus, the mana pool, then status, Next turn, More. Under 900px the six mana counters fold into one Mana button that opens them in a panel above the bar; under 640px the words go and icons stay; the save status hides under 1100px. **Right-click on life** (or the context-menu key; on a touch screen a small dots button) opens the other trackers: poison, experience, energy, life 2, damage and commander damage. Poison, experience and energy are therefore no longer on the bar itself. Checked in the browser at 1500, 820 and 600px wide: one row each time, mana collapsed at 820, right-click on life opens the panel.
+- Not verified: the hover preview position (CSS only), the panel behaviours on a touch screen, and Safari.
+
 ## Migrations and the production order (nothing has been applied to production)
 
 Files: `supabase/migrations/00000000000046_playtest_sessions.sql`, `00000000000047_playtest_shares.sql`.

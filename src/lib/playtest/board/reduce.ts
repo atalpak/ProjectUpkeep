@@ -88,7 +88,7 @@ function apply(state: GameState, command: GameCommand, ctx: Ctx): GameState {
     case "ROLL":
       return roll(state, ctx, command.kind, command.result);
     case "MULLIGAN":
-      return mulligan(state, ctx, command.seed);
+      return mulligan(state, ctx, command.seed, command.free === true);
     case "KEEP":
       return keep(state, ctx, command.bottomIds);
     case "RANDOM_DISCARD":

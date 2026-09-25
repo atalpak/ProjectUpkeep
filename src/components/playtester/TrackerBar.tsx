@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { usePlayEnv, useUi } from "./context";
 import { useExternal, useGame, usePlayStore } from "./hooks/useStore";
+import { useWidth } from "./hooks/useWidth";
 import { BoltIcon, HeartIcon, KebabIcon, MenuIcon, NextIcon, SkullIcon, SparkIcon } from "./icons";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { ManaSymbol } from "@/components/ManaCost";
@@ -12,114 +13,140 @@ import { cx } from "@/lib/cx";
 import { MANA_KEYS } from "@/lib/playtest/board/types";
 
 /**
- * The bottom toolbar: the brand mark (back to the deck), the game menu, the
- * counters, Next turn and More.
+ * The bottom toolbar. It is ALWAYS one row.
  *
- * A counter reads as a small pill, icon and value. Pressing it opens the
- * stepper in place (minus, plus, set a number); ArrowUp and ArrowDown adjust it
- * without opening. Only one is open at a time and Escape or a press elsewhere
- * closes it. Every counter keeps a real button for each of its actions, so a
- * keyboard or a finger can do everything a mouse can.
+ * Left to right: the brand mark (back to the deck), the game menu, life with a
+ * minus and a plus either side, the mana pool, then the save status, Next turn
+ * and More. Right-click on life (or the context-menu key, or the dots button on
+ * a touch screen) opens the other trackers: poison, experience, energy, the
+ * second life total, damage and commander damage.
+ *
+ * The bar measures itself. Under `MANA_COLLAPSE_PX` the six mana counters fold
+ * into one button that opens them in a panel above the bar; under
+ * `LABELS_HIDE_PX` the words go and the icons stay. Nothing wraps.
  */
 
-/** The real mana symbol (the same Scryfall art the rest of the app draws). */
-function ManaDot({ letter }: { letter: string }) {
+const MANA_COLLAPSE_PX = 900;
+const LABELS_HIDE_PX = 640;
+const STATUS_HIDE_PX = 1100;
+
+const stepButton = "flex size-7 shrink-0 items-center justify-center rounded text-ink hover:bg-white/15 coarse:size-11";
+
+/** A labelled row with minus, the value, plus and a way to type a number. */
+function StepRow({ label, value, path, icon }: { label: string; value: number; path: string; icon: React.ReactNode }) {
+  const store = usePlayStore();
+  const set = (n: number) => store.dispatch({ type: "SET_TRACKER", path, value: n });
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="flex min-w-0 flex-1 items-center gap-2 truncate">{icon}{label}</span>
+      <button type="button" aria-label={`Decrease ${label}`} onClick={() => set(value - 1)} className={stepButton}>−</button>
+      <button
+        type="button"
+        aria-label={`${label} ${value}. Set to a number`}
+        onClick={() => {
+          const n = prompt(`Set ${label}`, String(value));
+          if (n !== null && n.trim() !== "" && Number.isFinite(Number(n))) set(Number(n));
+        }}
+        className="min-w-8 rounded px-1 text-center font-medium tabular-nums hover:bg-white/10 coarse:min-h-11"
+      >
+        {value}
+      </button>
+      <button type="button" aria-label={`Increase ${label}`} onClick={() => set(value + 1)} className={stepButton}>+</button>
+    </div>
+  );
+}
+
+const PANEL = "absolute bottom-full z-40 mb-2 w-72 space-y-2 rounded-lg border border-border bg-surface-raised p-3 text-ink shadow-[var(--shadow-raised)]";
+
+function ManaPip({ letter }: { letter: string }) {
   return <ManaSymbol code={letter} className="size-5" />;
 }
 
-type CounterProps = {
-  id: string;
-  label: string;
-  value: number;
-  path: string;
-  icon: React.ReactNode;
-  openId: string | null;
-  setOpenId: (id: string | null) => void;
-  flash?: boolean;
-};
-
-function Counter({ id, label, value, path, icon, openId, setOpenId, flash }: CounterProps) {
+/** Life: minus, the value, plus. Right-click opens the other trackers. */
+function Life({ onMore }: { onMore: () => void }) {
+  const game = useGame();
   const store = usePlayStore();
+  const value = game?.trackers.life ?? 0;
   const previous = useRef(value);
-  const [direction, setDirection] = useState<"up" | "down" | null>(null);
-  const open = openId === id;
+  const [flash, setFlash] = useState<"up" | "down" | null>(null);
   useEffect(() => {
     if (previous.current === value) return;
-    const dir = value > previous.current ? "up" : "down";
+    const direction = value > previous.current ? "up" : "down";
     previous.current = value;
-    if (!flash) return;
-    const show = window.setTimeout(() => setDirection(dir), 0);
-    const hide = window.setTimeout(() => setDirection(null), 550);
+    const show = window.setTimeout(() => setFlash(direction), 0);
+    const hide = window.setTimeout(() => setFlash(null), 550);
     return () => {
       window.clearTimeout(show);
       window.clearTimeout(hide);
     };
-  }, [value, flash]);
-  const set = (n: number) => store.dispatch({ type: "SET_TRACKER", path, value: n });
-  const step = "flex size-7 items-center justify-center rounded text-ink hover:bg-white/15 coarse:size-11";
-
+  }, [value]);
+  const set = (n: number) => store.dispatch({ type: "SET_TRACKER", path: "life", value: n });
   return (
     <div
-      data-counter={id}
-      className={cx(
-        "flex items-center rounded-lg text-sm",
-        open ? "bg-surface-raised ring-1 ring-border-strong" : "hover:bg-white/10",
-        direction === "up" && "bg-success/30",
-        direction === "down" && "bg-danger/30",
-      )}
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && open) {
-          e.stopPropagation();
-          setOpenId(null);
-        }
+      className={cx("flex shrink-0 items-center rounded-lg", flash === "up" && "bg-success/30", flash === "down" && "bg-danger/30")}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onMore();
       }}
     >
-      {open ? (
-        <button type="button" aria-label={`Decrease ${label}`} onClick={() => set(value - 1)} className={step}>
-          −
-        </button>
-      ) : null}
+      <button type="button" aria-label="Decrease life" onClick={() => set(value - 1)} className={stepButton}>−</button>
       <button
         type="button"
-        aria-label={`${label} ${value}. ${open ? "Close the stepper" : "Adjust"}`}
-        aria-expanded={open}
-        onClick={() => setOpenId(open ? null : id)}
+        aria-label={`Life ${value}. Click to set a number, right-click for the other trackers`}
+        title="Right-click for the other trackers"
+        onClick={() => {
+          const n = prompt("Set life", String(value));
+          if (n !== null && n.trim() !== "" && Number.isFinite(Number(n))) set(Number(n));
+        }}
         onKeyDown={(e) => {
           if (e.key === "ArrowUp" || e.key === "ArrowDown") {
             e.preventDefault();
             set(value + (e.key === "ArrowUp" ? 1 : -1));
           }
         }}
-        className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-ink outline-none focus-visible:ring-2 focus-visible:ring-focus-ring coarse:min-h-11"
+        className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus-ring coarse:min-h-11"
       >
-        {icon}
-        <span key={value} className="pt-pop inline-block min-w-4 text-left font-medium tabular-nums">
-          :{value}
-        </span>
+        <HeartIcon />
+        <span key={value} className="pt-pop inline-block min-w-5 text-left font-medium tabular-nums">{value}</span>
       </button>
-      {open ? (
-        <>
-          <button type="button" aria-label={`Increase ${label}`} onClick={() => set(value + 1)} className={step}>
-            +
-          </button>
-          <button
-            type="button"
-            aria-label={`Set ${label} to a number`}
-            onClick={() => {
-              const n = prompt(`Set ${label}`, String(value));
-              if (n !== null && n.trim() !== "" && Number.isFinite(Number(n))) set(Number(n));
-            }}
-            className="rounded px-2 text-xs text-ink-muted hover:text-ink coarse:min-h-11"
-          >
-            Set…
-          </button>
-        </>
-      ) : null}
+      <button type="button" aria-label="Increase life" onClick={() => set(value + 1)} className={stepButton}>+</button>
+      <button type="button" aria-label="Other trackers" onClick={onMore} className="hidden size-11 items-center justify-center rounded text-ink-muted hover:text-ink coarse:flex">
+        <KebabIcon />
+      </button>
     </div>
   );
 }
 
-function GameMenu() {
+/** One mana counter in the open bar: the pip and a count; press for its stepper. */
+function ManaCounter({ letter, value, open, setOpen }: { letter: string; value: number; open: boolean; setOpen: (open: boolean) => void }) {
+  const store = usePlayStore();
+  const path = `manaPool.${letter}`;
+  const set = (n: number) => store.dispatch({ type: "SET_TRACKER", path, value: n });
+  return (
+    <div data-counter={letter} className={cx("flex shrink-0 items-center rounded-lg text-sm", open ? "bg-surface-raised ring-1 ring-border-strong" : "hover:bg-white/10")}>
+      {open ? <button type="button" aria-label={`Decrease ${letter} mana`} onClick={() => set(value - 1)} className={stepButton}>−</button> : null}
+      <button
+        type="button"
+        aria-label={`${letter} mana ${value}. ${open ? "Close the stepper" : "Adjust"}`}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+            e.preventDefault();
+            set(value + (e.key === "ArrowUp" ? 1 : -1));
+          }
+        }}
+        className="flex items-center gap-1 rounded-lg px-1.5 py-1 outline-none focus-visible:ring-2 focus-visible:ring-focus-ring coarse:min-h-11"
+      >
+        <ManaPip letter={letter} />
+        <span key={value} className="pt-pop inline-block min-w-3 text-left font-medium tabular-nums">{value}</span>
+      </button>
+      {open ? <button type="button" aria-label={`Increase ${letter} mana`} onClick={() => set(value + 1)} className={stepButton}>+</button> : null}
+    </div>
+  );
+}
+
+function GameMenu({ iconOnly }: { iconOnly: boolean }) {
   const env = usePlayEnv();
   const items: Array<[string, string]> = [
     ["new-game", "New game"],
@@ -141,10 +168,11 @@ function GameMenu() {
           onClick={toggle}
           aria-haspopup="menu"
           aria-expanded={open}
-          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-ink hover:bg-white/10 coarse:min-h-11"
+          aria-label="Game menu"
+          className="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-ink hover:bg-white/10 coarse:min-h-11"
         >
           <MenuIcon />
-          Game menu
+          {iconOnly ? null : "Game menu"}
         </button>
       )}
       panelClassName="w-56 rounded-xl border border-border bg-surface-raised p-1.5 text-ink shadow-[var(--shadow-raised)]"
@@ -177,52 +205,61 @@ export function TrackerBar() {
   const store = usePlayStore();
   const status = useExternal(env.recovery, (s) => s);
   const paletteOpen = useUi((s) => s.dialog === "palette");
-  const [openId, setOpenId] = useState<string | null>(null);
   const bar = useRef<HTMLDivElement>(null);
+  const width = useWidth(bar);
+  const [panel, setPanel] = useState<"trackers" | "mana" | null>(null);
+  const [openMana, setOpenMana] = useState<string | null>(null);
 
+  const measured = width > 0;
+  const collapseMana = measured && width < MANA_COLLAPSE_PX;
+  const iconOnly = measured && width < LABELS_HIDE_PX;
+  const showStatus = !measured || width >= STATUS_HIDE_PX;
+
+  // Escape or a press outside closes whatever is open above the bar.
   useEffect(() => {
-    if (openId === null) return;
+    if (panel === null && openMana === null) return;
     const onDown = (event: PointerEvent) => {
-      const el = event.target instanceof Element ? event.target.closest("[data-counter]") : null;
-      if (!el || el.getAttribute("data-counter") !== openId) setOpenId(null);
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest("[data-tracker-panel]")) return;
+      if (openMana !== null && target?.closest(`[data-counter="${openMana}"]`)) return;
+      setPanel(null);
+      setOpenMana(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setPanel(null);
+      setOpenMana(null);
     };
     document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, [openId]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [panel, openMana]);
 
-  const shared = { openId, setOpenId };
+  const manaTotal = game ? MANA_KEYS.reduce((sum, key) => sum + game.trackers.manaPool[key], 0) : 0;
   return (
-    <div ref={bar} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border bg-canvas px-3 py-1.5">
-      <div className="flex items-center gap-1 order-1">
-        <Link href={`/decks/${env.deckId}`} aria-label="Back to the deck" title="Back to the deck" className="flex size-9 items-center justify-center rounded-lg hover:bg-white/10 coarse:size-11">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icon.svg" alt="" className="size-6" />
-        </Link>
-        <GameMenu />
-      </div>
-      <div className="order-3 flex min-w-0 basis-full flex-wrap items-center gap-x-1 gap-y-1 2xl:order-2 2xl:flex-1 2xl:basis-0">
-        {game ? (
-          <>
-            <Counter id="life" label="Life" value={game.trackers.life} path="life" icon={<HeartIcon />} flash {...shared} />
-            <Counter id="poison" label="Poison" value={game.trackers.poison} path="poison" icon={<SkullIcon />} {...shared} />
-            <Counter id="experience" label="Experience" value={game.trackers.experience} path="experience" icon={<SparkIcon />} {...shared} />
-            <Counter id="energy" label="Energy" value={game.trackers.energy} path="energy" icon={<BoltIcon />} {...shared} />
-            <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-            {MANA_KEYS.map((key) => (
-              <Counter key={key} id={`mana-${key}`} label={`${key} mana`} value={game.trackers.manaPool[key]} path={`manaPool.${key}`} icon={<ManaDot letter={key} />} {...shared} />
-            ))}
-            <details className="relative text-sm">
-              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg px-2 py-1.5 text-ink-muted hover:bg-white/10 hover:text-ink coarse:min-h-11">
-                <KebabIcon /> Other trackers
-              </summary>
-              <div className="absolute bottom-full left-0 z-40 min-w-64 space-y-2 rounded-lg border border-border bg-surface-raised p-3 shadow-[var(--shadow-raised)]">
-                <Counter id="life2" label="Life 2" value={game.trackers.life2} path="life2" icon={<HeartIcon />} {...shared} />
-                <Counter id="damage" label="Damage" value={game.trackers.genericDamage} path="genericDamage" icon={<SkullIcon />} {...shared} />
+    <div ref={bar} className="relative flex flex-nowrap items-center gap-x-2 overflow-visible border-t border-border bg-canvas px-3 py-1.5">
+      <Link href={`/decks/${env.deckId}`} aria-label="Back to the deck" title="Back to the deck" className="flex size-9 shrink-0 items-center justify-center rounded-lg hover:bg-white/10 coarse:size-11">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icon.svg" alt="" className="size-6" />
+      </Link>
+      <GameMenu iconOnly={iconOnly} />
+
+      {game ? (
+        <>
+          <div className="relative shrink-0" data-tracker-panel>
+            <Life onMore={() => setPanel(panel === "trackers" ? null : "trackers")} />
+            {panel === "trackers" ? (
+              <div className={cx(PANEL, "left-0")} role="group" aria-label="Other trackers">
+                <StepRow label="Poison" value={game.trackers.poison} path="poison" icon={<SkullIcon />} />
+                <StepRow label="Experience" value={game.trackers.experience} path="experience" icon={<SparkIcon />} />
+                <StepRow label="Energy" value={game.trackers.energy} path="energy" icon={<BoltIcon />} />
+                <StepRow label="Life 2" value={game.trackers.life2} path="life2" icon={<HeartIcon />} />
+                <StepRow label="Damage" value={game.trackers.genericDamage} path="genericDamage" icon={<SkullIcon />} />
                 {Object.entries(game.trackers.commanderDamage).map(([name, value]) => (
-                  <div key={name} className="flex items-center gap-2 text-xs text-ink-muted">
-                    <span className="min-w-0 flex-1 truncate">Damage from {name}</span>
-                    <Counter id={`cmdr-${name}`} label={`Damage from ${name}`} value={value} path={`commanderDamage.${name}`} icon={<SkullIcon />} {...shared} />
-                  </div>
+                  <StepRow key={name} label={`Damage from ${name}`} value={value} path={`commanderDamage.${name}`} icon={<SkullIcon />} />
                 ))}
                 <button
                   type="button"
@@ -235,29 +272,65 @@ export function TrackerBar() {
                   Add commander damage
                 </button>
               </div>
-            </details>
-          </>
+            ) : null}
+          </div>
+
+          <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+
+          {collapseMana ? (
+            <div className="relative shrink-0" data-tracker-panel>
+              <button
+                type="button"
+                aria-expanded={panel === "mana"}
+                aria-label={`Mana pool, ${manaTotal} in total`}
+                onClick={() => setPanel(panel === "mana" ? null : "mana")}
+                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm hover:bg-white/10 coarse:min-h-11"
+              >
+                <ManaPip letter="C" />
+                <span className="tabular-nums">{manaTotal}</span>
+                {iconOnly ? null : <span className="text-ink-muted">Mana</span>}
+              </button>
+              {panel === "mana" ? (
+                <div className={cx(PANEL, "left-0")} role="group" aria-label="Mana pool">
+                  {MANA_KEYS.map((key) => (
+                    <StepRow key={key} label={`${key} mana`} value={game.trackers.manaPool[key]} path={`manaPool.${key}`} icon={<ManaPip letter={key} />} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex shrink-0 items-center gap-x-1">
+              {MANA_KEYS.map((key) => (
+                <ManaCounter key={key} letter={key} value={game.trackers.manaPool[key]} open={openMana === key} setOpen={(open) => setOpenMana(open ? key : null)} />
+              ))}
+            </div>
+          )}
+        </>
+      ) : null}
+
+      <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+        {showStatus ? (
+          <span className="max-w-64 truncate text-xs text-ink-muted" role="status">
+            {status.state === "saved" ? "Saved locally" : status.state === "off" ? "Crash recovery is off in this browser — save to your account to keep this game." : ""}
+          </span>
         ) : null}
-      </div>
-      <div className="order-2 ml-auto flex items-center gap-2 2xl:order-3">
-        <span className="max-w-64 max-sm:hidden text-xs text-ink-muted" role="status">
-          {status.state === "saved" ? "Saved locally" : status.state === "off" ? "Crash recovery is off in this browser — save to your account to keep this game." : ""}
-        </span>
         <button
           type="button"
           onClick={() => env.perform("next-turn")}
           disabled={!game || game.opening.status !== "kept"}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-accent-ink disabled:opacity-50 coarse:min-h-11"
+          aria-label="Next turn"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-accent-ink disabled:opacity-50 coarse:min-h-11"
         >
-          <NextIcon /> Next turn
+          <NextIcon /> {iconOnly ? null : "Next turn"}
         </button>
         <button
           type="button"
           onClick={() => env.perform("palette")}
           aria-expanded={paletteOpen}
-          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-ink hover:bg-white/10 coarse:min-h-11"
+          aria-label="More"
+          className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-ink hover:bg-white/10 coarse:min-h-11"
         >
-          <KebabIcon /> More
+          <KebabIcon /> {iconOnly ? null : "More"}
         </button>
       </div>
     </div>

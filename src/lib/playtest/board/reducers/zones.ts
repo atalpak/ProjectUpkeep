@@ -237,15 +237,15 @@ export function bottomsRequired(state: GameState): number {
   return Math.max(0, Math.min(mulligans - free, state.zones.hand.length));
 }
 
-export function mulligan(state: GameState, ctx: Ctx, seed: number): GameState {
+export function mulligan(state: GameState, ctx: Ctx, seed: number, free = false): GameState {
   if (state.opening.status !== "deciding") return state;
   const back = relocate(state, [...state.zones.hand], "library", { at: "bottom" });
   let next = back ? back.state : state;
-  next = { ...shuffleZone(next, "library", seed), opening: { status: "deciding", mulligans: state.opening.mulligans + 1 } };
+  next = { ...shuffleZone(next, "library", seed), opening: { status: "deciding", mulligans: state.opening.mulligans + (free ? 0 : 1) } };
   const size = Math.min(OPENING_HAND_SIZE, next.zones.library.length);
   const dealt = relocate(next, next.zones.library.slice(0, size), "hand", { at: "bottom" });
   if (dealt) next = dealt.state;
-  return addEvent(next, ctx, { kind: "mulligan", data: { number: next.opening.mulligans, seed } });
+  return addEvent(next, ctx, { kind: "mulligan", data: free ? { number: next.opening.mulligans, seed, free: true } : { number: next.opening.mulligans, seed } });
 }
 
 export function keep(state: GameState, ctx: Ctx, bottomIds: string[]): GameState {

@@ -136,3 +136,26 @@ test("a small library still mulligans without duplicating or losing cards", () =
   assert.equal(Object.values(next.zones).flat().length, total);
   assert.deepEqual(checkInvariants(next), []);
 });
+
+test("a free mulligan reshuffles and deals seven again without counting or adding a bottom card", () => {
+  const start = fixtureOpeningHand();
+  const handBefore = [...start.zones.hand];
+  const once = applyCommand(start, { type: "MULLIGAN", seed: 7, free: true });
+  assert.equal(once.zones.hand.length, 7);
+  assert.equal(once.opening.mulligans, 0, "a free mulligan is not counted");
+  assert.equal(bottomsRequired(once), 0);
+  assert.notDeepEqual(once.zones.hand, handBefore, "a fresh seven");
+  // As many as the player likes, and still nothing to bottom.
+  let next = once;
+  for (let i = 0; i < 5; i++) next = applyCommand(next, { type: "MULLIGAN", seed: 20 + i, free: true });
+  assert.equal(next.opening.mulligans, 0);
+  assert.equal(next.zones.hand.length + next.zones.library.length, 60, "no card lost or duplicated");
+  assert.deepEqual(checkInvariants(next), []);
+  // Mixing with a paid one counts only the paid one.
+  const paid = applyCommand(next, { type: "MULLIGAN", seed: 99 });
+  assert.equal(paid.opening.mulligans, 1);
+  assert.equal(bottomsRequired(paid), 1);
+  // Keeping with nothing to bottom works.
+  const kept = applyCommand(next, { type: "KEEP", bottomIds: [] });
+  assert.equal(kept.opening.status, "kept");
+});

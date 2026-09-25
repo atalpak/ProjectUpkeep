@@ -174,11 +174,12 @@ export function Hand() {
   // neighbours goes from a gap (-GAP_PX of overlap) to however negative it must
   // be for the whole row to fit. With auto size off the row scrolls instead.
   const fitOverlap = shown.length > 1 && areaWidth > 0 ? (shown.length * cardPx - areaWidth) / (shown.length - 1) : -GAP_PX;
-  const overlapPx = settings.autoSize ? Math.max(-GAP_PX, fitOverlap) : -GAP_PX;
+  // As the window narrows the cards overlap more and more, leaving at least a strip of each showing.
+  const overlapPx = settings.autoSize ? Math.min(Math.max(-GAP_PX, fitOverlap), cardPx * 0.88) : -GAP_PX;
   const isDropTarget = useUi((s) => s.hoverZone === "hand");
 
   return (
-    <section aria-label="Hand" className="min-w-0 flex-1">
+    <section aria-label="Hand" className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-1">
         <h2 className="whitespace-nowrap text-sm text-ink" aria-live="polite">
           Cards in hand: {ids.length}
@@ -193,7 +194,7 @@ export function Hand() {
         </div>
       </div>
 
-      <div className="flex items-end gap-2">
+      <div className="flex flex-1 items-end gap-2">
         <div
           ref={areaRef}
           data-drop="hand"

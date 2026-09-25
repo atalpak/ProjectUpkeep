@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { Battlefield } from "@/components/playtester/Battlefield";
@@ -159,7 +158,6 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
   const game = useSelector((s) => s.game);
   const selection = useSelector((s) => s.selection);
   const toast = useSelector((s) => s.toast);
-  const store = usePlayStore();
   const env = usePlayEnv();
   const settings = useSettings();
   const dragging = useExternal(env.ui, (s) => s.dragging);
@@ -199,15 +197,16 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
   return <div ref={root} data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="dark group/table playtester-table pt-mat fixed inset-0 z-40 flex h-dvh text-ink" style={{ backgroundColor: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
     <div className="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
     <div className="flex items-start justify-between gap-3 px-3 pt-3 text-sm max-[900px]:pt-2">
-      <div className="flex flex-col items-start gap-0.5 [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:gap-1"><TopText label="Playtester actions" id="palette" icon={<KebabIcon />} /><TopText label="Keybinds" id="keybinds" icon={<QuestionIcon />} /><CardDockToggle /></div>
+      <div className="flex flex-col items-start gap-0.5 [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:gap-1"><TopText label="Playtester actions" id="palette" icon={<KebabIcon />} /><TopText label="Keybinds" id="keybinds" icon={<QuestionIcon />} /><TopText label="Full interaction log" id="log" icon={<ExternalIcon />} /><CardDockToggle /></div>
       <div className="flex items-center gap-3"><UndoRedo /><span className="truncate text-xs text-ink-muted max-sm:hidden">{game ? `Turn ${game.turn}` : "Ready to play"}</span></div>
-      <div className="flex flex-col items-end gap-1"><button type="button" aria-label="Full interaction log" onClick={() => env.perform("log")} className="flex items-center gap-2 rounded-lg bg-surface-raised px-4 py-2.5 text-sm font-semibold text-ink hover:brightness-125 coarse:min-h-11"><span className="max-sm:hidden">Full interaction log</span><span className="sm:hidden">Log</span> <ExternalIcon /></button><Link href={`/decks/${env.deckId}/play/popout`} target="_blank" className="rounded px-1 text-xs text-ink-muted underline-offset-2 hover:text-ink hover:underline">Pop out the table</Link></div>
+      <div aria-hidden="true" className="w-8" />
     </div>
     <div className="flex min-h-24 flex-1 p-2"><Battlefield /></div>
     {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
-    {totals && totals.count > 0 ? <div className="absolute left-3 top-[7.25rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
-    {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-surface-raised px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
-    <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3 max-sm:flex-col max-sm:gap-0 max-sm:pl-0"><Hand /><div className="flex shrink-0 items-stretch gap-3 max-sm:items-end max-sm:justify-between max-sm:gap-2 max-sm:px-3"><Piles /><OtherZonesTab /></div></div>
+    {totals && totals.count > 0 ? <div className="absolute left-3 top-[9.5rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
+    {/* No pop-up for a move: undo is in the top bar. The text is still announced to a screen reader. */}
+    <div role="status" aria-live="polite" className="sr-only">{toast?.text ?? ""}</div>
+    <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3"><Hand /><div className="flex shrink-0 items-stretch gap-3"><Piles /><OtherZonesTab /></div></div>
     <TrackerBar /></div>
     </div>
     <CardDock />

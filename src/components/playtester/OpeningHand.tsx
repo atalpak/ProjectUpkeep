@@ -44,11 +44,15 @@ export function OpeningHand() {
             : "Keep these seven, or mulligan and draw again."}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" className="rounded bg-accent px-4 py-2 font-semibold text-accent-ink disabled:opacity-40 coarse:min-h-11" disabled={selected.length !== required} onClick={() => { store.dispatch({ type: "KEEP", bottomIds: selected }); setBottom([]); }}>
+          {/* One size for all three, so the choice reads as a row of equals. */}
+          <button type="button" className="w-40 rounded bg-accent px-4 py-2 text-center font-semibold text-accent-ink disabled:opacity-40 coarse:min-h-11" disabled={selected.length !== required} onClick={() => { store.dispatch({ type: "KEEP", bottomIds: selected }); setBottom([]); }}>
             Keep hand
           </button>
-          <button type="button" className="rounded border border-border-strong px-4 py-2 coarse:min-h-11" onClick={() => { store.dispatch({ type: "MULLIGAN", seed: crypto.getRandomValues(new Uint32Array(1))[0] }); setBottom([]); }}>
+          <button type="button" className="w-40 rounded border border-border-strong px-4 py-2 text-center font-semibold coarse:min-h-11" onClick={() => { store.dispatch({ type: "MULLIGAN", seed: crypto.getRandomValues(new Uint32Array(1))[0] }); setBottom([]); }}>
             Mulligan
+          </button>
+          <button type="button" title="Draw a new seven without counting it: nothing extra to put on the bottom" className="w-40 rounded border border-border-strong px-4 py-2 text-center font-semibold coarse:min-h-11" onClick={() => { store.dispatch({ type: "MULLIGAN", seed: crypto.getRandomValues(new Uint32Array(1))[0], free: true }); setBottom([]); }}>
+            Free mulligan
           </button>
         </div>
         <div className="flex items-end justify-center px-6 pb-10 pt-16">

@@ -114,7 +114,7 @@ export type GameCommand =
   | { type: "NEXT_TURN" }
   | { type: "SET_TURN"; turn: number }
   | { type: "ROLL"; kind: DiceKind; result: number }
-  | { type: "MULLIGAN"; seed: number }
+  | { type: "MULLIGAN"; seed: number; /** A free mulligan: reshuffle and deal seven again without counting, so it adds no card to put on the bottom. */ free?: boolean }
   | { type: "KEEP"; bottomIds: string[] }
   | { type: "RANDOM_DISCARD"; cardId: string }
   | {

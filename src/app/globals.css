@@ -432,6 +432,6 @@ body {
  */
 .pt-pile {
   width: 5.5rem;
-  width: max(4.25rem, min(6.6rem, 9vw, 18vh));
-  min-width: 4.25rem;
+  width: max(3.5rem, min(6.6rem, 18vh, 22vw));
+  min-width: 3.5rem;
 }

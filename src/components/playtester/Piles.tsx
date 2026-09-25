@@ -58,9 +58,9 @@ function PileMenu({ zone, count, open, onOpenChange }: { zone: PileZone; count: 
           className="flex w-full items-center justify-between gap-1 rounded px-0.5 text-xs text-ink-muted hover:bg-white/10 hover:text-ink sm:text-sm coarse:min-h-11"
         >
           <span className="truncate whitespace-nowrap">
-            {LABEL[zone]} <span className="max-[900px]:hidden">({count})</span>
+            {LABEL[zone]} <span>({count})</span>
           </span>
-          <KebabIcon className="size-4 shrink-0 max-[900px]:hidden" />
+          <KebabIcon className="size-4 shrink-0" />
         </button>
       )}
       panelClassName="w-56 rounded-xl border border-border bg-surface-raised p-1.5 text-ink shadow-[var(--shadow-raised)]"
@@ -159,11 +159,6 @@ function Pile({ zone }: { zone: PileZone }) {
         ) : topId ? (
           <TopCard id={topId} />
         ) : null}
-        {count > 0 ? (
-          <span aria-hidden="true" className="absolute bottom-1 left-1 rounded bg-black/65 px-1 text-xs min-[901px]:hidden">
-            {count}
-          </span>
-        ) : null}
         {hovered ? (
           <span className="pointer-events-none absolute inset-x-1 bottom-1 rounded-full bg-accent px-2 py-0.5 text-center text-xs font-semibold text-accent-ink" aria-hidden="true">
             {zone === "library" ? "Top of library" : LABEL[zone]}
@@ -176,7 +171,7 @@ function Pile({ zone }: { zone: PileZone }) {
 
 export function Piles() {
   return (
-    <div className="flex shrink-0 items-start gap-3 pb-2 pt-1 max-[900px]:gap-2">
+    <div className="flex shrink-0 items-end gap-3 self-end pb-3 pt-1">
       <Pile zone="library" />
       <Pile zone="graveyard" />
       <Pile zone="exile" />
@@ -192,7 +187,7 @@ export function OtherZonesTab() {
     <button
       type="button"
       onClick={() => env.perform("view-zones")}
-      className="flex w-8 shrink-0 items-center justify-center gap-2 self-stretch rounded-l-lg bg-surface-raised text-sm text-ink-muted hover:text-ink [writing-mode:vertical-rl] rotate-180 coarse:w-11 max-sm:mb-2 max-sm:min-h-11 max-sm:w-auto max-sm:flex-1 max-sm:rotate-0 max-sm:self-end max-sm:rounded-lg max-sm:px-3 max-sm:[writing-mode:horizontal-tb]"
+      className="flex w-8 shrink-0 items-center justify-center gap-2 self-stretch rounded-l-lg bg-surface-raised text-sm text-ink-muted hover:text-ink [writing-mode:vertical-rl] rotate-180 coarse:w-11"
     >
       <span>View other zones</span>
       <ArrowUpIcon className="size-4" />
