@@ -3,7 +3,7 @@
 Written so a fresh AI tool with **no memory of the conversation that started this** can pick the build up and finish it.
 Keep this file truthful: update the checklist and the "what remains" section in the same commit as the work.
 
-Last updated: 2026-09-25, after step 7 and while step 8 is in progress.
+Last updated: 2026-09-25, during step 9 after the first renderable table checkpoint.
 
 ## Goal, and the one-pass rule
 
@@ -79,7 +79,7 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 | 6 | `share.ts` + leak test, metrics, export, opponent generator/presets, recovery, settings, dice, palette (pure modules + tests) | DONE | `5cfd3d9` |
 | 7 | Migrations 46 and 47, schema tests 27 and 28, deliberate breaks run | DONE | `dfd9f42`, `ff40728` |
 | 8 | Server actions (`play/actions.ts`), read-only loaders (`play/sessions.ts`), `session.ts`/`slim.ts`, `errors.ts` mapping, boundary test reading the real files, session tests | DONE (the page wiring listed below moved into step 9 because it needs the new `PlayBoard` props) | see `git log` (commit "Playtester step 8") |
-| 9 | UI and the page/route wiring (see below) | IN PROGRESS — WIP checkpoint commit; the tree does NOT typecheck/build yet (old PlayBoard/ZonePile/CardMenu/etc. were deleted; the new `PlayBoard` and `page.tsx` wiring are not written). Started so far under `src/components/playtester/`: `store.ts`, `ui-store.ts`, `context.tsx`, `board-actions.ts`, `drag.ts`, `hooks/`, `CardArt.tsx`, `BattlefieldCard.tsx`, `Battlefield.tsx`, `GroupFrame.tsx`, `Hand.tsx`; plus `src/lib/playtest/{catalog,hand}.ts` and edits to `session.ts`, `settings.ts`, `slim.ts`, `sessions.ts`, `globals.css`. Still to write: `PlayBoard` (thin shell + toolbar/layout per the reference), `StartDialog`, `OpeningHand`, `HandOverlay`, `Marquee`, zone piles + `ZoneBrowser`, one shared `CardMenu`, `CardInspector`, `TrackerBar`, `DiceMenu`, `LogPanel`, `MetricsPanel`, `ExportDialog`, `SessionList`/`SaveDialog`, `ShareDialog`, `SettingsDialog`, `ShortcutSheet`/command palette, `InteractionPanel`, `PublicBoard`, `PopoutBridge`, the `page.tsx` wiring, `popout/page.tsx`, `(app)/shared/playtest/[token]/page.tsx`, animations, recovery UI | see `git log` (WIP checkpoint) |
+| 9 | UI and page/route wiring | IN PROGRESS — first renderable table shell and play page wired. `PlayBoard` now mounts the existing battlefield and hand, draws the three piles and bottom toolbar, starts a game, and dispatches basic actions. `page.tsx` scopes the deck to the signed-in owner, slims entries, computes the fingerprint, loads saves and the requested session, and binds actions. Typecheck has only the four documented missing-`postgres` errors. Remaining: opening/mulligan UI, full dialogs/menus, recovery, sharing/read-only routes, popout, simulator, accessibility polish and browser fixture. The webpack build is blocked by the sandbox's unavailable Google Fonts; Turbopack also rejects the worktree's symlinked `node_modules`. | first-table checkpoint (this commit) |
 | 10 | Docs: privacy page, CLAUDE.md directory map, data-access.md, app-router.md | TODO | |
 
 ### Step 8 leftovers (do these at the start of step 9, they need the new `PlayBoard` props)

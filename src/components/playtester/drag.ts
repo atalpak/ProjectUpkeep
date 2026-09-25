@@ -93,7 +93,7 @@ export function createBoardDrag(host: BoardHost) {
     let dragging = false;
     let raf = 0;
     let pointer = { x: start.x, y: start.y, alt: false };
-    let movers: Mover[] = [];
+    const movers: Mover[] = [];
     const groupAnchors = new Map<string, Pos>();
     let others: Pos[] = [];
     let rect: DOMRect | null = null;

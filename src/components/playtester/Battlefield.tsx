@@ -91,8 +91,7 @@ export function Battlefield() {
     [els],
   );
 
-  const drag = useMemo(
-    () =>
+  const dragHost = useCallback(() =>
       createBoardDrag({
         store,
         ui: env.ui,
@@ -103,6 +102,10 @@ export function Battlefield() {
       }),
     [store, env.ui, els],
   );
+  const drag = useMemo(() => ({
+    onBoardPointerDown: (event: React.PointerEvent<HTMLElement>) => dragHost().onBoardPointerDown(event),
+    onCardPointerDown: (event: React.PointerEvent, id: string) => dragHost().onCardPointerDown(event, id),
+  }), [dragHost]);
 
   const openMenu = useCallback(
     (id: string, opener: HTMLElement, x: number, y: number) => env.ui.set((s) => ({ ...s, menu: { cardId: id, x, y, opener } })),

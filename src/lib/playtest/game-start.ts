@@ -21,7 +21,7 @@
  * with the opening seven already drawn and the keep/mulligan decision pending.
  */
 
-import type { DeckListEntry } from "@/lib/collection/queries";
+import type { StartEntry } from "./slim";
 import { defaultConfig } from "./board/format";
 import { OPENING_HAND_SIZE, relocate } from "./board/reducers/zones";
 import { mulberry32, shuffle } from "./rng";
@@ -40,7 +40,7 @@ export type GameStartInput = {
   deckId: string;
   /** Hex digest computed on the server from `fingerprintText` (fingerprint.ts). */
   fingerprint: string;
-  entries: DeckListEntry[];
+  entries: StartEntry[];
   /** Printings (`cards.scryfall_id`) that start in the command zone. */
   commanderCardIds: string[];
   format: GameFormat;
@@ -49,7 +49,7 @@ export type GameStartInput = {
   firstTurnDraws?: boolean;
 };
 
-function toGameCard(id: string, entry: DeckListEntry): GameCard {
+function toGameCard(id: string, entry: StartEntry): GameCard {
   const card = entry.cards;
   const typeLine = card?.type_line ?? null;
   return {
