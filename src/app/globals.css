@@ -397,13 +397,19 @@ body {
   40% { transform: scale(1.35); }
   100% { transform: scale(1); }
 }
+@keyframes pt-banner {
+  from { transform: translate3d(-50%, -14px, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
 .pt-arrive { animation: pt-arrive 200ms ease-out; }
 .pt-pop { animation: pt-pop 260ms ease-out; }
+.pt-banner { animation: pt-banner 200ms ease-out; }
 .pt-turn { transition: transform 150ms ease-out; }
 [data-dragging] .pt-turn { transition: none; }
+[data-dragging] .pt-arrive, [data-dragging] .pt-pop, [data-dragging] .pt-banner { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .pt-arrive, .pt-pop { animation: none; }
+  .pt-arrive, .pt-pop, .pt-banner { animation: none; }
   .pt-turn { transition: none; }
 }
-[data-still] .pt-arrive, [data-still] .pt-pop { animation: none; }
+[data-still] .pt-arrive, [data-still] .pt-pop, [data-still] .pt-banner { animation: none; }
 [data-still] .pt-turn { transition: none; }

@@ -144,6 +144,14 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
   const env = usePlayEnv();
   const settings = useSettings();
   const dragging = useExternal(env.ui, (s) => s.dragging);
+  const [banner, setBanner] = useState<number | null>(null);
+  const turn = game?.turn;
+  useEffect(() => {
+    if (turn === undefined || turn === 0) return;
+    const show = window.setTimeout(() => setBanner(turn), 0);
+    const hide = window.setTimeout(() => setBanner(null), 1700);
+    return () => { window.clearTimeout(show); window.clearTimeout(hide); };
+  }, [turn]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target;
@@ -159,6 +167,7 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
   return <div data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="playtester-table fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto border border-white/15 text-white" style={{ background: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value } as React.CSSProperties}>
     <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs"><div className="flex gap-2"><Link href={`/decks/${env.deckId}`} className="rounded border border-white/20 px-2 py-1.5">← Deck</Link><TopButton label="Playtester actions" id="palette" /><TopButton label="Keybinds" id="keybinds" /></div><span className="truncate text-white/60">{game ? `Turn ${game.turn}` : "Ready to play"}</span><div className="flex gap-2"><Link href={`/decks/${env.deckId}/play/popout`} target="_blank" className="rounded border border-white/20 px-2 py-1.5">Pop out</Link><TopButton label="Full interaction log" id="log" /></div></div>
     <div className="flex min-h-32 flex-1 p-2"><Battlefield /></div>
+    {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
     {totals && totals.count > 0 ? <div className="absolute left-3 top-12 z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
     {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-[#302b24] px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
     <div className="flex min-h-[12rem] gap-3 border-t border-white/10 bg-black/25 p-2"><Hand /><div className="flex w-48 shrink-0 gap-1 sm:w-64"><Pile zone="library" /><Pile zone="graveyard" /><Pile zone="exile" /></div></div>
@@ -169,7 +178,10 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
 }
 
 function TopButton({ label, id }: { label: string; id: string }) { const { perform } = usePlayEnv(); return <button type="button" onClick={() => perform(id)} className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20 coarse:min-h-11">{label}</button>; }
-function Pile({ zone }: { zone: "library" | "graveyard" | "exile" }) { const { perform } = usePlayEnv(); const game = useSelector((s) => s.game); const count = game?.zones[zone].length ?? 0; return <button type="button" onClick={() => perform(zone === "library" ? "search-library" : `view-${zone}`)} className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border border-white/20 bg-white/5 p-1 text-center text-xs hover:bg-white/10 coarse:min-h-11"><span className="font-semibold capitalize">{zone}</span><span>{count}</span><span className="text-white/50">{count ? "View cards" : "No cards"}</span></button>; }
+function Pile({ zone }: { zone: "library" | "graveyard" | "exile" }) {
+  const { perform } = usePlayEnv(); const game = useSelector((s) => s.game); const count = game?.zones[zone].length ?? 0;
+  return <button type="button" onClick={() => perform(zone === "library" ? "search-library" : `view-${zone}`)} className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-lg border border-white/20 bg-white/5 p-1 text-center text-xs hover:bg-white/10 coarse:min-h-11"><span className="font-semibold capitalize">{zone}</span>{count > 0 ? <span aria-hidden="true" className="my-1 block h-8 w-6 rounded-sm border border-[#b9954f] bg-[#5d4628] shadow-[2px_2px_0_#302519,4px_4px_0_#241c14]" style={{ transform: `scaleY(${0.5 + Math.min(count, 100) / 200})` }} /> : null}<span>{count}</span><span className="text-white/50">{count ? "View cards" : "No cards"}</span></button>;
+}
 
 function TableDialogs({ entries, commanderCardId }: { entries: StartEntry[]; commanderCardId: string | null }) {
   const store = usePlayStore();

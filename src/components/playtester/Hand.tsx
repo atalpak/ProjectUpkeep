@@ -48,6 +48,7 @@ function RoundButton({ label, disabled, onClick, children }: { label: string; di
 const HandCard = memo(function HandCard({
   id,
   index,
+  total,
   widthRem,
   overlapPx,
   covered,
@@ -57,6 +58,7 @@ const HandCard = memo(function HandCard({
 }: {
   id: string;
   index: number;
+  total: number;
   widthRem: number;
   overlapPx: number;
   covered: boolean;
@@ -79,8 +81,8 @@ const HandCard = memo(function HandCard({
     <div
       ref={ref}
       data-hand-card={id}
-      className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30 hover:-translate-y-3 focus-within:z-30 focus-within:-translate-y-3")}
-      style={{ width: `${widthRem}rem`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
+      className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30 focus-within:z-30")}
+      style={{ width: `${widthRem}rem`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index, transform: `rotate(${(index - (total - 1) / 2) * 1.5}deg) translate3d(0, ${Math.abs(index - (total - 1) / 2) * 2}px, 0)` }}
       onPointerEnter={(e) => {
         if (hover && e.pointerType === "mouse") env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }));
       }}
@@ -117,7 +119,7 @@ const HandCard = memo(function HandCard({
             e.preventDefault();
           }
         }}
-        className="block w-full touch-none rounded-[5%] outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        className={cx("block w-full touch-none rounded-[5%] outline-none focus-visible:ring-2 focus-visible:ring-focus-ring", hover && "hover:-translate-y-3 focus-visible:-translate-y-3")}
       >
         <CardArt src={card.imageSmall} alt={covered ? "Hidden hand card" : card.name} label={card.name} faceDown={covered} />
       </button>
@@ -230,7 +232,7 @@ export function Hand() {
         >
           {ids.length === 0 ? <p className="self-center text-sm text-white/50">Your hand is empty.</p> : null}
           {shown.map((id, i) => (
-            <HandCard key={id} id={id} index={i} widthRem={widthRem} overlapPx={overlapPx} covered={hidden} hover={settings.handHover} clickPlays={settings.handClick === "play"} reduced={settings.motion === "reduce"} />
+            <HandCard key={id} id={id} index={i} total={shown.length} widthRem={widthRem} overlapPx={overlapPx} covered={hidden} hover={settings.handHover} clickPlays={settings.handClick === "play"} reduced={settings.motion === "reduce"} />
           ))}
           {extra > 0 ? (
             <button type="button" onClick={() => env.perform("hand-overlay")} className="ml-2 shrink-0 self-center rounded-full bg-white/15 px-3 py-1.5 text-sm text-white hover:bg-white/25 coarse:min-h-11">

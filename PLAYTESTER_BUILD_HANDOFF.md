@@ -3,7 +3,7 @@
 Written so a fresh AI tool with **no memory of the conversation that started this** can pick the build up and finish it.
 Keep this file truthful: update the checklist and the "what remains" section in the same commit as the work.
 
-Last updated: 2026-09-25, after UI refinement and before the docs commit.
+Last updated: 2026-09-25, after the UI implementation and before the docs commit.
 
 ## Goal, and the one-pass rule
 
@@ -30,9 +30,8 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 - It was built in the git worktree `/Users/anthonytalpak/ProjectUpkeep/.claude/worktrees/agent-a90a0ed56184b2d1f`.
   To continue: `git worktree list` from the main checkout, then work inside that worktree, or
   `git checkout feat/playtester-archidekt-parity` in any clone that has the branch.
-- The worktree has no `node_modules` of its own: it is a symlink to the main checkout's
-  (`ln -s /Users/anthonytalpak/ProjectUpkeep/node_modules node_modules`). It is untracked, so **never `git add -A`**;
-  add paths explicitly.
+- This worktree now has its own ignored `node_modules` from `npm ci --offline --ignore-scripts` to run checks. Never
+  `git add -A`; add paths explicitly.
 - Owner owns commits/pushes/PRs. Commit messages end with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
 
 ## Owner decisions (already taken, do not reopen)
@@ -79,16 +78,16 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 | 6 | `share.ts` + leak test, metrics, export, opponent generator/presets, recovery, settings, dice, palette (pure modules + tests) | DONE | `5cfd3d9` |
 | 7 | Migrations 46 and 47, schema tests 27 and 28, deliberate breaks run | DONE | `dfd9f42`, `ff40728` |
 | 8 | Server actions (`play/actions.ts`), read-only loaders (`play/sessions.ts`), `session.ts`/`slim.ts`, `errors.ts` mapping, boundary test reading the real files, session tests | DONE (the page wiring listed below moved into step 9 because it needs the new `PlayBoard` props) | see `git log` (commit "Playtester step 8") |
-| 9 | UI and page/route wiring | IN PROGRESS — first table commit `447eeb6`; current sub-step adds mulligan/partner start, menus, zones, trackers, command palette, recovery, account saves/shares, logs/metrics/export, settings, simulator, public share/popout pages, and a dev-only fixture on `/?playtest-fixture=1`. Browser fixture verified start, mulligan/bottom/keep, local restore, menu via pointer and keyboard, play to battlefield, and library browser. Remaining limitations listed below. | this UI sub-step (this commit) |
+| 9 | UI and page/route wiring | DONE for implementation — first table `447eeb6`, main UI `7beac5e`, controls `178cc58`, final visual refinement in this commit. Browser fixture verified the main loop. Live database and accessibility QA remain below. | `447eeb6`, `7beac5e`, `178cc58`, this UI commit |
 | 10 | Docs: privacy page, CLAUDE.md directory map, data-access.md, app-router.md | TODO | |
 
-### Step 9 current state and remaining work
+### Step 9 implementation and verification limits
 
 - Done: page owner check, slim entries, server SHA-256 fingerprint, saves/session loaders, bound actions; popout and signed-in share routes; sign-out local-key clearing in both nav forms.
 - Done: initial start dialog (format, life, partner, first-turn draw, free mulligan); London mulligan with ordered bottom choices and inspect; board, hand, card menu, zone browser, tracker bar, palette/shortcut sheet, local recovery, basic save/share/settings/log/metrics/export/token/simulator panels.
 - Browser fixture: `/?playtest-fixture=1` in development only, before the home page's auth query. No account or database needed. It is guarded by `NODE_ENV === "development"` and is absent as a reachable feature in production.
-- Added in the UI refinement: token catalog search and custom extras, notes/counters/offsets/reveal/library insertion in the card menu, image-based full-hand overlay, all tracker paths, all five metric series, fingerprint mismatch choice for direct session URLs, and simulator odds controls. Remaining: keyboard and touch QA at 200% zoom, live token catalog verification, and account save/share testing against a migrated non-production database. The share route was compiled but not exercised against live DB/migrations. No production migration applied.
-- Visual: the full-screen dark table uses Project Upkeep palette/typography. The screenshot fixture verified the hand bottom-left, three piles bottom-right, toolbar bottom, and small controls top. The battlefield fit bug and hand pointer menu dismissal bug were found in browser and fixed.
+- Added in the UI refinement: token catalog search and custom extras, notes/counters/offsets/reveal/library insertion in the card menu, image-based full-hand overlay, all tracker paths, all five metric series, fingerprint mismatch choice for direct session URLs, simulator odds controls, hand fan and turn feedback. Remaining verification: keyboard and touch QA at 200% zoom, live token catalog verification, and account save/share testing against a migrated non-production database. The share route was compiled but not exercised against live DB/migrations. No production migration applied. The optional keep-search-open-while-dragging setting is exposed but the zone overlay does not yet support dragging while open; treat it as a known P1 interaction gap.
+- Visual: the full-screen dark table uses Project Upkeep palette/typography. The browser fixture verified the hand bottom-left, three piles bottom-right, toolbar bottom, and small controls top. The battlefield fit bug and hand pointer menu dismissal bug were found in browser and fixed. The next-turn control was exercised from turn 0 to turn 1.
 
 ### Step 10, what remains
 - `src/app/privacy/page.tsx`: it says data is never shared with anyone outside the app. That stops being true once a user

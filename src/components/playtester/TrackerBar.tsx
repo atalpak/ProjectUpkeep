@@ -1,13 +1,25 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 import { usePlayEnv, useUi } from "./context";
 import { useExternal, useGame, usePlayStore } from "./hooks/useStore";
 import { MANA_KEYS } from "@/lib/playtest/board/types";
 
 function Step({ label, value, path }: { label: string; value: number; path: string }) {
   const store = usePlayStore();
+  const previous = useRef(value);
+  const [flash, setFlash] = useState<"up" | "down" | null>(null);
+  useEffect(() => {
+    if (previous.current === value) return;
+    const direction = value > previous.current ? "up" : "down";
+    previous.current = value;
+    const show = window.setTimeout(() => setFlash(direction), 0);
+    const hide = window.setTimeout(() => setFlash(null), 550);
+    return () => { window.clearTimeout(show); window.clearTimeout(hide); };
+  }, [value]);
   const set = (n: number) => store.dispatch({ type: "SET_TRACKER", path, value: n });
-  return <div className="flex items-center gap-0.5 rounded border border-white/15 bg-white/5 px-1 text-sm"><button aria-label={`Decrease ${label}`} onClick={() => set(value - 1)} className="px-1 coarse:min-h-11">−</button><button onClick={() => { const n = prompt(`Set ${label}`, String(value)); if (n !== null && Number.isFinite(Number(n))) set(Number(n)); }} aria-label={`${label} ${value}, edit`} className="min-w-8 px-1 font-semibold coarse:min-h-11">{label} {value}</button><button aria-label={`Increase ${label}`} onClick={() => set(value + 1)} className="px-1 coarse:min-h-11">+</button></div>;
+  return <div className={`flex items-center gap-0.5 rounded border border-white/15 px-1 text-sm ${label === "Life" && flash === "up" ? "bg-emerald-900 text-emerald-100" : label === "Life" && flash === "down" ? "bg-red-900 text-red-100" : "bg-white/5"}`}><button aria-label={`Decrease ${label}`} onClick={() => set(value - 1)} className="px-1 coarse:min-h-11">−</button><button onClick={() => { const n = prompt(`Set ${label}`, String(value)); if (n !== null && Number.isFinite(Number(n))) set(Number(n)); }} aria-label={`${label} ${value}, edit`} className="min-w-8 px-1 font-semibold coarse:min-h-11">{label} <span key={value} className="pt-pop inline-block">{value}</span></button><button aria-label={`Increase ${label}`} onClick={() => set(value + 1)} className="px-1 coarse:min-h-11">+</button></div>;
 }
 export function TrackerBar() {
   const game = useGame(); const env = usePlayEnv(); const store = usePlayStore();
