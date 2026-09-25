@@ -3698,4 +3698,781 @@ end $$;
 
 rollback;
 
+-- ---------------------------------------------------------------------------
+-- 27. Migration 46: playtest_sessions is owner-only, tied to the owner's OWN
+--     deck, bounded, and cannot be moved or read by anyone else.
+--
+-- The threat this section exists for: migration 35 makes a friend's PUBLIC
+-- deck readable to friends, so bob can see alice's deck_id. A plain foreign key
+-- only checks the deck EXISTS, so without migration 46's trigger bob could
+-- save a "game" against alice's deck. Nothing about deck visibility may imply
+-- session access, in either direction.
+--
+--   a. alice can insert, read, rename and delete her own session
+--   b. bob (alice's accepted friend, public deck visible) sees NONE of them
+--   c. bob inserting owner=bob deck=alice's public deck is a CHECK violation
+--   d. bob inserting owner=alice is an RLS refusal; against a private deck it
+--      is refused as "does not exist"
+--   e. bob's update and delete of alice's row touch zero rows (verified as alice)
+--   f. alice cannot save against her own binder (type <> 'deck')
+--   g. deck_id / owner_user_id cannot be changed by a client (column grants)
+--   h. a 300KB snapshot is refused; the cap is on text length
+--   i. schema_version / fingerprint must match the snapshot (incl. a missing key)
+--   j. the 11th save on one deck and the 31st for one user are refused
+--   k. deleting a deck (and an account) removes its sessions, and only its own
+--   l. anon gets a permission error, not an empty result
+--   m. grants are exactly as written: service_role has nothing
+--
+-- FALSIFICATION. Every assertion was proved capable of failing by breaking the
+-- migration in the way named and re-running (each run failed on the stated
+-- assertion, and the suite was green again once restored):
+--   a  drop `grant select, insert, delete` -> (a) "alice must be able to insert"
+--   b  add a friend-read policy (using are_friends(...)) -> (b) "saw 1"
+--   c  remove the `deck_owner <> new.owner_user_id` test -> (c) "must be refused"
+--   d  `with check (true)` on the insert policy -> (d) "owner=alice must be refused"
+--   e  `using (true)` on the update policy -> (e) "touched 1 row"
+--   f  remove the `deck_type <> 'deck'` test -> (f) "binder must be refused"
+--   g  `grant update on public.playtest_sessions` (all columns) -> (g) "deck_id"
+--   h  drop constraint playtest_sessions_snapshot_size -> (h) "300KB"
+--   i  drop constraint playtest_sessions_version_matches -> (i) "version mismatch"
+--   j  drop trigger playtest_sessions_enforce_quota -> (j) "11th"
+--   k  deck_id FK `on delete restrict` -> (k) the deck delete raises
+--   l  `grant select ... to anon` -> (l) "anon must be refused"
+--   m  `grant select ... to service_role` -> (m) "service_role"
+-- ---------------------------------------------------------------------------
+begin;
+
+create function pg_temp.attempt(uid uuid, role_name text, stmt text) returns text
+language plpgsql as $f$
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
+  execute format('set local role %I', role_name);
+  begin
+    execute stmt;
+  exception when others then
+    reset role;
+    return sqlstate;
+  end;
+  reset role;
+  return 'ok';
+end $f$;
+
+create function pg_temp.touched(uid uuid, role_name text, stmt text) returns bigint
+language plpgsql as $f$
+declare n bigint;
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
+  execute format('set local role %I', role_name);
+  execute stmt;
+  get diagnostics n = row_count;
+  reset role;
+  return n;
+end $f$;
+
+create function pg_temp.snap(fp text default repeat('a', 64), ver int default 2, pad int default 0) returns jsonb
+language sql as $f$
+  select jsonb_build_object('schemaVersion', ver, 'source', jsonb_build_object('fingerprint', fp), 'pad', repeat('x', pad));
+$f$;
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('a2700000-0000-0000-0000-000000000001', 'alice27@example.com', '{"username":"alice27"}'),
+  ('a2700000-0000-0000-0000-000000000002', 'bob27@example.com',   '{"username":"bob27"}'),
+  ('a2700000-0000-0000-0000-000000000003', 'carol27@example.com', '{"username":"carol27"}');
+
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('a2700000-0000-0000-0000-000000000001', 'a2700000-0000-0000-0000-000000000002', 'accepted');
+
+-- alice: a public deck, a private deck, two more decks (for the quota), a binder.
+-- bob: his own deck.
+insert into public.locations (id, user_id, name, type, is_public) values
+  ('a2710000-0000-0000-0000-000000000001', 'a2700000-0000-0000-0000-000000000001', 'Alice public deck',  'deck',   true),
+  ('a2710000-0000-0000-0000-000000000002', 'a2700000-0000-0000-0000-000000000001', 'Alice private deck', 'deck',   false),
+  ('a2710000-0000-0000-0000-000000000003', 'a2700000-0000-0000-0000-000000000001', 'Alice third deck',   'deck',   false),
+  ('a2710000-0000-0000-0000-000000000004', 'a2700000-0000-0000-0000-000000000001', 'Alice fourth deck',  'deck',   false),
+  ('a2710000-0000-0000-0000-000000000005', 'a2700000-0000-0000-0000-000000000001', 'Alice binder',       'binder', false),
+  ('a2710000-0000-0000-0000-000000000006', 'a2700000-0000-0000-0000-000000000002', 'Bob deck',           'deck',   false),
+  ('a2710000-0000-0000-0000-000000000007', 'a2700000-0000-0000-0000-000000000003', 'Carol deck',         'deck',   false);
+
+-- Sanity for the whole section: bob really can see alice's public deck (the
+-- precondition that makes (c) meaningful) and really cannot see her private one.
+do $$
+declare seen int;
+begin
+  perform set_config('request.jwt.claim.sub', 'a2700000-0000-0000-0000-000000000002', true);
+  set local role authenticated;
+  select count(*) into seen from public.locations where id = 'a2710000-0000-0000-0000-000000000001';
+  assert seen = 1, 'precondition: a friend can see a public deck (migration 35), saw ' || seen;
+  select count(*) into seen from public.locations where id = 'a2710000-0000-0000-0000-000000000002';
+  assert seen = 0, 'precondition: a friend cannot see a private deck, saw ' || seen;
+  reset role;
+end $$;
+
+-- (a) alice's own lifecycle.
+do $$
+declare
+  alice uuid := 'a2700000-0000-0000-0000-000000000001';
+  outcome text;
+  n bigint;
+begin
+  outcome := pg_temp.attempt(alice, 'authenticated', format(
+    $q$insert into public.playtest_sessions (id, owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2720000-0000-0000-0000-000000000001', %L, 'a2710000-0000-0000-0000-000000000001', 'My first save', 2, %L, %L, '{"turn":3}')$q$,
+    alice, repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = 'ok', 'alice must be able to insert her own session, got ' || outcome;
+
+  n := pg_temp.touched(alice, 'authenticated', $q$select * from public.playtest_sessions where id = 'a2720000-0000-0000-0000-000000000001'$q$);
+  assert n = 1, 'alice must read her own session, saw ' || n;
+
+  n := pg_temp.touched(alice, 'authenticated', $q$update public.playtest_sessions set title = 'Renamed' where id = 'a2720000-0000-0000-0000-000000000001'$q$);
+  assert n = 1, 'alice must be able to rename her own session, touched ' || n;
+  assert (select title from public.playtest_sessions where id = 'a2720000-0000-0000-0000-000000000001') = 'Renamed', 'the rename must stick';
+
+  -- Overwrite: the five updatable columns together.
+  n := pg_temp.touched(alice, 'authenticated', format(
+    $q$update public.playtest_sessions set snapshot = %L, source_fingerprint = %L, schema_version = 2, preview = '{"turn":9}' where id = 'a2720000-0000-0000-0000-000000000001'$q$,
+    pg_temp.snap(repeat('b', 64))::text, repeat('b', 64)));
+  assert n = 1, 'alice must be able to overwrite her own session, touched ' || n;
+end $$;
+
+-- A session for bob too, on his own deck, so (e)/(k) have a bystander.
+insert into public.playtest_sessions (id, owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+values ('a2720000-0000-0000-0000-000000000002', 'a2700000-0000-0000-0000-000000000002', 'a2710000-0000-0000-0000-000000000006',
+        'Bob save', 2, repeat('c', 64), pg_temp.snap(repeat('c', 64)), '{"turn":1}');
+
+-- (b) bob is alice's friend and can see her public deck: he sees no sessions.
+do $$
+declare n bigint;
+begin
+  n := pg_temp.touched('a2700000-0000-0000-0000-000000000002', 'authenticated',
+    $q$select * from public.playtest_sessions where owner_user_id = 'a2700000-0000-0000-0000-000000000001'$q$);
+  assert n = 0, 'a friend must see none of alice''s sessions, saw ' || n;
+  n := pg_temp.touched('a2700000-0000-0000-0000-000000000002', 'authenticated',
+    $q$select * from public.playtest_sessions where deck_id = 'a2710000-0000-0000-0000-000000000001'$q$);
+  assert n = 0, 'a public deck must not expose the sessions saved against it, saw ' || n;
+  n := pg_temp.touched('a2700000-0000-0000-0000-000000000003', 'authenticated', $q$select * from public.playtest_sessions$q$);
+  assert n = 0, 'a stranger must see no sessions at all, saw ' || n;
+  n := pg_temp.touched('a2700000-0000-0000-0000-000000000002', 'authenticated', $q$select * from public.playtest_sessions$q$);
+  assert n = 1, 'bob must see exactly his own session, saw ' || n;
+end $$;
+
+-- (c) THE KEY ASSERTION: bob saving against alice's public deck.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000002', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000002', 'a2710000-0000-0000-0000-000000000001', 'sneaky', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '23514', 'a friend saving against alice''s public deck must be refused as a check violation, got ' || outcome;
+end $$;
+
+-- (d) owner=alice from bob's session: RLS refuses. A private deck: not visible.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000002', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000001', 'forged', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '42501', 'inserting with owner=alice as bob must be refused (owner=alice must be refused), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000002', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000002', 'a2710000-0000-0000-0000-000000000002', 'private?', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '23503', 'a deck the caller cannot see is refused as nonexistent, got ' || outcome;
+end $$;
+
+-- (e) bob cannot change or delete alice's row; verified as alice afterwards.
+do $$
+declare n bigint;
+begin
+  n := pg_temp.touched('a2700000-0000-0000-0000-000000000002', 'authenticated',
+    $q$update public.playtest_sessions set title = 'hijacked' where id = 'a2720000-0000-0000-0000-000000000001'$q$);
+  assert n = 0, 'a friend''s update of alice''s session must touch 0 rows, touched ' || n;
+  n := pg_temp.touched('a2700000-0000-0000-0000-000000000002', 'authenticated',
+    $q$delete from public.playtest_sessions where id = 'a2720000-0000-0000-0000-000000000001'$q$);
+  assert n = 0, 'a friend''s delete of alice''s session must touch 0 rows, touched ' || n;
+  n := pg_temp.touched('a2700000-0000-0000-0000-000000000001', 'authenticated',
+    $q$select * from public.playtest_sessions where id = 'a2720000-0000-0000-0000-000000000001' and title = 'Renamed'$q$);
+  assert n = 1, 'alice''s session must be exactly as she left it, saw ' || n;
+end $$;
+
+-- (f) alice cannot save against her own binder.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000005', 'binder', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '23514', 'a save against a binder must be refused (binder must be refused), got ' || outcome;
+end $$;
+
+-- (g) deck_id and owner_user_id are immutable to a client.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated',
+    $q$update public.playtest_sessions set deck_id = 'a2710000-0000-0000-0000-000000000002' where id = 'a2720000-0000-0000-0000-000000000001'$q$);
+  assert outcome = '42501', 'moving a session to another deck must be a permission error (deck_id), got ' || outcome;
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated',
+    $q$update public.playtest_sessions set owner_user_id = 'a2700000-0000-0000-0000-000000000002' where id = 'a2720000-0000-0000-0000-000000000001'$q$);
+  assert outcome = '42501', 'giving a session away must be a permission error (owner_user_id), got ' || outcome;
+  assert not has_column_privilege('authenticated', 'public.playtest_sessions', 'deck_id', 'UPDATE'), 'deck_id must not be updatable';
+  assert not has_column_privilege('authenticated', 'public.playtest_sessions', 'owner_user_id', 'UPDATE'), 'owner_user_id must not be updatable';
+  assert has_column_privilege('authenticated', 'public.playtest_sessions', 'title', 'UPDATE'), 'title must be updatable';
+end $$;
+
+-- (h) size: 300KB refused, a large-but-legal snapshot accepted.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'huge', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap(pad => 300000)::text));
+  assert outcome = '23514', 'a 300KB snapshot must be refused (300KB), got ' || outcome;
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (id, owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2720000-0000-0000-0000-000000000009', 'a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'big but legal', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap(pad => 200000)::text));
+  assert outcome = 'ok', 'a 200KB snapshot is within the cap, got ' || outcome;
+  delete from public.playtest_sessions where id = 'a2720000-0000-0000-0000-000000000009';
+
+  -- A repetitive blob compresses tiny in storage but is still 300KB of text:
+  -- the cap is on text length, which is why pg_column_size is not used.
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'compressible', 2, %L, %L, %L)$q$,
+    repeat('a', 64), pg_temp.snap(pad => 900000)::text, jsonb_build_object('p', 'p')::text));
+  assert outcome = '23514', 'a compressible oversize snapshot must still be refused, got ' || outcome;
+
+  -- The preview has its own 2KB cap.
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'pv', 2, %L, %L, %L)$q$,
+    repeat('a', 64), pg_temp.snap()::text, jsonb_build_object('p', repeat('p', 5000))::text));
+  assert outcome = '23514', 'an oversize preview must be refused, got ' || outcome;
+end $$;
+
+-- (i) the columns must agree with the blob.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'v', 3, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap(ver => 2)::text));
+  assert outcome = '23514', 'a schema_version that differs from the snapshot must be refused (version mismatch), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'v', 2, %L, %L, '{}')$q$,
+    repeat('b', 64), pg_temp.snap(fp => repeat('a', 64))::text));
+  assert outcome = '23514', 'a fingerprint that differs from the snapshot must be refused, got ' || outcome;
+
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'v', 2, %L, '{"source":{"fingerprint":"%s"}}', '{}')$q$,
+    repeat('a', 64), repeat('a', 64)));
+  assert outcome = '23514', 'a snapshot MISSING schemaVersion must be refused (a NULL comparison must not pass), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'v', 2, %L, '{"schemaVersion":"2","source":{"fingerprint":"%s"}}', '{}')$q$,
+    repeat('a', 64), repeat('a', 64)));
+  assert outcome = '23514', 'a string schemaVersion must be a check violation and not a cast error, got ' || outcome;
+
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', '   ', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '23514', 'a blank title must be refused, got ' || outcome;
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', %L, 2, %L, %L, '{}')$q$,
+    repeat('t', 101), repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '23514', 'a 101-character title must be refused, got ' || outcome;
+end $$;
+
+-- (j) quotas: 10 per deck, 30 per user. Seeded as the table owner (the quota
+--     trigger fires for everyone), then the next insert is tried as alice.
+insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+select 'a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000002', 'q' || g, 2, repeat('a', 64), pg_temp.snap(), '{}'
+  from generate_series(1, 10) g;
+
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000002', 'the 11th', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '23514', 'the 11th session on one deck must be refused (11th), got ' || outcome;
+end $$;
+
+-- alice now has 1 (public deck, from (a)) + 10 (private deck). Fill the third
+-- and fourth decks to reach 30, then the 31st must be refused for the USER cap.
+insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+select 'a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000003', 'r' || g, 2, repeat('a', 64), pg_temp.snap(), '{}'
+  from generate_series(1, 10) g;
+insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+select 'a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000004', 's' || g, 2, repeat('a', 64), pg_temp.snap(), '{}'
+  from generate_series(1, 9) g;
+
+do $$
+declare
+  outcome text;
+  msg text;
+begin
+  assert (select count(*) from public.playtest_sessions where owner_user_id = 'a2700000-0000-0000-0000-000000000001') = 30, 'alice should be at exactly 30';
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000001', 'the 31st', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '23514', 'the 31st session for one user must be refused (31st), got ' || outcome;
+
+  begin
+    insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+    values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000001', 'x', 2, repeat('a', 64), pg_temp.snap(), '{}');
+  exception when check_violation then
+    get stacked diagnostics msg = message_text;
+    assert msg like 'playtest_sessions_quota_user%', 'the message must carry the fixed prefix errors.ts maps, got ' || msg;
+  end;
+
+  -- Another user is not affected by alice's quota.
+  outcome := pg_temp.attempt('a2700000-0000-0000-0000-000000000003', 'authenticated', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000003', 'a2710000-0000-0000-0000-000000000007', 'carol ok', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = 'ok', 'carol must be unaffected by alice''s quota, got ' || outcome;
+end $$;
+
+-- (k) deleting a deck removes its sessions and only its own; so does an account.
+do $$
+declare before_count bigint;
+begin
+  before_count := (select count(*) from public.playtest_sessions where owner_user_id = 'a2700000-0000-0000-0000-000000000001');
+  delete from public.locations where id = 'a2710000-0000-0000-0000-000000000004';
+  assert (select count(*) from public.playtest_sessions where deck_id = 'a2710000-0000-0000-0000-000000000004') = 0,
+    'deleting a deck must delete its sessions';
+  assert (select count(*) from public.playtest_sessions where owner_user_id = 'a2700000-0000-0000-0000-000000000001') = before_count - 9,
+    'only that deck''s sessions may go';
+  assert (select count(*) from public.playtest_sessions where id = 'a2720000-0000-0000-0000-000000000002') = 1,
+    'bob''s session on his own deck must survive alice''s deck deletion';
+
+  delete from auth.users where id = 'a2700000-0000-0000-0000-000000000003';
+  assert (select count(*) from public.playtest_sessions where owner_user_id = 'a2700000-0000-0000-0000-000000000003') = 0,
+    'deleting an account must delete its sessions';
+end $$;
+
+-- (l) anon: a permission error, not an empty result.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt(null, 'anon', $q$select * from public.playtest_sessions$q$);
+  assert outcome = '42501', 'anon must be refused with a permission error (anon must be refused), got ' || outcome;
+  outcome := pg_temp.attempt(null, 'anon', format(
+    $q$insert into public.playtest_sessions (owner_user_id, deck_id, title, schema_version, source_fingerprint, snapshot, preview)
+       values ('a2700000-0000-0000-0000-000000000001', 'a2710000-0000-0000-0000-000000000001', 'anon', 2, %L, %L, '{}')$q$,
+    repeat('a', 64), pg_temp.snap()::text));
+  assert outcome = '42501', 'anon insert must be refused, got ' || outcome;
+end $$;
+
+-- (m) the grants are exactly as written.
+do $$
+begin
+  assert not has_table_privilege('service_role', 'public.playtest_sessions', 'SELECT'), 'service_role must have no SELECT on playtest_sessions (service_role)';
+  assert not has_table_privilege('service_role', 'public.playtest_sessions', 'INSERT'), 'service_role must have no INSERT on playtest_sessions';
+  assert not has_table_privilege('anon', 'public.playtest_sessions', 'SELECT'), 'anon must have no SELECT on playtest_sessions';
+  assert has_table_privilege('authenticated', 'public.playtest_sessions', 'SELECT')
+     and has_table_privilege('authenticated', 'public.playtest_sessions', 'INSERT')
+     and has_table_privilege('authenticated', 'public.playtest_sessions', 'DELETE'), 'authenticated keeps select, insert and delete';
+  assert (select relrowsecurity from pg_class where oid = 'public.playtest_sessions'::regclass), 'RLS must be on';
+end $$;
+
+rollback;
+
+-- ---------------------------------------------------------------------------
+-- 28. Migration 47: playtest_shares is readable by signed-in link holders only,
+--     through one narrow function, and never exposes an owner or a deck.
+--
+-- The owner chose "signed-in users with the link" (option B) over an open
+-- link. What that means mechanically, and what this section pins:
+--
+--   a. a client cannot choose its own token: supplying one is a permission error
+--   b. anon cannot select the table, and cannot call get_playtest_share()
+--   c. a signed-in non-owner with a valid token gets the projection, and the
+--      result has EXACTLY the keys title / projection / updatedAt / expiresAt
+--      (no owner_user_id, no deck_id, no token, no username)
+--   d. an expired share returns null
+--   e. a revoked (deleted) share returns null
+--   f. malformed tokens return null and cannot be used to inject
+--   g. bob (alice's friend, her public deck visible) cannot create a share
+--      against it, and cannot read or enumerate her shares
+--   h. oversize projection, expiry beyond 90 days and a version mismatch are
+--      check violations
+--   i. 10 unexpired shares per user; expired ones do not count
+--   j. deleting a deck or an account removes its shares
+--   k. deck_id / token / owner are immutable to a client, and the owner can
+--      still edit title, projection and expiry
+--   l. the function is SECURITY DEFINER with an empty search_path, and its
+--      execute grant is authenticated-only (nobody via PUBLIC, anon or
+--      service_role)
+--
+-- FALSIFICATION. Each assertion was proved capable of failing by breaking the
+-- migration as named and re-running (it failed on the stated assertion; green
+-- again once restored):
+--   a  add `token` to the insert grant -> (a) "supplying a token"
+--   b1 `grant select ... to anon` -> (b) "anon must be refused" on the table
+--   b2 `grant execute ... to anon` -> (b) "anon must not be able to call"
+--   c  return `to_jsonb(s)` (the whole row) -> (c) the key-set assertion
+--   d  drop `and s.expires_at > now()` -> (d) "expired"
+--   e  n/a as a break: (e) fails if the function ever caches or ignores deletes
+--   g  remove the `deck_owner <> new.owner_user_id` test -> (g) "must be refused"
+--   h  drop constraint playtest_shares_projection_size -> (h) "oversize"
+--      drop constraint playtest_shares_expiry_cap -> (h) "91 days"
+--   i  drop trigger playtest_shares_enforce_quota -> (i) "11th"
+--   j  deck_id FK `on delete restrict` -> (j) the deck delete raises
+--   k  `grant update on public.playtest_shares` (all columns) -> (k) "token"
+--   l  drop `security definer` / `set search_path` / re-grant to public -> (l)
+-- ---------------------------------------------------------------------------
+begin;
+
+create function pg_temp.attempt(uid uuid, role_name text, stmt text) returns text
+language plpgsql as $f$
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
+  execute format('set local role %I', role_name);
+  begin
+    execute stmt;
+  exception when others then
+    reset role;
+    return sqlstate;
+  end;
+  reset role;
+  return 'ok';
+end $f$;
+
+create function pg_temp.touched(uid uuid, role_name text, stmt text) returns bigint
+language plpgsql as $f$
+declare n bigint;
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
+  execute format('set local role %I', role_name);
+  execute stmt;
+  get diagnostics n = row_count;
+  reset role;
+  return n;
+end $f$;
+
+-- Reads a share as a role and returns the jsonb (or null).
+create function pg_temp.read_share(uid uuid, role_name text, tok text) returns jsonb
+language plpgsql as $f$
+declare result jsonb;
+begin
+  perform set_config('request.jwt.claim.sub', coalesce(uid::text, ''), true);
+  execute format('set local role %I', role_name);
+  select public.get_playtest_share(tok) into result;
+  reset role;
+  return result;
+end $f$;
+
+create function pg_temp.proj(ver int default 1, pad int default 0) returns jsonb
+language sql as $f$
+  select jsonb_build_object('version', ver, 'turn', 4, 'note', repeat('x', pad));
+$f$;
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('a2800000-0000-0000-0000-000000000001', 'alice28@example.com', '{"username":"alice28"}'),
+  ('a2800000-0000-0000-0000-000000000002', 'bob28@example.com',   '{"username":"bob28"}'),
+  ('a2800000-0000-0000-0000-000000000003', 'carol28@example.com', '{"username":"carol28"}');
+
+insert into public.friendships (requester_id, addressee_id, status) values
+  ('a2800000-0000-0000-0000-000000000001', 'a2800000-0000-0000-0000-000000000002', 'accepted');
+
+insert into public.locations (id, user_id, name, type, is_public) values
+  ('a2810000-0000-0000-0000-000000000001', 'a2800000-0000-0000-0000-000000000001', 'Alice public deck', 'deck',   true),
+  ('a2810000-0000-0000-0000-000000000002', 'a2800000-0000-0000-0000-000000000001', 'Alice second deck', 'deck',   false),
+  ('a2810000-0000-0000-0000-000000000003', 'a2800000-0000-0000-0000-000000000001', 'Alice binder',      'binder', false),
+  ('a2810000-0000-0000-0000-000000000004', 'a2800000-0000-0000-0000-000000000003', 'Carol deck',        'deck',   false);
+
+-- (a) alice creates a share; the database mints the token; a supplied one is refused.
+do $$
+declare
+  alice uuid := 'a2800000-0000-0000-0000-000000000001';
+  outcome text;
+  minted text;
+begin
+  outcome := pg_temp.attempt(alice, 'authenticated', format(
+    $q$insert into public.playtest_shares (id, owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2820000-0000-0000-0000-000000000001', %L, 'a2810000-0000-0000-0000-000000000001', 'My table', %L, 1)$q$,
+    alice, pg_temp.proj()::text));
+  assert outcome = '42501', 'a client supplying its own id must be refused too (id is minted by the database), got ' || outcome;
+
+  outcome := pg_temp.attempt(alice, 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version, token)
+       values (%L, 'a2810000-0000-0000-0000-000000000001', 'My table', %L, 1, %L)$q$,
+    alice, pg_temp.proj()::text, repeat('0', 32)));
+  assert outcome = '42501', 'supplying a token must be a permission error (supplying a token), got ' || outcome;
+
+  outcome := pg_temp.attempt(alice, 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version, show_hand)
+       values (%L, 'a2810000-0000-0000-0000-000000000001', 'My table', %L, 1, false)$q$,
+    alice, pg_temp.proj()::text));
+  assert outcome = 'ok', 'alice must be able to create a share, got ' || outcome;
+
+  select token into minted from public.playtest_shares where owner_user_id = alice;
+  assert minted ~ '^[0-9a-f]{32}$', 'the database must mint a 32-hex token, got ' || coalesce(minted, 'null');
+  assert (select expires_at from public.playtest_shares where owner_user_id = alice) between now() + interval '29 days' and now() + interval '31 days',
+    'expiry defaults to about 30 days';
+end $$;
+
+-- Tokens are unique and random enough to differ.
+insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'Second', pg_temp.proj(), 1);
+
+do $$
+begin
+  assert (select count(distinct token) from public.playtest_shares) = 2, 'tokens must differ';
+end $$;
+
+-- (b) anon.
+do $$
+declare
+  outcome text;
+  tok text := (select token from public.playtest_shares where title = 'My table');
+begin
+  outcome := pg_temp.attempt(null, 'anon', $q$select * from public.playtest_shares$q$);
+  assert outcome = '42501', 'anon must be refused with a permission error on the table (anon must be refused), got ' || outcome;
+  outcome := pg_temp.attempt(null, 'anon', format($q$select public.get_playtest_share(%L)$q$, tok));
+  assert outcome = '42501', 'anon must not be able to call get_playtest_share (anon must not be able to call), got ' || outcome;
+  outcome := pg_temp.attempt(null, 'service_role', format($q$select public.get_playtest_share(%L)$q$, tok));
+  assert outcome = '42501', 'service_role must not be able to call get_playtest_share either, got ' || outcome;
+end $$;
+
+-- (c) a signed-in NON-owner with the token: bob (friend) and carol (stranger).
+do $$
+declare
+  tok text := (select token from public.playtest_shares where title = 'My table');
+  got jsonb;
+  keys text[];
+begin
+  foreach got in array array[
+    pg_temp.read_share('a2800000-0000-0000-0000-000000000002', 'authenticated', tok),
+    pg_temp.read_share('a2800000-0000-0000-0000-000000000003', 'authenticated', tok),
+    pg_temp.read_share('a2800000-0000-0000-0000-000000000001', 'authenticated', tok)
+  ] loop
+    assert got is not null, 'a signed-in reader with a valid token must get the projection';
+    select array_agg(k order by k) into keys from jsonb_object_keys(got) k;
+    assert keys = array['expiresAt', 'projection', 'title', 'updatedAt'],
+      'the result must have exactly title/projection/updatedAt/expiresAt (no owner, deck or token), got ' || keys::text;
+    assert got ->> 'title' = 'My table', 'the title comes through';
+    assert (got -> 'projection' ->> 'turn') = '4', 'the projection comes through unchanged';
+    assert position('a2800000' in got::text) = 0 and position('a2810000' in got::text) = 0,
+      'no owner or deck id may appear anywhere in the payload';
+  end loop;
+end $$;
+
+-- (d) expired.
+do $$
+declare tok text := (select token from public.playtest_shares where title = 'My table');
+begin
+  update public.playtest_shares set expires_at = now() - interval '1 minute' where token = tok;
+  assert pg_temp.read_share('a2800000-0000-0000-0000-000000000002', 'authenticated', tok) is null,
+    'an expired share must return null (expired)';
+  update public.playtest_shares set expires_at = now() + interval '1 day' where token = tok;
+  assert pg_temp.read_share('a2800000-0000-0000-0000-000000000002', 'authenticated', tok) is not null,
+    'extending the expiry must make it readable again';
+end $$;
+
+-- (e) revoked = deleted.
+do $$
+declare tok text := (select token from public.playtest_shares where title = 'Second');
+begin
+  assert pg_temp.read_share('a2800000-0000-0000-0000-000000000002', 'authenticated', tok) is not null, 'the second share is readable first';
+  perform pg_temp.touched('a2800000-0000-0000-0000-000000000001', 'authenticated', format($q$delete from public.playtest_shares where token = %L$q$, tok));
+  assert pg_temp.read_share('a2800000-0000-0000-0000-000000000002', 'authenticated', tok) is null,
+    'a revoked (deleted) share must return null';
+end $$;
+
+-- (f) malformed tokens.
+do $$
+declare bad text;
+begin
+  foreach bad in array array['', 'x', repeat('a', 31), repeat('a', 33), upper(repeat('a', 32)), repeat('g', 32),
+                             '%', $t$' or true --$t$, (select token from public.playtest_shares limit 1) || 'a'] loop
+    assert pg_temp.read_share('a2800000-0000-0000-0000-000000000002', 'authenticated', bad) is null,
+      'a malformed token must return null: ' || bad;
+  end loop;
+  assert pg_temp.read_share('a2800000-0000-0000-0000-000000000002', 'authenticated', null) is null, 'a null token returns null';
+end $$;
+
+-- (g) bob (friend, alice's public deck visible) cannot create against it, list, or read.
+do $$
+declare
+  outcome text;
+  n bigint;
+begin
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000002', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000002', 'a2810000-0000-0000-0000-000000000001', 'stolen', %L, 1)$q$, pg_temp.proj()::text));
+  assert outcome = '23514', 'a friend sharing alice''s public deck must be refused (must be refused), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000003', 'binder', %L, 1)$q$, pg_temp.proj()::text));
+  assert outcome = '23514', 'a share against a binder must be refused, got ' || outcome;
+
+  n := pg_temp.touched('a2800000-0000-0000-0000-000000000002', 'authenticated', $q$select * from public.playtest_shares$q$);
+  assert n = 0, 'a friend must not be able to list alice''s shares, saw ' || n;
+  n := pg_temp.touched('a2800000-0000-0000-0000-000000000003', 'authenticated', $q$select * from public.playtest_shares$q$);
+  assert n = 0, 'a stranger must not be able to list shares, saw ' || n;
+  n := pg_temp.touched('a2800000-0000-0000-0000-000000000002', 'authenticated', $q$delete from public.playtest_shares$q$);
+  assert n = 0, 'a friend must not be able to delete alice''s shares, touched ' || n;
+  n := pg_temp.touched('a2800000-0000-0000-0000-000000000002', 'authenticated', $q$update public.playtest_shares set title = 'x'$q$);
+  assert n = 0, 'a friend must not be able to edit alice''s shares, touched ' || n;
+  n := pg_temp.touched('a2800000-0000-0000-0000-000000000001', 'authenticated', $q$select * from public.playtest_shares$q$);
+  assert n = 1, 'alice reads her own share(s), saw ' || n;
+end $$;
+
+-- (h) size, expiry cap, version.
+do $$
+declare outcome text;
+begin
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'big', %L, 1)$q$, pg_temp.proj(pad => 140000)::text));
+  assert outcome = '23514', 'an oversize projection must be refused (oversize), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version, expires_at)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'long', %L, 1, now() + interval '91 days')$q$, pg_temp.proj()::text));
+  assert outcome = '23514', 'an expiry beyond 90 days must be refused (91 days), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version, expires_at)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'ok90', %L, 1, now() + interval '89 days')$q$, pg_temp.proj()::text));
+  assert outcome = 'ok', '89 days is within the cap, got ' || outcome;
+  delete from public.playtest_shares where title = 'ok90';
+
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'ver', %L, 2)$q$, pg_temp.proj(ver => 1)::text));
+  assert outcome = '23514', 'a projection_version that differs from the projection must be refused (version), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated',
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'nover', '{"turn":1}', 1)$q$);
+  assert outcome = '23514', 'a projection MISSING its version must be refused (a NULL comparison must not pass), got ' || outcome;
+
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', %L, %L, 1)$q$, '   ', '{"version":1}'));
+  assert outcome = '23514', 'a blank title must be refused, got ' || outcome;
+end $$;
+
+-- (i) quota: 10 UNEXPIRED per user; expired shares do not count.
+do $$
+declare
+  outcome text;
+  n int;
+begin
+  -- alice has 1 live share ('My table'); 'Second' was revoked in (e).
+  insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version, expires_at)
+  select 'a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'old' || g, pg_temp.proj(), 1, now() - interval '1 day'
+    from generate_series(1, 5) g;
+  insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+  select 'a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'live' || g, pg_temp.proj(), 1
+    from generate_series(1, 9) g;
+  select count(*) into n from public.playtest_shares where owner_user_id = 'a2800000-0000-0000-0000-000000000001' and expires_at > now();
+  assert n = 10, 'alice should have exactly 10 live shares, has ' || n;
+
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'the 11th', %L, 1)$q$, pg_temp.proj()::text));
+  assert outcome = '23514', 'the 11th live share must be refused (11th), got ' || outcome;
+
+  begin
+    insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+    values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'x', pg_temp.proj(), 1);
+  exception when check_violation then
+    assert sqlerrm like 'playtest_shares_quota%', 'the message must carry the fixed prefix errors.ts maps, got ' || sqlerrm;
+  end;
+
+  -- Deleting the expired ones (what createShare does first) changes nothing about live; revoking one frees a slot.
+  delete from public.playtest_shares where title = 'live9';
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated', format(
+    $q$insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+       values ('a2800000-0000-0000-0000-000000000001', 'a2810000-0000-0000-0000-000000000002', 'fits now', %L, 1)$q$, pg_temp.proj()::text));
+  assert outcome = 'ok', 'revoking a share frees a slot, got ' || outcome;
+end $$;
+
+-- (k) immutable columns; editable ones.
+do $$
+declare
+  outcome text;
+  n bigint;
+begin
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated',
+    $q$update public.playtest_shares set token = repeat('1', 32) where title = 'My table'$q$);
+  assert outcome = '42501', 'changing a token must be refused (token), got ' || outcome;
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated',
+    $q$update public.playtest_shares set deck_id = 'a2810000-0000-0000-0000-000000000002' where title = 'My table'$q$);
+  assert outcome = '42501', 'moving a share to another deck must be refused, got ' || outcome;
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated',
+    $q$update public.playtest_shares set owner_user_id = 'a2800000-0000-0000-0000-000000000002' where title = 'My table'$q$);
+  assert outcome = '42501', 'giving a share away must be refused, got ' || outcome;
+
+  n := pg_temp.touched('a2800000-0000-0000-0000-000000000001', 'authenticated',
+    format($q$update public.playtest_shares set title = 'Renamed', projection = %L, projection_version = 1, show_hand = true, expires_at = now() + interval '40 days' where title = 'My table'$q$, pg_temp.proj(pad => 10)::text));
+  assert n = 1, 'the owner can update title/projection/show_hand/expiry, touched ' || n;
+  outcome := pg_temp.attempt('a2800000-0000-0000-0000-000000000001', 'authenticated',
+    $q$update public.playtest_shares set expires_at = now() + interval '200 days' where title = 'Renamed'$q$);
+  assert outcome = '23514', 'extending past 90 days from creation must be refused, got ' || outcome;
+  assert not has_column_privilege('authenticated', 'public.playtest_shares', 'token', 'INSERT'), 'token must not be insertable';
+  assert not has_column_privilege('authenticated', 'public.playtest_shares', 'token', 'UPDATE'), 'token must not be updatable';
+end $$;
+
+-- (j) cascades: deleting a deck, then an account.
+do $$
+begin
+  assert (select count(*) from public.playtest_shares where deck_id = 'a2810000-0000-0000-0000-000000000002') > 0, 'there are shares on alice''s second deck';
+  delete from public.locations where id = 'a2810000-0000-0000-0000-000000000002';
+  assert (select count(*) from public.playtest_shares where deck_id = 'a2810000-0000-0000-0000-000000000002') = 0,
+    'deleting a deck must delete its shares';
+  assert (select count(*) from public.playtest_shares where deck_id = 'a2810000-0000-0000-0000-000000000001') = 1,
+    'shares on other decks survive';
+
+  insert into public.playtest_shares (owner_user_id, deck_id, title, projection, projection_version)
+  values ('a2800000-0000-0000-0000-000000000003', 'a2810000-0000-0000-0000-000000000004', 'carol share', pg_temp.proj(), 1);
+  delete from auth.users where id = 'a2800000-0000-0000-0000-000000000003';
+  assert (select count(*) from public.playtest_shares where owner_user_id = 'a2800000-0000-0000-0000-000000000003') = 0,
+    'deleting an account must delete its shares';
+  assert (select count(*) from public.playtest_shares where owner_user_id = 'a2800000-0000-0000-0000-000000000001') > 0,
+    'alice''s remaining shares are untouched';
+end $$;
+
+-- (l) the function's shape and grants.
+do $$
+declare
+  fn regprocedure := 'public.get_playtest_share(text)'::regprocedure;
+begin
+  assert (select prosecdef from pg_proc where oid = fn), 'get_playtest_share must be SECURITY DEFINER';
+  assert exists (select 1 from pg_proc p, unnest(p.proconfig) c where p.oid = fn and c = 'search_path=""'),
+    'get_playtest_share must pin an empty search_path';
+  assert (select provolatile from pg_proc where oid = fn) = 's', 'get_playtest_share must be STABLE';
+  assert has_function_privilege('authenticated', fn, 'EXECUTE'), 'authenticated must be able to execute it';
+  assert not has_function_privilege('anon', fn, 'EXECUTE'), 'anon must not be able to execute it (option B)';
+  assert not has_function_privilege('service_role', fn, 'EXECUTE'), 'service_role must not be able to execute it';
+  assert not exists (select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = fn and a.grantee = 0),
+    'PUBLIC must not be able to execute it';
+  assert not has_table_privilege('anon', 'public.playtest_shares', 'SELECT'), 'anon has no table access';
+  assert not has_table_privilege('service_role', 'public.playtest_shares', 'SELECT'), 'service_role has no table access';
+  assert (select relrowsecurity from pg_class where oid = 'public.playtest_shares'::regclass), 'RLS must be on';
+end $$;
+
+rollback;
+
 \echo 'schema_test.sql: all assertions passed'
