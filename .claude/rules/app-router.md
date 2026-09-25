@@ -14,6 +14,15 @@ caching, or data-fetching code, read the relevant guide in
 
 ## Conventions that differ from what you may expect
 
+`/decks/[id]/play` is an owner-only, never-prerendered route. Its page alone
+loads the deck list, slims it, hashes a source fingerprint, loads the caller's
+saves, and passes bound server actions to the client table. Client play actions
+stay local until the user explicitly saves or shares. `/shared/playtest/[token]`
+remains under `(app)` and is readable only to signed-in link holders; it calls
+the authenticated-only share RPC and validates the public projection before
+rendering. `/decks/[id]/play/popout` receives that same projection over a
+same-browser channel and has no save capability.
+
 - **`src/proxy.ts`, not `middleware.ts`.** Next 16 renamed the convention; the
   behaviour is unchanged. Its only job is refreshing the Supabase session cookie
   and bouncing anonymous visitors to `/login`. Do not rename it back.

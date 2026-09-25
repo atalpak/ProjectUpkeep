@@ -11,6 +11,12 @@ description: Which Supabase client to use, and why own-collection queries must f
 
 ## Pick the right client
 
+Playtest sessions and shares are owner-only tables. The sole non-owner read is
+`get_playtest_share(p_token)`, a `SECURITY DEFINER` function granted only to
+`authenticated`. It returns a validated, redacted projection to a signed-in
+holder of the link; it does not grant access to the save, deck list, library
+order, or ownership tables. There is no friend policy and no anonymous grant.
+
 | File | Runs as | Use it in |
 |---|---|---|
 | `supabase/client.ts` | signed-in user (anon key) | Client Components |

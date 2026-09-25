@@ -62,7 +62,8 @@ src/
                             social-state.ts (form state shared by the social pages)
       collection/           collection view · add/ · import/
       locations/            containers
-      decks/                decks-as-locations · [id]/ (· test/ playtest) · check/ · import/
+      decks/                decks-as-locations · [id]/ (test/ analyzer · play/ tabletop and popout) · check/ · import/
+      shared/playtest/       signed-in, link-only redacted table
       find/                 "where is my card?"
       dashboard/            stats and anything awaiting a decision
       search/  trades/          card search · trade actions
@@ -79,7 +80,7 @@ src/
     layout.tsx  page.tsx  globals.css  icon.svg  opengraph-image.tsx
   components/
     ui.tsx                  shared primitives — buttons, etc. Restyle here.
-    auth/  cards/  collection/  decks/  settings/  social/
+    auth/  cards/  collection/  decks/  settings/  social/  playtester/
     mort/                   the Mort mascot — web mirror of apps/mobile/src/mort
     ManaCost.tsx  SetSymbol.tsx  …
   hooks/                    useReducedMotion
@@ -97,7 +98,9 @@ src/
                             reauth · recovery
     cards/                  search · search-query
     feedback/  search/      validate · recent-searches
-    playtest/               keep · library · mana · odds · present · rng · simulate
+    playtest/               analyzer modules plus game-start · recovery · settings · session
+      board/                pure v2 game state, commands, layout, events, metrics, share projection
+      opponent/             deterministic optional interaction prompts
     support.ts
     collection/             availability · breakdown · deck-state · deck-stats
                             deck-view · entries · export · filters · list-check
@@ -124,7 +127,7 @@ scripts/
   verify-migrations.sh      migrations against a throwaway Postgres
   catalog-snapshot.sh       exports + builds the catalog into the mobile app before
                             a native build (`npm run catalog:snapshot`)
-  *.test.ts                 49 unit-test files over the pure logic in src/lib
+  *.test.ts                 79 unit-test files over pure logic, including 26 playtest tests
 ```
 
 ## Data model in one paragraph

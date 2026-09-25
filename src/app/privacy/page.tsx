@@ -28,7 +28,7 @@ export default function PrivacyPage() {
 
       <div className="space-y-2">
         <h1 className="font-brand text-xl font-semibold tracking-tight">Privacy</h1>
-        <p className="text-sm text-ink-muted">Last updated: 11 September 2026</p>
+        <p className="text-sm text-ink-muted">Last updated: 25 September 2026</p>
       </div>
 
       <div className="space-y-4 text-sm leading-relaxed">
@@ -49,15 +49,26 @@ export default function PrivacyPage() {
             </li>
             <li>Your friends, trade proposals, want list, and trade history.</li>
             <li>Any feedback you submit through the in-app form.</li>
+            <li>Playtest games you choose to save to your account. Browser crash recovery and playtest preferences stay in that browser.</li>
           </ul>
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="font-semibold">Shared playtest tables</h2>
+          <p>
+            If you create a playtest share, anyone signed in to Project Upkeep who has its link can see a read-only
+            version of the table until the link expires or you stop sharing. Your library order and private notes are
+            excluded. Your hand is hidden unless you choose to show it when creating or updating the share.
+          </p>
         </section>
 
         <section className="space-y-2">
           <h2 className="font-semibold">How it&rsquo;s stored</h2>
           <p>
-            All of it lives in a Supabase (PostgreSQL) database with row-level security, so
-            you can only read your own data and the tradable binders of people you&rsquo;ve
-            added as friends. Passwords are handled by Supabase Auth and are never stored by
+            Account data lives in a Supabase (PostgreSQL) database with row-level security.
+            You can read your own data, friends&rsquo; tradable binders where permitted, and
+            redacted playtest tables whose links you hold. Local playtest recovery and preferences
+            stay in your browser. Passwords are handled by Supabase Auth and are never stored by
             the app directly.
           </p>
         </section>
@@ -75,7 +86,8 @@ export default function PrivacyPage() {
           <h2 className="font-semibold">What&rsquo;s not done</h2>
           <p>
             No third-party analytics, no advertising, no tracking pixels. Your data is never
-            sold or shared with anyone outside the app. Cookies are used only to sign you in
+            sold. The playtest links you create are readable by signed-in people who have the link; other data is
+            shared only where the app describes it, such as tradable binders for friends. Cookies are used only to sign you in
             and keep your session secure.
           </p>
         </section>
