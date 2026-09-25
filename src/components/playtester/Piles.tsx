@@ -51,7 +51,7 @@ function PileMenu({ zone, count }: { zone: PileZone; count: number }) {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={`${LABEL[zone]} options, ${count} cards`}
-          className="flex w-full items-center justify-between gap-1 rounded px-0.5 text-xs text-ink-muted hover:bg-white/10 hover:text-ink @[6.5rem]:text-sm coarse:min-h-11"
+          className="flex w-full items-center justify-between gap-1 rounded px-0.5 text-xs text-ink-muted hover:bg-white/10 hover:text-ink @[8rem]:text-sm coarse:min-h-11"
         >
           <span className="truncate whitespace-nowrap">
             {LABEL[zone]} <span className="@max-[6.5rem]:hidden">({count})</span>
