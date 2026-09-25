@@ -64,7 +64,7 @@ const HandCard = memo(function HandCard({
       ref={ref}
       data-hand-card={id}
       className={cx("group/hand relative shrink-0 transition-transform duration-150 motion-reduce:transition-none", reduced && "!transition-none", hover && "hover:z-30! focus-within:z-30!")}
-      style={{ width: `min(${widthRem}rem, 16dvh)`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
+      style={{ width: `min(${widthRem}rem, 16vh)`, marginLeft: index === 0 ? 0 : -overlapPx, zIndex: index }}
       onFocusCapture={() => env.ui.set((s) => (s.dragging ? s : { ...s, inspect: { cardId: id, big: false } }))}
       onBlurCapture={() => env.ui.set((s) => (s.inspect && !s.inspect.big ? { ...s, inspect: null } : s))}
       onPointerEnter={(e) => {

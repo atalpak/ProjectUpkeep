@@ -205,9 +205,9 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
     </div>
     <div className="flex min-h-24 flex-1 p-2"><Battlefield /></div>
     {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
-    {totals && totals.count > 0 ? <div className="absolute left-3 top-[5.5rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
+    {totals && totals.count > 0 ? <div className="absolute left-3 top-[7.25rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
     {toast ? <div className="absolute bottom-56 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full bg-surface-raised px-4 py-2 text-sm shadow-lg" role="status"><span>{toast.text}</span>{toast.undoable ? <button onClick={() => store.undo()} className="font-semibold text-accent underline">Undo</button> : null}<button onClick={() => store.dismissToast(toast.id)} aria-label="Dismiss notification">✕</button></div> : null}
-    <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3 max-sm:flex-col max-sm:gap-0 max-sm:pl-0"><Hand /><div className="flex items-stretch gap-3 max-sm:items-end max-sm:justify-between max-sm:gap-2 max-sm:px-3"><Piles /><OtherZonesTab /></div></div>
+    <div ref={bottom} className="flex shrink-0 flex-col"><div className="flex items-stretch gap-3 border-t border-border pl-3 max-sm:flex-col max-sm:gap-0 max-sm:pl-0"><Hand /><div className="flex shrink-0 items-stretch gap-3 max-sm:items-end max-sm:justify-between max-sm:gap-2 max-sm:px-3"><Piles /><OtherZonesTab /></div></div>
     <TrackerBar /></div>
     </div>
     <CardDock />

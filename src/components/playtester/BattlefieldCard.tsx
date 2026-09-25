@@ -112,7 +112,16 @@ export const BattlefieldCard = memo(function BattlefieldCard({
       ref={setRef}
       data-card-wrapper={id}
       className={cx("group/card absolute touch-none hover:z-[1500]!", arrived && "pt-arrive")}
-      style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${CARD_W * 100 * scale}%`, zIndex: z + 1 }}
+      style={{
+        // The board fills the play area, so a stored position can leave a card
+        // hanging off the bottom or right of a short, wide board. Clamp what is
+        // DRAWN (a card is 1.4 times as tall as wide; cqw is 1% of the board's
+        // width) so a card is always fully on the mat.
+        left: `min(${x * 100}%, calc(100% - ${CARD_W * 100 * scale}cqw))`,
+        top: `min(${y * 100}%, calc(100% - ${CARD_W * 140 * scale}cqw))`,
+        width: `${CARD_W * 100 * scale}%`,
+        zIndex: z + 1,
+      }}
       onPointerEnter={(e) => { if (e.pointerType === "mouse") glance(id); }}
       onPointerLeave={() => unglance()}
       onFocusCapture={() => glance(id)}

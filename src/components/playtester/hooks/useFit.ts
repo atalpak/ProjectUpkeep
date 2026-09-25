@@ -30,3 +30,26 @@ export function useFit(ref: RefObject<HTMLElement | null>, aspect: number, enabl
   }, [ref, aspect, enabled]);
   return size;
 }
+
+/**
+ * The full size of `ref`'s element, kept live. The table board fills its whole
+ * area with this (no fixed shape), so a card can be placed anywhere on the
+ * dotted mat. Zero until first measured.
+ */
+export function useSize(ref: RefObject<HTMLElement | null>, enabled = true): { width: number; height: number } {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled) return;
+    const measure = () => {
+      const next = { width: el.clientWidth, height: el.clientHeight };
+      if (next.width === 0 || next.height === 0) return;
+      setSize((prev) => (prev.width === next.width && prev.height === next.height ? prev : next));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, enabled]);
+  return size;
+}

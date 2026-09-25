@@ -7,7 +7,7 @@ import { nudge } from "@/components/playtester/board-actions";
 import { useSettings, usePlayEnv, useUi } from "@/components/playtester/context";
 import { createBoardDrag, DROP_LABELS } from "@/components/playtester/drag";
 import { GroupFrame } from "@/components/playtester/GroupFrame";
-import { useFit } from "@/components/playtester/hooks/useFit";
+import { useSize } from "@/components/playtester/hooks/useFit";
 import { useGame, usePlayStore } from "@/components/playtester/hooks/useStore";
 import { cx } from "@/lib/cx";
 import { BOARD_ASPECT, CARD_W, cardRect, readingOrder, resolvedPositions } from "@/lib/playtest/board/layout";
@@ -19,7 +19,8 @@ import type { GameState } from "@/lib/playtest/board/types";
 /**
  * The free-placement table.
  *
- * A fixed 16:9 virtual board scaled to fit the room (`useFit`); every card is
+ * A board that fills the whole play area (`useSize`), with no frame: a card can
+ * be placed anywhere on the dotted mat. Every card is
  * placed by proportion (board/layout.ts), so a resize or a 200% zoom cannot
  * move anything. This component re-renders on any game change (it needs the
  * resolved positions) but does almost nothing when it does: each card is a
@@ -83,7 +84,7 @@ export function Battlefield() {
   const boardRef = useRef<HTMLDivElement>(null);
   const marqueeRef = useRef<HTMLDivElement>(null);
   const [els] = useState(() => new Map<string, HTMLElement>());
-  const fit = useFit(areaRef, BOARD_ASPECT, game !== null);
+  const fit = useSize(areaRef, game !== null);
   const viewportHeight = useViewportHeight();
 
   const registerEl = useCallback(
@@ -132,8 +133,10 @@ export function Battlefield() {
         const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
         const selection = store.get().selection;
         // Equal PIXEL steps in both directions: a fraction of the board's
-        // height is BOARD_ASPECT times a fraction of its width.
-        nudge(store, selection.includes(id) ? selection : [id], dx, dy * BOARD_ASPECT);
+        // height is the board's aspect ratio times a fraction of its width.
+        const box = boardRef.current?.getBoundingClientRect();
+        const aspect = box && box.height > 0 ? box.width / box.height : BOARD_ASPECT;
+        nudge(store, selection.includes(id) ? selection : [id], dx, dy * aspect);
       }
     },
     [openMenu, store],
@@ -170,14 +173,14 @@ export function Battlefield() {
   const empty = game.zones.battlefield.length === 0;
 
   return (
-    <div ref={areaRef} data-drop="battlefield" className="relative flex min-h-0 flex-1 items-center justify-center p-1.5 sm:p-2">
+    <div ref={areaRef} data-drop="battlefield" className="relative flex min-h-0 flex-1 items-center justify-center">
       <div
         ref={boardRef}
         data-board
         data-card-scale={scale}
         onPointerDown={drag.onBoardPointerDown}
         className={cx(
-          "relative touch-none select-none overflow-hidden rounded-xl border border-border-strong/60 bg-white/[0.025] transition-colors group-data-[dragging]/table:border-accent/70 group-data-[dragging]/table:bg-white/[0.05] [container-type:inline-size]",
+          "relative touch-none select-none overflow-hidden [container-type:inline-size]",
           fit.width === 0 && "invisible",
         )}
         style={{ width: fit.width, height: fit.height }}
@@ -185,7 +188,7 @@ export function Battlefield() {
         aria-label={`Battlefield, ${game.zones.battlefield.length} card${game.zones.battlefield.length === 1 ? "" : "s"}`}
       >
         {empty ? (
-          <p className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-ink-muted">
+          <p className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm font-light text-ink-muted/60">
             The table is empty. Drag a card here from your hand, or select it and press Enter for its menu.
           </p>
         ) : null}

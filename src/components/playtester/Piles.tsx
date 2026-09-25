@@ -55,12 +55,12 @@ function PileMenu({ zone, count, open, onOpenChange }: { zone: PileZone; count: 
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={`${LABEL[zone]} options, ${count} cards`}
-          className="flex w-full items-center justify-between gap-1 rounded px-0.5 text-xs text-ink-muted hover:bg-white/10 hover:text-ink @[8rem]:text-sm coarse:min-h-11"
+          className="flex w-full items-center justify-between gap-1 rounded px-0.5 text-xs text-ink-muted hover:bg-white/10 hover:text-ink sm:text-sm coarse:min-h-11"
         >
           <span className="truncate whitespace-nowrap">
-            {LABEL[zone]} <span className="@max-[6.5rem]:hidden">({count})</span>
+            {LABEL[zone]} <span className="max-[900px]:hidden">({count})</span>
           </span>
-          <KebabIcon className="size-4 shrink-0 @max-[6.5rem]:hidden" />
+          <KebabIcon className="size-4 shrink-0 max-[900px]:hidden" />
         </button>
       )}
       panelClassName="w-56 rounded-xl border border-border bg-surface-raised p-1.5 text-ink shadow-[var(--shadow-raised)]"
@@ -113,7 +113,7 @@ function Pile({ zone }: { zone: PileZone }) {
   const activate = () => env.perform(zone === "library" ? "draw" : `view-${zone}`);
 
   return (
-    <div className="@container relative flex w-[max(4.25rem,min(6.6rem,9vw,18dvh))] shrink-0 flex-col gap-1">
+    <div className="pt-pile relative flex shrink-0 flex-col gap-1">
       <PileMenu zone={zone} count={count} open={menuOpen} onOpenChange={setMenuOpen} />
       <button
         type="button"
@@ -160,7 +160,7 @@ function Pile({ zone }: { zone: PileZone }) {
           <TopCard id={topId} />
         ) : null}
         {count > 0 ? (
-          <span aria-hidden="true" className="absolute bottom-1 left-1 rounded bg-black/65 px-1 text-xs @[6.5rem]:hidden">
+          <span aria-hidden="true" className="absolute bottom-1 left-1 rounded bg-black/65 px-1 text-xs min-[901px]:hidden">
             {count}
           </span>
         ) : null}
@@ -176,7 +176,7 @@ function Pile({ zone }: { zone: PileZone }) {
 
 export function Piles() {
   return (
-    <div className="flex shrink-0 items-start gap-3 pb-2 pt-1">
+    <div className="flex shrink-0 items-start gap-3 pb-2 pt-1 max-[900px]:gap-2">
       <Pile zone="library" />
       <Pile zone="graveyard" />
       <Pile zone="exile" />
