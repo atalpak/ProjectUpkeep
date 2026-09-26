@@ -176,15 +176,16 @@ export function FoilOverlay({ tilt, width, height, radius = 16, strength = 1 }: 
 }
 
 /**
- * A card image that, when `foil`, carries a subtle holographic sheen that
- * follows how the phone is tilted, and leans a few degrees toward you.
- * Dragging a finger sideways across the card does the same, for a phone with
- * no motion sensor (and the simulator). Costs nothing when `foil` is false.
+ * A card image that tilts with the phone (or a finger drag, for a phone with
+ * no motion sensor and the simulator) whether or not it is `foil` -- a card
+ * held in the hand leans either way. `foil` only decides whether the
+ * holographic sheen (`FoilOverlay`) draws on top; a nonfoil card gets the
+ * same lean with no shimmer.
  */
 export function FoilArt({ uri, width, height, foil, strength = 1.4 }: { uri: string | null; width: number; height: number; foil: boolean; strength?: number }) {
   const touching = useRef(false);
   const start = useRef({ x: 0, y: 0 });
-  const { tilt, current } = useFoilTilt(foil, touching);
+  const { tilt, current } = useFoilTilt(true, touching);
 
   const pan = useMemo(() => {
     // Declared inside the factory: it is only used by the two release handlers
@@ -215,7 +216,6 @@ export function FoilArt({ uri, width, height, foil, strength = 1.4 }: { uri: str
   const image = uri
     ? <Image source={{ uri }} style={{ width, height, borderRadius: 16 }} />
     : <View style={{ width, height, borderRadius: 16, backgroundColor: 'rgba(128,128,128,0.2)' }} />;
-  if (!foil) return <View style={styles.center}>{image}</View>;
 
   const rotateY = tilt.x.interpolate({ inputRange: [-1, 1], outputRange: ['-6deg', '6deg'] });
   const rotateX = tilt.y.interpolate({ inputRange: [-1, 1], outputRange: ['4deg', '-4deg'] });
@@ -223,7 +223,7 @@ export function FoilArt({ uri, width, height, foil, strength = 1.4 }: { uri: str
     <View style={styles.center} {...pan.panHandlers}>
       <Animated.View style={{ width, height, transform: [{ perspective: 900 }, { rotateY }, { rotateX }] }}>
         {image}
-        <FoilOverlay tilt={tilt} width={width} height={height} strength={strength} />
+        {foil && <FoilOverlay tilt={tilt} width={width} height={height} strength={strength} />}
       </Animated.View>
     </View>
   );
