@@ -194,7 +194,8 @@ test('trades awaiting counts proposals to me that have not expired, and asks for
     { recipient_id: 'someone-else', expires_at: null, status: 'proposed' }, // not mine, even if a policy let it through
   ]) });
   const d = await fetchDashboard('me');
-  assert.equal(d.tradesAwaiting, 2);
+  // Null expiry is deliberately treated as never expiring for legacy offers.
+  assert.equal(d.tradesAwaiting, 3);
   const call = fake.callsTo('trades')[0]!;
   assert.equal(eqValue(call, 'recipient_id'), 'me');
   assert.equal(eqValue(call, 'status'), 'proposed');

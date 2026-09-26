@@ -76,6 +76,10 @@ jobs:
       # Same root eslint.config.mjs as the app job; it carries a separate
       # Expo/RN block for apps/** and packages/**. Needs the full install above.
       - run: npx eslint apps packages
+      # The app's pure-logic tests: data modules with the Supabase client and
+      # Expo file/secure-store swapped for in-memory fakes (apps/mobile/test/
+      # helpers). Screens and components are still untested.
+      - run: npm test -w @upkeep/scanner-app
 
   # Nothing else in CI compiles Swift, so the scanner's detection gate could
   # drift or stop building with every other job green. This job compiles the
@@ -121,11 +125,6 @@ jobs:
           mkdir -p "$TMP"
           cp packages/upkeep-vision/scripts/validate-detection.swift "$TMP/main.swift"
           swiftc -typecheck packages/upkeep-vision/ios/UpkeepCardVision.swift "$TMP/main.swift"
-      # The app's pure-logic tests: data modules with the Supabase client and
-      # Expo file/secure-store swapped for in-memory fakes (apps/mobile/test/
-      # helpers). Screens and components are still untested.
-      - run: npm test -w @upkeep/scanner-app
-
   migrations:
     runs-on: ubuntu-latest
     services:

@@ -323,7 +323,7 @@ test('a two-faced card gets one face per side, with each side own art; a one-fac
 // ---------------------------------------------------------------------------
 
 const ownedRow = (over: CardRow = {}): CardRow => ({
-  id: 'inst-1', quantity: 2, card_set_code: 'tst', card_collector_number: '1', finish: 'foil', condition: 'NM', location_name: 'Trade binder', ...over,
+  id: 'inst-1', quantity: 2, card_id: 'card-1', card_set_code: 'tst', card_collector_number: '1', finish: 'foil', condition: 'NM', language: 'en', location_id: null, location_name: 'Trade binder', location_type: null, notes: null, ...over,
 });
 
 test('fetchOwned with no backend is an empty answer, not an error', async () => {
@@ -344,7 +344,7 @@ test('fetchOwned maps rows, and an unsorted copy has a null location name', asyn
   install(() => ok([ownedRow(), ownedRow({ id: 'inst-2', location_name: null, quantity: 1, finish: 'nonfoil' })]));
   const r = await fetchOwned('u1', 'Card');
   assert.equal(r.error, null);
-  assert.deepEqual(r.stacks[0], { id: 'inst-1', quantity: 2, setCode: 'tst', collectorNumber: '1', finish: 'foil', condition: 'NM', locationName: 'Trade binder' });
+  assert.deepEqual(r.stacks[0], { id: 'inst-1', quantity: 2, setCode: 'tst', collectorNumber: '1', finish: 'foil', condition: 'NM', locationName: 'Trade binder', cardId: 'card-1', language: 'en', locationId: null, locationType: null, notes: null });
   assert.equal(r.stacks[1]!.locationName, null);
 });
 
