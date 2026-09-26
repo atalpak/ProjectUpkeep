@@ -556,7 +556,7 @@ test("web re-exports the shared looksLikeScryfallSyntax helper", () => {
 });
 
 test("web re-exports the shared advancedFacetCount helper", () => {
-  const filters = [
+  const filters: Filter[] = [
     EMPTY_ADVANCED_FILTER,
     { ...EMPTY_ADVANCED_FILTER, colors: ["R"] },
     { ...EMPTY_ADVANCED_FILTER, name: "goblin", type: "creature" },
