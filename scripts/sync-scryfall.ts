@@ -16,9 +16,9 @@
  *   - Cheap when nothing changed. Scryfall stamps each export with its own
  *     updated_at; if that matches our last successful run we record a `skipped`
  *     run and exit without downloading ~500MB. Pass --force to override.
- *   - Streamed, never buffered. The export is far too large to hold in memory
- *     on a free-tier runner, so it is parsed as a stream and upserted in
- *     batches.
+ *   - Downloaded first, then streamed, never buffered. The export is far too
+ *     large to hold in memory on a free-tier runner, so it is saved to a temp
+ *     file before being parsed and upserted in batches.
  *   - Observable. Every run writes a row to public.scryfall_sync_runs with its
  *     status, row count, and any error.
  *   - Reports whether it actually wrote anything via $GITHUB_OUTPUT
@@ -41,7 +41,8 @@
  */
 
 import { appendFile } from "node:fs/promises";
-import { Readable, pipeline } from "node:stream";
+import { createReadStream } from "node:fs";
+import { pipeline } from "node:stream";
 import { createGunzip } from "node:zlib";
 
 import { config as loadEnv } from "dotenv";
@@ -62,6 +63,7 @@ import {
   type PriorRun,
   type SyncRow,
 } from "../src/lib/scryfall-diff";
+import { parseContentLength, withDownloadedFile } from "../src/lib/scryfall-download";
 import { streamCardRows } from "../src/lib/scryfall-stream";
 import { createChunkedWriter } from "../src/lib/scryfall-upsert";
 import { isMissingColumnError } from "../src/lib/supabase/errors";
@@ -373,30 +375,39 @@ async function main() {
     }
 
     log(`downloading ${entry!.jsonl_download_uri} (attempt ${attempt})`);
-    const download = await fetch(entry!.jsonl_download_uri, {
-      headers: scryfallHeaders(contact),
-    });
-    if (!download.ok || !download.body) {
-      throw new Error(`Bulk download returned ${download.status} ${download.statusText}`);
-    }
-
-    // The export is served as application/gzip with no content-encoding header,
-    // so fetch hands back the compressed bytes as-is. Decompress here, on the
-    // transport side, and let streamCardRows deal only in plain JSON Lines.
-    //
-    // Not `.pipe()`: that does not forward a source error to the destination,
-    // so a dropped connection was emitted on the body stream with nobody
-    // listening, and crashed the process past the try/catch that records the
-    // failure. pipeline() destroys the gunzip stream *with* the error, and
-    // streamCardRows' own pipeline is already listening on it, so the failure
-    // arrives as an ordinary rejection. The callback has nothing to add — the
-    // error has already travelled that way — but pipeline() requires one.
-    const cards = createGunzip();
-    pipeline(
-      Readable.fromWeb(download.body as Parameters<typeof Readable.fromWeb>[0]),
-      cards,
-      () => {},
+    await withDownloadedFile(
+      async () => {
+        const download = await fetch(entry!.jsonl_download_uri, {
+          headers: scryfallHeaders(contact),
+        });
+        if (!download.ok || !download.body) {
+          throw new Error(`Bulk download returned ${download.status} ${download.statusText}`);
+        }
+        return {
+          body: download.body,
+          expectedBytes: parseContentLength(download.headers.get("content-length")),
+        };
+      },
+      async (file, info) => {
+        log(
+          `downloaded ${(info.bytes / 1_000_000).toFixed(0)}MB in ` +
+            `${(info.ms / 1000).toFixed(1)}s; upserting from disk`,
+        );
+        await upsertDownloadedFile(file, existing);
+      },
+      {
+        onCleanupError: (error, dir) =>
+          log(`could not remove temp download ${dir}: ${describe(error)}`),
+      },
     );
+  }
+
+  async function upsertDownloadedFile(file: string, existing: Map<string, string | null>) {
+    // The export is served as application/gzip with no content-encoding header,
+    // so the file holds the compressed bytes as-is. Decompress from disk and
+    // keep the existing streaming parser and diff-aware batch writer.
+    const cards = createGunzip();
+    pipeline(createReadStream(file), cards, () => {});
 
     // A statement timeout used to fail the whole run — see scryfall-upsert.ts.
     // Now it halves the chunk, keeps the smaller size, and carries on.
