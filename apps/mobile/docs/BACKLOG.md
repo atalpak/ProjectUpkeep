@@ -3,7 +3,7 @@
 **This file is the one list of what to do next, for web and mobile.** If an item is
 not here, it is not planned. When work starts, finishes or is re-ranked, update this
 file in the same change. Do not keep a second roadmap in a chat, a brief or another
-doc (`MOBILE_UI_REFINEMENT_BRIEF.md` is a work brief, not a roadmap; its items are
+doc (`docs/briefs/MOBILE_UI_REFINEMENT_BRIEF.md` is a work brief, not a roadmap; its items are
 tracked below). It lives under `apps/mobile/docs/` for historical reasons and covers
 the whole product.
 
@@ -62,8 +62,7 @@ are dropped from this table — see "Owner decisions" below for what future work
 know about them, not what's left to do.
 
 **Items 24 and 25 are appended, not re-ranked.** They arrived as full written proposals
-(`PLAYTESTER_IMPLEMENTATION_PLAN.md` and `FITS_THIS_DECK_DEVELOPMENT_GUIDE.md`, both at
-the repo root) on 2026-09-23 and are recorded here so this stays the one list, per this
+(`docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md` and `docs/guides/FITS_THIS_DECK_DEVELOPMENT_GUIDE.md`) on 2026-09-23 and are recorded here so this stays the one list, per this
 file's own rule — their position in the table is not a claim about priority relative to
 items 1–23; only `assessor`'s full re-rank sets that. Both are structural (new table +
 RLS for 24, a new `cards` column for 25) and need an architect impact map and owner
@@ -410,7 +409,7 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
       use rather than guessing.
 
 - **24 (tactile playtester), architect impact map + owner decisions, 2026-09-23.**
-  Full plan in `PLAYTESTER_IMPLEMENTATION_PLAN.md` (repo root). The architect's
+  Full plan in `docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md`. The architect's
   verdict: **go, with changes** — nothing in it touches a hard constraint, RLS, or
   either reversible bet.
   - **Changed from the plan:** the pure game logic (state/command/reducer/undo)
@@ -459,7 +458,7 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
     dropped from v1. The playtester always starts from the deck's full
     `deck_cards` list — no capped-quantity generation, no shortfall banner, no
     per-card sleeved-count read, no `source_mode` column, no "deck changed
-    since last save" resume prompt tied to sleeve state. `PLAYTESTER_IMPLEMENTATION_PLAN.md`
+    since last save" resume prompt tied to sleeve state. `docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md`
     updated to match throughout. This removes one of the two start-mode paths
     Phase 1's tests were meant to cover and simplifies `GameState` (no
     `sourceMode` field) and the `playtest_sessions` schema (no `source_mode`
@@ -678,7 +677,7 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
       only the owner can do before this is truly done end-to-end.
 
 - **25 ("Fits this deck"), architect impact map + owner decisions, 2026-09-23.**
-  Full spec in `FITS_THIS_DECK_DEVELOPMENT_GUIDE.md` (repo root). Verdict:
+  Full spec in `docs/guides/FITS_THIS_DECK_DEVELOPMENT_GUIDE.md`. Verdict:
   **go, with changes** — no hard constraint, RLS policy, or reversible bet is
   touched.
   - **Real finding, not a hypothetical:** two earlier `cards` column additions
@@ -840,7 +839,7 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
     with no layout or logic change, confirmed by lint/typecheck/test staying
     green. **Deliberately not touched: `screens/ScanScreen.tsx`**, which has
     the same bug in roughly a dozen places (`panelTitle`, `topTitle`,
-    `sheetName`, `scanPillText`, etc.). Both `MOBILE_UI_REFINEMENT_BRIEF.md`
+    `sheetName`, `scanPillText`, etc.). Both `docs/briefs/MOBILE_UI_REFINEMENT_BRIEF.md`
     (Priority 1's "the full-screen live scanner may retain its purpose-built
     dark camera header") and `.claude/rules/mobile.md` ("camera-overlay UI
     uses fixed `brand.*` colours, not the scheme-aware tokens") already treat
@@ -1132,7 +1131,7 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
     duplicate. `npm run lint`, `typecheck -w @upkeep/scanner-app` and
     `npm test` (702/702) all still pass.
 - **10 (Mobile UI refinement brief), Priority 1 shipped, 2026-09-23
-  (implementer).** The unified Mort-centered header (`MOBILE_UI_REFINEMENT_BRIEF.md`'s
+  (implementer).** The unified Mort-centered header (`docs/briefs/MOBILE_UI_REFINEMENT_BRIEF.md`'s
   Priority 1, plus its "Navigation integration" subsection pulled forward as
   scoped): `AppHeader.tsx` now renders three fixed 44pt regions — a back
   chevron or reserved space, Mort at 42pt on his existing `accent.soft`

@@ -1,6 +1,6 @@
 # Scryfall search — handoff / progress log
 
-Spec: `SCRYFALL_SEARCH_DEVELOPMENT_GUIDE.md` (do not edit). Branch: `feat/scryfall-search`.
+Spec: `docs/guides/SCRYFALL_SEARCH_DEVELOPMENT_GUIDE.md` (do not edit). Branch: `feat/scryfall-search`.
 Update this file after every milestone step. A new agent should read this, then the guide sections it names.
 
 ## Decisions made (defaults from guide §14)
@@ -8,15 +8,10 @@ Update this file after every milestone step. A new agent should read this, then 
 - Feature flag: `SCRYFALL_SEARCH_ENABLED` (default on in code path; legacy path kept for rollback).
 - No claim of "identical Scryfall website"; claim is "supports Scryfall search syntax".
 
-## Status
-| Milestone | State | Notes |
-|---|---|---|
-| A. Spike | partial | Live probes done 2026-09-26 (below). Website fallbacks / price-printing policy / spelling NOT characterized -> no "identical to Scryfall website" claim. |
-| B. Shared service | DONE | contracts, core service, gate migration 48 (schema test, test:db green), unit tests |
-| C. Entry-point migration | DONE (untested in a browser) | header submits every nonempty query to `/search?q=`; syntax never previewed locally; old `/api/cards/search` -> `/api/cards/suggestions` (6 callers repointed); legacy `raw=`/facet URLs normalise |
-| D. Rendering + integration | mostly done | 4 views, controls edit directives, pagination, ownership badges (exact vs other printing), panel opens upstream-only printings via `catalogCardToPanelCard`. NOT done: friend availability annotation, ensure-printing (see decisions), set gallery |
-| E. Visual builder | DONE | `CatalogSearchForm` (raw is source of truth; builder only generates, Replace/Add buttons; never parses raw) |
-| F. Website conveniences/release | not started | fallbacks, set gallery, spelling, price policy, a11y/manual pass, load check |
+## Status: SHIPPED to main 2026-09-26 (commit 2ab14fb), migration 48 applied
+All milestones A-F are built except the named limitations below. The tables and blockers further down are the historical log and some lines (e.g. "untested in a browser", "migration not applied") are superseded by this banner.
+
+Still open: set `SCRYFALL_SEARCH_CONTACT` in Vercel; manual a11y/IME/mobile checks; website's automatic no-result widening and price-search printing swap are NOT copied (offered as links / documented policy); friend availability and set gallery ARE built.
 
 ## Live probe findings (Milestone A, 2026-09-26)
 - Syntax error: HTTP 400 JSON `{code:bad_request, details, warnings[]}` (e.g. `foo:bar` -> "All of your terms were ignored", warnings name the keyword).

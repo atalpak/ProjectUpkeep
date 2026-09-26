@@ -12,9 +12,9 @@ batching into separate PRs; one commit per build step so the diff can be reviewe
 does NOT open a PR, does NOT apply any migration to production, and does NOT edit `apps/mobile/docs/BACKLOG.md`
 (the coordinator does those after review). Every diff goes to the `reviewer` agent before it is merged.
 
-Product spec: `ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md` (P0, P1, P2, M0 to M5, definition of done).
+Product spec: `docs/guides/ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md` (P0, P1, P2, M0 to M5, definition of done).
 Signed-off architecture (authoritative for schema, RLS, file layout, command set, build order, redaction, lint
-boundaries): `PLAYTESTER_ARCHITECT_MAP.md`. Product baseline: `PLAYTESTER_IMPLEMENTATION_PLAN.md`.
+boundaries): `docs/handoffs/PLAYTESTER_ARCHITECT_MAP.md`. Product baseline: `docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md`.
 Repo rules: `CLAUDE.md` and `.claude/rules/{migrations,app-router,testing,data-access}.md`.
 
 Visual reference (an Archidekt screenshot that is deliberately NOT committed): a full-screen dark table; top-left
@@ -259,8 +259,8 @@ The earlier offline-build note: when Google Fonts cannot be fetched, `NEXT_FONT_
 
 ## Prompt to paste into the next tool
 
-> You are resuming a half-built feature in the Project Upkeep repo. Read `PLAYTESTER_BUILD_HANDOFF.md` first, then
-> `ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md`, `PLAYTESTER_ARCHITECT_MAP.md` and `CLAUDE.md` (and the rule files it points
+> You are resuming a half-built feature in the Project Upkeep repo. Read `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md` first, then
+> `docs/guides/ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md`, `docs/handoffs/PLAYTESTER_ARCHITECT_MAP.md` and `CLAUDE.md` (and the rule files it points
 > to). Check out the branch `feat/playtester-archidekt-parity`. Continue from the first step in the handoff's build-order
 > table that is not DONE, in that order, committing after each step and updating the handoff in the same commit. Do not push,
 > open a PR, apply any migration, or edit `apps/mobile/docs/BACKLOG.md`. Follow the hard rules in the handoff exactly. Before

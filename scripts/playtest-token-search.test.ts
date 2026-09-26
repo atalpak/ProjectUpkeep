@@ -4,7 +4,7 @@
  * advanced (direct `cards` query) branch of the route, with the type and the
  * name carried through. What it does NOT prove is that the live `cards` table
  * returns token rows for it: that needs a catalogue, and is recorded as
- * unverified in PLAYTESTER_BUILD_HANDOFF.md.
+ * unverified in docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md.
  *
  * Run with: npx tsx --test scripts/playtest-token-search.test.ts
  */

@@ -1,6 +1,6 @@
 /**
  * Catalog search contracts — the framework-free half of Scryfall-compatible
- * search (see SCRYFALL_SEARCH_DEVELOPMENT_GUIDE.md §3–§4, §7).
+ * search (see docs/guides/SCRYFALL_SEARCH_DEVELOPMENT_GUIDE.md §3–§4, §7).
  *
  * The submitted query is an opaque Scryfall string. Nothing here evaluates it;
  * that is upstream's job. This module only:

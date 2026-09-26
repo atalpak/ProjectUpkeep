@@ -31,7 +31,7 @@ export function MortAvatar({ size = AVATAR }: { size?: number }) {
 
 /**
  * The one header every signed-in, non-camera screen shares (see
- * MOBILE_UI_REFINEMENT_BRIEF.md Priority 1): three fixed regions -- back
+ * docs/briefs/MOBILE_UI_REFINEMENT_BRIEF.md Priority 1): three fixed regions -- back
  * chevron or reserved empty space on the left, Mort centered, the menu button
  * (with its unread badge) on the right. Page titles no longer live here; they
  * moved into the content area (see PageTitle.tsx) so a screen never shows the
@@ -71,7 +71,7 @@ export function AppHeader({ onMenu, unread = 0, showBack, onBack }: { onMenu(): 
 const useStyles = makeStyles(() => StyleSheet.create({
   // Canvas-coloured by default, per the brief -- no border here; a divider
   // once content scrolls under the header is a later refinement, not part of
-  // this pass (see MOBILE_UI_REFINEMENT_BRIEF.md's own "may appear" wording).
+  // this pass (see docs/briefs/MOBILE_UI_REFINEMENT_BRIEF.md's own "may appear" wording).
   bar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.md, minHeight: 58, backgroundColor: surface.canvas },
   side: { width: SIDE, height: SIDE, alignItems: 'center', justifyContent: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },

@@ -5,7 +5,7 @@ import { text, type } from '../theme';
 
 /**
  * A root screen's own title, now that the unified AppHeader shows Mort
- * instead of a title bar (see MOBILE_UI_REFINEMENT_BRIEF.md Priority 1).
+ * instead of a title bar (see docs/briefs/MOBILE_UI_REFINEMENT_BRIEF.md Priority 1).
  * Sits at the top of the content area in the app's existing display type --
  * the same 26pt Cinzel weight DeckDetailScreen's commander banner already
  * uses, so this reads as the same visual language rather than a new one.

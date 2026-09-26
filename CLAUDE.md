@@ -99,7 +99,7 @@ src/
     cards/                  search · search-query (local, legacy) ·
                             scryfall-search (+ -core, unit-tested) · search-enrichment ·
                             catalog-panel-card — submitted search runs on Scryfall's API;
-                            see SEARCH_HANDOFF.md
+                            see docs/handoffs/SEARCH_HANDOFF.md
     feedback/  search/      validate · recent-searches
     playtest/               analyzer modules plus game-start · recovery · settings · session
       board/                pure v2 game state, commands, layout, events, metrics, share projection
@@ -113,6 +113,7 @@ src/
     social/                 queries · counter · trade-status · wants
                             notifications · tos · types · want-export
     supabase/               client · server · session · errors
+docs/                       guides/ (specs) · handoffs/ (resume-a-feature logs) · briefs/ — see docs/README.md
 public/                     logo-light/dark.png · mort/ (pose PNGs, web mirror)
 supabase/
   migrations/               numbered, applied in order — check the directory
