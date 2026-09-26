@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { MIN_TERM, type LocatedCard } from "@/lib/collection/locate";
 import { specToParams } from "@upkeep/domain";
 
-import { readRecentSearches, recordRecentSearch } from "@/lib/search/recent-searches";
+import { readRecentSearches, recentSearchKey, recentSearchSummary, type RecentSearchSpec } from "@/lib/search/recent-searches";
 import { useCardPanel } from "@/components/CardPanel";
 import { cx } from "@/components/ui";
 
@@ -34,9 +34,9 @@ import { cx } from "@/components/ui";
  *   - A spinner replaces the search icon the instant there is enough to look
  *     up, and stays until that lookup resolves — the field never sits still
  *     while a request is in flight.
- *   - Focusing an empty field surfaces the searches actually run recently
- *     (settled fetches, not every keystroke), in italic, so returning to a
- *     card you looked up a minute ago does not mean retyping it.
+ *   - Focusing an empty field surfaces successful `/search` queries from
+ *     this browser, including their display options, so replaying a recent
+ *     search does not mean retyping it or rebuilding its settings.
  *   - "Advanced Search" at the bottom of the dropdown is a link to `/search`
  *     — a dedicated page shaped like Scryfall's own advanced search, with the
  *     structured facets, a raw syntax box, and a Search button, rather than a
@@ -122,7 +122,7 @@ export function HeaderSearch() {
   // paint (the dropdown starts closed), so there is nothing for a server
   // render to disagree with, and no need for the external-store dance the
   // sync-across-tabs cases in this app use.
-  const [recent, setRecent] = useState<string[]>([]);
+  const [recent, setRecent] = useState<RecentSearchSpec[]>([]);
 
   const term = value.trim();
   // Syntax is never previewed locally: suggestions are name lookups only.
@@ -197,9 +197,6 @@ export function HeaderSearch() {
         setActive(-1);
         setDropdownOpen(true);
 
-        // A search that actually ran and came back, not every keystroke —
-        // the debounce above already keeps this to settled lookups.
-        setRecent(recordRecentSearch(term));
       } catch {
         // Aborted, or offline. The field still works as a way to reach /find.
       } finally {
@@ -226,10 +223,9 @@ export function HeaderSearch() {
     open(result.sample_card_id);
   }
 
-  function pickRecent(searched: string) {
-    setValue(searched);
-    setLoading(true);
-    input.current?.focus();
+  function pickRecent(searched: RecentSearchSpec) {
+    setDropdownOpen(false);
+    router.push(`/search?${specToParams({ ...searched, page: 1 })}`);
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
@@ -264,20 +260,15 @@ export function HeaderSearch() {
   function submitQuery() {
     if (!term) return;
     setDropdownOpen(false);
-    setRecent(recordRecentSearch(term));
     input.current?.blur();
     router.push(`/search?${specToParams({ q: term, page: 1 })}`);
   }
 
   const showRecent = dropdownOpen && term.length < MIN_TERM;
 
-  // Deliberately never carries the half-typed term over: Advanced Search is
-  // its own fresh session every time, not a continuation of whatever was
-  // mid-type here — landing there with an old query already filled in (and
-  // the Filters panel consequently forced open, since it opens by default
-  // whenever a filter is already active) read as glued to this box rather
-  // than a destination of its own.
-  const advancedHref = "/search";
+  // Every Advanced Search link carries the same trimmed draft. Interior
+  // spaces and other query text stay exactly as typed.
+  const advancedHref = term ? `/search?${specToParams({ q: term, page: 1 })}` : "/search";
 
   return (
     // A growing spacer, not just the field itself: this is what lets the
@@ -293,9 +284,8 @@ export function HeaderSearch() {
           {loading ? (
             <Spinner className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-ink-muted" />
           ) : (
-            // Not just a decorative glyph any more: it is the field's own
-            // shortcut to Advanced Search — always a fresh session there,
-            // never whatever is half-typed here (see `advancedHref` above).
+            // Shortcut to Advanced Search, carrying the same trimmed draft as
+            // the compact-header icon and the dropdown link (see `advancedHref`).
             <Link
               href={advancedHref}
               aria-label="Advanced Search"
@@ -329,9 +319,9 @@ export function HeaderSearch() {
               }
             }}
             onFocus={() => {
+              setRecent(readRecentSearches());
               if (results.length > 0) setDropdownOpen(true);
               else if (term.length < MIN_TERM) {
-                setRecent(readRecentSearches());
                 setDropdownOpen(true);
               }
             }}
@@ -361,18 +351,23 @@ export function HeaderSearch() {
           >
             {showRecent ? (
               recent.length > 0 ? (
-                <ul className="py-1">
-                  {recent.map((searched) => (
-                    <li key={searched}>
-                      <button
-                        type="button"
-                        onClick={() => pickRecent(searched)}
-                        className="block w-full px-3 py-2 text-left text-sm italic text-ink-muted transition-colors hover:bg-surface-muted"
-                      >
-                        {searched}
-                      </button>
-                    </li>
-                  ))}
+                <ul className="max-h-[min(24rem,calc(100dvh_-_6rem))] overflow-y-auto py-1">
+                  {recent.map((searched) => {
+                    const summary = recentSearchSummary(searched);
+                    return (
+                      <li key={recentSearchKey(searched)}>
+                        <button
+                          type="button"
+                          onClick={() => pickRecent(searched)}
+                          aria-label={`Search for ${searched.q}${summary ? `; options: ${summary}` : ""}`}
+                          className="block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted"
+                        >
+                          <span className="block truncate font-medium text-ink">{searched.q}</span>
+                          {summary ? <span className="block whitespace-normal break-words text-xs text-ink-muted">{summary}</span> : null}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="px-3 py-3 text-sm text-ink-muted">
