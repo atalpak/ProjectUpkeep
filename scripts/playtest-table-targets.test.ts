@@ -12,29 +12,30 @@ import { boardCardScale, handCardPx, HAND_WIDTH_REM } from "../src/components/pl
 import { shortcutTargets } from "../src/components/playtester/targets";
 import { BOARD_ASPECT, CARD_H, CARD_W, clampPos } from "../src/lib/playtest/board/layout";
 
-const has = (...ids: string[]) => (id: string) => ids.includes(id);
-
 test("hover a permanent and a table shortcut acts on it, not on the selection", () => {
-  const t = shortcutTargets({ hoveredId: "a", battlefield: ["a", "b"], exists: has("a", "b", "h"), selection: ["b"] });
+  const t = shortcutTargets({ hoveredId: "a", battlefield: ["a", "b"], hand: ["h"], selection: ["b"] });
   assert.deepEqual(t.onTable, ["a"]);
   assert.deepEqual(t.movable, ["a"]);
 });
 
 test("hover a hand card: moves take it, table actions fall back to the selection", () => {
-  const t = shortcutTargets({ hoveredId: "h", battlefield: ["a", "b"], exists: has("a", "b", "h"), selection: ["b"] });
+  const t = shortcutTargets({ hoveredId: "h", battlefield: ["a", "b"], hand: ["h"], selection: ["b"] });
   assert.deepEqual(t.onTable, ["b"], "tapping a hand card means nothing");
   assert.deepEqual(t.movable, ["h"]);
 });
 
 test("nothing hovered: the selection is what a shortcut acts on", () => {
-  const t = shortcutTargets({ hoveredId: null, battlefield: ["a"], exists: has("a"), selection: ["a"] });
+  const t = shortcutTargets({ hoveredId: null, battlefield: ["a"], hand: [], selection: ["a"] });
   assert.deepEqual(t.onTable, ["a"]);
   assert.deepEqual(t.movable, ["a"]);
 });
 
-test("a hovered id that no longer exists is ignored", () => {
-  const t = shortcutTargets({ hoveredId: "gone", battlefield: [], exists: has("a"), selection: ["a"] });
+test("a hovered card that has since left the table or hand is ignored", () => {
+  // Hover a permanent, press G: it is now in the graveyard and its element is gone,
+  // so no pointer-leave fired. The next shortcut must act on the selection.
+  const t = shortcutTargets({ hoveredId: "gone", battlefield: [], hand: [], selection: ["a"] });
   assert.deepEqual(t.movable, ["a"]);
+  assert.deepEqual(t.onTable, ["a"]);
 });
 
 test("a table card is drawn at the hand card's pixel width when the board is big enough", () => {

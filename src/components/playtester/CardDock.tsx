@@ -56,7 +56,7 @@ export function CardDock() {
   const known = !faceDown && scryfallId !== null && show !== null;
   const text = card ? textFor(env.catalog.get(card.cardId ?? ""), card.face === "back" ? "back" : "front") : null;
   return (
-    <aside aria-label="Card details" aria-live="polite" className="hidden h-full w-72 shrink-0 overflow-y-auto border-l border-border bg-canvas/80 p-3 xl:block">
+    <aside aria-label="Card details" className="hidden h-full w-72 shrink-0 overflow-y-auto border-l border-border bg-canvas/80 p-3 xl:block">
       {known ? (
         <CardDetailsDock />
       ) : faceDown ? (

@@ -65,7 +65,7 @@ export function PlayBoard(props: PlayBoardProps) {
     const { onTable: selected, movable } = shortcutTargets({
       hoveredId,
       battlefield: game?.zones.battlefield ?? [],
-      exists: (cardId) => game?.cards[cardId] !== undefined,
+      hand: game?.zones.hand ?? [],
       selection: store.get().selection,
     });
     const move = (to: ZoneId, at: "top" | "bottom" = "top") => { if (movable.length) dispatch({ type: "MOVE_MANY", ids: [...movable], to, at }); };

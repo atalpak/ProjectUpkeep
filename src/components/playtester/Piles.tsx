@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { CardArt } from "./CardArt";
 import { usePlayEnv, useUi } from "./context";
@@ -105,6 +105,7 @@ function Pile({ zone }: { zone: PileZone }) {
   // header. The other piles open their cards on a click. A keyboard press
   // (click with no pointer, `detail` 0) does the same as a click.
   const hold = useRef<{ timer: number; held: boolean } | null>(null);
+  useEffect(() => () => { if (hold.current) window.clearTimeout(hold.current.timer); }, []);
   const end = () => {
     if (hold.current) window.clearTimeout(hold.current.timer);
     hold.current = null;
@@ -123,7 +124,8 @@ function Pile({ zone }: { zone: PileZone }) {
           setMenuOpen(true);
         }}
         onPointerDown={zone === "library" ? (e) => {
-          if (e.button !== 0 || count === 0) return;
+          // A ctrl-click is a right-click on a Mac: the menu opens, not a hold.
+          if (e.button !== 0 || e.ctrlKey || count === 0) return;
           const state = { held: false, timer: 0 };
           state.timer = window.setTimeout(() => {
             state.held = true;
