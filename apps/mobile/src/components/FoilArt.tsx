@@ -186,26 +186,31 @@ export function FoilArt({ uri, width, height, foil, strength = 1.4 }: { uri: str
   const start = useRef({ x: 0, y: 0 });
   const { tilt, current } = useFoilTilt(foil, touching);
 
-  const pan = useMemo(() => PanResponder.create({
-    // Only horizontal drags: vertical ones belong to the sheet's scrolling.
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy) * 1.2,
-    onPanResponderGrant: () => { touching.current = true; start.current = { ...current.current }; },
-    onPanResponderMove: (_, g) => {
-      current.current = { x: clamp(start.current.x + g.dx / (width / 2)), y: current.current.y };
-      tilt.setValue(current.current);
-    },
-    onPanResponderRelease: () => release(),
-    onPanResponderTerminate: () => release(),
-  }), [width, tilt, current]);
+  const pan = useMemo(() => {
+    // Declared inside the factory: it is only used by the two release handlers
+    // below and touches nothing but refs and the useRef'd Animated value, so
+    // it needs no dependency of its own.
+    function release() {
+      touching.current = false;
+      current.current = { x: 0, y: 0 };
+      // JS driver, like every other write to `tilt` (setValue from the sensor and
+      // the drag): mixing in a native-driven animation on the same value is what
+      // can leave later JS updates silently not showing.
+      Animated.spring(tilt, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 6, tension: 60 }).start();
+    }
 
-  function release() {
-    touching.current = false;
-    current.current = { x: 0, y: 0 };
-    // JS driver, like every other write to `tilt` (setValue from the sensor and
-    // the drag): mixing in a native-driven animation on the same value is what
-    // can leave later JS updates silently not showing.
-    Animated.spring(tilt, { toValue: { x: 0, y: 0 }, useNativeDriver: false, friction: 6, tension: 60 }).start();
-  }
+    return PanResponder.create({
+      // Only horizontal drags: vertical ones belong to the sheet's scrolling.
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 6 && Math.abs(g.dx) > Math.abs(g.dy) * 1.2,
+      onPanResponderGrant: () => { touching.current = true; start.current = { ...current.current }; },
+      onPanResponderMove: (_, g) => {
+        current.current = { x: clamp(start.current.x + g.dx / (width / 2)), y: current.current.y };
+        tilt.setValue(current.current);
+      },
+      onPanResponderRelease: () => release(),
+      onPanResponderTerminate: () => release(),
+    });
+  }, [width, tilt, current]);
 
   const image = uri
     ? <Image source={{ uri }} style={{ width, height, borderRadius: 16 }} />
