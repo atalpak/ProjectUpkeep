@@ -8,7 +8,7 @@ Long-form planning and handoff material. Application facts live in
 | Folder | What belongs here | Files |
 |---|---|---|
 | `guides/` | Historical specs and implementation plans written before/during a feature. Evidence, not current behavior. | `SCRYFALL_SEARCH_DEVELOPMENT_GUIDE` (built), `ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE` and `PLAYTESTER_IMPLEMENTATION_PLAN` (implementation merged; see handoff for verification gaps), `FITS_THIS_DECK_DEVELOPMENT_GUIDE` (not built) |
-| `handoffs/` | Current status and verification notes; update with evidence. | `SEARCH_HANDOFF` (shipped), `PLAYTESTER_BUILD_HANDOFF` (implementation merged; verification/release evidence remains; migration-drift CI parser follow-up pending), `PLAYTESTER_ARCHITECT_MAP` (historical decisions) |
+| `handoffs/` | Current status and verification notes; update with evidence. | `SEARCH_HANDOFF` (shipped), `PLAYTESTER_BUILD_HANDOFF` (implementation merged; verification/release evidence remains; CI run 36267379039 succeeded, migration-drift found no local migrations missing after PR #102), `PLAYTESTER_ARCHITECT_MAP` (historical decisions) |
 | `briefs/` | Work briefs for a specific pass, not roadmaps. | `MOBILE_UI_REFINEMENT_BRIEF`, `MORT_ASSET_BRIEF` |
 
 Pre-rebuild planning is in `../archive/`.

@@ -271,11 +271,13 @@ impact map and owner sign-off before implementation.
   (`scripts/check-migrations-applied.sh`, #78) now runs in CI on every push to `main`
   and fails the build if this ever drifts again — skips with a warning for ordinary local
   runs when Supabase is unreachable, while the main-only production job requires the
-  secret and fails closed. The job reached Supabase after PR #101, but its post-merge
-  run `36266768376` exposed that the CLI's default text output did not match the script's
-  JSON parser. A JSON-output fix is pending; until then this job has not verified
-  production migration state. The read-only linked list had confirmed local and remote
-  migrations 1–48 in sync on 2026-09-26.
+  secret and fails closed. PR #102 (`a23bb63`) added the required JSON output format;
+  main run `36267379039` passed the migration-drift job, which found no local migrations
+  missing from production. The full CI run succeeded with all five jobs; its summary
+  included four duplicated annotations for two distinct missing-dependency warnings in
+  `apps/mobile/src/AppProvider.tsx`, so the run was not warning-free. No migrations were
+  applied. The read-only linked list had confirmed local and remote migrations 1–48 in
+  sync on 2026-09-26.
 
 - **4 (a real phone session).** Roughly ten open items below are marked "unverified
   on a device" or depend on it directly: items 2–4/8/12 (old numbering) on the phone,
@@ -417,12 +419,13 @@ impact map and owner sign-off before implementation.
   the persistence and share work that was then called Phase 3, are now merged on `main`.
   These dated bullets are the historical decision/build log, not remaining work. The
   production linked-migration list confirms 46 and 47 are applied. Current verification
-  gaps are in `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md`. PR #101 merged and the
-  `SUPABASE_ACCESS_TOKEN` secret name is present, but post-merge run `36266768376`
-  reached Supabase and failed because the CLI returned a text table while the script
-  parsed JSON; CI did not verify production migrations. The read-only linked list had
-  previously confirmed migrations 1–48 in sync on 2026-09-26. The JSON-output parser fix
-  is pending in the current branch.
+  gaps are in `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md`. PR #102 merged as `a23bb63`;
+  main run `36267379039` passed its migration-drift job, confirming every local
+  migration was applied to production (none were missing remotely). The full CI run
+  succeeded with all five jobs; its summary included four duplicated annotations for two
+  distinct missing-dependency warnings in `apps/mobile/src/AppProvider.tsx`. No
+  migrations were applied. The read-only linked list had
+  previously confirmed migrations 1–48 in sync on 2026-09-26.
 
   Full plan in `docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md`. The architect's
   verdict: **go, with changes** — nothing in it touches a hard constraint, RLS, or
