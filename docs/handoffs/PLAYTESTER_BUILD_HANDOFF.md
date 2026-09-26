@@ -1,16 +1,50 @@
-# Playtester build handoff
+# Playtester build status and verification handoff
 
-Written so a fresh AI tool with **no memory of the conversation that started this** can pick the build up and finish it.
-Keep this file truthful: update the checklist and the "what remains" section in the same commit as the work.
+Last reconciled: 2026-09-26 against current `main`. The playtester implementation is
+merged, including the core, tabletop UI, snapshots, save/resume, sharing, and the
+subsequent UI follow-ups. The old feature branch/worktree and its phased build queue
+are no longer current. No further implementation step is established by this handoff;
+the open work below is verification and release evidence.
 
-Last updated: 2026-09-25, after the follow-up pass (zone overlay drag, table look, zoom/keyboard checks, scratch-database contract check).
+This document retains the dated implementation and QA log below as historical evidence.
+Use the current status and verification sections here as the summary; do not resume the
+old branch or treat historical phase notes as outstanding work.
 
-## Goal, and the one-pass rule
+## Current status and what remains
 
-Build the Archidekt-style solo playtester (`/decks/[id]/play`) in **one pass on one branch**. No phased releases, no
-batching into separate PRs; one commit per build step so the diff can be reviewed in pieces. The builder does NOT push,
-does NOT open a PR, does NOT apply any migration to production, and does NOT edit `apps/mobile/docs/BACKLOG.md`
-(the coordinator does those after review). Every diff goes to the `reviewer` agent before it is merged.
+The implementation is on `main`: the signed-in deck play route, popout and shared
+routes, game state and UI, session persistence, snapshot save/resume, share projection,
+server actions, and related components are present. The older build-order table and
+follow-up notes record how those pieces were built; they are not a queue to continue.
+
+Remaining work is evidence gathering, not an identified build step:
+
+- Verify the real Supabase server-action flow (auth cookies, PostgREST, and the share
+  RPC) against a non-production Supabase environment. Scratch-Postgres contract checks
+  do not exercise the Supabase API/auth layer.
+- Verify token lookup against the live catalog/provider. The request shape and fallback
+  were checked, but a live catalog result was not.
+- Complete physical-device checks for touch, screen-reader announcements, high contrast,
+  and browser/device behavior. Prior viewport emulation and accessibility-tree checks
+  do not replace this.
+- Production migration state was checked on 2026-09-26 with
+  `SUPABASE_TELEMETRY_DISABLED=1 npx supabase migration list --linked`: local and remote
+  histories match through migration 48, including playtester migrations 46 and 47. No
+  production migration action is needed for this feature based on that check.
+
+No production migration was applied as part of this reconciliation. PR #101 merged and
+the `SUPABASE_ACCESS_TOKEN` secret name is present in GitHub Actions. However, the
+post-merge run `36266768376` reached Supabase but returned the default text table while
+the drift script expected JSON. The migration-drift check therefore failed to parse its
+response and did not verify production migrations. The read-only linked migration list
+above had previously confirmed local and remote migrations 1–48 were in sync on
+2026-09-26; that remains the production evidence. A parser fix using the CLI's JSON
+output option is pending in the current branch. The separate scratch-Postgres migration
+job passed, but does not query production. Never run `supabase db push --linked` as an
+agent.
+
+The product spec remains `docs/guides/ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md`;
+architecture decisions are in `docs/handoffs/PLAYTESTER_ARCHITECT_MAP.md`.
 
 Product spec: `docs/guides/ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md` (P0, P1, P2, M0 to M5, definition of done).
 Signed-off architecture (authoritative for schema, RLS, file layout, command set, build order, redaction, lint
@@ -24,15 +58,12 @@ Exile piles with "No cards" placeholders and a docked "View other zones" tab; a 
 poison / experience / energy, coloured mana-pool counters, "Next turn" and "More". Match the LAYOUT only, in Project
 Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.css`). Never copy Archidekt art or branding.
 
-## Where the work lives
+## Where the implementation lives
 
-- Branch: `feat/playtester-archidekt-parity`, created off `main` at `2ea8d74`.
-- It was built in the git worktree `/Users/anthonytalpak/ProjectUpkeep/.claude/worktrees/agent-a90a0ed56184b2d1f`.
-  To continue: `git worktree list` from the main checkout, then work inside that worktree, or
-  `git checkout feat/playtester-archidekt-parity` in any clone that has the branch.
-- This worktree now has its own ignored `node_modules` from `npm ci --offline --ignore-scripts` to run checks. Never
-  `git add -A`; add paths explicitly.
-- Owner owns commits/pushes/PRs. Commit messages end with `Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`.
+The current implementation is on `main`. Start from the current checkout and inspect
+the relevant code and CI before proposing any follow-up; the historical branch and
+worktree references from the original build are obsolete. Any new code change follows
+the normal project review and release process.
 
 ## Owner decisions (already taken, do not reopen)
 
@@ -52,8 +83,8 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 
 - CLAUDE.md constraint 3: every query about "my" data filters on the owner explicitly (RLS is the floor). Deck checks
   filter `user_id`. Constraint 4: nothing under `src/` builds a service-role client or holds a DB credential.
-  Constraint 8: **never edit an applied migration** (1 to 45). Migrations 46 and 47 are new and **NOT yet applied to
-  production**: the coordinator/owner applies them after review (see "Production order" below).
+  Constraint 8: **never edit an applied migration**. Migration files 46 and 47 are part of the historical
+  implementation; the current linked migration list confirms both are applied (see above).
 - Playing never writes `deck_cards`, `card_instances`, `locations` or ownership. Playtest code may read the deck list
   (`getDeck`/`getDeckList` in `page.tsx` only). Enforced by ESLint blocks (`eslint.config.mjs`) and
   `scripts/playtest-boundary.test.ts` (the server actions may name only `playtest_sessions`, `playtest_shares` and a
@@ -81,19 +112,19 @@ Upkeep's own tokens and components (`src/components/ui.tsx`, `src/app/globals.cs
 | 9 | UI and page/route wiring | DONE for implementation — first table, main UI, controls, and visual refinement. Browser fixture verified the main loop. Live database and accessibility QA remain below. | `447eeb6`, `7beac5e`, `178cc58`, `b88ed82` |
 | 10 | Docs: privacy page, CLAUDE.md directory map, data-access.md, app-router.md | DONE in this docs commit | this commit |
 
-### Step 9 implementation and verification limits
+### Step 9 implementation and verification limits (historical, 2026-09-25)
 
 - Done: page owner check, slim entries, server SHA-256 fingerprint, saves/session loaders, bound actions; popout and signed-in share routes; sign-out local-key clearing in both nav forms.
 - Done: initial start dialog (format, life, partner, first-turn draw, free mulligan); London mulligan with ordered bottom choices and inspect; board, hand, card menu, zone browser, tracker bar, palette/shortcut sheet, local recovery, basic save/share/settings/log/metrics/export/token/simulator panels.
 - Browser fixture: `/?playtest-fixture=1` in development only, before the home page's auth query. No account or database needed. It is guarded by `NODE_ENV === "development"` and is absent as a reachable feature in production.
-- Added in the UI refinement: token catalog search and custom extras, notes/counters/offsets/reveal/library insertion in the card menu, image-based full-hand overlay, all tracker paths, all five metric series, fingerprint mismatch choice for direct session URLs, simulator odds controls, turn feedback (the hand fan was removed in the follow-up restyle; the hand is a straight row). Remaining verification: keyboard and touch QA at 200% zoom, live token catalog verification, and account save/share testing against a migrated non-production database. The share route was compiled but not exercised against live DB/migrations. No production migration applied. ~~The optional keep-search-open-while-dragging setting is exposed but the zone overlay does not yet support dragging while open.~~ Closed in the follow-up pass below.
+- Added in the UI refinement: token catalog search and custom extras, notes/counters/offsets/reveal/library insertion in the card menu, image-based full-hand overlay, all tracker paths, all five metric series, fingerprint mismatch choice for direct session URLs, simulator odds controls, turn feedback (the hand fan was removed in the follow-up restyle; the hand is a straight row). At the time of this 2026-09-25 entry, remaining verification was keyboard and touch QA at 200% zoom, live token catalog verification, and account save/share testing against a migrated non-production database. The share route was compiled but not exercised against live DB/migrations; production migration status was also unknown then. ~~The optional keep-search-open-while-dragging setting is exposed but the zone overlay does not yet support dragging while open.~~ Closed in the follow-up pass below.
 - Visual: the full-screen dark table uses Project Upkeep palette/typography. The browser fixture verified the hand bottom-left, three piles bottom-right, toolbar bottom, and small controls top. The battlefield fit bug and hand pointer menu dismissal bug were found in browser and fixed. The next-turn control was exercised from turn 0 to turn 1.
 
-### Step 10 documentation
+### Step 10 documentation (historical)
 - The privacy page now describes signed-in, link-only redacted table shares, account saves, and browser-local recovery.
 - `CLAUDE.md` maps the play, popout and share routes and the board/opponent library directories; its test count is 79.
 - The data-access and app-router rules document owner-only saves, the authenticated share RPC, and route conventions.
-- The coordinator should update BACKLOG item 24 after review; this branch does not edit `apps/mobile/docs/BACKLOG.md`.
+- BACKLOG item 24 has since been reconciled against `main` (2026-09-26).
 
 ### Follow-up pass (2026-09-25): zone overlay drag while open
 
@@ -127,7 +158,7 @@ Not verified: real touch input (no touch device here; the mobile emulation sends
 - **Layout.** The card-details column is now full height on the right; the top bar, battlefield, hand, piles and toolbar all sit in the column beside it (`PlayBoard.tsx`: root is a row, left column and `CardDock`). Dialogs, the card menu and the inspector stay at the root so they cover everything.
 - **Undo and redo** moved out of the hand row into the top bar (`UndoRedo.tsx`), fixed in place.
 - **Play area.** The battlefield is a visible framed zone (the frame lights up while dragging) and the WHOLE battlefield area is the drop target (`data-drop` moved from the board to its wrapper; a drop outside the board clamps to the nearest edge). Cards are free-placed and may overlap.
-- **Card size.** Hand cards are bigger (`card-size.ts`: 5.2 / 6.6 / 8 rem) and table cards are drawn at the SAME pixel width as a hand card times the table-size setting, never larger than their layout size. To make that work the layout constants changed: `CARD_W` 0.07 to 0.115, `BOARD_ASPECT` 16:9 to 2:1, and the group step constants were scaled with them. Positions are still proportions of the board, so nothing about saved shape changed, but a position saved earlier means a slightly different place on the wider board (no saves exist in production yet).
+- **Card size.** Hand cards are bigger (`card-size.ts`: 5.2 / 6.6 / 8 rem) and table cards are drawn at the SAME pixel width as a hand card times the table-size setting, never larger than their layout size. To make that work the layout constants changed: `CARD_W` 0.07 to 0.115, `BOARD_ASPECT` 16:9 to 2:1, and the group step constants were scaled with them. Positions are still proportions of the board, so nothing about saved shape changed, but a position saved earlier means a slightly different place on the wider board (the 2026-09-25 notes did not have production save data to inspect).
 - **Hover.** A table card grows to 114% and rises on hover (its wrapper takes the hover so the card never moves out from under the pointer); the mulligan cards lift and grow (110%, 12px). Note: Tailwind v4 draws these with the `scale` and `translate` CSS properties, not `transform`.
 - **Hotkeys act on the hovered card** with no click first (`targets.ts`): hover a permanent and press T to tap it. Table actions take a hovered permanent only; zone moves also take a hovered hand card; otherwise the selection. Verified: hovering a table card and pressing T turned it sideways.
 - **Mana pips** in the toolbar are the real Scryfall symbols (`ManaSymbol`).
@@ -172,20 +203,17 @@ Not verified: real touch input (no touch device here; the mobile emulation sends
 - **Life heart**: a solid, soft pink (`#e88fab` at 35%) heart with no outline behind the number (`HeartFillIcon`).
 - **The "N selected, P/T total" pill is gone** (it overlapped "Playtester actions"). Selection itself is unchanged.
 
-## Migrations and the production order (nothing has been applied to production)
+## Migrations and production status (checked 2026-09-26)
 
 Files: `supabase/migrations/00000000000046_playtest_sessions.sql`, `00000000000047_playtest_shares.sql`.
 Schema tests: sections 27 (sessions) and 28 (shares) at the end of `supabase/tests/schema_test.sql`; each header records
 the deliberate break that was run for every assertion and which assertion it tripped. The one honest caveat: 27(e)'s
 delete assertion is guarded twice (select AND delete policies), so it was falsified by loosening both.
 
-Production order for the coordinator/owner, in this order:
-1. Review the diff with the `reviewer` agent.
-2. `npx supabase migration list --linked` to confirm 1 to 45 are applied and 46/47 are not.
-3. `npx supabase db push --linked` to apply 46 then 47 (they are additive; nothing existing changes).
-4. Only then merge the code. The code that reads these tables must never land before the migrations
-   (`sessions.ts` degrades to "saving unavailable" on a missing table as a seatbelt, not as the plan).
-5. `npm run check:migrations` should then be clean. After first real use, check `pg_column_size` of a few snapshots.
+The earlier production sequence above is historical and must not be followed as current
+status: the code is already merged. With CLI telemetry disabled, the read-only linked
+migration list returned local and remote entries 1–48, including 46 and 47. Do not run
+`supabase db push --linked` for these migrations; they are already recorded as applied.
 
 ## How to run everything
 
@@ -238,7 +266,7 @@ export PGHOST=localhost PGPORT=55433 PGUSER=postgres DBNAME=mtg_verify_playtest 
 - The "use server" file may export only async functions. Bound arguments (`action.bind(null, deckId)`) are encrypted by Next.
 - A worktree-isolated shell refuses some compound commands; keep bash calls simple and use literal paths.
 
-## Verified vs unverified (as of the follow-up pass, 2026-09-25)
+## Verified vs unverified (historical snapshot, 2026-09-25)
 
 Verified by running it:
 - `npm run lint && npm run typecheck && npm test`: 0 errors (5 existing `apps/mobile` hook warnings), typecheck clean, **931 tests pass** (81 files, 28 of them playtest). `npm run build` (the standard Turbopack build) **passes** in this pass: fonts could be fetched this time, so the font-mock workaround below was not needed. The routes `/decks/[id]/play`, `/decks/[id]/play/popout` and `/shared/playtest/[token]` all compile.
@@ -252,17 +280,14 @@ NOT verified (say so honestly in any report):
 - Token search against the live catalogue: whether the `cards` table returns token rows for `type_line ilike %Token%` with `digital = false` was not run. Only the request shape was tested.
 - Real touch input and assistive technology (screen reader), high-contrast mode, and a real 200% browser zoom on a physical display (checked with viewport emulation at 768x450 and 700x450).
 - Scryfall's rules on hot-linking card images in shared tables (the projection only keeps `https://cards.scryfall.io/...` URLs; the owner should confirm).
-- Production behaviour of migrations 46/47: not applied. Nothing was applied to production.
-- The `reviewer` agent has not reviewed this branch; the handoff requires it before merge.
+- Production status of migrations 46/47 was not established in that 2026-09-25 verification pass; the linked migration list on 2026-09-26 later confirmed both applied (see above).
+- The original branch had not received its required review at the time of that verification pass. Any new code changes follow the normal project review process.
 
 The earlier offline-build note: when Google Fonts cannot be fetched, `NEXT_FONT_GOOGLE_MOCKED_RESPONSES=/tmp/playtest-font-mock.js npx next build --webpack` passed with local font fixtures in the previous session; Turbopack with the mock failed resolving its internal font CSS module.
 
-## Prompt to paste into the next tool
+## Next-session starting point
 
-> You are resuming a half-built feature in the Project Upkeep repo. Read `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md` first, then
-> `docs/guides/ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md`, `docs/handoffs/PLAYTESTER_ARCHITECT_MAP.md` and `CLAUDE.md` (and the rule files it points
-> to). Check out the branch `feat/playtester-archidekt-parity`. Continue from the first step in the handoff's build-order
-> table that is not DONE, in that order, committing after each step and updating the handoff in the same commit. Do not push,
-> open a PR, apply any migration, or edit `apps/mobile/docs/BACKLOG.md`. Follow the hard rules in the handoff exactly. Before
-> you stop for any reason, run `npm run lint && npm run typecheck && npm test` (plus `npm run test:db` if the schema changed
-> and `npm run build`), commit, and end with a report of what is built, what is verified, and what is not.
+Do not resume a half-built feature or check out the old branch. The playtester
+implementation is merged and migrations 46/47 are confirmed applied. Any follow-up should
+start from current `main` and focus on the remaining real Supabase, live-catalog, and
+owner/device QA evidence listed above. Keep this file current with new evidence.
