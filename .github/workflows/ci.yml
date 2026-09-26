@@ -1,6 +1,6 @@
 # Pull-request checks: lint, typecheck, unit tests, production build, the
 # migrations applied to a real Postgres, and (separately) the mobile
-# workspace's own typecheck/test.
+# workspace's own typecheck/test and the scanner's Swift gate checks.
 name: CI
 
 on:
@@ -76,6 +76,51 @@ jobs:
       # Same root eslint.config.mjs as the app job; it carries a separate
       # Expo/RN block for apps/** and packages/**. Needs the full install above.
       - run: npx eslint apps packages
+
+  # Nothing else in CI compiles Swift, so the scanner's detection gate could
+  # drift or stop building with every other job green. This job compiles the
+  # SHIPPED ios/UpkeepCardVision.swift and runs the offline gate checks against
+  # it (see the header of check-full-card-gate.swift). It needs no Node, no
+  # Expo and no Xcode project: swiftc and the macOS SDK ship with the runner.
+  #
+  # What it does NOT cover: UpkeepScannerView.swift and UpkeepVisionModule.swift
+  # import ExpoModulesCore, which only exists inside an Expo/CocoaPods build, so
+  # they are never compiled here; live camera capture and OCR on real frames
+  # are likewise untested (validate-detection.swift needs still images and is
+  # only compile-checked). A break in those files still surfaces only in a
+  # native rebuild on the owner's Mac.
+  scanner-swift:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compile the shipped file and run the gate checks
+        # The script is copied to main.swift only because swiftc allows
+        # top-level statements in a file of that name and nowhere else. A
+        # failed expectation exits non-zero, which fails the step.
+        run: |
+          TMP="$RUNNER_TEMP/gate"
+          mkdir -p "$TMP"
+          cp packages/upkeep-vision/scripts/check-full-card-gate.swift "$TMP/main.swift"
+          swiftc -o "$TMP/check" packages/upkeep-vision/ios/UpkeepCardVision.swift "$TMP/main.swift"
+          "$TMP/check"
+      - name: Type-check the shipped file against the iOS SDK
+        # The gate checks above build for macOS; the app ships for iOS, where
+        # an API can differ or be missing. Type-check only (no link, no run).
+        # 15.1 matches the podspec's deployment target.
+        run: |
+          swiftc -typecheck \
+            -sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+            -target arm64-apple-ios15.1-simulator \
+            packages/upkeep-vision/ios/UpkeepCardVision.swift
+      - name: Type-check the offline validator
+        # validate-detection.swift is hand-run against still frames, so nothing
+        # would notice it stop compiling. Compile-check only; it needs images.
+        run: |
+          TMP="$RUNNER_TEMP/validate"
+          mkdir -p "$TMP"
+          cp packages/upkeep-vision/scripts/validate-detection.swift "$TMP/main.swift"
+          swiftc -typecheck packages/upkeep-vision/ios/UpkeepCardVision.swift "$TMP/main.swift"
 
   migrations:
     runs-on: ubuntu-latest
