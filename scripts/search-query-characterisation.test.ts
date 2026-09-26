@@ -1,21 +1,16 @@
 /**
  * Characterisation tests for the web Scryfall-syntax reader in
- * `src/lib/cards/search-query.ts`, and a parity check against the copy the
- * mobile app shares (`packages/upkeep-domain/src/card-search.ts`).
+ * `src/lib/cards/search-query.ts`, and a parity check against the shared
+ * parser in `packages/upkeep-domain/src/card-search.ts`.
  *
  * "Characterisation" is the point: these pin what the parser does TODAY, warts
- * included, so that folding the web side onto the shared module (the follow-up
- * card-search.ts's header promises) is a change you can see rather than a
- * behaviour that drifts. Where a case documents something that looks like a
+ * included, so that a behavior change is visible rather than drifting. Where a
+ * case documents something that looks like a
  * bug rather than a decision (negation, unterminated quotes), the comment says
  * so — the assertion still pins the current output, it does not bless it.
  *
- * The parity half runs one corpus through both parsers. Where they agree the
- * assertion is plain deep equality; where they differ, the difference is a
- * named `known divergence` test that asserts BOTH sides of the current
- * behaviour, so closing the gap makes that test fail and forces the entry to
- * be deleted deliberately. As of writing there is no divergence in what the two
- * parsers *return*; the divergences are in the surface each module exports.
+ * The parity half runs one corpus through both parser exports. Any intentional
+ * surface difference is named and asserted explicitly.
  *
  * The domain module is imported by relative path, not `@upkeep/domain`: in a
  * worktree the workspace symlink resolves to a different checkout's copy.
@@ -548,25 +543,27 @@ test("parity: matchesAdvancedCard agrees over a grid of cards", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Known divergences
+// Known surface differences
 //
-// None concern what parseScryfallQuery returns. They are differences in what
-// each module exports. Each test asserts both sides so that closing the gap
-// (in either direction) breaks it and the entry must be removed on purpose.
+// The URL round trip is web-only because mobile holds filters in component
+// state. The parser helpers themselves are re-exported from the shared module.
 // ---------------------------------------------------------------------------
 
-test("known divergence: looksLikeScryfallSyntax exists only in the shared module", () => {
-  // Mobile's search box uses it to decide between a plain name query and the
-  // syntax reader. The web header search calls parseScryfallQuery directly, so
-  // never needed it.
-  assert.equal("looksLikeScryfallSyntax" in web, false);
-  assert.equal(typeof shared.looksLikeScryfallSyntax, "function");
+test("web re-exports the shared looksLikeScryfallSyntax helper", () => {
+  for (const raw of ["goblin", "t:elf", "foo:bar", "  "]) {
+    assert.equal(web.looksLikeScryfallSyntax(raw), shared.looksLikeScryfallSyntax(raw));
+  }
 });
 
-test("known divergence: advancedFacetCount exists only in the shared module", () => {
-  // Backs mobile's "Filters (3)" badge; the web panel has no equivalent.
-  assert.equal("advancedFacetCount" in web, false);
-  assert.equal(typeof shared.advancedFacetCount, "function");
+test("web re-exports the shared advancedFacetCount helper", () => {
+  const filters: Filter[] = [
+    EMPTY_ADVANCED_FILTER,
+    { ...EMPTY_ADVANCED_FILTER, colors: ["R"] },
+    { ...EMPTY_ADVANCED_FILTER, name: "goblin", type: "creature" },
+  ];
+  for (const filter of filters) {
+    assert.equal(web.advancedFacetCount(filter), shared.advancedFacetCount(filter));
+  }
 });
 
 test("known divergence: the URL round trip exists only in the web module", () => {
