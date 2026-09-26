@@ -7,7 +7,7 @@ import { usePlayEnv, useUi } from "./context";
 import { useExternal, useGame, usePlayStore } from "./hooks/useStore";
 import { useWidth } from "./hooks/useWidth";
 import { UndoRedo } from "./UndoRedo";
-import { BoltIcon, HeartIcon, KebabIcon, MenuIcon, NextIcon, SkullIcon, SparkIcon } from "./icons";
+import { BoltIcon, HeartFillIcon, HeartIcon, KebabIcon, MenuIcon, NextIcon, SkullIcon, SparkIcon } from "./icons";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { ManaSymbol } from "@/components/ManaCost";
 import { cx } from "@/lib/cx";
@@ -109,7 +109,7 @@ function Life({ onMore }: { onMore: () => void }) {
       >
         {/* The heart sits softly BEHIND the number: it costs no width of its own. */}
         <span className="relative inline-flex min-w-9 items-center justify-center">
-          <HeartIcon className="pointer-events-none absolute size-8 text-ink opacity-20" />
+          <HeartFillIcon className="pointer-events-none absolute size-9 text-[#e88fab] opacity-35" />
           <span key={value} className="pt-pop relative inline-block font-semibold tabular-nums">{value}</span>
         </span>
       </button>

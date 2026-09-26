@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { CardArt } from "./CardArt";
-import { usePlayEnv } from "./context";
 import { useGame, usePlayStore } from "./hooks/useStore";
 import { bottomsRequired } from "@/lib/playtest/board/reducers/zones";
 
@@ -21,15 +20,12 @@ import { bottomsRequired } from "@/lib/playtest/board/reducers/zones";
 export function OpeningHand() {
   const game = useGame();
   const store = usePlayStore();
-  const env = usePlayEnv();
   const [bottom, setBottom] = useState<string[]>([]);
   if (!game || game.opening.status !== "deciding") return null;
   const required = bottomsRequired(game);
   const selected = bottom.filter((id) => game.zones.hand.includes(id)).slice(0, required);
   const toggle = (id: string) => setBottom((old) => old.includes(id) ? old.filter((x) => x !== id) : old.length < required ? [...old, id] : old);
   const ids = game.zones.hand;
-  const glance = (cardId: string) => env.ui.set((s) => ({ ...s, inspect: { cardId, big: false } }));
-  const unglance = () => env.ui.set((s) => (s.inspect && !s.inspect.big ? { ...s, inspect: null } : s));
   const remaining = required - selected.length;
   return (
     <div className="absolute inset-0 z-[4500] flex items-center justify-center bg-black/80 p-4">
@@ -63,10 +59,8 @@ export function OpeningHand() {
             return (
               <div
                 key={id}
-                className="group/pick relative shrink-0 hover:z-30 focus-within:z-30"
+                className="group/pick relative shrink-0 hover:z-30! focus-within:z-30!"
                 style={{ width: "min(10rem, max(5.5rem, 12vw))", marginLeft: i === 0 ? 0 : "-1.25rem", transform: `rotate(${(i - mid) * 3}deg) translateY(${Math.abs(i - mid) * 5}px)`, zIndex: i }}
-                onPointerEnter={() => glance(id)}
-                onPointerLeave={unglance}
               >
                 <button
                   type="button"

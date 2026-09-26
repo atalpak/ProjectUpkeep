@@ -165,6 +165,13 @@ Not verified: real touch input (no touch device here; the mobile emulation sends
 - **Opening hand cards not showing (owner's screenshot)**: NOT reproduced; in the Chromium pane the fan renders (7 cards, 193 by 246, equal size) after a mulligan and a free mulligan. The fan now uses plain inline sizing (no `clamp()` or generated padding classes) in case that was the difference. If it is still missing, the owner needs to hard-reload (the dev server's hot-reload socket was failing in this pane, and may in Safari too) and report the Safari version.
 - Not verified: Safari, touch, the details column with a real signed-in deck, and screenshots this round (the browser pane was hidden, so checks were by DOM measurement).
 
+### Follow-up pass 7 (2026-09-25)
+
+- **Opening-hand hover pop restored.** Cause: each fan card carries an inline `z-index` (its place in the fan), which beat the `hover:z-30` class, so the enlarged card stayed underneath its neighbours and looked like no animation. It is now `hover:z-30!` (as the hand already had). Checked by reading the compiled rules (the important rule is present); NOT seen hovering, because the browser pane was hidden.
+- **The opening-hand screen no longer feeds the card preview** (it used to show a big card in the top-right while choosing a hand). The hover preview and the details column belong to the table only. The floating preview (details column off, or a narrow window) now sits under the top bar (`top-14`), not over it.
+- **Life heart**: a solid, soft pink (`#e88fab` at 35%) heart with no outline behind the number (`HeartFillIcon`).
+- **The "N selected, P/T total" pill is gone** (it overlapped "Playtester actions"). Selection itself is unchanged.
+
 ## Migrations and the production order (nothing has been applied to production)
 
 Files: `supabase/migrations/00000000000046_playtest_sessions.sql`, `00000000000047_playtest_shares.sql`.

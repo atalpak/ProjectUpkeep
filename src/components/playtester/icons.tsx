@@ -81,3 +81,10 @@ export const ArrowUpIcon = ({ className }: P) => (
     <path d="m5 12 7-7 7 7" />
   </Icon>
 );
+
+/** A solid heart with no outline, for sitting softly behind a number. */
+export const HeartFillIcon = ({ className }: P) => (
+  <svg viewBox="0 0 24 24" className={className ?? "size-4"} fill="currentColor" aria-hidden="true">
+    <path d="M12 21s-7.5-4.6-7.5-10.6A4.4 4.4 0 0 1 12 7.6a4.4 4.4 0 0 1 7.5 2.8C19.5 16.4 12 21 12 21Z" />
+  </svg>
+);

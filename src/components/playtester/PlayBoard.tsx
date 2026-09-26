@@ -31,7 +31,6 @@ import { sortedHandOrder, randomIndex } from "@/lib/playtest/hand";
 import { tidyLayout } from "@/lib/playtest/board/layout";
 import { tryValidateSnapshot } from "@/lib/playtest/board/serialize";
 import { DEFAULT_SETTINGS, PLAYMATS, SLEEVES, sanitizeSettings } from "@/lib/playtest/settings";
-import { selectionTotals } from "@/lib/playtest/board/selectors";
 import { prefsKey } from "@/lib/playtest/recovery";
 import type { StartEntry } from "@/lib/playtest/slim";
 import type { SavesSummary } from "@/lib/playtest/session";
@@ -157,7 +156,6 @@ export function PlayBoard(props: PlayBoardProps) {
 
 function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderCardId: string | null }) {
   const game = useSelector((s) => s.game);
-  const selection = useSelector((s) => s.selection);
   const toast = useSelector((s) => s.toast);
   const env = usePlayEnv();
   const settings = useSettings();
@@ -195,7 +193,6 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [env]);
-  const totals = game ? selectionTotals(game, selection) : null;
   return <div ref={root} data-still={settings.motion === "reduce" || undefined} data-dragging={dragging || undefined} className="dark group/table playtester-table pt-mat fixed inset-0 z-40 flex h-dvh text-ink" style={{ backgroundColor: PLAYMATS[settings.playmat].value, fontFamily: "var(--font-body), sans-serif", "--mat-tint": PLAYMATS[settings.playmat].value, "--sleeve": SLEEVES[settings.sleeve].value, "--pt-card": `${cardPx}px` } as React.CSSProperties}>
     <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
     <TrackerBar />
@@ -204,7 +201,6 @@ function Table({ entries, commanderCardId }: { entries: StartEntry[]; commanderC
       {/* Sit ON the mat, directly under the bar, so a card can be put anywhere, top included. */}
       <div className="pointer-events-none absolute left-2 top-2 z-20 flex flex-col items-start gap-0.5 [&>*]:pointer-events-auto [@media(max-height:600px)]:flex-row [@media(max-height:600px)]:gap-1"><TopText label="Playtester actions" id="palette" icon={<KebabIcon />} /><TopText label="Keybinds" id="keybinds" icon={<QuestionIcon />} /><TopText label="Full interaction log" id="log" icon={<ExternalIcon />} /><CardDockToggle /></div>
       {banner !== null ? <div className="pt-banner pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full bg-accent px-5 py-2 font-semibold text-accent-ink shadow-lg" role="status">Turn {banner}</div> : null}
-      {totals && totals.count > 0 ? <div className="absolute left-3 top-[7.75rem] z-20 rounded-full bg-black/60 px-3 py-1 text-xs" role="status">{totals.count} selected · {totals.power}/{totals.toughness} total P/T</div> : null}
     </div>
     {/* No pop-up for a move: undo is in the top bar. The text is still announced to a screen reader. */}
     <div role="status" aria-live="polite" className="sr-only">{toast?.text ?? ""}</div>
