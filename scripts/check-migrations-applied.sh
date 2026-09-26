@@ -24,8 +24,10 @@
 #     link` state is needed on a fresh checkout.
 #
 # Neither configured (a PR from a fork, a fresh clone with no CLI session)?
-# This SKIPS with a warning, not a failure -- a check that can't reach
-# production must never be the thing that blocks an unrelated PR.
+# By default this SKIPS with a warning, not a failure -- a check that can't
+# reach production must never be the thing that blocks an unrelated PR. Set
+# REQUIRE_MIGRATION_CHECK=true in an environment where the check is mandatory
+# (the main-only production CI job) to turn CLI failures into hard failures.
 #
 # Usage: npm run check:migrations
 set -euo pipefail
@@ -41,6 +43,10 @@ else
 fi
 
 if ! npx supabase migration list "${REF_ARGS[@]}" >"$RAW" 2>/dev/null; then
+  if [[ "${REQUIRE_MIGRATION_CHECK:-false}" == "true" ]]; then
+    echo "==> could not reach the linked Supabase project; migration check is required, so failing"
+    exit 1
+  fi
   echo "==> could not reach the linked Supabase project (no CLI session and no SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_ID) -- skipping"
   exit 0
 fi

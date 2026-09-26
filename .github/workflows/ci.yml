@@ -153,8 +153,8 @@ jobs:
   # went unapplied in production while every other check stayed green; this
   # job is what would have caught that. Runs only on main, where "not yet
   # applied" is an actual production gap rather than routine PR-branch noise.
-  # Skips (not fails) when SUPABASE_ACCESS_TOKEN isn't configured, so a fork
-  # PR or a repo without the secret set up is never blocked by this.
+  # This job runs only on main, where the production access token must be
+  # configured.
   migration-drift:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -167,4 +167,10 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID: gttbehblxlwxszrbtsoc
-        run: ./scripts/check-migrations-applied.sh
+          REQUIRE_MIGRATION_CHECK: "true"
+        run: |
+          if [[ -z "${SUPABASE_ACCESS_TOKEN:-}" ]]; then
+            echo "::error::Configure the SUPABASE_ACCESS_TOKEN GitHub Actions secret to enable the production migration-drift check."
+            exit 1
+          fi
+          bash scripts/check-migrations-applied.sh
