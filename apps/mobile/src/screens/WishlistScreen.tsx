@@ -144,9 +144,9 @@ function WishlistList({ userId }: { userId: string }) {
                 <FlipThumb card={{ name: item.name, layout: item.layout, imageSmall: item.imageSmall }} thumbStyle={[styles.thumb, !item.imageSmall && styles.thumbEmpty]}>
                   {name => (
                     <View style={styles.grow}>
-                      <Text style={styles.name}>{name}</Text>
-                      <Text style={styles.body}>{item.setCode.toUpperCase()} · #{item.collectorNumber}</Text>
-                      {friends > 0 && <Text style={styles.friends}>{friends} friend{friends === 1 ? ' has' : 's have'} it for trade</Text>}
+                      <Text numberOfLines={1} style={styles.name}>{name}</Text>
+                      <Text numberOfLines={1} style={styles.meta}>{item.setCode.toUpperCase()} · #{item.collectorNumber}</Text>
+                      {friends > 0 && <Text numberOfLines={1} style={styles.friends}>{friends} friend{friends === 1 ? ' has' : 's have'} it for trade</Text>}
                     </View>
                   )}
                 </FlipThumb>
@@ -176,12 +176,18 @@ const useStyles = makeStyles(() => StyleSheet.create({
   page: { padding: space.xl, paddingBottom: 40, gap: space.md },
   heading: { ...type.title, color: text.primary },
   body: { ...type.bodySm, color: text.secondary },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline },
+  // Compact list row, matching CollectionRow: a small thumbnail, name, one meta
+  // line, a hairline under each row instead of a bordered card.
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: 7, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: border.hairline },
   main: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.md },
-  grow: { flex: 1, gap: 2 },
-  thumb: { width: 56, height: 78, borderRadius: radius.thumb, backgroundColor: surface.sunken },
+  // Preserve the current main typography and radii while using the compact
+  // dimensions and spacing shared with CollectionRow.
+  grow: { flex: 1, gap: 1 },
+  thumb: { width: 38, height: 53, borderRadius: radius.thumb, backgroundColor: surface.sunken },
   thumbEmpty: {},
   name: { ...type.rowTitle, color: text.primary },
+  meta: { ...type.label, color: text.secondary, fontFamily: type.bodySm.fontFamily },
+  // Stands out from `meta` (primary vs. secondary) since it is the reason the row matters right now.
   friends: { ...type.bodySm, color: text.primary },
   stepper: { flexDirection: 'row', alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: border.hairline },
   stepButton: { width: 32, height: 36, alignItems: 'center', justifyContent: 'center' },
