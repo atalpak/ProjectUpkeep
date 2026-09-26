@@ -338,6 +338,7 @@ export function HeaderSearch() {
             onKeyDown={onKeyDown}
             placeholder="Search cards…"
             role="combobox"
+            aria-label="Search all cards"
             aria-expanded={dropdownOpen}
             aria-controls="header-search-results"
             aria-activedescendant={active >= 0 ? `header-search-option-${active}` : undefined}
