@@ -43,6 +43,10 @@ function readSize(): TileSize {
 /** Large on the server, so the markup React hydrates matches. */
 const readSizeOnServer = (): TileSize => "l";
 
+export function useTileSize(): [TileSize, (size: TileSize) => void] {
+  return [useSyncExternalStore(subscribe, readSize, readSizeOnServer), writeSize];
+}
+
 function writeSize(size: TileSize): void {
   try {
     localStorage.setItem(STORAGE_KEY, size);
@@ -153,7 +157,7 @@ const ZOOM = 2.4;
  * "product photo" loupe technique, done in CSS rather than drawing to a
  * canvas, so it costs nothing beyond the position update itself.
  */
-function MagnifierTile({
+export function MagnifierTile({
   image,
   label,
   imageWidth,

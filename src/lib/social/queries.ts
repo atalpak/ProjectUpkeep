@@ -1041,3 +1041,39 @@ export async function getFeed(limit = 30): Promise<FeedEntry[]> {
     };
   });
 }
+
+export type FriendNote = { username: string; count: number; samePrinting: boolean };
+
+/**
+ * Friend availability for one page of catalog-search results, in one batched
+ * read: `getFriendTradables()` runs once (RLS only ever returns rows a friend
+ * put in a tradable container) and every result is matched in memory. Keyed
+ * by printing id; results no friend has are absent. Annotation only — it never
+ * filters or reorders search results.
+ */
+export async function getFriendAvailabilityForResults(
+  results: Array<{ id: string; oracleId: string | null; name: string }>,
+): Promise<Record<string, FriendNote[]>> {
+  if (results.length === 0) return {};
+  const tradables = await getFriendTradables();
+  if (tradables.length === 0) return {};
+
+  const perResult = new Map<string, ReturnType<typeof matchFriendCardStock>>();
+  for (const r of results) {
+    const key = cardKey({ oracle_id: r.oracleId, name: r.name });
+    if (!key) continue;
+    const suppliers = matchFriendCardStock(r.id, key, tradables);
+    if (suppliers.length) perResult.set(r.id, suppliers);
+  }
+  const profiles = await profilesByIds([...new Set([...perResult.values()].flat().map((s) => s.ownerId))]);
+
+  const out: Record<string, FriendNote[]> = {};
+  for (const [id, suppliers] of perResult) {
+    out[id] = suppliers.slice(0, 3).map((s) => ({
+      username: profiles.get(s.ownerId)?.username ?? "a friend",
+      count: s.count,
+      samePrinting: s.samePrinting,
+    }));
+  }
+  return out;
+}

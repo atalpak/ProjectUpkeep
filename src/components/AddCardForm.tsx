@@ -108,7 +108,7 @@ export function AddCardForm({ locations }: { locations: Location[] }) {
       setSearching(true);
       setSearchError(null);
       try {
-        const res = await fetch(`/api/cards/search?q=${encodeURIComponent(trimmed)}`, {
+        const res = await fetch(`/api/cards/suggestions?q=${encodeURIComponent(trimmed)}`, {
           signal: controller.signal,
         });
         if (res.status === 401) {

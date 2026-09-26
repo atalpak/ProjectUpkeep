@@ -96,7 +96,10 @@ src/
     pg-copy.ts              COPY CSV encoding for the direct loader (no driver — pure text)
     auth/                   redirect (open-redirect guard) · invite · password
                             reauth · recovery
-    cards/                  search · search-query
+    cards/                  search · search-query (local, legacy) ·
+                            scryfall-search (+ -core, unit-tested) · search-enrichment ·
+                            catalog-panel-card — submitted search runs on Scryfall's API;
+                            see SEARCH_HANDOFF.md
     feedback/  search/      validate · recent-searches
     playtest/               analyzer modules plus game-start · recovery · settings · session
       board/                pure v2 game state, commands, layout, events, metrics, share projection

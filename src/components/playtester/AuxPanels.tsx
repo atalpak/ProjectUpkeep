@@ -107,7 +107,7 @@ function TokenPanel({ close }: { close: () => void }) {
     if (query.trim().length < 2) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      fetch(`/api/cards/search?type=Token&q=${encodeURIComponent(query)}`, { signal: controller.signal })
+      fetch(`/api/cards/suggestions?type=Token&q=${encodeURIComponent(query)}`, { signal: controller.signal })
         .then((r) => r.ok ? r.json() : null).then((data) => { if (data?.results) setHits(data.results); else setMessage("Catalog search is unavailable. Custom tokens still work."); }).catch(() => {});
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };

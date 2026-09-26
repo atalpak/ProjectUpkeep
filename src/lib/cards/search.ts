@@ -6,7 +6,7 @@ import { matchesAdvancedCard, type AdvancedCardFilter } from "@/lib/cards/search
 
 /**
  * The direct-to-`cards` query behind Advanced Search, shared by the header
- * dropdown's card lookup (`/api/cards/search`) and the dedicated `/search`
+ * dropdown's card lookup (`/api/cards/suggestions`) and the dedicated `/search`
  * page — one query, two callers, so they can never quietly drift apart on
  * what "advanced" means.
  *

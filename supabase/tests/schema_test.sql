@@ -4476,6 +4476,34 @@ begin
   assert (select relrowsecurity from pg_class where oid = 'public.playtest_shares'::regclass), 'RLS must be on';
 end $$;
 
+-- Scryfall API gate: slots are spaced, a full queue is refused, a cooldown blocks, and the table is sealed.
+do $$
+declare
+  r record;
+begin
+  perform set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
+  update public.scryfall_api_gate set next_slot_at = now(), cooldown_until = now();
+  select * into r from public.claim_scryfall_slot(600, 4000);
+  assert r.granted and r.wait_ms = 0, 'first claim is immediate';
+  select * into r from public.claim_scryfall_slot(600, 4000);
+  assert r.granted and r.wait_ms between 1 and 600, 'second claim waits one gap';
+  select * into r from public.claim_scryfall_slot(10000, 15000);
+  assert r.wait_ms <= 4000 or not r.granted, 'caller cannot widen the queue bound';
+  update public.scryfall_api_gate set next_slot_at = now();
+  perform public.claim_scryfall_slot(600, 4000);
+  select * into r from public.claim_scryfall_slot(600, 100);
+  assert not r.granted and r.wait_ms > 100, 'a queue beyond max_wait is refused, nothing reserved';
+  perform public.open_scryfall_cooldown(30);
+  select * into r from public.claim_scryfall_slot(600, 4000);
+  assert not r.granted and r.cooldown_ms > 25000, 'cooldown blocks claims';
+  perform public.open_scryfall_cooldown(3600);
+  assert (select cooldown_until from public.scryfall_api_gate) < now() + interval '31 seconds', 'cooldown length is fixed, not caller-chosen';
+  assert (select relrowsecurity from pg_class where oid = 'public.scryfall_api_gate'::regclass), 'RLS on';
+  assert not exists (select 1 from pg_policy where polrelid = 'public.scryfall_api_gate'::regclass), 'no policies: RLS denies all direct access';
+  assert not has_function_privilege('anon', 'public.claim_scryfall_slot(integer,integer)', 'EXECUTE'), 'anon cannot claim';
+  assert has_function_privilege('authenticated', 'public.claim_scryfall_slot(integer,integer)', 'EXECUTE'), 'authenticated can claim';
+end $$;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

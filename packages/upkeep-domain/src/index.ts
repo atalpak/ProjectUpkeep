@@ -21,3 +21,4 @@ export * from "./want-quantity";
 export * from "./card-faces";
 export * from "./reprint";
 export * from "./recent-searches";
+export * from "./catalog-search";

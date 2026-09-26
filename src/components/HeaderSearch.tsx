@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { MIN_TERM, type LocatedCard } from "@/lib/collection/locate";
-import { isAdvancedFilterActive, parseScryfallQuery } from "@/lib/cards/search-query";
+import { specToParams } from "@upkeep/domain";
+
 import { readRecentSearches, recordRecentSearch } from "@/lib/search/recent-searches";
 import { useCardPanel } from "@/components/CardPanel";
 import { cx } from "@/components/ui";
@@ -25,7 +26,7 @@ import { cx } from "@/components/ui";
  * "just works" if typed directly into it — no separate mode to switch into.
  * `parseScryfallQuery` runs over whatever is typed; the moment it recognises
  * a real operator (`c:r`, `cmc<=2`, `t:creature`, …) the lookup switches from
- * a plain name search to the same structured query `/api/cards/search`'s
+ * a plain name search to the same structured query `/api/cards/suggestions`'s
  * advanced path understands, rather than treating the colons as literal name
  * characters. See `src/lib/cards/search-query.ts` for exactly what is read.
  *
@@ -46,6 +47,15 @@ import { cx } from "@/components/ui";
  * goes straight to Advanced Search — the magnifying glass inside the field
  * itself is the same link, once the field exists to hold it.
  */
+
+/**
+ * Does what was typed carry search syntax rather than being a plain name?
+ * Purely lexical — an operator glued to a value (`t:elf`, so a name like
+ * "Circle of Protection: Red" stays a name), comparison, parenthesis, negation or shorthand directive. It never interprets the query
+ * (Scryfall does that on submit); it only decides that name suggestions would
+ * be misleading, so the dropdown offers to run the whole query instead.
+ */
+const looksLikeSyntax = (term: string): boolean => /[a-z]+[:<>=]\S|[<>]=?|[()]|(^|\s)[-!]\S|\+\+|@@/i.test(term);
 
 /** Long enough that a fast typist does not fire a request per character. */
 const DEBOUNCE_MS = 180;
@@ -114,18 +124,9 @@ export function HeaderSearch() {
   // sync-across-tabs cases in this app use.
   const [recent, setRecent] = useState<string[]>([]);
 
-  const [unsupported, setUnsupported] = useState<string[]>([]);
-
   const term = value.trim();
-
-  // Whatever is typed, read as if it might be literal Scryfall syntax. Once it
-  // recognises a real operator — a colour, a mana-value comparison, a type or
-  // oracle or set or rarity clause — the lookup below sends it through as a
-  // structured query instead of a plain name; a query with only bare words
-  // (or nothing at all) is indistinguishable from before this existed.
-  const parsedTerm = useMemo(() => parseScryfallQuery(term), [term]);
-  const looksAdvanced =
-    isAdvancedFilterActive({ ...parsedTerm.filter, name: "" }) || parsedTerm.unsupported.length > 0;
+  // Syntax is never previewed locally: suggestions are name lookups only.
+  const isSyntax = looksLikeSyntax(term);
 
   // Cmd/Ctrl-K focuses the field, the shortcut people already try.
   useEffect(() => {
@@ -154,21 +155,20 @@ export function HeaderSearch() {
   // in the collection. Aborted when the query moves on so a slow response can
   // never land after a newer one. Sends `q` for a plain name (the common
   // case) or `raw` once `looksAdvanced` says the typed text carries real
-  // Scryfall syntax — either way the same route, `/api/cards/search`, decides
-  // how to answer it.
+  // syntax the lookup is skipped (see `looksLikeSyntax`) and only the
+  // submit action is offered.
   useEffect(() => {
-    if (term.length < MIN_TERM) return;
+    if (term.length < MIN_TERM || isSyntax) return;
 
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const cardParams = new URLSearchParams();
-        if (looksAdvanced) cardParams.set("raw", term);
-        else cardParams.set("q", term);
+        cardParams.set("q", term);
 
         const [cardsRes, mineRes] = await Promise.all([
-          fetch(`/api/cards/search?${cardParams}`, { signal: controller.signal }),
+          fetch(`/api/cards/suggestions?${cardParams}`, { signal: controller.signal }),
           // The "do I already have this?" / "does a friend?" lookup treats
           // whatever was typed as a literal name — harmless when it is really
           // Scryfall syntax, since that just matches nothing.
@@ -180,7 +180,6 @@ export function HeaderSearch() {
 
         const cardsJson = await cardsRes.json();
         const cards = (cardsJson.results ?? []) as CardHit[];
-        setUnsupported((cardsJson.unsupported ?? []) as string[]);
 
         const mineJson = mineRes?.ok ? await mineRes.json() : { results: [], friends: [] };
         const mine = (mineJson.results ?? []) as LocatedCard[];
@@ -204,7 +203,8 @@ export function HeaderSearch() {
       } catch {
         // Aborted, or offline. The field still works as a way to reach /find.
       } finally {
-        setLoading(false);
+        // An aborted request must not clear the spinner a newer one turned on.
+        if (!controller.signal.aborted) setLoading(false);
       }
     }, DEBOUNCE_MS);
 
@@ -217,7 +217,7 @@ export function HeaderSearch() {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [term, looksAdvanced]);
+  }, [term, isSyntax]);
 
   function pick(result: Result) {
     if (!result.sample_card_id) return;
@@ -252,20 +252,21 @@ export function HeaderSearch() {
     }
 
     if (event.key === "Enter") {
+      // An IME choosing a candidate is not a submit.
+      if (event.nativeEvent.isComposing) return;
       event.preventDefault();
       if (active >= 0 && results[active]) pick(results[active]);
-      else if (term) {
-        setDropdownOpen(false);
-        setRecent(recordRecentSearch(term));
-        // Runs the query on Advanced Search itself, the same `q`/`raw` split
-        // the live dropdown lookup above already uses — pressing Enter before
-        // picking a result should feel like submitting the raw box there, not
-        // like a detour through `/find` (a different feature: "where is this
-        // among my collection and my friends'", not "what does Magic have").
-        const param = looksAdvanced ? "raw" : "q";
-        router.push(`/search?${param}=${encodeURIComponent(term)}`);
-      }
+      else submitQuery();
     }
+  }
+
+  /** Every nonempty query — a name or syntax — runs on the same path as `/search`. */
+  function submitQuery() {
+    if (!term) return;
+    setDropdownOpen(false);
+    setRecent(recordRecentSearch(term));
+    input.current?.blur();
+    router.push(`/search?${specToParams({ q: term, page: 1 })}`);
   }
 
   const showRecent = dropdownOpen && term.length < MIN_TERM;
@@ -310,7 +311,13 @@ export function HeaderSearch() {
             onChange={(event) => {
               const next = event.target.value;
               setValue(next);
-              if (next.trim().length < MIN_TERM) {
+              setActive(-1);
+              if (looksLikeSyntax(next.trim())) {
+                // Nothing to preview; offer to run the whole query.
+                setResults([]);
+                setLoading(false);
+                setDropdownOpen(true);
+              } else if (next.trim().length < MIN_TERM) {
                 setResults([]);
                 setDropdownOpen(false);
                 setLoading(false);
@@ -333,6 +340,7 @@ export function HeaderSearch() {
             role="combobox"
             aria-expanded={dropdownOpen}
             aria-controls="header-search-results"
+            aria-activedescendant={active >= 0 ? `header-search-option-${active}` : undefined}
             aria-autocomplete="list"
             className="w-full rounded-md border border-border bg-surface py-1.5 pl-8 pr-3 text-sm placeholder:text-ink-muted"
           />
@@ -372,14 +380,19 @@ export function HeaderSearch() {
               )
             ) : results.length === 0 ? (
               <p className="px-3 py-3 text-sm text-ink-muted">
-                {loading ? "Searching…" : `No card matches “${term}”.`}
+                {isSyntax
+                  ? "Press Enter to run this search on Scryfall."
+                  : loading
+                    ? "Searching…"
+                    : `No card name matches “${term}”. Press Enter to search all cards.`}
               </p>
             ) : (
               <ul className="max-h-[min(24rem,calc(100dvh-6rem))] overflow-y-auto py-1">
                 {results.map((card, index) => (
-                  <li key={card.name}>
+                  <li key={card.sample_card_id ?? card.name}>
                     <button
                       type="button"
+                      id={`header-search-option-${index}`}
                       role="option"
                       aria-selected={index === active}
                       onClick={() => pick(card)}
@@ -425,11 +438,25 @@ export function HeaderSearch() {
               </ul>
             )}
 
-            {!showRecent && unsupported.length > 0 ? (
-              <p className="border-t border-border px-3 py-2 text-xs text-ink-muted">
-                Not understood, so ignored: {unsupported.join(" ")}
-              </p>
+            {term ? (
+              <button
+                type="button"
+                onClick={submitQuery}
+                className="flex w-full items-center justify-between gap-2 border-t border-border px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-surface-muted coarse:min-h-11"
+              >
+                <span className="truncate">Search all cards for &ldquo;{term}&rdquo;</span>
+                <ArrowRightIcon className="size-4 shrink-0" />
+              </button>
             ) : null}
+
+            <a
+              href="https://scryfall.com/docs/syntax"
+              target="_blank"
+              rel="noreferrer"
+              className="block border-t border-border px-3 py-2 text-xs text-ink-muted hover:bg-surface-muted"
+            >
+              Syntax help
+            </a>
 
             <Link
               href={advancedHref}

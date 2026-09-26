@@ -227,7 +227,7 @@ function AddWant() {
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await fetch(`/api/cards/search?q=${encodeURIComponent(term)}`, {
+        const res = await fetch(`/api/cards/suggestions?q=${encodeURIComponent(term)}`, {
           signal: controller.signal,
         });
         if (res.ok) {

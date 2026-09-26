@@ -1,5 +1,5 @@
 /**
- * The token panel asks `/api/cards/search?type=Token&q=...`. This checks the
+ * The token panel asks `/api/cards/suggestions?type=Token&q=...`. This checks the
  * half that can be checked without a database: that the request takes the
  * advanced (direct `cards` query) branch of the route, with the type and the
  * name carried through. What it does NOT prove is that the live `cards` table

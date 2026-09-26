@@ -48,7 +48,7 @@ export function AddToWishList({ deckId }: { deckId: string }) {
 
       setSearching(true);
       try {
-        const response = await fetch(`/api/cards/search?q=${encodeURIComponent(term)}`, {
+        const response = await fetch(`/api/cards/suggestions?q=${encodeURIComponent(term)}`, {
           signal: controller.signal,
         });
         const body = await response.json();

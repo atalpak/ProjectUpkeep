@@ -1376,6 +1376,12 @@ function CardActions({ card }: { card: Card }) {
         </div>
       ) : null}
 
+      {card.last_synced_at === "" ? (
+        <p className="text-xs text-ink-muted">
+          This printing isn&rsquo;t in Upkeep&rsquo;s card catalog yet, so it can&rsquo;t be added to a collection or deck.
+          It will be once the next nightly Scryfall sync picks it up.
+        </p>
+      ) : (
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
@@ -1396,8 +1402,9 @@ function CardActions({ card }: { card: Card }) {
           </Button>
         ) : null}
       </div>
+      )}
 
-      {mode === "collection" ? (
+      {mode === "collection" && card.last_synced_at !== "" ? (
         <form action={addAction} className="space-y-2 rounded-md border border-border p-2.5">
           <input type="hidden" name="card_id" value={card.scryfall_id} />
 
