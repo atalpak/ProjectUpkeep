@@ -44,7 +44,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 21 | Haptics on the Scan fan-out button | Easy (needs rebuild) | Low | Later — bundle into next rebuild | — |
 | 22 | Android live scanner | Hard | Low | Later — no Android user yet | `packages/upkeep-vision` |
 | 23 | Public leaderboard with votes | Hard | Unmeasurable | Later | needs `is_admin()` first |
-| 24 | Tactile solo playtester ("Play" mode) | Hard | High (if used) | Phase 2 done (2026-09-23) — desktop tabletop UI landed at `/decks/[id]/play`; Phase 3 (snapshots/save-resume) is next | `src/lib/playtest/board/` (game core, now with two Phase-2 additions — see notes), `src/lib/playtest/game-start.ts`, `src/components/playtester/` (new — PlayBoard, GameCard, CardMenu, Battlefield, Hand, ZonePile, GameControls, ActionLog, TokenForm), `src/app/(app)/decks/[id]/play/page.tsx` (new), new `playtest_sessions` migration still Phase 3 |
+| 24 | Tactile solo playtester ("Play" mode) | Hard | High (if used) | **Implementation merged on `main`; verification evidence remains.** Snapshots, save/resume, share routes and UI are implemented. Migrations 46/47 were confirmed applied by the linked migration list on 2026-09-26. Remaining checks are listed in [`PLAYTESTER_BUILD_HANDOFF.md`](../../../docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md): real Supabase server-action flow, live token catalog/provider, and physical-device touch and assistive-technology/high-contrast QA. | `src/lib/playtest/`, `src/components/playtester/`, `src/app/(app)/decks/[id]/play/`, `src/app/(app)/shared/playtest/`, `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md` |
 | 25 | "Fits this deck" collection-aware recommendations | Med | Medium | Ready — architect impact map + owner decisions done 2026-09-23 | `src/lib/recommendations/deck-fit.ts` (new), migration adding a narrow `cards.commander_legality` column |
 | 26 | Phone: real mana-symbol images instead of the coloured circles | Easy–Med | Low–Med | **Done (2026-09-24, #93)** — Scryfall symbol PNGs bundled; unverified on a device, see item 4 | `apps/mobile/src/components/ManaCost.tsx` and wherever circles are drawn (`CardDetails.tsx`, `DeckDetailScreen.tsx`, `DecksScreen.tsx`, `DashboardScreen.tsx`); web already has `src/components/ManaCost.tsx` |
 | 27 | Phone card details: remove the "Preview foil" button | Easy | Low | **Done (2026-09-24, #93)** — unverified on a device, see item 4 | `apps/mobile/src/components/CardDetails.tsx` (~line 370, `previewFoil`), `FoilArt.tsx` |
@@ -64,10 +64,10 @@ know about them, not what's left to do.
 **Items 24 and 25 are appended, not re-ranked.** They arrived as full written proposals
 (`docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md` and `docs/guides/FITS_THIS_DECK_DEVELOPMENT_GUIDE.md`) on 2026-09-23 and are recorded here so this stays the one list, per this
 file's own rule — their position in the table is not a claim about priority relative to
-items 1–23; only `assessor`'s full re-rank sets that. Both are structural (new table +
-RLS for 24, a new `cards` column for 25) and need an architect impact map and owner
-sign-off before any implementer work starts, per `.claude/ORGANIZATION.md`'s delegation
-rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been.
+items 1–23; only `assessor`'s full re-rank sets that. Item 24's architect review and
+implementation are complete; the status above now describes its remaining verification
+and release evidence. Item 25 remains a structural proposal and still needs an architect
+impact map and owner sign-off before implementation.
 
 ### Notes behind the ranking
 
@@ -269,9 +269,13 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
   found (`supabase db push --linked`, verified via `supabase migration list --linked`
   showing local and remote both at 40). `npm run check:migrations`
   (`scripts/check-migrations-applied.sh`, #78) now runs in CI on every push to `main`
-  and fails the build if this ever drifts again — skips with a warning rather than
-  failing when `SUPABASE_ACCESS_TOKEN` isn't configured, which it isn't yet; add that
-  secret to make the CI side actually enforce it (the local command already works).
+  and fails the build if this ever drifts again — skips with a warning for ordinary local
+  runs when Supabase is unreachable, while the main-only production job requires the
+  secret and fails closed. The job reached Supabase after PR #101, but its post-merge
+  run `36266768376` exposed that the CLI's default text output did not match the script's
+  JSON parser. A JSON-output fix is pending; until then this job has not verified
+  production migration state. The read-only linked list had confirmed local and remote
+  migrations 1–48 in sync on 2026-09-26.
 
 - **4 (a real phone session).** Roughly ten open items below are marked "unverified
   on a device" or depend on it directly: items 2–4/8/12 (old numbering) on the phone,
@@ -409,6 +413,17 @@ rules. Item 24's architect pass was requested 2026-09-23; item 25's has not been
       use rather than guessing.
 
 - **24 (tactile playtester), architect impact map + owner decisions, 2026-09-23.**
+  **Current status (2026-09-26):** all implementation phases described below, including
+  the persistence and share work that was then called Phase 3, are now merged on `main`.
+  These dated bullets are the historical decision/build log, not remaining work. The
+  production linked-migration list confirms 46 and 47 are applied. Current verification
+  gaps are in `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md`. PR #101 merged and the
+  `SUPABASE_ACCESS_TOKEN` secret name is present, but post-merge run `36266768376`
+  reached Supabase and failed because the CLI returned a text table while the script
+  parsed JSON; CI did not verify production migrations. The read-only linked list had
+  previously confirmed migrations 1–48 in sync on 2026-09-26. The JSON-output parser fix
+  is pending in the current branch.
+
   Full plan in `docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md`. The architect's
   verdict: **go, with changes** — nothing in it touches a hard constraint, RLS, or
   either reversible bet.

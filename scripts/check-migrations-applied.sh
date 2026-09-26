@@ -42,7 +42,7 @@ else
   REF_ARGS=(--linked)
 fi
 
-if ! npx supabase migration list "${REF_ARGS[@]}" >"$RAW" 2>/dev/null; then
+if ! npx supabase migration list "${REF_ARGS[@]}" --output-format json >"$RAW" 2>/dev/null; then
   if [[ "${REQUIRE_MIGRATION_CHECK:-false}" == "true" ]]; then
     echo "==> could not reach the linked Supabase project; migration check is required, so failing"
     exit 1
