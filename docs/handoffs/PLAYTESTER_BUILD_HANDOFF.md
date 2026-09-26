@@ -32,16 +32,15 @@ Remaining work is evidence gathering, not an identified build step:
   histories match through migration 48, including playtester migrations 46 and 47. No
   production migration action is needed for this feature based on that check.
 
-No production migration was applied as part of this reconciliation. PR #101 merged and
-the `SUPABASE_ACCESS_TOKEN` secret name is present in GitHub Actions. However, the
-post-merge run `36266768376` reached Supabase but returned the default text table while
-the drift script expected JSON. The migration-drift check therefore failed to parse its
-response and did not verify production migrations. The read-only linked migration list
-above had previously confirmed local and remote migrations 1–48 were in sync on
-2026-09-26; that remains the production evidence. A parser fix using the CLI's JSON
-output option is pending in the current branch. The separate scratch-Postgres migration
-job passed, but does not query production. Never run `supabase db push --linked` as an
-agent.
+No production migration was applied as part of this reconciliation. PR #102 merged as
+`a23bb63`, fixing the CLI output format used by the migration-drift check. Main run
+`36267379039` passed its migration-drift job, confirming every local migration was
+applied to production (the check found no local migrations missing remotely). The full
+CI run succeeded with all five jobs; its summary included four duplicated annotations
+for two distinct missing-dependency warnings in `apps/mobile/src/AppProvider.tsx`, so
+the run was not warning-free. The read-only linked migration list above had
+previously confirmed local and remote migrations 1–48 were in sync on 2026-09-26,
+including migrations 46 and 47. Never run `supabase db push --linked` as an agent.
 
 The product spec remains `docs/guides/ARCHIDEKT_PLAYTESTER_DEVELOPMENT_GUIDE.md`;
 architecture decisions are in `docs/handoffs/PLAYTESTER_ARCHITECT_MAP.md`.
