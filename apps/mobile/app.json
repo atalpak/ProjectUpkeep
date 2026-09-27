@@ -5,6 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/brand/app-icon.png",
     "ios": {
       "bundleIdentifier": "dev.projectupkeep.scanner",
       "supportsTablet": false,
