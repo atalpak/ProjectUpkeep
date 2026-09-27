@@ -14,6 +14,34 @@ individual test steps were not separately reported. The checklist remains as a
 repeatable regression guide. This report does not resolve the separate search
 signed-in search acceptance below.
 
+## Current priority-4 release pass
+
+This is the short, single-session pass used to close backlog item 4. It is not
+a request to repeat every historical regression below. On the installed release,
+perform these in one ordinary session and record only a failure or an unchecked
+step, with a screenshot and scan-log entry where applicable:
+
+- [ ] Launch after a force-close without Metro; Collection and Settings remain
+      usable while the catalog is becoming ready.
+- [ ] Quick scan Book #116, Mouth #216 and borderless Oliphaunt #426. Each
+      automatic capture must identify the expected printing in ordinary light.
+- [ ] Cover the collector line of a multi-printing card. It must require a
+      deliberate choice/confirmation before Add or Wish; add exactly one copy
+      after confirming.
+- [ ] Enable Scan diagnostics, save one known card, and confirm the exact
+      printing appears in Collection after relaunch.
+- [ ] Search `t:legendary t:elf`, use next/previous pages, open a result, and
+      verify that an unavailable printing does not substitute another printing.
+- [ ] Move one non-deck copy to a binder/box from its details sheet; confirm the
+      destination persists after relaunch.
+- [ ] Check light and dark mode plus larger iOS text on Scan, Collection and
+      Settings: no clipped essential text, inaccessible action, or unreadable
+      control.
+
+If all seven pass, mark item 4 complete in `BACKLOG.md`. Follow-up work should
+be based on a specific observed failure rather than the old blanket device-QA
+blocker.
+
 ## Installation and startup
 
 - [ ] Open ProjectUpkeep. Check the previous account, saved catalog, collection

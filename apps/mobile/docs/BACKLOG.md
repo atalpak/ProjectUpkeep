@@ -21,15 +21,15 @@ Say so again wherever it would otherwise read like invented demand.
 
 | # | Item | Ease | Impact | Status | Where |
 |---|---|---|---|---|---|
-| 1 | Daily sync: the database write is failing, not just the export step | Med | High | **Phase 0 fix proven (2026-09-24)** — first `--force` run wrote all 118,389 rows (batches shrank to 32, no failure); the next scheduled run wrote 55,946 rows, left 62,443 alone, had **zero timeouts / no batch shrinking**, and ran in 7m42s (was ~11m, failing on ~half of runs). Not "near zero" as first expected: about half of all printings change price on a given day. **Rebuild phases 1–2 shipped and live (2026-09-25, #98):** `oracle_cards` table loaded over a direct Postgres connection (session pooler, verified TLS against Supabase Root 2021 CA, least-privilege `scryfall_loader` role): 38,690 cards, legalities stored compactly, DB 344 -> 387 MB of 500. Secrets `SCRYFALL_SYNC_DATABASE_URL` and `SCRYFALL_SYNC_DATABASE_CA` are set. Still open, in the architect's order: rename `cards` -> `card_printings` behind a compatibility view named `cards` (needs a brief sync pause; protects the installed phone build), then drop the moved columns + reclaim space (~-130MB), then rulings and oracle tags (item 9), then move the printings load to COPY. Item 25 can now build on `oracle_cards.legalities` | `scripts/sync-scryfall.ts`, migrations 33, 42 |
+| 1 | ~~Daily sync database-write failure and catalog storage cleanup~~ | — | — | **Done (2026-09-27)** — differential sync is stable; production migrations 50–51, the `cards` compatibility view, normalization and bounded compaction all completed. The final watched printing sync, catalog publication and Oracle loader succeeded. `docs/operations/CARD_STORAGE_RELEASE.md` is the completion record. Oracle tags/rulings are item 9; moving the already-stable printing writer to direct `COPY` is a later scalability improvement, not unfinished incident work. |
 | 2 | ~~Collection actions still create duplicate rows outside `bulkMerge`~~ | — | — | **Done (2026-09-23)** — migration 41 (`apply_stack_rekey`) + every web call site rewired onto it | `collection/actions.ts`, `bulk-actions.ts`, `decks/actions.ts` |
 | 3 | ~~Migration 40 not applied in production~~ | — | — | **Done (2026-09-22)** — applied, PR #78 adds a CI check so it can't recur silently | — |
-| 4 | One real session on a physical iPhone | Owner only | High | Blocks ~10 other items | scanner, item 8 steps 3–4, dark mode |
+| 4 | One focused release-validation session on the physical iPhone | Owner only | High | **Ready — use the concise current pass at the top of `PHONE_SETTINGS_CHECKLIST.md`.** It confirms the installed release's startup, scanner correctness, ambiguous-printing guard, collection write, search, move, and display/accessibility basics. Record only failures or any unchecked item; the existing detailed sections remain regression references. | scanner, item 8 steps 3–4, dark mode |
 | 5 | Items 2–4 (old numbering): web sub-menus, printing photos, flip button | Easy | Medium | Owner only — built in PR #69, needs a look | web pages |
 | 6 | ~~Phone: move a copy to another binder/box from the card details sheet~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CardDetails.tsx`, `apply_stack_move` |
 | 7 | ~~Migration 20: test the deck-list shortfall's 2nd and 3rd tiers~~ | — | — | **Done (2026-09-23)** — `schema_test.sql` section 22 | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
-| 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
+| 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Ready — item 1’s storage cutover is complete | sync + schema + search |
 | 10 | Mobile UI refinement brief (7 items) | Varies | Medium | All seven priorities built and merged (2026-09-24, PRs #87–#90, #93, #94). **Unverified on a device** — remaining work is the brief's visual QA checklist (small widths, large text, light/dark) on a phone, tracked under item 4 | `apps/mobile/src/theme.ts`, `components/ui.tsx`, `components/ListRow.tsx`, `AppHeader.tsx`, `MenuSheet.tsx`, `SettingsScreen.tsx` + brief |
 | 11 | Phone deck gaps: add-to-deck from card sheet, deck wish list, stats, export, playtest | Med each | Low–Med | Open — depends on owner's habits | `apps/mobile/src/screens/DeckDetailScreen.tsx` |
 | 12 | Phone quick-add straight to a deck | Easy–Med | Low–Med | Partly done | `ScanScreen.tsx` |
@@ -44,8 +44,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 21 | Haptics on the Scan fan-out button | Easy (needs rebuild) | Low | Later — bundle into next rebuild | — |
 | 22 | Android live scanner | Hard | Low | Later — no Android user yet | `packages/upkeep-vision` |
 | 23 | Public leaderboard with votes | Hard | Unmeasurable | Later | needs `is_admin()` first |
-| 24 | Tactile solo playtester ("Play" mode) | Hard | High (if used) | **Implementation merged on `main`; verification evidence remains.** Snapshots, save/resume, share routes and UI are implemented. Migrations 46/47 were confirmed applied by the linked migration list on 2026-09-26. Remaining checks are listed in [`PLAYTESTER_BUILD_HANDOFF.md`](../../../docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md): real Supabase server-action flow, live token catalog/provider, and physical-device touch and assistive-technology/high-contrast QA. | `src/lib/playtest/`, `src/components/playtester/`, `src/app/(app)/decks/[id]/play/`, `src/app/(app)/shared/playtest/`, `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md` |
-| 25 | "Fits this deck" collection-aware recommendations | Med | Medium | Ready — architect impact map + owner decisions done 2026-09-23 | `src/lib/recommendations/deck-fit.ts` (new), migration adding a narrow `cards.commander_legality` column |
+| 24 | ~~Tactile solo playtester ("Play" mode)~~ | — | — | **Done (2026-09-26)** — the owner confirmed the live save/share, token lookup, and physical-device verification. The handoff retains the distinction between owner confirmation and independently reproducible evidence. | `docs/handoffs/PLAYTESTER_BUILD_HANDOFF.md` |
 | 26 | Phone: real mana-symbol images instead of the coloured circles | Easy–Med | Low–Med | **Done (2026-09-24, #93)** — Scryfall symbol PNGs bundled; unverified on a device, see item 4 | `apps/mobile/src/components/ManaCost.tsx` and wherever circles are drawn (`CardDetails.tsx`, `DeckDetailScreen.tsx`, `DecksScreen.tsx`, `DashboardScreen.tsx`); web already has `src/components/ManaCost.tsx` |
 | 27 | Phone card details: remove the "Preview foil" button | Easy | Low | **Done (2026-09-24, #93)** — unverified on a device, see item 4 | `apps/mobile/src/components/CardDetails.tsx` (~line 370, `previewFoil`), `FoilArt.tsx` |
 | 28 | Phone card details: drop the card-name title above the image, and make pull-down-to-close easier with a nicer animation | Easy–Med | Low–Med | **Done (2026-09-24, #93)** — custom drag-to-dismiss sheet; top-bar drag was dead on a real phone, fixed in #95 and verified in the simulator; keyboard behaviour still unverified on a device, see item 4 | `apps/mobile/src/components/CardDetails.tsx` (Modal ~line 342) |
@@ -59,22 +58,27 @@ Say so again wherever it would otherwise read like invented demand.
 | 36 | Complete mobile catalog pagination | — | Medium | **Done (2026-09-26)** — numbered Previous/Next, owned-only navigation, errors and Retry installed; owner confirmed phone search checks working. | `SearchOverlay.tsx` |
 
 | 37 | Landing redesign and first-login web guided tour, replayable in Settings | Med | Medium | **Landing live (2026-09-27)** — approved binder-inspired design deployed to projectupkeep.app with twelve value propositions, light/dark support, and mobile layout verification. Onboarding remains deferred at owner request. | `docs/briefs/LANDING_ONBOARDING_REDESIGN.md`, `docs/prototypes/landing-onboarding.html` |
+| 25 | "Fits this deck" collection-aware recommendations | Med | Medium | **Later — deliberately moved to the back of the roadmap by the owner (2026-09-27).** The architect impact map and owner decisions remain available when it is reactivated. | `docs/guides/FITS_THIS_DECK_DEVELOPMENT_GUIDE.md` |
+| 38 | Deck Completion workspace: turn a deck/list shortfall into “pull it from here”, “move it from this deck”, “ask this friend”, or “add it to wants” | Med | High | **Later — deliberately moved to the back of the roadmap by the owner (2026-09-27).** The staged plan remains available, but no implementation is queued. | `docs/guides/DECK_COMPLETION_DEVELOPMENT_GUIDE.md` |
 
-Items 26–28 were added 2026-09-24 at the owner's request, appended rather than re-ranked (same rule as 24 and 25 above); all three are phone UI polish, and none has been verified on a device, per item 4.
+Items 26–28 were added 2026-09-24 at the owner's request, appended rather than
+re-ranked; all three are phone UI polish, and none has been verified on a device,
+per item 4.
 
 Items 5, 6 and 8 (old numbering) are fully shipped as of 2026-09-22 (PRs #71–#76) and
 are dropped from this table — see "Owner decisions" below for what future work should
 know about them, not what's left to do.
 
-**Items 24 and 25 are appended, not re-ranked.** They arrived as full written proposals
-(`docs/guides/PLAYTESTER_IMPLEMENTATION_PLAN.md` and `docs/guides/FITS_THIS_DECK_DEVELOPMENT_GUIDE.md`) on 2026-09-23 and are recorded here so this stays the one list, per this
-file's own rule — their position in the table is not a claim about priority relative to
-items 1–23; only `assessor`'s full re-rank sets that. Item 24's architect review and
-implementation are complete; the status above now describes its remaining verification
-and release evidence. Item 25 remains a structural proposal and still needs an architect
-impact map and owner sign-off before implementation.
+**Items 25 and 38 are deliberately at the end of the table.** They have written
+implementation guides, but the owner moved both behind the active catalog and
+physical-device work on 2026-09-27. Their table position is the priority decision.
 
 ### Notes behind the ranking
+
+The item 1 incident diary below is historical. Its remaining cutover steps all
+completed on 2026-09-27; see `docs/operations/CARD_STORAGE_RELEASE.md` for the
+verified production result. Keep the notes as diagnosis evidence, not current
+work instructions.
 
 - **1 (sync database write), diagnosed 2026-09-23.** Measured on the live database:
   `cards` carries 11 indexes; of ~3.0M updates only ~0.89M were in-place (HOT); the sync
@@ -763,9 +767,9 @@ impact map and owner sign-off before implementation.
   Moderate, not Hard. Plan unchanged: two tables keyed on the tag UUID (slugs aren't
   stable), a separate `scripts/sync-oracle-tags.ts`, a new migration, first feature a
   collection filter. **Rule: paid tiers may gate the user's own collection features,
-  never Scryfall card data** (their terms). The real blocking condition on #1 is not
-  "one green run" (already true) but "the write path is healthy again" — more columns
-  per row is more work per write, and #1 shows that write is already near its limit.
+  never Scryfall card data** (their terms). The former write-health blocker was
+  cleared by item 1's completed cutover; scope the tag loader independently and
+  retain the same bounded-write and run-observability safeguards.
 
 - **10 (Mobile UI refinement brief), Priority 4 partially shipped, 2026-09-23
   (implementer), on `feat/mobile-ui-tokens-and-typography` off `main`
@@ -1307,8 +1311,6 @@ full detail lives.
 
 - Whether the owner's own collection already has duplicate rows or an inflated deck
   list from the bugs in item 2 — needs a direct read-only database query, not run yet.
-- What is actually slowing the sync's database write in item 1 — migration 33 is a
-  lead, not a confirmed cause.
 - Whether any scanner tuning constant is actually right — needs item 4, a real phone
   session.
 - Whether the owner files cards or builds decks from the phone or the laptop — decides
