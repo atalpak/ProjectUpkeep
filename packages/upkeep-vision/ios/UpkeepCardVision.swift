@@ -130,15 +130,38 @@ enum UpkeepCardVision {
   /// instead of leaving them guessing.
   static func findFullCard(in image: CIImage, orientation: CGImagePropertyOrientation, imageSize: CGSize,
                            allowContrastRetry: Bool,
+                           allowSegmentationRetry: Bool = false,
                            minimumArea: CGFloat = UpkeepCardVision.minimumArea)
-    -> (card: VNRectangleObservation?, retryRan: Bool, miss: NearMiss?) {
+    -> (card: VNRectangleObservation?, retryRan: Bool, miss: NearMiss?, segmented: Bool) {
     let plain = detectRectangles(in: image, orientation: orientation)
-    if let found = pickFullCard(plain, imageSize: imageSize, minimumArea: minimumArea) { return (found, false, nil) }
+    if let found = pickFullCard(plain, imageSize: imageSize, minimumArea: minimumArea) { return (found, false, nil, false) }
     let plainMiss = nearMiss(plain, imageSize: imageSize, minimumArea: minimumArea)
-    guard allowContrastRetry, let enhanced = contrastEnhanced(image) else { return (nil, false, plainMiss) }
-    let boosted = detectRectangles(in: enhanced, orientation: orientation)
-    let card = pickFullCard(boosted, imageSize: imageSize, minimumArea: minimumArea)
-    return (card, true, card == nil ? (nearMiss(boosted, imageSize: imageSize, minimumArea: minimumArea) ?? plainMiss) : nil)
+    var retryRan = false
+    var miss = plainMiss
+    if allowContrastRetry, let enhanced = contrastEnhanced(image) {
+      retryRan = true
+      let boosted = detectRectangles(in: enhanced, orientation: orientation)
+      if let card = pickFullCard(boosted, imageSize: imageSize, minimumArea: minimumArea) { return (card, true, nil, false) }
+      miss = nearMiss(boosted, imageSize: imageSize, minimumArea: minimumArea) ?? miss
+    }
+    // A borderless card can lack the crisp line that rectangle detection
+    // requires. Document segmentation finds the whole object instead; it must
+    // still pass exactly the same full-card gate before it can be read.
+    if allowContrastRetry || allowSegmentationRetry {
+      retryRan = true
+      let segmented = detectDocument(in: image, orientation: orientation)
+      if let card = pickFullCard(segmented, imageSize: imageSize, minimumArea: minimumArea) { return (card, true, nil, true) }
+      miss = nearMiss(segmented, imageSize: imageSize, minimumArea: minimumArea) ?? miss
+    }
+    return (nil, retryRan, miss, false)
+  }
+
+  static func detectDocument(in image: CIImage, orientation: CGImagePropertyOrientation) -> [VNRectangleObservation] {
+    guard #available(iOS 15.0, macOS 12.0, *) else { return [] }
+    let request = VNDetectDocumentSegmentationRequest()
+    do { try VNImageRequestHandler(ciImage: image, orientation: orientation, options: [:]).perform([request]) }
+    catch { return [] }
+    return request.results ?? []
   }
 
   /// Why a card-like rectangle was refused, for the live coaching text.
@@ -342,6 +365,25 @@ enum UpkeepCardVision {
     return context.createCGImage(output, from: output.extent)
   }
 
+  /// Vision sometimes finds the coloured inner frame instead of the black
+  /// outer edge, cutting off the collector line. This bounded extra crop is
+  /// ONLY for footer OCR: title, artwork and detection keep the original quad.
+  static func footerCaptureCorners(_ corners: [CGPoint]) -> [CGPoint]? {
+    guard corners.count == 4 else { return nil }
+    let tl = corners[0], tr = corners[1], br = corners[2], bl = corners[3]
+    func extend(_ p: CGPoint, awayFromSide side: CGPoint, awayFromEnd end: CGPoint, endMargin: CGFloat) -> CGPoint {
+      CGPoint(x: p.x + 0.04 * (p.x - side.x) + endMargin * (p.x - end.x),
+              y: p.y + 0.04 * (p.y - side.y) + endMargin * (p.y - end.y))
+    }
+    let expanded = [extend(tl, awayFromSide: tr, awayFromEnd: bl, endMargin: 0.02),
+                    extend(tr, awayFromSide: tl, awayFromEnd: br, endMargin: 0.02),
+                    extend(br, awayFromSide: bl, awayFromEnd: tr, endMargin: 0.10),
+                    extend(bl, awayFromSide: br, awayFromEnd: tl, endMargin: 0.10)]
+    guard expanded.allSatisfy({ $0.x.isFinite && $0.y.isFinite && (0...1).contains($0.x) && (0...1).contains($0.y) }),
+          isConvex(expanded) else { return nil }
+    return expanded
+  }
+
   /// The guide-box crop the manual "Scan card" button reads.
   static func guideCrop(_ image: CIImage, context: CIContext) -> CGImage? {
     let extent = image.extent
@@ -466,11 +508,12 @@ struct BurstTracker {
   /// Seconds into a streak after which the best frame is read whatever it scored.
   static let fallbackAfter: TimeInterval = 1.2
   /// Variance of the Laplacian (UpkeepCardVision.sharpness) below which the
-  /// straightened crop is treated as motion blur or missed focus. Estimated, not
-  /// measured on a phone; tune it from real cards.
-  static let minimumSharpness = 40.0
+  /// straightened crop is treated as motion blur or missed focus. Seven owner
+  /// phone crops: four failed Book reads scored 85–279, three readable Book/
+  /// Mouth/Oliphaunt crops scored 524–724. Keep tuning with more real cards.
+  static let minimumSharpness = 400.0
   /// At `earlyWindow` the best frame needs at least this share of the threshold.
-  static let acceptableFraction = 0.5
+  static let acceptableFraction = 0.8
   static let maxGap: TimeInterval = 0.25
 
   enum Step {
@@ -679,7 +722,7 @@ enum UpkeepCardText {
   /// and gives the tiny printing line its own pass. Language correction helps
   /// a real English card name and actively harms a set code like "FDN 0696",
   /// so it is on for one request and off for the other.
-  static func read(_ card: CGImage) -> Evidence {
+  static func read(_ card: CGImage, footerCard: CGImage? = nil) -> Evidence {
     let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
     let title = makeRequest(languageCorrection: true)
     title.regionOfInterest = titleRegion(of: unit)
@@ -697,6 +740,19 @@ enum UpkeepCardText {
     // second, footer-only attempt at higher magnification.
     if !hasFooterEvidence(printingLines) {
       for line in readFooterBand(card) where !printingLines.contains(line) { printingLines.append(line) }
+      // Retain the existing retry for correctly detected full cards. Only a
+      // still-missing footer warrants reading outside the detected rectangle.
+      if !hasFooterEvidence(printingLines), let footerCard {
+        for line in readFooterBand(footerCard) where !printingLines.contains(line) { printingLines.append(line) }
+      }
+    }
+    // A narrower, unsharpened strip recovered "U OI16" on an owner photo
+    // where the wider sharpened pass lost the collector line. Keep this bounded.
+    if !hasFooterEvidence(printingLines) {
+      for line in readFooterBand(card, height: 0.10, sharpened: false) where !printingLines.contains(line) { printingLines.append(line) }
+      if !hasFooterEvidence(printingLines), let footerCard {
+        for line in readFooterBand(footerCard, height: 0.10, sharpened: false) where !printingLines.contains(line) { printingLines.append(line) }
+      }
     }
     var lines: [String] = []
     for line in titleLines + printingLines where !lines.contains(line) { lines.append(line) }
@@ -737,7 +793,7 @@ enum UpkeepCardText {
       if upper.contains("ILLUS") || upper.contains("WIZARDS") || upper.contains("COAST") || upper.contains("©") || upper.contains("™") { continue }
       let hasMarker = upper.contains("•") || upper.contains("·") || upper.contains("*")
       let tokens = upper.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "/" }).map(String.init)
-      let lineNumber = tokens.contains { token in
+      let lineNumber = tokens.count <= 4 && tokens.contains { token in
         let head = token.split(separator: "/").first.map(String.init) ?? token
         return (2...5).contains(head.count) && head.allSatisfy(\.isNumber)
       }
@@ -756,11 +812,11 @@ enum UpkeepCardText {
   /// The footer strip alone, enlarged and sharpened, read with the accurate
   /// recogniser and no language correction (which turns "FDN 0696" into words).
   /// Returns nothing on any failure: this is a best-effort second chance.
-  static func readFooterBand(_ card: CGImage) -> [String] {
-    let bandHeight = max(1, Int((CGFloat(card.height) * footerBandHeight).rounded()))
+  static func readFooterBand(_ card: CGImage, height: CGFloat = footerBandHeight, sharpened: Bool = true) -> [String] {
+    let bandHeight = max(1, Int((CGFloat(card.height) * height).rounded()))
     let band = CGRect(x: 0, y: card.height - bandHeight, width: card.width, height: bandHeight)
     guard let strip = card.cropping(to: band) else { return [] }
-    let scale = min(footerMaxScale, max(1, footerTargetWidth / CGFloat(strip.width)))
+    let scale = sharpened ? min(footerMaxScale, max(1, footerTargetWidth / CGFloat(strip.width))) : footerMaxScale
     var image = CIImage(cgImage: strip)
     if scale > 1.05, let lanczos = CIFilter(name: "CILanczosScaleTransform") {
       lanczos.setValue(image, forKey: kCIInputImageKey)
@@ -768,7 +824,7 @@ enum UpkeepCardText {
       lanczos.setValue(1, forKey: kCIInputAspectRatioKey)
       image = lanczos.outputImage ?? image
     }
-    if let sharpen = CIFilter(name: "CIUnsharpMask") {
+    if sharpened, let sharpen = CIFilter(name: "CIUnsharpMask") {
       sharpen.setValue(image, forKey: kCIInputImageKey)
       sharpen.setValue(1.6, forKey: kCIInputRadiusKey)
       sharpen.setValue(1.2, forKey: kCIInputIntensityKey)

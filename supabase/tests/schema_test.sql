@@ -21,7 +21,7 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'alice@example.com', '{"username":"alice"}'),
   ('22222222-2222-2222-2222-222222222222', 'bob@example.com',   '{"username":"bob"}');
 
-insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                           available_finishes, lang, released_at, image_uri_small)
 values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'ffffffff-0000-0000-0000-000000000001',
@@ -33,7 +33,7 @@ values
 
 -- A Universes Beyond crossover printing: the real card is "Spark Double", but
 -- Marvel Super Heroes Commander prints it as "Loki's Double" (migration 26).
-insert into public.cards (scryfall_id, oracle_id, name, flavor_name, set_code,
+insert into public.card_printings (scryfall_id, oracle_id, name, flavor_name, set_code,
                           collector_number, available_finishes, lang, released_at,
                           image_uri_small)
 values
@@ -535,7 +535,7 @@ insert into public.locations (id, user_id, name, type) values
 -- A throwaway printing, not referenced by any card_instances/deck_cards/
 -- want_list row, so it can be deleted below without hitting one of those
 -- tables' ON DELETE RESTRICT.
-insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                           available_finishes, lang, released_at, image_uri_small)
 values
   ('aaaaaaaa-0000-0000-0000-000000000004', 'ffffffff-0000-0000-0000-000000000003',
@@ -568,7 +568,7 @@ end $$;
 do $$
 declare commander_after uuid; deck_still_there int;
 begin
-  delete from public.cards where scryfall_id = 'aaaaaaaa-0000-0000-0000-000000000004';
+  delete from public.card_printings where scryfall_id = 'aaaaaaaa-0000-0000-0000-000000000004';
 
   select commander_card_id into commander_after from public.locations
    where id = 'bbbbbbbb-0000-0000-0000-000000000005';
@@ -3215,7 +3215,7 @@ reset role;
 -- A third Lightning Bolt printing sharing section 12's oracle id
 -- (ffffffff-...0001), never named by any deck_cards entry below -- this is
 -- what forces the trigger past tier 1 and into tier 2's fallback.
-insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                           available_finishes, lang, released_at, image_uri_small)
 values
   ('aaaaaaaa-0000-0000-0000-000000000006', 'ffffffff-0000-0000-0000-000000000001',
@@ -3351,12 +3351,14 @@ begin
                   and indexname = 'cards_name_idx'),
     'cards_name_idx serves the exact-name lookups in import and printings';
   assert (select count(*) from pg_indexes where schemaname = 'public'
-             and indexname in ('cards_name_trgm_idx', 'cards_type_line_trgm_idx',
-                               'cards_oracle_text_trgm_idx')) = 3,
-    'the three trigram search indexes must be left in place';
+             and indexname in ('cards_name_trgm_idx', 'oracle_cards_type_line_trgm_idx',
+                               'oracle_cards_oracle_text_trgm_idx')) = 3,
+    'search indexes remain on printing names and canonical Oracle rules';
+  assert not exists(select 1 from pg_indexes where indexname in ('cards_type_line_trgm_idx','cards_oracle_text_trgm_idx')),
+    'duplicate per-printing rules indexes must be removed after normalization';
 
   select data_type, is_nullable into col from information_schema.columns
-   where table_schema = 'public' and table_name = 'cards' and column_name = 'content_hash';
+   where table_schema = 'public' and table_name = 'card_printings' and column_name = 'content_hash';
   assert col.data_type = 'text', 'cards.content_hash must exist as text';
   assert col.is_nullable = 'YES',
     'cards.content_hash must be nullable: null means never fingerprinted, so the sync rewrites the row';
@@ -3365,7 +3367,7 @@ begin
   assert not exists (
     select 1 from pg_index i
       join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any (i.indkey)
-     where i.indrelid = 'public.cards'::regclass and a.attname = 'content_hash'),
+     where i.indrelid = 'public.card_printings'::regclass and a.attname = 'content_hash'),
     'cards.content_hash must not be indexed';
 end $$;
 
@@ -3589,12 +3591,12 @@ begin
   assert pg_temp.denied('scryfall_loader', 'select 1 from public.cards limit 1'),
     'the loader must not be able to read cards';
   assert pg_temp.denied('scryfall_loader', $q$
-    insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+    insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                               available_finishes, lang)
     values ('aaaaaaaa-0000-0000-0000-0000000000c1', 'cccccccc-0000-0000-0000-000000000001',
             'Lightning Bolt', 'tst', '1', '{nonfoil}', 'en')$q$),
     'the loader must not be able to insert into cards';
-  assert pg_temp.denied('scryfall_loader', $q$update public.cards set name = 'x'$q$),
+  assert pg_temp.denied('scryfall_loader', $q$update public.card_printings set name = 'x'$q$),
     'the loader must not be able to update cards';
 
   -- Run history: the loader can write oracle_cards rows and nothing that
@@ -3628,13 +3630,13 @@ begin
 
   assert pg_temp.denied('scryfall_loader', 'delete from public.oracle_cards'),
     'the loader must not be able to delete from oracle_cards';
-  assert pg_temp.denied('scryfall_loader', 'delete from public.cards'),
+  assert pg_temp.denied('scryfall_loader', 'delete from public.card_printings'),
     'the loader must not be able to delete from cards';
   assert pg_temp.denied('scryfall_loader', 'delete from public.scryfall_sync_runs'),
     'the loader must not be able to delete from scryfall_sync_runs';
   assert pg_temp.denied('scryfall_loader', 'truncate public.oracle_cards'),
     'the loader must not be able to truncate oracle_cards';
-  assert pg_temp.denied('scryfall_loader', 'truncate public.cards'),
+  assert pg_temp.denied('scryfall_loader', 'truncate public.card_printings'),
     'the loader must not be able to truncate cards';
 
   -- No user data at all, and no ownership history.
@@ -4502,6 +4504,75 @@ begin
   assert not exists (select 1 from pg_policy where polrelid = 'public.scryfall_api_gate'::regclass), 'no policies: RLS denies all direct access';
   assert not has_function_privilege('anon', 'public.claim_scryfall_slot(integer,integer)', 'EXECUTE'), 'anon cannot claim';
   assert has_function_privilege('authenticated', 'public.claim_scryfall_slot(integer,integer)', 'EXECUTE'), 'authenticated can claim';
+end $$;
+
+-- 30. Notification preferences: recipient controls future alerts; defaults preserve behavior.
+reset role;
+insert into auth.users(id,email,raw_user_meta_data) values
+('71111111-1111-4111-8111-111111111111','settings_alice@example.com','{"username":"settings_alice"}'),
+('72222222-2222-4222-8222-222222222222','settings_bob@example.com','{"username":"settings_bob"}');
+do $$
+declare n integer; kind text;
+begin
+  foreach kind in array array['trade_proposed','trade_countered','trade_accepted','trade_declined','trade_cancelled','friend_request','friend_accepted'] loop
+    insert into public.notifications(user_id, actor_id, type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222',kind);
+  end loop;
+  select count(*) into n from public.notifications where user_id='71111111-1111-4111-8111-111111111111' and trade_id is null and friendship_id is null;
+  assert n >= 7, 'absent preferences preserve every alert category';
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub','71111111-1111-4111-8111-111111111111', true);
+insert into public.notification_preferences(user_id, trade_offers) values ('71111111-1111-4111-8111-111111111111',false);
+do $$
+begin
+  assert (select trade_updates and friendships from public.notification_preferences), 'unspecified categories default enabled';
+  begin
+    insert into public.notification_preferences(user_id) values ('72222222-2222-4222-8222-222222222222');
+    raise exception 'other user insert succeeded';
+  exception when insufficient_privilege then null; end;
+  begin
+    update public.notification_preferences set user_id='72222222-2222-4222-8222-222222222222';
+    raise exception 'row reassignment succeeded';
+  exception when insufficient_privilege then null; end;
+end $$;
+select set_config('request.jwt.claim.sub','72222222-2222-4222-8222-222222222222', true);
+do $$
+begin
+  assert not exists(select 1 from public.notification_preferences), 'other user cannot read preferences';
+  update public.notification_preferences set trade_offers=true where user_id='71111111-1111-4111-8111-111111111111';
+  assert not found, 'other user cannot update preferences';
+end $$;
+reset role;
+do $$
+declare before_n integer; after_n integer; kind text;
+begin
+  select count(*) into before_n from public.notifications where user_id='71111111-1111-4111-8111-111111111111';
+  foreach kind in array array['trade_proposed','trade_countered'] loop
+    insert into public.notifications(user_id,actor_id,type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222',kind);
+  end loop;
+  select count(*) into after_n from public.notifications where user_id='71111111-1111-4111-8111-111111111111';
+  assert after_n=before_n, 'muted offers produce no new inbox rows; old rows survive';
+  insert into public.notifications(user_id,actor_id,type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222','trade_accepted');
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n+1, 'unmuted category still inserts';
+  insert into public.notifications(user_id,actor_id,type) values ('72222222-2222-4222-8222-222222222222','71111111-1111-4111-8111-111111111111','trade_proposed');
+  assert found, 'actor mute does not suppress recipient alert';
+  update public.notification_preferences set trade_updates=false, friendships=false where user_id='71111111-1111-4111-8111-111111111111';
+  select count(*) into before_n from public.notifications where user_id='71111111-1111-4111-8111-111111111111';
+  foreach kind in array array['trade_accepted','trade_declined','trade_cancelled','friend_request','friend_accepted'] loop
+    insert into public.notifications(user_id,actor_id,type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222',kind);
+  end loop;
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n, 'every muted category is suppressed';
+  -- Exercise the existing producer, not just direct inserts.
+  insert into public.trades(proposer_id,recipient_id,status) values ('72222222-2222-4222-8222-222222222222','71111111-1111-4111-8111-111111111111','proposed');
+  assert found, 'trade proposal succeeds even when alert is muted';
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n, 'real trade producer honors preferences';
+  insert into public.friendships(requester_id,addressee_id,status) values ('72222222-2222-4222-8222-222222222222','71111111-1111-4111-8111-111111111111','pending');
+  assert found, 'friend request succeeds even when alert is muted';
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n, 'real friendship producer honors preferences';
+  insert into auth.users(id,email,raw_user_meta_data) values ('99999999-9999-4999-8999-999999999999','preferences@example.com','{"username":"preferences_test"}');
+  insert into public.notification_preferences(user_id) values ('99999999-9999-4999-8999-999999999999');
+  delete from auth.users where id='99999999-9999-4999-8999-999999999999';
+  assert not exists(select 1 from public.notification_preferences where user_id='99999999-9999-4999-8999-999999999999'), 'account deletion cascades preferences';
 end $$;
 
 rollback;

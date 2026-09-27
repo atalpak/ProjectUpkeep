@@ -5,10 +5,8 @@ import { isFlipCard, type FlippableCard } from "@/lib/cards/faces";
 import { matchesAdvancedCard, type AdvancedCardFilter } from "@/lib/cards/search-query";
 
 /**
- * The direct-to-`cards` query behind Advanced Search, shared by the header
- * dropdown's card lookup (`/api/cards/suggestions`) and the dedicated `/search`
- * page — one query, two callers, so they can never quietly drift apart on
- * what "advanced" means.
+ * Local name suggestions for the header dropdown (`/api/cards/suggestions`).
+ * Submitted catalog queries use the Scryfall service instead.
  *
  * Reads public Scryfall data (`cards`, digital printings excluded), not a
  * user's own collection, so this needs no `owner_user_id` scoping — see

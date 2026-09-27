@@ -1,8 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { specFromParams } from "@upkeep/domain";
+import { createClient as createBearerClient } from "@supabase/supabase-js";
+import { authenticateRequest } from "@/lib/auth/request-auth";
+import { publicSupabaseConfig } from "@/lib/env";
+import { localPrintingIds, ownershipFor } from "@/lib/cards/search-enrichment";
+import { specFromParams, setOnlyCode } from "@upkeep/domain";
 
-import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import { catalogSearchEnabled, searchCatalog } from "@/lib/cards/scryfall-search";
+import { createClient } from "@/lib/supabase/server";
+import { searchCatalog } from "@/lib/cards/scryfall-search";
 
 /**
  * Submitted catalog search: the whole query goes to Scryfall unchanged.
@@ -28,22 +32,41 @@ const STATUS = {
 } as const;
 
 export async function GET(request: NextRequest) {
-  if (!(await getCurrentUser())) {
+  const supabase = await authenticateRequest(
+    request.headers.get("authorization"),
+    createClient,
+    (token) => {
+      const { url, anonKey } = publicSupabaseConfig();
+      return createBearerClient(url, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+    },
+    async (client, token) => {
+      const { data, error } = await client.auth.getUser(token);
+      return !error && !!data.user;
+    },
+  );
+  if (!supabase) {
     return NextResponse.json(
       { status: "error", kind: "unauthorized", message: "Not signed in.", warnings: [], submittedQuery: "" },
       { status: 401 },
     );
   }
-  if (!catalogSearchEnabled()) {
-    return NextResponse.json(
-      { status: "error", kind: "unavailable", message: "Catalog search is switched off.", warnings: [], submittedQuery: "" },
-      { status: 503 },
-    );
-  }
-
   const spec = specFromParams(request.nextUrl.searchParams);
-  const result = await searchCatalog(await createClient(), spec);
-  if (result.status === "ok") return NextResponse.json(result);
+  const setGallery = setOnlyCode(spec.q) !== null && spec.unique === undefined && spec.order === undefined;
+  const result = await searchCatalog(supabase, setGallery ? { ...spec, unique: "prints", order: "set" } : spec);
+  if (result.status === "ok") {
+    // Mobile needs exact-printing eligibility; upstream-only cards remain view-only.
+    const localIds = await localPrintingIds(supabase, result.cards.map(c => c.id));
+    if (request.nextUrl.searchParams.get("owned_only") === "true") {
+      const { data: { user } } = await supabase.auth.getUser();
+      const owned = user ? await ownershipFor(supabase, user.id, result.cards.map(c => ({ id: c.id, oracleId: c.oracleId }))) : null;
+      if (!owned) return NextResponse.json({ status: "error", kind: "unavailable", message: "Could not load your collection. Try again.", warnings: [], submittedQuery: spec.q }, { status: 503 });
+      return NextResponse.json({ ...result, cards: result.cards.filter(c => (owned[c.id]?.exact ?? 0) + (owned[c.id]?.otherPrintings ?? 0) > 0), localPrintingIds: localIds });
+    }
+    return NextResponse.json({ ...result, localPrintingIds: localIds });
+  }
 
   const headers: Record<string, string> = {};
   if (result.retryAfterSeconds) headers["Retry-After"] = String(result.retryAfterSeconds);

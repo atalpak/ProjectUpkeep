@@ -4,7 +4,7 @@ import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { CardIndex, validateDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type StackMoveDraft } from '@upkeep/scan-core';
 import { backend, moveWriter } from './backend';
-import { demoBundle, installBundledCatalog, loadCatalog, refreshCatalog, type CatalogProgress } from './catalog';
+import { demoBundle, prepareCatalog, refreshCatalog, type CatalogProgress } from './catalog';
 import { checkForUpdate, dismissUpdate, type LatestCatalog, type UpdateCheck } from './catalogUpdates';
 import { errorMessage, reportError } from './errors';
 import { pendingKey, pendingMoveKey } from './storage';
@@ -47,6 +47,8 @@ type AppContextValue = {
   index: CardIndex;
   setIndex(index: CardIndex): void;
   demo: boolean;
+  /** Initial local catalog preparation; ordinary online screens remain usable. */
+  catalogLoading: boolean;
   catalogBusy: boolean;
   /** Progress of the running card-database download, or null when none is running. */
   catalogProgress: CatalogProgress | null;
@@ -66,10 +68,8 @@ type AppContextValue = {
   busy: boolean;
   setBusy(busy: boolean): void;
   recovering: boolean;
-  /** busy || recovering || catalogBusy || !!review — the app-wide hard stop
-   * that gates sign-in, camera and search inputs simultaneously. Screens may
-   * still add their own additional conditions (e.g. a screen-local `saving`
-   * flag) on top of this. */
+  /** Busy writes, completed-catalog recovery, downloads or a pending review.
+   * Initial catalog loading gates scanners separately; online screens stay usable. */
   disabled: boolean;
   review: Review | null;
   setReview(review: Review | null): void;
@@ -124,6 +124,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recent, setRecent] = useState<string[]>([]);
   const [lastUsedDraft, setLastUsedDraft] = useState<LastUsedDraft | null>(null);
   const [recovering, setRecovering] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const catalogWork = useRef(true);
   const [catalogBusy, setCatalogBusy] = useState(false);
   const [catalogProgress, setCatalogProgress] = useState<CatalogProgress | null>(null);
   const [catalogError, setCatalogError] = useState('');
@@ -139,23 +141,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     alive.current = true;
-    const loaded = loadCatalog();
-    setIndex(loaded);
-    // First launch (still on the 3-card demo bundle): unpack the snapshot that
-    // ships inside the app, so scanning works with no download. A build without
-    // a snapshot, or one that cannot be read, stays on demo, and the signed-in
-    // user is asked to download instead (CatalogDownloadModal in App.tsx).
-    if (loaded.bundle.version === 'demo-only' && backend) {
-      setCatalogBusy(true); setCatalogProgress({ phase: 'preparing' });
-      void installBundledCatalog().then(installed => { if (installed && alive.current) setIndex(installed); })
-        .finally(() => { if (alive.current) { setCatalogBusy(false); setCatalogProgress(null); } });
-    }
     const sub = AppState.addEventListener('change', state => {
       setActive(state === 'active');
       if (state !== 'active') { cameraStop.current?.(); backend?.auth.stopAutoRefresh(); }
       else backend?.auth.startAutoRefresh();
     });
     return () => { alive.current = false; cameraStop.current?.(); sub.remove(); backend?.auth.stopAutoRefresh(); };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void prepareCatalog(!!backend).then(loaded => {
+      if (!cancelled) setIndex(loaded);
+    }).catch(e => {
+      if (!cancelled) reportError(e, 'appProvider.prepareCatalog');
+    }).finally(() => {
+      if (!cancelled) { catalogWork.current = false; setCatalogLoading(false); }
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -208,14 +211,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [userId]);
 
+  // Locations do not need the offline scanner index.
+  useEffect(() => { if (userId) void loadLocations(userId).then(({ error }) => {
+    if (error && alive.current && currentUser.current === userId) setMessage('Locations could not load. Unsorted remains available.');
+  }); }, [userId]);
+
   useEffect(() => {
-    if (!backend || !userId) return;
+    if (!backend || !userId || catalogLoading) return;
     let cancelled = false;
     setRecovering(true);
     void (async () => {
-      const { error } = await loadLocations(userId);
-      if (cancelled) return;
-      if (error) setMessage('Locations could not load. Unsorted remains available.');
       try {
         const pending = await SecureStore.getItemAsync(pendingKey(userId));
         if (cancelled || !pending) return;
@@ -226,11 +231,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
         setReview({ printing, operationId: scan.operationId, submitted: scan });
         setMessage('An unfinished save was recovered. Retry to verify whether it reached your collection.');
-      } catch { setMessage('The pending save could not be recovered. Keep this installation and contact the developer before adding more cards.'); setBusy(true); }
+      } catch { if (cancelled) return; setMessage('The pending save could not be recovered. Keep this installation and contact the developer before adding more cards.'); setBusy(true); }
       finally { if (!cancelled) setRecovering(false); }
     })();
     return () => { cancelled = true; };
-  }, [userId, index]);
+  }, [userId, index, catalogLoading]);
 
   // locations.user_id is the owner column (see supabase/migrations/00000000000004_locations.sql --
   // card_instances uses owner_user_id, locations does not). Filtering explicitly, rather than
@@ -240,7 +245,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function loadLocations(forUser: string) {
     if (!backend) return { error: null };
     const { data, error } = await backend.from('locations').select('id,name,type').eq('user_id', forUser).order('name').limit(1000);
-    if (!error) setLocations((data ?? []).filter(l => l.type !== 'deck'));
+    if (!error && alive.current && currentUser.current === forUser) setLocations((data ?? []).filter(l => l.type !== 'deck'));
     return { error };
   }
   async function reloadLocations() { if (userId) await loadLocations(userId); }
@@ -258,17 +263,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Once per launch, for a signed-in user who already has the real database:
   // quietly ask whether a newer one exists (itself limited to once a day).
   useEffect(() => {
-    if (!backend || !userId || demo || catalogBusy || updateChecked.current) return;
+    if (!backend || !userId || demo || catalogLoading || catalogBusy || updateChecked.current) return;
     updateChecked.current = true;
     void checkForCatalogUpdate();
-  }, [userId, demo, catalogBusy]);
+  }, [userId, demo, catalogLoading, catalogBusy]);
 
   async function syncCatalog(): Promise<boolean> {
-    if (catalogBusy) return false;
+    if (catalogWork.current) return false;
+    catalogWork.current = true;
     setCatalogBusy(true); setCatalogError(''); setCatalogProgress({ phase: 'downloading', received: 0, total: null });
-    try { setIndex(await refreshCatalog(setCatalogProgress, catalogUpdate?.url)); setCatalogUpdate(null); return true; }
-    catch (e) { setCatalogError(errorMessage(e)); return false; }
-    finally { setCatalogBusy(false); setCatalogProgress(null); }
+    try {
+      const loaded = await refreshCatalog(p => { if (alive.current) setCatalogProgress(p); }, catalogUpdate?.url);
+      if (alive.current) { setIndex(loaded); setCatalogUpdate(null); }
+      return true;
+    } catch (e) { if (alive.current) setCatalogError(errorMessage(e)); return false; }
+    finally { catalogWork.current = false; if (alive.current) { setCatalogBusy(false); setCatalogProgress(null); } }
   }
 
   /**
@@ -311,15 +320,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (error) setMessage(error.message);
   }
 
-  const disabled = busy || recovering || catalogBusy || !!review;
+  const disabled = busy || (recovering && !catalogLoading) || catalogBusy || !!review;
 
   const value = useMemo<AppContextValue>(() => ({
     backendAvailable: !!backend,
-    userId, active, index, setIndex, demo, catalogBusy, catalogProgress, catalogError, clearCatalogError: () => setCatalogError(''), catalogUpdate, checkForCatalogUpdate, dismissCatalogUpdate, syncCatalog,
+    userId, active, index, setIndex, demo, catalogLoading, catalogBusy, catalogProgress, catalogError, clearCatalogError: () => setCatalogError(''), catalogUpdate, checkForCatalogUpdate, dismissCatalogUpdate, syncCatalog,
     message, setMessage, busy, setBusy, recovering, disabled,
     review, setReview, locations, lastUsedDraft, setLastUsedDraft, recent, addRecent,
     pendingMove, moveBusy, beginMove, retryPendingMove, registerCameraStop, scannerLive, setScannerLive, signOut, reloadLocations,
-  }), [userId, active, index, demo, catalogBusy, catalogProgress, catalogError, catalogUpdate, message, busy, recovering, disabled, review, locations, lastUsedDraft, recent, pendingMove, moveBusy, scannerLive]);
+  }), [userId, active, index, demo, catalogLoading, catalogBusy, catalogProgress, catalogError, catalogUpdate, message, busy, recovering, disabled, review, locations, lastUsedDraft, recent, pendingMove, moveBusy, scannerLive]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

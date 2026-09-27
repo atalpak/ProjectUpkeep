@@ -31,15 +31,18 @@ each building its own service-role client inline rather than importing a
 shared admin client. A third script holds a different kind of elevated
 credential, a direct Postgres connection, listed after them:
 
-- `scripts/sync-scryfall.ts`, the Scryfall sync job, writes only to `cards`
-  and `scryfall_sync_runs`.
+- `scripts/sync-scryfall.ts`, the Scryfall sync job, reads hashes from
+  `card_printings`, writes catalog rows through the service-only
+  `ingest_card_printings` RPC, and writes `scryfall_sync_runs`. The RPC maintains
+  printing-specific rules overrides; direct printing writes are revoked from
+  service_role. Public readers continue to use the security-invoker `cards` view.
 - `scripts/publish-catalog.ts` (mobile-app initiative phase 5) uploads a
   built mobile catalog bundle to a public Supabase Storage bucket.
   `scripts/create-catalog-bucket.ts`, the one-off script that creates that
   bucket, is the same pattern for the same reason — see its own header for
   why it is a script and not a migration. `scripts/export-catalog.ts`, which
   reads the input for the catalog build, is deliberately **not** on this
-  list: `cards` already grants `select` to `anon` (migration 3), so it reads
+  list: `cards` grants `select` to `anon` (migration 50 preserves that API), so it reads
   with `NEXT_PUBLIC_SUPABASE_ANON_KEY`, not the service-role key.
 
 - `scripts/sync-oracle-direct.ts` (with its helper

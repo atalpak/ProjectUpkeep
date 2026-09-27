@@ -4,7 +4,6 @@ import type { createClient } from "@/lib/supabase/server";
 import type { SearchResponse, SearchSpec } from "@upkeep/domain";
 import { searchCatalog as run, suggestSpelling as suggest, type SearchDeps } from "@/lib/cards/scryfall-search-core";
 
-export { catalogSearchEnabled } from "@/lib/cards/scryfall-search-core";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 

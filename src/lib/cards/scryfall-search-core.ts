@@ -27,7 +27,7 @@ import {
  * the traffic gate. A stale entry is served, marked stale, if upstream fails.
  *
  * Config (all optional): `SCRYFALL_SEARCH_CONTACT` — appended to the required
- * User-Agent; `SCRYFALL_SEARCH_ENABLED=false` — turns the feature off.
+ * User-Agent.
  */
 
 /** What the search needs from its environment — injected so the logic is testable without a network or a database. */
@@ -50,9 +50,7 @@ const CACHE_MAX_ENTRIES = 200;
 /** Bump to invalidate every cached answer when search policy changes. */
 const POLICY_VERSION = 1;
 
-export function catalogSearchEnabled(): boolean {
-  return process.env.SCRYFALL_SEARCH_ENABLED !== "false";
-}
+
 
 const userAgent = () =>
   `ProjectUpkeep/0.1 (${process.env.SCRYFALL_SEARCH_CONTACT?.trim() || "https://github.com/projectupkeep"})`;

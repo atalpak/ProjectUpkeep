@@ -2,11 +2,7 @@
 
 import Image from "next/image";
 import { useRef, useState, useSyncExternalStore } from "react";
-
-import { useCardPanel } from "@/components/CardPanel";
-import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
-import { isTileSize, SizePicker, TILE_SIZES, type TileSize } from "@/components/cards/TileSizePicker";
-import type { CardSearchResult } from "@/lib/cards/search";
+import { isTileSize, type TileSize } from "@/components/cards/TileSizePicker";
 
 /**
  * Where the size choice lives — an external store, the same reasoning
@@ -55,90 +51,6 @@ function writeSize(size: TileSize): void {
     unsaved = size;
   }
   for (const listener of listeners) listener();
-}
-
-/**
- * Results for `/search`, one printing's thumbnail per card name — the same
- * grouping the header dropdown's card lookup already does. A click opens the
- * card popup (`useCardPanel`'s sheet presentation), the same "look at it,
- * maybe add it" path the dropdown and `/find` use, so a card reached from
- * here is never a dead end.
- *
- * No name or print count under the tile: the card's own name is printed on
- * the card, and this page is a visual browse, not a list — a caption under
- * every tile is the thing that made the grid read as small thumbnails
- * instead of cards you could actually read. Tiles size themselves with
- * `auto-fill`/`minmax` rather than a fixed column count per breakpoint, so
- * "big enough to read" holds at any window width instead of being tuned for
- * one — the size picker just changes what that minmax floor is.
- *
- * Defaults to Large and remembers the choice in localStorage — a viewing
- * preference, not page state worth putting in the URL.
- */
-export function SearchResultsGrid({ results }: { results: CardSearchResult[] }) {
-  const { open } = useCardPanel();
-  const size = useSyncExternalStore(subscribe, readSize, readSizeOnServer);
-
-  return (
-    <div className="space-y-3">
-      <div className="flex justify-end">
-        <SizePicker size={size} onChange={writeSize} />
-      </div>
-
-      <ul
-        className="grid gap-5"
-        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[size].minmax}, 1fr))` }}
-      >
-        {results.map((card) => (
-          <SearchTile
-            key={card.name}
-            card={card}
-            imageWidth={TILE_SIZES[size].imageWidth}
-            onOpen={() => card.sample_card_id && open(card.sample_card_id)}
-          />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-/** One result: the loupe tile plus, for a two-sided card, its flip control. */
-function SearchTile({
-  card,
-  imageWidth,
-  onOpen,
-}: {
-  card: CardSearchResult;
-  imageWidth: string;
-  onOpen: () => void;
-}) {
-  const face = useCardFace(
-    card.sample_faces
-      ? {
-          name: card.name,
-          flavor_name: card.sample_flavor_name,
-          layout: card.sample_faces.layout,
-          card_faces: card.sample_faces.card_faces,
-          image_uri: card.sample_image_uri_large,
-          image_uri_small: card.sample_image_uri,
-        }
-      : null,
-    "normal",
-  );
-
-  return (
-    <li className="relative">
-      <MagnifierTile
-        image={face.image ?? card.sample_image_uri_large ?? card.sample_image_uri}
-        label={face.name ?? card.sample_flavor_name ?? card.name}
-        imageWidth={imageWidth}
-        onClick={onOpen}
-        onImageError={face.onImageError}
-        disabled={!card.sample_card_id}
-      />
-      {face.canFlip ? <FlipButton onFlip={face.flip} otherName={face.otherName} /> : null}
-    </li>
-  );
 }
 
 const LENS_SIZE = 130;

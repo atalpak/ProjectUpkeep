@@ -58,6 +58,16 @@ expect(!UpkeepCardVision.isConvex(bowtie), "bow-tie is not convex")
 expect(!gate(bowtie), "bow-tie fails the gate")
 expect(UpkeepCardVision.isConvex(quad()), "rectangle is convex")
 
+let footerQuad = UpkeepCardVision.footerCaptureCorners(quad())!
+expect(footerQuad[0].x < quad()[0].x && footerQuad[3].y < quad()[3].y, "footer rescue expands sides and bottom")
+expect(footerQuad[0].y > quad()[0].y, "footer rescue retains the top edge")
+expect(UpkeepCardVision.footerCaptureCorners(quad(cy: 0.85)) == nil, "footer rescue refuses out-of-frame expansion")
+expect(UpkeepCardVision.footerCaptureCorners([]) == nil, "footer rescue refuses missing corners")
+var tiltedFooter = quad()
+tiltedFooter[0].y -= 0.02; tiltedFooter[3].y -= 0.02
+expect(UpkeepCardVision.footerCaptureCorners(tiltedFooter) != nil, "footer rescue accepts a tilted convex card")
+expect(!UpkeepCardText.hasFooterEvidence(["Creatures you", "control get +1/+0", "III", "and gain menace", "until end of turn.", "Enchantment - Saga", "TINI TO DuO II"]), "owner's Book log requests the footer retry")
+
 // Tracker: hysteresis, grace, no trailing.
 var tracker = OutlineTracker()
 let a = quad(cx: 0.4, cy: 0.5), b = quad(cx: 0.75, cy: 0.5)
@@ -123,31 +133,31 @@ func fakeCrop(_ sharpness: Double) -> CGImage {
 // Deterministic hand tremor: mean corner movement between frames stays ~0.02-0.04.
 func tremor(_ i: Int) -> Double { 0.5 + 0.02 * sin(Double(i) * 2.3) + 0.012 * cos(Double(i) * 5.1) }
 
-let handHeld = run(frames: 60, position: tremor, sharpness: { $0 < 4 ? 22 : 55 })
+let handHeld = run(frames: 60, position: tremor, sharpness: { $0 < 4 ? 220 : 550 })
 print("hand-held locked at \(handHeld.map { String($0.at) } ?? "never")")
 expect(handHeld != nil && handHeld!.at < 0.7, "a jittery hand-held card locks in under 0.7s once a frame is sharp")
 expect(handHeld?.sweepSeen == false, "hand tremor is never mistaken for a sweep")
-let instant = run(frames: 30, position: { _ in 0.5 }, sharpness: { _ in 80 })
+let instant = run(frames: 30, position: { _ in 0.5 }, sharpness: { _ in 800 })
 expect(instant != nil && instant!.at <= 0.1, "a sharp still card locks as soon as the 3-detection streak is met")
-let sweepStream = run(frames: 150, position: { 0.2 + (Double($0) * 0.06).truncatingRemainder(dividingBy: 0.6) }, sharpness: { _ in 80 })
+let sweepStream = run(frames: 150, position: { 0.2 + (Double($0) * 0.06).truncatingRemainder(dividingBy: 0.6) }, sharpness: { _ in 800 })
 expect(sweepStream == nil, "a card swept through the frame (0.06 per detection) never locks, even with sharp frames")
-let slowSweep = run(frames: 20, position: { 0.2 + Double($0) * 0.045 }, sharpness: { _ in 80 })
+let slowSweep = run(frames: 20, position: { 0.2 + Double($0) * 0.045 }, sharpness: { _ in 800 })
 expect(slowSweep != nil, "movement under the loose 0.05 tolerance still counts as held")
 // Blurry-only: nothing clears the threshold, so the best frame is read at the window/timeout.
-let blurry = run(frames: 120, position: tremor, sharpness: { 10.0 + Double(($0 * 7) % 15) })
+let blurry = run(frames: 120, position: tremor, sharpness: { 320.0 + Double(($0 * 7) % 60) })
 print("blurry-only locked at \(blurry.map { String($0.at) } ?? "never") with sharpness \(blurry?.sharpness ?? 0)")
-expect(blurry != nil && blurry!.at >= BurstTracker.earlyWindow && blurry!.at < BurstTracker.earlyWindow + 0.1, "acceptably blurry frames (best >= half the threshold) are read at the early window")
-expect(blurry != nil && blurry!.sharpness >= 20, "the frame read is the sharpest seen, not the last")
+expect(blurry != nil && blurry!.at >= BurstTracker.earlyWindow && blurry!.at < BurstTracker.earlyWindow + 0.1, "acceptably blurry frames (best >= 80% of the threshold) are read at the early window")
+expect(blurry != nil && blurry!.sharpness >= 320, "the frame read is the sharpest seen, not the last")
 let hopeless = run(frames: 120, position: tremor, sharpness: { _ in 8 })
 print("hopeless locked at \(hopeless.map { String($0.at) } ?? "never")")
 expect(hopeless != nil && hopeless!.at >= BurstTracker.fallbackAfter && hopeless!.at < BurstTracker.fallbackAfter + 0.1, "a stream that never sharpens is read anyway at the 1.2s timeout")
-let skipped = run(frames: 60, position: { $0 % 7 == 3 ? nil : tremor($0) }, sharpness: { $0 < 12 ? 20 : 60 })
+let skipped = run(frames: 60, position: { $0 % 7 == 3 ? nil : tremor($0) }, sharpness: { $0 < 12 ? 200 : 600 })
 expect(skipped != nil && skipped!.at < 0.7, "an occasional missed detection does not restart the burst")
 // Frame 11 is the best (30); every later frame is worse (25) and every 4th
-// detection is missed. What is read at the early window must be the 30 frame.
-let retained = run(frames: 120, position: { $0 % 4 == 0 ? nil : tremor($0) }, sharpness: { $0 == 11 ? 30 : ($0 < 11 ? 12 : 25) })
+// detection is missed. What is read at the early window must be the 380 frame.
+let retained = run(frames: 120, position: { $0 % 4 == 0 ? nil : tremor($0) }, sharpness: { $0 == 11 ? 380 : ($0 < 11 ? 120 : 330) })
 print("retained read sharpness \(retained?.sharpness ?? 0) at \(retained.map { String($0.at) } ?? "never")")
-expect(retained != nil && retained!.sharpness == 30, "missed detections keep the best crop: the 30 frame is read, not the later 25 or an earlier worse one")
+expect(retained != nil && retained!.sharpness == 380, "missed detections keep the best crop: the 380 frame is read, not the later 330 or an earlier worse one")
 var droppedBurst = BurstTracker()
 for i in 0..<4 { _ = droppedBurst.observe(quad(), at: Double(i) * 0.03) }
 _ = droppedBurst.offer(sharpness: 30, crop: fakeCrop(30), at: 0.12)
@@ -218,11 +228,11 @@ var retried = 0
 let refused = run(frames: 60, position: tremor, sharpness: { _ in 8 }, allowBlurryFallback: false, retries: &retried)
 expect(refused == nil && retried >= 1, "a hopeless stream is retried, not read, when the blurry fallback is disallowed (\(retried) retries in 2s)")
 var retriedThenSharp = 0
-let recovered = run(frames: 120, position: tremor, sharpness: { $0 < 45 ? 8 : 60 }, allowBlurryFallback: false, retries: &retriedThenSharp)
+let recovered = run(frames: 120, position: tremor, sharpness: { $0 < 45 ? 8 : 600 }, allowBlurryFallback: false, retries: &retriedThenSharp)
 expect(recovered != nil && retriedThenSharp >= 1 && recovered!.sharpness >= 40, "a burst that sharpens after the retry is read sharp")
 var midBurst = BurstTracker()
 for i in 0..<4 { _ = midBurst.observe(quad(), at: Double(i) * 0.03) }
-expect(midBurst.offer(sharpness: 25, crop: fakeCrop(25), at: 0.75, allowBlurryFallback: false) != .retry, "the early window still reads an acceptable (>= half) frame with the fallback disallowed")
+expect(midBurst.offer(sharpness: 350, crop: fakeCrop(350), at: 0.75, allowBlurryFallback: false) != .retry, "the early window still reads an acceptable (>= 80%) frame with the fallback disallowed")
 
 // Focus gate: skip while the lens hunts, but only for 0.6s per burst.
 var gateFocus = FocusGate()
@@ -267,5 +277,14 @@ expect(!UpkeepCardText.hasFooterEvidence(["0696 EN"]), "a language code alone is
 expect(!UpkeepCardText.hasFooterEvidence(["FDN • EN"]), "set without a number triggers the second pass")
 expect(!UpkeepCardText.hasFooterEvidence(["0696 R", "TM & © 2025 Wizards of the Coast"]), "copyright line is skipped")
 expect(!UpkeepCardText.hasFooterEvidence(["0O96 • EN"]), "a digit misread as a letter is not a set code")
+
+
+for score in [84.57, 154.82, 162.25, 278.20] {
+  expect(run(frames: 24, position: { _ in 0.5 }, sharpness: { _ in score }, allowBlurryFallback: false) == nil, "failed owner Book crop waits for focus")
+}
+for score in [524.48, 663.87, 723.02] {
+  expect(run(frames: 24, position: { _ in 0.5 }, sharpness: { _ in score })?.at ?? 1 < 0.2, "readable owner crop locks promptly")
+}
+expect(!UpkeepCardText.hasFooterEvidence(["LTR • EN", "** & C 3023 Wisanto of the Coan"]), "mangled copyright year must not skip the footer retry")
 
 exit(failures == 0 ? 0 : 1)

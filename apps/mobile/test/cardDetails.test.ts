@@ -18,7 +18,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CACHE_TTL_MS, LOAD_FAILED, REQUEST_TIMEOUT_MS, cachedPrinting, cachedPrintings, fetchFriendActivity, fetchFriendSupplyCounts, fetchOwned,
-  fetchPrinting, fetchPrintings, fetchScryfallExtras, fetchWantList, fetchWantedQuantity, pickRepresentative, seedToPrinting, toPrinting,
+  fetchPrinting, fetchPrintings, fetchScryfallExtras, fetchWantList, fetchWantedQuantity, mergePrintingList, pickRepresentative, seedToPrinting, toPrinting,
   type CardPrinting, type CardSeed,
 } from '../src/cardDetails';
 
@@ -523,4 +523,14 @@ test('fetchScryfallExtras is bounded by the same deadline', async () => {
     tick(REQUEST_TIMEOUT_MS);
     await settled;
   } finally { s.restore(); }
+});
+
+
+test('a capped printing list retains the loaded exact selection and its rules', () => {
+  const selected = printing({ id: 'old-land', full: true, oracleText: 'Exact printing rules' });
+  const list = Array.from({ length: 500 }, (_, i) => printing({ id: `recent-${i}` }));
+  const merged = mergePrintingList(list, [selected], selected.id);
+  assert.equal(merged.length, 501);
+  assert.equal(merged[0], selected);
+  assert.equal(mergePrintingList([printing({ id: selected.id, full: false })], [selected], selected.id)[0], selected);
 });

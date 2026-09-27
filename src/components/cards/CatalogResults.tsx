@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 import {
   DISPLAY_MODES,
@@ -18,11 +19,12 @@ import {
 
 import { useCardPanel } from "@/components/CardPanel";
 import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
-import { MagnifierTile, useTileSize } from "@/components/cards/SearchResultsGrid";
+import { MagnifierTile, useTileSize } from "@/components/cards/SearchTiles";
 import { SizePicker, TILE_SIZES } from "@/components/cards/TileSizePicker";
 import { ManaCost } from "@/components/ManaCost";
 import { Badge, Banner, EmptyState, Select, cx } from "@/components/ui";
 import { catalogCardToPanelCard } from "@/lib/cards/catalog-panel-card";
+import { recordRecentSearch } from "@/lib/search/recent-searches";
 import type { OwnershipNote } from "@/lib/cards/search-enrichment-core";
 import type { Card } from "@/lib/types";
 import type { FriendNote } from "@/lib/social/queries";
@@ -58,6 +60,21 @@ export function CatalogResults({
   ownershipUnavailable: boolean;
 }) {
   const router = useRouter();
+  useEffect(() => {
+    recordRecentSearch({
+      q: spec.q,
+      page: 1,
+      unique: spec.unique,
+      order: spec.order,
+      dir: spec.dir,
+      display: spec.display,
+      prefer: spec.prefer,
+      includeExtras: spec.includeExtras,
+      includeMultilingual: spec.includeMultilingual,
+      includeVariations: spec.includeVariations,
+    });
+  }, [spec.q, spec.unique, spec.order, spec.dir, spec.display, spec.prefer, spec.includeExtras, spec.includeMultilingual, spec.includeVariations]);
+
   const local = localIds ? new Set(localIds) : null;
   // A printing we hold locally opens by id, so the panel loads the full row (finishes, prices);
   // an upstream-only one opens from the search payload and is view-only.

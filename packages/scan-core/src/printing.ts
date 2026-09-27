@@ -21,6 +21,8 @@ import type { Printing } from './types';
  * Owner decision 2026-09-19: quick scan no longer asks "which printing?" or
  * waits for the picture. Speed and a page that opens at once won over never
  * guessing; the printing selector on the details page is the correction path.
+ * Follow-up 2026-09-27: an ambiguous preview now needs deliberate confirmation
+ * before adding; the sheet still opens without waiting on picture comparison.
  */
 
 export interface PrintingHints {
@@ -82,19 +84,39 @@ export function printingHints(lines: string[], knownSets?: ReadonlySet<string>):
     if (NOT_A_PRINTING_LINE.test(upper)) continue;
     const line = upper.replace(/[•·∙●▪|,;:_.]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!line) continue;
-    const tokens = line.split(' ');
+    const tokens = line.split(' ').map(token => {
+      // Only mixed digit/letter collector tokens on compact lines. Preserve
+      // legitimate suffixes (10i) and actual digits (0118 must stay 0118).
+      if (line.split(' ').length <= 4 && /^[0-9OIL]{2,5}$/.test(token) && /[0-9]$/.test(token) && /[0-9]/.test(token)) {
+        return token.replace(/O/g, '0').replace(/[IL]/g, '1');
+      }
+      return token;
+    });
+    // Creature P/T sits above the footer in the same OCR crop. A bare small
+    // fraction is not enough evidence of a collector number; padded numbers,
+    // larger print runs and a rarity/set beside it remain valid footer evidence.
+    if (/^(?:\d{1,2}|\*) ?\/ ?(?:\d{1,2}|\*)$/.test(line)) continue;
+    const knownSetOnLine = tokens.some(t => !LANGUAGE_TOKENS.has(t) && /^[A-Z0-9]{2,5}$/.test(t) && /[A-Z]/.test(t) &&
+      !/^\d+[A-Z★]?$/.test(t) && !!knownSets?.has(t.toLowerCase()));
+    // The collector line is compact. Long prose/copyright OCR can contain a
+    // mangled year and a stray C/U; that is not collector or rarity evidence.
+    const canCarryNumber = knownSetOnLine || tokens.length <= 4;
+    const footerContext = knownSetOnLine || (canCarryNumber && tokens.some(t => !!RARITY_LETTERS[t]));
 
     // "0236/0300" is the most specific shape there is: a number over a print run.
-    const total = line.match(/(?:^| )(\d{1,5}[A-Z★]?) ?\/ ?\d{1,5}(?= |$)/);
+    const total = canCarryNumber ? line.match(/(?:^| )(\d{1,5}[A-Z★]?) ?\/ ?\d{1,5}(?= |$)/) : null;
     let lineNumber: string | undefined;
-    if (total) { lineNumber = total[1]; if (!number || number.score < 3) number = { value: lineNumber!, score: 3 }; }
+    if (total) { lineNumber = total[1]; const score = 3 + (footerContext ? 2 : 0); if (!number || number.score < score) number = { value: lineNumber!, score }; }
     else {
-      const plain = tokens.find(t => /^\d{1,5}[A-Z★]?$/.test(t));
-      if (plain) { lineNumber = plain; if (!number) number = { value: plain, score: 1 }; }
+      const plain = canCarryNumber ? tokens.find(t => /^\d{1,5}[A-Z★]?$/.test(t)) : undefined;
+      if (plain) { lineNumber = plain; const score = footerContext ? 4 : 1; if (!number || number.score < score) number = { value: plain, score }; }
     }
 
     for (const [i, token] of tokens.entries()) {
-      if (token.length === 1 && RARITY_LETTERS[token]) { rarity ??= RARITY_LETTERS[token]; continue; }
+      if (token.length === 1 && RARITY_LETTERS[token]) {
+        if (lineNumber || knownSetOnLine || tokens.length === 1) rarity ??= RARITY_LETTERS[token];
+        continue;
+      }
       // Captured before the exclusion below still runs -- the token must still
       // be rejected as a set candidate exactly as it was before this existed.
       if (LANGUAGE_TOKENS.has(token)) language ??= FOOTER_LANGUAGE_MAP[token];
@@ -266,6 +288,11 @@ export function bestGuessPrinting(ranking: PrintingRanking): Printing | null {
   const { ranked, printingConfidence } = ranking;
   if (printingConfidence === 'exact' || printingConfidence === 'partial' || printingConfidence === 'unique') return ranked[0]?.printing ?? null;
   return null;
+}
+
+/** A name match alone must not authorize adding an arbitrary printing. */
+export function printingNeedsChoice(ranking: PrintingRanking): boolean {
+  return ranking.ranked.length > 1 && ranking.printingConfidence === 'none';
 }
 
 /**

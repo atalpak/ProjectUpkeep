@@ -4,6 +4,13 @@ Dated entries for every change to the agent roster, delegation rules, or the
 instruction files that steer them. A few lines each — what changed, why, what it
 replaced.
 
+## 2026-09-27 — Card storage compatibility boundary
+
+Updated `CLAUDE.md` and the data-access rule for migrations 50–51: public readers
+retain `cards`, physical printings use `card_printings`, and the service-only
+ingest RPC maintains exact rules exceptions. The Oracle loader remains narrowly
+scoped and cannot write printings directly.
+
 ## 2026-09-09 — Phase 0 inventory
 
 - **Created** `.claude/CHANGELOG.md` (this file). Replaces nothing; there was no

@@ -27,13 +27,20 @@ export async function ownershipFor(
   const rows: Row[] = [];
   const pull = async (column: "card_id" | "cards.oracle_id", values: string[]): Promise<boolean> => {
     for (let i = 0; i < values.length; i += CHUNK) {
-      const { data, error } = await supabase
-        .from("card_instances")
-        .select("id, card_id, quantity, cards!inner ( oracle_id )")
-        .eq("owner_user_id", userId)
-        .in(column, values.slice(i, i + CHUNK));
-      if (error) return false;
-      rows.push(...((data ?? []) as unknown as Row[]));
+      // One card can have many physical stacks; page rows as well as ID chunks.
+      const PAGE = 1000;
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from("card_instances")
+          .select("id, card_id, quantity, cards!inner ( oracle_id )")
+          .eq("owner_user_id", userId)
+          .in(column, values.slice(i, i + CHUNK))
+          .order("id")
+          .range(from, from + PAGE - 1);
+        if (error) return false;
+        rows.push(...((data ?? []) as unknown as Row[]));
+        if (!data || data.length < PAGE) break;
+      }
     }
     return true;
   };

@@ -9,7 +9,7 @@ import { useApp } from '../AppProvider';
 import { reprintWriter, writer } from '../backend';
 import {
   FORMATS, LOAD_FAILED, addToWishList, cachedPrinting, cachedPrintings, fetchFriendActivity, fetchOwned, fetchPrinting, fetchPrintings, fetchScryfallExtras, fetchWantedQuantity,
-  pickRepresentative, seedToPrinting, toPrinting,
+  mergePrintingList, pickRepresentative, seedToPrinting, toPrinting,
   type CardPrinting, type CardSeed, type FriendActivity, type Legality, type OwnedStack, type ScryfallExtras,
 } from '../cardDetails';
 import type { CardDetailsTarget } from '../cardDetailsHost';
@@ -76,10 +76,11 @@ const CLOSE_DRAG_VELOCITY = 0.8;
 const CLOSE_DRAG_MIN_TRAVEL = 12;
 const OVERSCROLL_CLOSE = 70;
 
-export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, onChanged, onClose }: {
+export function CardDetails({ name, printingId, printingCheck, seed, scan, logId, ownedFinish, onChanged, onClose }: {
   name: string | null;
   /** Open on this printing (e.g. the one you own) instead of the default. */
   printingId?: string | null;
+  printingCheck?: CardDetailsTarget['printingCheck'];
   /** What the caller already knows about that printing; painted at once, with no network. */
   seed?: CardSeed | null;
   /** Called after this sheet changed the collection or wish list, so the caller can refresh. */
@@ -217,6 +218,8 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
   const [extras, setExtras] = useState<{ state: 'idle' | 'loading' | 'error' | 'ready'; data?: ScryfallExtras }>({ state: 'idle' });
 
   const [adding, setAdding] = useState(false);
+  const [confirmedFor, setConfirmedFor] = useState<CardDetailsTarget['printingCheck'] | null>(null);
+  const needsPrintingChoice = !!printingCheck?.required && confirmedFor !== printingCheck;
   const [finish, setFinish] = useState<Finish>('nonfoil');
   const [condition, setCondition] = useState<Condition>('NM');
   const [language, setLanguage] = useState('en');
@@ -282,7 +285,7 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
     // beats the seed. Without this a cached list would open on some other printing.
     const known = cachedRow ?? seedP;
     if (known && !initial.some(p => p.id === known.id)) initial = [known, ...initial];
-    const start = initial.find(p => p.id === printingId) ?? (cachedList ? pickRepresentative(initial) : null) ?? initial[0] ?? null;
+    const start = printingId ? initial.find(p => p.id === printingId) ?? null : (cachedList ? pickRepresentative(initial) : null) ?? initial[0] ?? null;
     // Nothing in hand for the requested printing: select it anyway. The by-id effect below then
     // fetches that single row, so the sheet paints without waiting for the whole printing list.
     select(start?.id ?? printingId ?? null);
@@ -290,7 +293,7 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
     setOwned([]); setOwnedState(userIdRef.current ? 'loading' : 'ready'); setWanted(0); setStatus(null); setAdding(false); setFaceIndex(0); setFriends(null); setArt(null); setArtNote(null); setExtras({ state: 'idle' });
     // Owned copies need only the name, so they start now, in parallel with the printing fetches.
     void refreshUserData(name, initial.map(p => p.id), start?.id ?? printingId ?? null);
-  }, [name, printingId, refreshUserData, select]);
+  }, [name, printingId, printingCheck, refreshUserData, select]);
 
   // The full printing list. Skipped when a recent open already cached it.
   useEffect(() => {
@@ -305,11 +308,11 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
         return;
       }
       // Keep any full row already fetched for a printing (the light list rows have no rules text).
-      setPrintings(prev => list.map(p => prev.find(x => x.id === p.id && x.full) ?? p));
+      setPrintings(prev => mergePrintingList(list, prev, selectedRef.current));
       setListState('ready');
       // Keep whatever is selected (the opened-on row, or one the person chose meanwhile).
       const start = list.find(p => p.id === printingIdRef.current) ?? pickRepresentative(list) ?? list[0]!;
-      const keep = selectedRef.current && list.some(p => p.id === selectedRef.current) ? selectedRef.current : start.id;
+      const keep = selectedRef.current ?? printingIdRef.current ?? start.id;
       select(keep);
       void refreshUserData(name, list.map(p => p.id), keep);
     });
@@ -350,8 +353,8 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
   // Scan diagnostics: the printing this sheet is on, kept current (the picture check or the person may move it).
   useEffect(() => {
     if (!logId || !selected) return;
-    logUpdate(logId, () => ({ finalPrinting: `${selected.setCode.toLowerCase()} #${selected.collectorNumber}` }));
-  }, [logId, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    logUpdate(logId, () => ({ finalPrinting: needsPrintingChoice ? 'not confirmed — choose a printing' : `${selected.setCode.toLowerCase()} #${selected.collectorNumber}` }));
+  }, [logId, selected?.id, needsPrintingChoice]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Quietly move to the picture's winner, but never over a choice the person made or a form they opened.
   // Coverage is judged against the LIVE list, so a printing the offline catalog never knew blocks the switch.
@@ -362,16 +365,18 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
       all: listState === 'ready' ? printings.map(toPrinting) : [], art: art?.result ?? null,
       userPicked: userPicked.current, adding, footerGuess: !!printingId,
     });
-    if (!name || !target || target.id === selectedRef.current) return;
+    if (!name || !target) return;
+    setConfirmedFor(printingCheck);
+    if (target.id === selectedRef.current) return;
     select(target.id);
     setFaceIndex(0); setExtras({ state: 'idle' });
     setArtNote(`Matched to ${target.setCode.toUpperCase()} #${target.collectorNumber} by artwork`);
     logUpdate(logId, () => ({ note: `picture check moved the selection to ${target.setCode.toLowerCase()} #${target.collectorNumber}` }));
     void refreshUserData(name, printings.map(p => p.id), target.id);
-  }, [art, listState, printings, adding, name, scan, printingId, logId, select, refreshUserData]);
+  }, [art, listState, printings, adding, name, scan, printingId, printingCheck, logId, select, refreshUserData]);
 
   function startAdding() {
-    if (!selected) return;
+    if (!selected || needsPrintingChoice) return;
     userPicked.current = true;
     const last = app.lastUsedDraft;
     setFinish(last && selected.finishes.includes(last.finish) ? last.finish : (selected.finishes[0] ?? 'nonfoil'));
@@ -387,6 +392,7 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
   // Choosing another printing invalidates the form's finish and its operation.
   function choosePrinting(p: CardPrinting) {
     userPicked.current = true;
+    setConfirmedFor(printingCheck);
     setArtNote(null);
     select(p.id);
     setFaceIndex(0);
@@ -395,7 +401,7 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
   }
 
   async function confirmAdd() {
-    if (!selected || !app.userId || busy) return;
+    if (!selected || !app.userId || busy || needsPrintingChoice) return;
     const qty = Number(quantity);
     if (!Number.isSafeInteger(qty) || qty < 1) { setStatus({ kind: 'error', text: 'Quantity must be a whole number of at least 1.' }); return; }
     if (!writer) { setStatus({ kind: 'error', text: 'Sign in to Upkeep before saving.' }); return; }
@@ -418,7 +424,7 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
   }
 
   async function wishList() {
-    if (!selected || !app.userId || busy) return;
+    if (!selected || !app.userId || busy || needsPrintingChoice) return;
     userPicked.current = true;
     setBusy(true); setStatus(null);
     try {
@@ -491,6 +497,10 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
               </View>
             )}
             <FoilArt uri={artUri} width={imageWidth} height={imageWidth / CARD_ASPECT} foil={foilShown} />
+            {needsPrintingChoice && <View style={styles.block} accessibilityRole="alert">
+              <Text style={styles.muted}>Card found, but the printing could not be identified. Choose a version below or confirm that the displayed card matches yours.</Text>
+              <Button secondary label={`Use ${selected.setCode.toUpperCase()} #${selected.collectorNumber}`} onPress={() => choosePrinting(selected)} />
+            </View>}
             {flippable && (
               <Pressable accessibilityRole="button" accessibilityLabel="Flip card" onPress={() => setFaceIndex(i => (i + 1) % faces.length)} style={styles.flip}>
                 <Ionicons name="sync-outline" size={18} color={text.primary} />
@@ -548,8 +558,8 @@ export function CardDetails({ name, printingId, seed, scan, logId, ownedFinish, 
 
             {!adding ? (
               <View style={styles.actions}>
-                <Button label="Add to collection" onPress={startAdding} disabled={busy || !app.userId || selected.finishes.length === 0} />
-                <Button secondary label={busy ? 'Working…' : 'Add to wish list'} onPress={() => void wishList()} disabled={busy || !app.userId} />
+                <Button label="Add to collection" onPress={startAdding} disabled={needsPrintingChoice || busy || !app.userId || selected.finishes.length === 0} />
+                <Button secondary label={busy ? 'Working…' : 'Add to wish list'} onPress={() => void wishList()} disabled={needsPrintingChoice || busy || !app.userId} />
               </View>
             ) : (
               <View style={styles.form}>

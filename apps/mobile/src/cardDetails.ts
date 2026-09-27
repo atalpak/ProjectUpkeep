@@ -193,6 +193,14 @@ export function pickRepresentative(printings: CardPrinting[]): CardPrinting | nu
   return [...printings].sort((a, b) => (SET_TYPE_RANK[a.setType ?? ''] ?? 5) - (SET_TYPE_RANK[b.setType ?? ''] ?? 5) || regularFirst(a, b))[0] ?? null;
 }
 
+/** Keep an exact selected printing even when it falls outside the capped list. */
+export function mergePrintingList(list: CardPrinting[], previous: CardPrinting[], selectedId: string | null): CardPrinting[] {
+  return [
+    ...previous.filter(p => p.id === selectedId && !list.some(x => x.id === p.id)),
+    ...list.map(p => previous.find(x => x.id === p.id && x.full) ?? p),
+  ];
+}
+
 /** The scan-core shape the collection writer validates against. */
 export function toPrinting(p: CardPrinting): Printing {
   return {

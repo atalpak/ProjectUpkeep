@@ -47,7 +47,7 @@ apps/mobile/            Expo app.
                         PlaceholderScreen (pages not built yet)
   src/components/       TabBar (5 slots, raised Scan, + ScreenFade) · AppHeader
                         (Mort avatar, title, menu button) · MenuSheet · ScanQuickBar
-                        · SearchOverlay (slide-in card search: name or Scryfall syntax + a Filters panel, results grid; queries `cards` via src/cardSearch.ts) · CardDetails (custom drag-to-dismiss sheet for one card -- transparent Modal + Animated/PanResponder, pull the top bar or overscroll the body to close, no Reanimated, opened from a result: printings, flip for double-faced cards, what you own, which friends have it / want it, legality + rulings fetched from Scryfall's API on demand, foil copies get a subtle holographic overlay (a soft pastel gradient plus a faint white sheen band, via expo-linear-gradient; tunables at the top of `FoilArt.tsx`) that follows phone tilt via expo-sensors DeviceMotion, or a horizontal finger drag (`FoilArt`; needs a native rebuild for the tilt and the gradient, both guarded: an older binary lacks the tilt, and gets thin low-opacity slices and no sheen), add to collection via ConfirmScan, add to wish list; data in src/cardDetails.ts; also opened from Collection, deck lists and the Wish List) · DashboardScreen (value, totals, needs-attention, deck status, recently added; data in src/dashboard.ts) · WishlistScreen · LocationsScreen / LocationDetailScreen (containers with card counts, create/edit/delete, the open-for-trade switch; data in src/locations.ts, decks excluded) · FriendsScreen / FriendProfileScreen (username search, requests, a friend's trade binder and wants; data in src/friends.ts, rules live in migration 9's policies) ·
+                        · SearchOverlay (slide-in card search: name or Scryfall syntax + a Filters panel, results grid; submits raw Scryfall syntax through the authenticated web `/api/cards/search` via src/cardSearch.ts, with owned-only page filtering and Previous/Next navigation) · CardDetails (custom drag-to-dismiss sheet for one card -- transparent Modal + Animated/PanResponder, pull the top bar or overscroll the body to close, no Reanimated, opened from a result: printings, flip for double-faced cards, what you own, which friends have it / want it, legality + rulings fetched from Scryfall's API on demand, foil copies get a subtle holographic overlay (a soft pastel gradient plus a faint white sheen band, via expo-linear-gradient; tunables at the top of `FoilArt.tsx`) that follows phone tilt via expo-sensors DeviceMotion, or a horizontal finger drag (`FoilArt`; needs a native rebuild for the tilt and the gradient, both guarded: an older binary lacks the tilt, and gets thin low-opacity slices and no sheen), add to collection via ConfirmScan, add to wish list; data in src/cardDetails.ts; also opened from Collection, deck lists and the Wish List) · DashboardScreen (value, totals, needs-attention, deck status, recently added; data in src/dashboard.ts) · WishlistScreen · LocationsScreen / LocationDetailScreen (containers with card counts, create/edit/delete, the open-for-trade switch; data in src/locations.ts, decks excluded) · FriendsScreen / FriendProfileScreen (username search, requests, a friend's trade binder and wants; data in src/friends.ts, rules live in migration 9's policies) ·
                         ListRow · ui. The centre Scan button is tap = Scan,
                         hold-and-drag = fan of Search / Scan (PanResponder in TabBar); keep the finger on the fan's Scan option ~0.35s and a camera box opens (quick scan: first read is matched with ScanPipeline and CardDetails opens at once on a best-guess printing, refined in the background -- see "Quick scan and the printing" below -- through `src/cardDetailsHost.tsx`; lifting first cancels; iOS only, needs camera permission already granted).
                         Search is an action (`src/searchOverlay.tsx`), not a route
@@ -283,19 +283,19 @@ is `null` unless `Platform.OS === 'ios'` (`scannerViewAvailable`), and Android h
 only the photo `readText` path, which nothing in the current screen calls.
 Callers must branch on `scannerViewAvailable`/`visionAvailable`.
 
-**Quick scan and the printing.** Owner decision 2026-09-19, reversing the
-earlier "never land on a printing silently" rule: quick scan must be fast, so it
-opens CardDetails **immediately** and never asks "Which printing is this?".
-The printing selector on the details page is the correction path; Add to
-collection and wish list are enabled normally.
+**Quick scan and the printing.** Owner follow-up 2026-09-27: quick scan still
+opens CardDetails **immediately**, but an ambiguous printing is an unconfirmed
+preview. Add and Wish require an explicit printing selection/confirmation, or
+a decisive artwork match covering all printings. Confirmation is scoped to
+one scan. Continuous full Scan also holds ambiguous reads out of staging.
 
 1. *Instant best guess* (`TabBar.handleRead`, all local): after the name match,
    scan-core's `printingHints` (footer: number and set on separate lines, leading
    zeros, rarity letter, number alone if the set is unreadable) and `rankPrintings`
    feed `bestGuessPrinting`: an exact or partial footer match, or the card's only
    printing. With no guess the sheet uses its normal default (`pickRepresentative`).
-   Nothing waits on a download or comparison before the sheet opens; the sheet shows
-   no note about how sure the guess is. The default is
+   Nothing waits on a download or comparison before the sheet opens; an ambiguous
+   preview is labelled and cannot be added until confirmed. The preview default is
    `regularFirst` (scan-core `printing.ts`, shared by `rankPrintings`, `CardIndex.search`
    ties and `pickRepresentative`): plain collector number, nonfoil-available, newest
    release, then lowest number, so a card's regular print beats its foil-only showcase
@@ -537,6 +537,22 @@ absent.
 - `EXPO_PUBLIC_*` variables follow the same rule as `NEXT_PUBLIC_*` in
   `CLAUDE.md`'s hard constraint 2: read as literal `process.env.EXPO_PUBLIC_*`
   member expressions, never dynamic `process.env[name]` access.
+
+## Initial catalog preparation
+
+`catalogLoading` is separate from download-only `catalogBusy`. The app shell,
+auth subscription and online screens start immediately; `prepareCatalog` shares
+one deferred startup load across repeated mounts. Saved files are read asynchronously,
+then `CardIndex.createAsync` validates and builds indexes in batches (yielding at
+1,000 rows or about 8 ms). JSON parsing remains synchronous; dev-only logs report
+file-read, JSON, and validation/index timings separately.
+
+The full and quick scanners wait for `catalogLoading` to clear. Initial preparation
+does not open the download modal, welcome tour or scan hint. Pending-save recovery
+waits for the real index; location loading runs independently. Recovery still requires
+an explicit retry and never replays a write automatically. Startup retains newest-valid
+slot -> older-valid slot -> bundled snapshot -> download/demo fallback. No native
+rebuild is required for this JS-only change.
 
 ## Auth persistence
 

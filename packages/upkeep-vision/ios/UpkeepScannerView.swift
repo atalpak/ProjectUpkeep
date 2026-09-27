@@ -155,6 +155,11 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   private let generationLock = NSLock()
   private var lastReadCentre: CGPoint?
   private var guideCaptureRequested = false
+  // Paired with burst.bestCrop, never a newer frame's footer.
+  private var bestFooterCrop: CGImage?
+  // A successful segmentation must continue at detection cadence: cold retry
+  // intervals exceed the quick burst's max gap. Brief grace tolerates flicker.
+  private var segmentationUntil: TimeInterval = 0
   private var outlineShown = false
 
   public var active = false {
@@ -418,7 +423,10 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     }
     let found = UpkeepCardVision.findFullCard(in: detectionImage, orientation: .right,
                                               imageSize: size, allowContrastRetry: retry,
+                                              allowSegmentationRetry: now < segmentationUntil,
                                               minimumArea: fast ? UpkeepCardVision.quickMinimumArea : UpkeepCardVision.minimumArea)
+    if found.segmented { segmentationUntil = now + (fast ? OutlineTracker.fastGrace : OutlineTracker.normalGrace) }
+    else if found.card != nil { segmentationUntil = 0 }
     // Only a retry that actually ran uses up the allowance.
     if found.retryRan { lastContrastRetry = now }
     let card = found.card
@@ -453,7 +461,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     // would leave a card whose crop failed permanently un-readable (green
     // outline, no result) until it left the frame.
     guard let crop = UpkeepCardVision.straighten(image, corners: corners, context: imageContext) else { return }
-    commit(crop, corners: corners, centre: centre, fast: false)
+    commit(crop, footerCard: footerCrop(image, corners: corners), corners: corners, centre: centre, fast: false)
   }
 
   /// Quick scan's per-frame step: coach, and while a valid card is in view
@@ -471,6 +479,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       return
     }
     let step = burst.observe(corners, at: now)
+    if burst.bestCrop == nil { bestFooterCrop = nil }
     guard let card, let corners else {
       // The burst keeps its best crop across a short gap; the tracker drops it
       // itself when the gap is long enough to end the burst.
@@ -504,8 +513,12 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     let centre = CGPoint(x: card.boundingBox.midX, y: card.boundingBox.midY)
     // A blurry 1.2s fallback is thrown away (and the burst restarted) up to
     // `maxBlurryRestarts` times per hold before a soft frame is read anyway.
-    let verdict = burst.offer(sharpness: UpkeepCardVision.sharpness(of: crop), crop: crop, at: now,
+    let sharpness = UpkeepCardVision.sharpness(of: crop)
+    let verdict = burst.offer(sharpness: sharpness, crop: crop, at: now,
                               allowBlurryFallback: blurryRestarts >= Self.maxBlurryRestarts)
+    let isBest = burst.bestCrop === crop
+    if burst.bestCrop == nil { bestFooterCrop = nil }
+    if isBest { bestFooterCrop = footerCrop(image, corners: corners) }
     switch verdict {
     case .store, .skip:
       publish(.blurry, at: now)
@@ -514,9 +527,9 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       focusGate.reset()
       publish(.blurry, at: now)
     case .lockCurrent:
-      commit(crop, corners: corners, centre: centre, fast: true)
+      commit(crop, footerCard: isBest ? bestFooterCrop : footerCrop(image, corners: corners), corners: corners, centre: centre, fast: true)
     case .lockBest:
-      commit(burst.bestCrop ?? crop, corners: corners, centre: centre, fast: true)
+      commit(burst.bestCrop ?? crop, footerCard: bestFooterCrop, corners: corners, centre: centre, fast: true)
     }
   }
 
@@ -563,6 +576,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     bumpGeneration()
     previousCorners = nil
     burst.reset()
+    bestFooterCrop = nil
+    segmentationUntil = 0
     statusTracker.reset()
     focusGate.reset()
     blurryRestarts = 0
@@ -581,6 +596,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     lastReadCentre = nil
     previousCorners = nil
     burst.reset()
+    bestFooterCrop = nil
+    segmentationUntil = 0
     focusGate.reset()
     blurryRestarts = 0
     recentreFocus()
@@ -600,6 +617,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     awaitingRelease = false
     lastReadCentre = nil
     burst.reset()
+    bestFooterCrop = nil
+    segmentationUntil = 0
     focusGate.reset()
     // Not `blurryRestarts`: that budget belongs to the hold, not to one read.
     setOutline(hidden: true, locked: false)
@@ -610,10 +629,17 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
   /// Queues the read of an already-straightened card. `fast` (quick scan) draws
   /// the green outline at the card's current position and holds delivery for
   /// `greenHold`.
-  private func commit(_ card: CGImage, corners: [CGPoint], centre: CGPoint, fast: Bool) {
+  private func footerCrop(_ image: CIImage, corners: [CGPoint]) -> CGImage? {
+    guard let expanded = UpkeepCardVision.footerCaptureCorners(corners) else { return nil }
+    return UpkeepCardVision.straighten(image, corners: expanded, context: imageContext)
+  }
+
+  private func commit(_ card: CGImage, footerCard: CGImage? = nil, corners: [CGPoint], centre: CGPoint, fast: Bool) {
     awaitingRelease = true
     lastReadCentre = centre
     burst.reset()
+    bestFooterCrop = nil
+    segmentationUntil = 0
     var deliverAfter: TimeInterval = 0
     let token = currentGeneration()
     if fast {
@@ -623,7 +649,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       publish(.reading, at: CACurrentMediaTime())
     }
     setOutline(locked: true)
-    readQueue.async { self.read(card, source: "outline", deliverAfter: deliverAfter, generation: token) }
+    readQueue.async { self.read(card, footerCard: footerCard, source: "outline", deliverAfter: deliverAfter, generation: token) }
   }
 
   private func captureGuideArea(_ buffer: CVPixelBuffer) {
@@ -632,8 +658,8 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     readQueue.async { self.read(card, source: "guide") }
   }
 
-  private func read(_ card: CGImage, source: String, deliverAfter: TimeInterval = 0, generation token: Int? = nil) {
-    let evidence = UpkeepCardText.read(card)
+  private func read(_ card: CGImage, footerCard: CGImage? = nil, source: String, deliverAfter: TimeInterval = 0, generation token: Int? = nil) {
+    let evidence = UpkeepCardText.read(card, footerCard: footerCard)
     var payload: [String: Any] = [
       "title": evidence.title,
       "lines": evidence.lines,

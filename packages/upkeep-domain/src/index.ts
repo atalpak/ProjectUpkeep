@@ -22,3 +22,5 @@ export * from "./card-faces";
 export * from "./reprint";
 export * from "./recent-searches";
 export * from "./catalog-search";
+
+export * from "./reauth";
