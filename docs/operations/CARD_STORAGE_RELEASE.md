@@ -38,16 +38,28 @@ under ignored `.cache/card-storage-backup/`. They contain no customer records.
 They are catalog recovery evidence, not a substitute for a complete database
 backup. The CLI schema dump initially failed because Docker/Podman is unavailable;
 matching PostgreSQL 17 tools were subsequently downloaded into temporary storage.
-Exporting application/authentication data into a private local archive awaits
-explicit owner approval after automatic approval review rejected that sensitive
-payload/destination. No such archive has been created.
+The owner explicitly approved the private application/authentication backup.
+`.cache/card-storage-backup/app-before-2026-09-27.dump` is complete (38,002,700
+bytes), permission 0600 in a 0700 ignored directory, with its checksum recorded
+in private `RESTORE_VERIFICATION.json`. All 46 archived tables restored with
+matching counts, including 118,628 printings. PostgreSQL 17's unsupported timeout
+setting was omitted for the local PostgreSQL 16 restore; schema creation was
+made idempotent and pgcrypto, uuid-ossp and pg_trgm prerequisites were supplied.
+Migrations 50–51 then passed on that restored production copy: every printing
+retained identical JSON and all non-catalog customer-table fingerprints remained
+unchanged. This is an application/authentication logical backup, not a platform
+backup of Storage file contents or infrastructure.
 
 Before production writes, obtain and verify a restorable database/schema backup
 and confirm actual free disk and temporary rewrite headroom. Production was
 388 MB total at audit. Removing the redundant printing indexes recovers about
 67 MB before compaction. Budget at least another full target printing relation
 plus temporary sort/WAL headroom; do not infer filesystem capacity from the
-database's logical size or its plan quota.
+database's logical size or its plan quota. The production Infrastructure dashboard
+was subsequently verified: 0.68 GB used of 2 GB provisioned (35%), leaving about
+1.32 GB available, including WAL and system usage in the reported utilization.
+This exceeds the estimated printing rewrite/sort/WAL headroom; recheck immediately
+before the separately approved production maintenance window.
 
 ## Coordinated release
 
