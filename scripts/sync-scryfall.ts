@@ -2,14 +2,14 @@
  * Scryfall bulk sync.
  *
  * Pulls Scryfall's `default_cards` bulk export and upserts every printing into
- * public.cards. Designed to be run on a schedule (see
+ * public.card_printings through ingest_card_printings. Designed to run on a schedule (see
  * .github/workflows/scryfall-sync.yml) rather than by hand:
  *
  *   - Idempotent. Upserts on the primary key, so re-running is safe.
  *   - Writes only what changed. Rewriting all ~118,000 rows a day, most of them
  *     identical, is what timed the database write out: every rewrite touches
- *     every index on `cards`. The sync reads the stored per-row fingerprints
- *     (cards.content_hash, migration 42) up front and upserts only new or
+ *     every printing index. The sync reads the stored per-row fingerprints
+ *     (card_printings.content_hash) up front and upserts only new or
  *     changed rows; see src/lib/scryfall-diff.ts. That makes last_synced_at
  *     mean "when this row was last written", and prices_updated_at "when a
  *     price last changed".
@@ -123,13 +123,15 @@ async function main() {
   const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
 
   const bulkType = process.env.SCRYFALL_BULK_TYPE || "default_cards";
-  const batchSize = Number.parseInt(process.env.SCRYFALL_BATCH_SIZE || "500", 10);
+  const configuredBatchSize = Number.parseInt(process.env.SCRYFALL_BATCH_SIZE || "500", 10);
   const contact =
     process.env.SCRYFALL_CONTACT || "project-upkeep (https://github.com/atalpak/ProjectUpkeep)";
 
-  if (!Number.isFinite(batchSize) || batchSize <= 0) {
+  if (!Number.isFinite(configuredBatchSize) || configuredBatchSize <= 0) {
     throw new Error("SCRYFALL_BATCH_SIZE must be a positive integer");
   }
+  // Ingest RPC bounds each transaction to 1,000 source rows.
+  const batchSize = Math.min(configuredBatchSize, 1000);
 
   // Service role: `cards` is deliberately unwritable by any end user. This is
   // one of two scripts in the system that bypass RLS this way — see
@@ -344,7 +346,7 @@ async function main() {
     log("reading stored card fingerprints");
     const existing = await loadExistingHashes(async (after, size) => {
       let query = db
-        .from("cards")
+        .from("card_printings")
         .select("scryfall_id, content_hash")
         .order("scryfall_id", { ascending: true })
         .limit(size);
@@ -352,8 +354,8 @@ async function main() {
       const { data, error } = await query;
       if (error && isMissingColumnError(error.code)) {
         throw new Error(
-          "cards.content_hash does not exist. Apply migration 42 " +
-            "(supabase db push --linked) before running this sync.",
+          "card_printings.content_hash does not exist. Apply migrations 50–51 " +
+            "during the coordinated storage cutover before running this sync.",
         );
       }
       return {
@@ -365,7 +367,7 @@ async function main() {
 
     // A short read would turn into a silent full rewrite; see the guard.
     const { count: tableCount, error: countError } = await db
-      .from("cards")
+      .from("card_printings")
       .select("scryfall_id", { count: "exact", head: true });
     if (countError) throw new Error(`Could not count cards: ${countError.message}`);
     const shortRead = checkHashReadComplete(existing.size, tableCount ?? 0);
@@ -416,12 +418,10 @@ async function main() {
       write: async (rows) => {
         // Upsert on the primary key: new printings insert, existing ones
         // refresh. Each call is homogeneous (planWrites keeps rows with and
-        // without prices_updated_at apart), so the column list PostgREST
-        // derives from the batch is right for every row in it. Awaited rather than returned: the query builder is a
+        // without prices_updated_at apart), so the ingest function updates
+        // only supplied columns. Awaited rather than returned: the query builder is a
         // thenable, not a promise, and the writer wants a settled result.
-        const { error } = await db
-          .from("cards")
-          .upsert(rows, { onConflict: "scryfall_id", ignoreDuplicates: false });
+        const { error } = await db.rpc("ingest_card_printings", { p_rows: rows, p_write: true });
         return { error };
       },
       onNotice: log,
@@ -436,11 +436,24 @@ async function main() {
         }
       },
     });
+    const refreshWriter = createChunkedWriter<CardRow>({
+      startSize: batchSize,
+      write: async (rows) => {
+        const { error } = await db.rpc("ingest_card_printings", { p_rows: rows, p_write: false });
+        return { error };
+      },
+      onNotice: log,
+    });
     // Which ids in the batch being written changed only in price; set per batch.
     let priceOnlyIds: ReadonlySet<string> = new Set();
 
     const upsertBatch = async (rows: CardRow[]) => {
       const plan = planWrites(rows, existing);
+      // Oracle-only updates freeze prior effective rules. Unchanged source rows
+      // must reconcile those exceptions without rewriting prices/timestamps.
+      const changedIds = new Set([...plan.full, ...plan.metaOnly].map(row => row.scryfall_id));
+      const unchangedRows = rows.filter(row => !changedIds.has(row.scryfall_id));
+      await refreshWriter.write(unchangedRows);
       unchanged += plan.unchanged;
       priceOnlyIds = plan.priceOnly;
 

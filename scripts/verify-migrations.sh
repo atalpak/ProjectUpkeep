@@ -42,5 +42,7 @@ done
 
 echo "==> running schema tests"
 $RUN -f supabase/tests/schema_test.sql
+$RUN -f supabase/tests/card_storage_test.sql
+DBNAME="$DBNAME" npx tsx scripts/card-storage-concurrency.ts
 
 echo "==> OK"

@@ -21,7 +21,7 @@ insert into auth.users (id, email, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'alice@example.com', '{"username":"alice"}'),
   ('22222222-2222-2222-2222-222222222222', 'bob@example.com',   '{"username":"bob"}');
 
-insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                           available_finishes, lang, released_at, image_uri_small)
 values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'ffffffff-0000-0000-0000-000000000001',
@@ -33,7 +33,7 @@ values
 
 -- A Universes Beyond crossover printing: the real card is "Spark Double", but
 -- Marvel Super Heroes Commander prints it as "Loki's Double" (migration 26).
-insert into public.cards (scryfall_id, oracle_id, name, flavor_name, set_code,
+insert into public.card_printings (scryfall_id, oracle_id, name, flavor_name, set_code,
                           collector_number, available_finishes, lang, released_at,
                           image_uri_small)
 values
@@ -535,7 +535,7 @@ insert into public.locations (id, user_id, name, type) values
 -- A throwaway printing, not referenced by any card_instances/deck_cards/
 -- want_list row, so it can be deleted below without hitting one of those
 -- tables' ON DELETE RESTRICT.
-insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                           available_finishes, lang, released_at, image_uri_small)
 values
   ('aaaaaaaa-0000-0000-0000-000000000004', 'ffffffff-0000-0000-0000-000000000003',
@@ -568,7 +568,7 @@ end $$;
 do $$
 declare commander_after uuid; deck_still_there int;
 begin
-  delete from public.cards where scryfall_id = 'aaaaaaaa-0000-0000-0000-000000000004';
+  delete from public.card_printings where scryfall_id = 'aaaaaaaa-0000-0000-0000-000000000004';
 
   select commander_card_id into commander_after from public.locations
    where id = 'bbbbbbbb-0000-0000-0000-000000000005';
@@ -3215,7 +3215,7 @@ reset role;
 -- A third Lightning Bolt printing sharing section 12's oracle id
 -- (ffffffff-...0001), never named by any deck_cards entry below -- this is
 -- what forces the trigger past tier 1 and into tier 2's fallback.
-insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                           available_finishes, lang, released_at, image_uri_small)
 values
   ('aaaaaaaa-0000-0000-0000-000000000006', 'ffffffff-0000-0000-0000-000000000001',
@@ -3351,12 +3351,14 @@ begin
                   and indexname = 'cards_name_idx'),
     'cards_name_idx serves the exact-name lookups in import and printings';
   assert (select count(*) from pg_indexes where schemaname = 'public'
-             and indexname in ('cards_name_trgm_idx', 'cards_type_line_trgm_idx',
-                               'cards_oracle_text_trgm_idx')) = 3,
-    'the three trigram search indexes must be left in place';
+             and indexname in ('cards_name_trgm_idx', 'oracle_cards_type_line_trgm_idx',
+                               'oracle_cards_oracle_text_trgm_idx')) = 3,
+    'search indexes remain on printing names and canonical Oracle rules';
+  assert not exists(select 1 from pg_indexes where indexname in ('cards_type_line_trgm_idx','cards_oracle_text_trgm_idx')),
+    'duplicate per-printing rules indexes must be removed after normalization';
 
   select data_type, is_nullable into col from information_schema.columns
-   where table_schema = 'public' and table_name = 'cards' and column_name = 'content_hash';
+   where table_schema = 'public' and table_name = 'card_printings' and column_name = 'content_hash';
   assert col.data_type = 'text', 'cards.content_hash must exist as text';
   assert col.is_nullable = 'YES',
     'cards.content_hash must be nullable: null means never fingerprinted, so the sync rewrites the row';
@@ -3365,7 +3367,7 @@ begin
   assert not exists (
     select 1 from pg_index i
       join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any (i.indkey)
-     where i.indrelid = 'public.cards'::regclass and a.attname = 'content_hash'),
+     where i.indrelid = 'public.card_printings'::regclass and a.attname = 'content_hash'),
     'cards.content_hash must not be indexed';
 end $$;
 
@@ -3589,12 +3591,12 @@ begin
   assert pg_temp.denied('scryfall_loader', 'select 1 from public.cards limit 1'),
     'the loader must not be able to read cards';
   assert pg_temp.denied('scryfall_loader', $q$
-    insert into public.cards (scryfall_id, oracle_id, name, set_code, collector_number,
+    insert into public.card_printings (scryfall_id, oracle_id, name, set_code, collector_number,
                               available_finishes, lang)
     values ('aaaaaaaa-0000-0000-0000-0000000000c1', 'cccccccc-0000-0000-0000-000000000001',
             'Lightning Bolt', 'tst', '1', '{nonfoil}', 'en')$q$),
     'the loader must not be able to insert into cards';
-  assert pg_temp.denied('scryfall_loader', $q$update public.cards set name = 'x'$q$),
+  assert pg_temp.denied('scryfall_loader', $q$update public.card_printings set name = 'x'$q$),
     'the loader must not be able to update cards';
 
   -- Run history: the loader can write oracle_cards rows and nothing that
@@ -3628,13 +3630,13 @@ begin
 
   assert pg_temp.denied('scryfall_loader', 'delete from public.oracle_cards'),
     'the loader must not be able to delete from oracle_cards';
-  assert pg_temp.denied('scryfall_loader', 'delete from public.cards'),
+  assert pg_temp.denied('scryfall_loader', 'delete from public.card_printings'),
     'the loader must not be able to delete from cards';
   assert pg_temp.denied('scryfall_loader', 'delete from public.scryfall_sync_runs'),
     'the loader must not be able to delete from scryfall_sync_runs';
   assert pg_temp.denied('scryfall_loader', 'truncate public.oracle_cards'),
     'the loader must not be able to truncate oracle_cards';
-  assert pg_temp.denied('scryfall_loader', 'truncate public.cards'),
+  assert pg_temp.denied('scryfall_loader', 'truncate public.card_printings'),
     'the loader must not be able to truncate cards';
 
   -- No user data at all, and no ownership history.

@@ -139,6 +139,11 @@ jobs:
           - 5432:5432
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - name: Apply migrations and run schema tests
         env:
           PGHOST: localhost

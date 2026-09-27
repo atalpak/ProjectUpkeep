@@ -138,7 +138,11 @@ scripts/
 
 ## Data model in one paragraph
 
-`cards` is Scryfall's data, one row per printing, read-only to users.
+`cards` is the read-only Scryfall compatibility view, one row per printing.
+`card_printings` stores printing-specific data; `oracle_cards` stores shared
+rules, with exact nullable printing exceptions in `card_rule_overrides`.
+The service-only `ingest_card_printings` RPC preserves the default_cards snapshot
+when the Oracle loader updates canonical rules (migrations 50–51).
 `card_instances` are the copies a user owns — condition, finish, language,
 quantity, location. `locations` are containers, nestable **one level deep**. A
 deck is just a location type, so a card sleeved into one stops counting as
