@@ -17,7 +17,8 @@ Prepared 2026-09-27. Production migrations 50–51 are **not applied**.
   those legacy filters from using canonical trigram indexes directly. Submitted
   web/mobile searches use Scryfall; name suggestions still use the printing index.
 - Full schema/RLS suite, nullable override tests, actual concurrent Oracle and
-  printing writers in both orders, and 26 local PostgREST 16.4 HTTP contracts pass.
+  printing writers in both orders, and 26 local PostgREST HTTP contracts pass on
+  both production's exact version 14.5 and version 16.4.
 - 1,040 application tests pass. Typecheck passes. Lint has zero errors and two
   existing mobile AppProvider hook warnings. Read-only reviewer found no remaining
   commit blockers after the RPC batch-size clamp.
@@ -35,7 +36,11 @@ This is not a verified platform restore point. The public catalog snapshots used
 for the successful local reconstruction are saved, compressed and checksummed,
 under ignored `.cache/card-storage-backup/`. They contain no customer records.
 They are catalog recovery evidence, not a substitute for a complete database
-backup. The CLI schema dump initially failed because Docker/Podman is unavailable.
+backup. The CLI schema dump initially failed because Docker/Podman is unavailable;
+matching PostgreSQL 17 tools were subsequently downloaded into temporary storage.
+Exporting application/authentication data into a private local archive awaits
+explicit owner approval after automatic approval review rejected that sensitive
+payload/destination. No such archive has been created.
 
 Before production writes, obtain and verify a restorable database/schema backup
 and confirm actual free disk and temporary rewrite headroom. Production was

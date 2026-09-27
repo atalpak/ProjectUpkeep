@@ -5,7 +5,8 @@ These fixtures are public catalog rows and two fake users. Run only after
 linked Supabase project. The HTTP probe uses a fixed local-only JWT signing
 secret and only connects to `127.0.0.1:3009`.
 
-With PostgreSQL on port 55436 and PostgREST 16.4 installed:
+With PostgreSQL on port 55436 and PostgREST 14.5 installed (production's version;
+the same checks also passed on 16.4):
 
 ```sh
 psql -h127.0.0.1 -p55436 -Upostgres -d mtg_verify -v ON_ERROR_STOP=1 -f supabase/tests/postgrest/fixtures.sql
