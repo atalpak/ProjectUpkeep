@@ -3,6 +3,9 @@
 -- changes freeze old effective values; only printing ingest can advance them.
 -- Disk compaction is a later measured operation, not hidden in this migration.
 set lock_timeout='5s';
+-- These bounded catalog scans are cheaper to execute directly than to JIT
+-- compile on the production Nano instance.
+set jit=off;
 create table public.card_rule_overrides (
   scryfall_id uuid primary key references public.card_printings(scryfall_id) on delete cascade,
   fields jsonb not null check(jsonb_typeof(fields)='object')
@@ -19,13 +22,25 @@ language sql immutable strict set search_path=pg_catalog as $function$
 $function$;
 revoke all on function public.card_shared_fields(jsonb) from public, anon, authenticated, service_role;
 
+-- Materialize each canonical projection once. Comparing 13 fields must not
+-- repeatedly serialize the whole Oracle row, and printing projections must
+-- not serialize wide images/card_faces/flavor data that they never retain.
+with canonical as materialized (
+  select o.oracle_id,public.card_shared_fields(to_jsonb(o)) fields
+  from public.oracle_cards o
+)
 insert into public.card_rule_overrides(scryfall_id,fields)
 select p.scryfall_id, differences.fields
-from public.card_printings p left join public.oracle_cards o using(oracle_id)
+from public.card_printings p left join canonical o using(oracle_id)
 cross join lateral (
   select coalesce(jsonb_object_agg(v.key,v.value),'{}'::jsonb) fields
-  from jsonb_each(public.card_shared_fields(to_jsonb(p))) v
-  where o.oracle_id is null or v.value is distinct from to_jsonb(o)->v.key
+  from jsonb_each(jsonb_build_object(
+    'mana_cost',p.mana_cost,'cmc',p.cmc,'type_line',p.type_line,
+    'oracle_text',p.oracle_text,'colors',p.colors,'color_identity',p.color_identity,
+    'keywords',p.keywords,'power',p.power,'toughness',p.toughness,
+    'loyalty',p.loyalty,'produced_mana',p.produced_mana,
+    'game_changer',p.game_changer,'layout',p.layout)) v
+  where o.oracle_id is null or v.value is distinct from o.fields->v.key
 ) differences where differences.fields<>'{}'::jsonb;
 create or replace view public.cards with(security_invoker=true) as
 select

@@ -1,6 +1,27 @@
 # Card storage cutover
 
-Prepared 2026-09-27. Production migrations 50–51 are **not applied**.
+Prepared 2026-09-27. Production migration 50 is applied. Migration 51 remains
+unapplied after its first attempt hit a statement timeout and rolled back.
+Compaction has not run.
+
+## First maintenance window
+
+PR 104 merged as `f7f400e`. The scheduled writer was disabled and both catalog
+writers were idle. Migration 50 completed; migration 51 timed out while preparing
+printing exceptions (statement 8). Its transaction rolled back completely.
+All catalog and customer row fingerprints match their pre-cutover values, and
+live anonymous catalog export succeeded. Sync scheduling was re-enabled within
+the approved window. The September 18 sync record still marked running is stale;
+no corresponding job or writing session exists and its history was left unchanged.
+
+The unapplied migration 51 now materializes the canonical shared projection once
+per Oracle row, builds only the 13 required printing fields, and disables JIT
+for its bounded scans. This avoids repeatedly serializing large unused fields.
+The full-catalog backfill took 3.12 seconds locally and retained the same 307
+exceptions; its parity check took 5.00 seconds. The schema/RLS and concurrent-writer
+suites pass. The fix was reviewed with no remaining blockers. A new maintenance
+window is required for the retry and compaction; the public API remains compatible
+at migration 50 meanwhile.
 
 ## Verified results
 
