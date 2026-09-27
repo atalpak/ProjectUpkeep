@@ -17,20 +17,39 @@ routes, game state and UI, session persistence, snapshot save/resume, share proj
 server actions, and related components are present. The older build-order table and
 follow-up notes record how those pieces were built; they are not a queue to continue.
 
-Remaining work is evidence gathering, not an identified build step:
+The owner confirmed on 2026-09-26 that all three remaining verification items below
+were completed: the real Supabase save/share flow, live token lookup, and physical-device
+checks. Detailed results and the non-production project/test setup were not provided in
+this handoff, so this records owner confirmation rather than independently reproducible
+evidence. No further Playtester verification work was reported as outstanding.
+Production migration state was checked on 2026-09-26 with
+`SUPABASE_TELEMETRY_DISABLED=1 npx supabase migration list --linked`: local and remote
+histories match through migration 48, including playtester migrations 46 and 47. No
+production migration action is needed for this feature based on that check.
 
-- Verify the real Supabase server-action flow (auth cookies, PostgREST, and the share
-  RPC) against a non-production Supabase environment. Scratch-Postgres contract checks
-  do not exercise the Supabase API/auth layer.
-- Verify token lookup against the live catalog/provider. The request shape and fallback
-  were checked, but a live catalog result was not.
-- Complete physical-device checks for touch, screen-reader announcements, high contrast,
-  and browser/device behavior. Prior viewport emulation and accessibility-tree checks
-  do not replace this.
-- Production migration state was checked on 2026-09-26 with
-  `SUPABASE_TELEMETRY_DISABLED=1 npx supabase migration list --linked`: local and remote
-  histories match through migration 48, including playtester migrations 46 and 47. No
-  production migration action is needed for this feature based on that check.
+### Verification attempt (2026-09-26)
+
+- `npm test` passed on the current feature checkout: 1,036 tests passed, 0 failed. This
+  includes the Playtester unit and boundary tests; it does not exercise real Supabase
+  auth/PostgREST or provider data.
+- The signed-in preview opened the Playtester route and showed the start dialog. I did
+  not start a game there because starting a game writes browser-local crash recovery and
+  can evict older recovery data. The owner later confirmed that live catalog and
+  non-production save/share checks were completed separately.
+- The local Supabase stack is unavailable because neither Docker nor Podman is installed.
+  The linked Supabase project is production, so I did not run save/share actions there.
+- No booted iOS simulator was available for this attempt, so I did not independently
+  reproduce the physical-device checks. The owner later confirmed those checks were
+  completed. GitHub Actions could not be refreshed during this attempt because the
+  environment could not reach `api.github.com`; the previously recorded successful run
+  remains the available CI evidence.
+
+The owner reports all Playtester verification items complete; this handoff records that
+confirmation without independent results for the live Supabase, token catalog, and
+physical-device checks. A local fixture pass also found that new battlefield cards could
+appear under the upper-left controls. Default placements now start below that overlay; the
+targeted layout test passes and fails with the old position, and the refreshed fixture
+shows the token clear of the controls.
 
 No production migration was applied as part of this reconciliation. PR #102 merged as
 `a23bb63`, fixing the CLI output format used by the migration-drift check. Main run

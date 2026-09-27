@@ -29,6 +29,8 @@ export const CARD_H = Number((1.4 * CARD_W * BOARD_ASPECT).toFixed(4));
 const ROW_STEP = 0.131;
 const COLUMN_STEP = 0.102;
 const STACK_STEP = { x: 0.02, y: 0.037 };
+// The action/keybinding/log controls overlay the battlefield's upper-left.
+const DEFAULT_TOP = 0.4;
 
 export const round4 = (n: number): number => Math.round(n * 10000) / 10000;
 
@@ -90,13 +92,13 @@ export function defaultPos(state: GameState): Pos {
   const stepY = CARD_H * 1.08;
   for (let row = 0; row < 12; row++) {
     for (let col = 0; col < 12; col++) {
-      const pos = clampPos({ x: 0.04 + col * stepX, y: 0.04 + row * stepY });
+      const pos = clampPos({ x: 0.04 + col * stepX, y: DEFAULT_TOP + row * stepY });
       const overlaps = taken.some((t) => Math.abs(t.x - pos.x) < CARD_W * 0.85 && Math.abs(t.y - pos.y) < CARD_H * 0.85);
       if (!overlaps) return pos;
     }
   }
   // A full table: pile onto the corner rather than fail.
-  return clampPos({ x: 0.04, y: 0.04 });
+  return clampPos({ x: 0.04, y: DEFAULT_TOP });
 }
 
 export type Rect = { x: number; y: number; w: number; h: number };

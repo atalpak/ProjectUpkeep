@@ -66,6 +66,8 @@ test("group positions are derived from the anchor and arrangement, never stored"
 });
 
 test("cards entering the table never stack exactly on top of each other", () => {
+  const firstSpot = defaultPos(makeState([], {}));
+  assert.ok(firstSpot.y >= 0.4, "the first placement clears the upper-left overlay controls");
   const state = table();
   const seen = new Set([...resolvedPositions(state).values()].map((p) => `${p.x},${p.y}`));
   assert.equal(seen.size, 5);
