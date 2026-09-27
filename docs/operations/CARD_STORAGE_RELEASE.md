@@ -1,8 +1,8 @@
 # Card storage cutover
 
-Prepared 2026-09-27. Production migration 50 is applied. Migration 51 remains
-unapplied after its first attempt hit a statement timeout and rolled back.
-Compaction has not run.
+Completed 2026-09-27. Production migrations 50 and 51 are applied. Normalization
+and heap compaction passed exact catalog and customer-data fingerprint checks.
+Scheduled synchronization is enabled.
 
 ## First maintenance window
 
@@ -20,8 +20,30 @@ for its bounded scans. This avoids repeatedly serializing large unused fields.
 The full-catalog backfill took 3.12 seconds locally and retained the same 307
 exceptions; its parity check took 5.00 seconds. The schema/RLS and concurrent-writer
 suites pass. The fix was reviewed with no remaining blockers. A new maintenance
-window is required for the retry and compaction; the public API remains compatible
-at migration 50 meanwhile.
+window was approved for the retry and compaction. PR 105 merged as `e45327d`;
+the optimized migration and compaction both completed successfully.
+
+## Production completion
+
+During the second approved window, both writers were idle and scheduling was
+paused. Migration 51 completed, followed by exact fingerprints of every catalog
+row and all non-catalog application/authentication tables. Compaction then ran
+with bounded lock acquisition and runtime. The same fingerprints passed again.
+All 118,628 printing rows remain; 308 exceptions reflect the refreshed live
+catalog (the earlier local snapshot contained 307).
+
+| Storage | Before cleanup | After normalization | After compaction |
+|---|---:|---:|---:|
+| Printing relation, including indexes | 346,128,384 bytes | 275,832,832 bytes | 113,614,848 bytes |
+| Whole database | 406,555,795 bytes | 336,497,811 bytes | 174,304,403 bytes |
+
+The printing relation recovered 232,513,536 bytes (67.2%, about 222 MiB).
+Anonymous API checks passed for cards and collection, deck, want-list, trade,
+and commander relationships. Scheduling was re-enabled after these checks.
+All main CI jobs pass, including the migration-drift rerun after migration 51.
+Final forced sync run `36321472754` completed successfully: normalized printing
+writer, catalog export/build/publication, and the direct PostgreSQL Oracle loader
+all passed. The optional loader-failure warning was skipped.
 
 ## Verified results
 
