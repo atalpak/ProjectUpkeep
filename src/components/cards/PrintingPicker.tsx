@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 
 import { SetSymbol } from "@/components/SetSymbol";
 import { cx } from "@/components/ui";
+import { formatPrice } from "@/lib/collection/pricing";
 import { printingSummary, type PrintingFacts } from "@/lib/cards/printing-label";
 
 /** What a picker needs of one printing; `/api/cards/printings` returns all of it. */
@@ -12,6 +13,9 @@ export type PrintingOption = PrintingFacts & {
   scryfall_id: string;
   image_uri_small?: string | null;
   image_uri?: string | null;
+  price_usd?: number | null;
+  price_usd_foil?: number | null;
+  price_usd_etched?: number | null;
 };
 
 /**
@@ -31,6 +35,11 @@ export type PrintingOption = PrintingFacts & {
 export function PrintingRow({ printing, current }: { printing: PrintingOption; current?: boolean }) {
   const { title, detail } = printingSummary(printing);
   const src = printing.image_uri_small ?? printing.image_uri;
+  const prices = [
+    printing.price_usd === null || printing.price_usd === undefined ? null : formatPrice(printing.price_usd),
+    printing.price_usd_foil === null || printing.price_usd_foil === undefined ? null : `${formatPrice(printing.price_usd_foil)} foil`,
+    printing.price_usd_etched === null || printing.price_usd_etched === undefined ? null : `${formatPrice(printing.price_usd_etched)} etched`,
+  ].filter((price): price is string => price !== null);
 
   return (
     <span className="flex w-full items-center gap-2.5">
@@ -52,7 +61,11 @@ export function PrintingRow({ printing, current }: { printing: PrintingOption; c
           <span className="truncate">{title}</span>
           {current ? <span className="shrink-0 font-normal text-accent-text">(current)</span> : null}
         </span>
-        {detail ? <span className="mt-0.5 block text-[11px] text-ink-muted">{detail}</span> : null}
+        {detail || prices.length > 0 ? (
+          <span className="mt-0.5 block text-[11px] text-ink-muted">
+            {[detail, prices.join(" · ")].filter(Boolean).join(" · ")}
+          </span>
+        ) : null}
       </span>
     </span>
   );

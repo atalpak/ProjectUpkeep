@@ -20,6 +20,8 @@ import { addCardInstance } from "@/app/(app)/collection/actions";
 import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { addDeckCard } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
+import { addWant } from "@/app/(app)/wants/actions";
+import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import type { Card, CardFace, LocationType } from "@/lib/types";
 import {
   CONDITIONS,
@@ -33,6 +35,7 @@ import {
 import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
 import { PrintingPicker, type PrintingOption } from "@/components/cards/PrintingPicker";
+import { FoilMark } from "@/components/FoilMark";
 import { FoilShine } from "@/components/FoilShine";
 import { isFlipCard } from "@/lib/cards/faces";
 import { ManaCost } from "@/components/ManaCost";
@@ -92,8 +95,9 @@ type PanelContext = {
     imageOnly?: boolean,
     finish?: string | null,
   ) => void;
-  /** Dismiss a transient presentation. The sidebar deliberately keeps its card. */
-  hide: () => void;
+  /** Dismiss a transient presentation. `force` is reserved for an intentional
+   * sheet close; hover cleanup must never close a sheet it just opened. */
+  hide: (force?: boolean) => void;
   activeId: string | null;
   card: Card | null;
   state: "idle" | "loading" | "ready" | "missing";
@@ -209,9 +213,9 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
    * `activeId` is deliberately left alone: the sidebar goes on showing the last
    * card, and the cache keeps it for the next hover. Only the presentation ends.
    */
-  const hide = useCallback(() => {
+  const hide = useCallback((force = false) => {
     if (timer.current) clearTimeout(timer.current);
-    setPresentation((current) => (current === "sidebar" ? current : null));
+    setPresentation((current) => (force ? null : current === "tooltip" ? null : current));
     setAnchor(null);
   }, []);
 
@@ -408,6 +412,7 @@ export function useCardPreview(
   const ctx = useContext(Ctx);
   const presentation = usePresentation();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openingSheet = useRef(false);
 
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
@@ -445,7 +450,18 @@ export function useCardPreview(
 
     const cancel = () => {
       if (timer.current) clearTimeout(timer.current);
+      // Opening the modal covers the hovered card, which fires mouseleave.
+      // That leave belongs to the newly-opened sheet, not to a deliberate
+      // dismissal; without this guard it immediately closes the sheet again.
+      if (openingSheet.current) return;
       ctx.hide();
+    };
+
+    const openSheet = () => {
+      if (timer.current) clearTimeout(timer.current);
+      openingSheet.current = true;
+      ctx.show(source, "sheet");
+      requestAnimationFrame(() => { openingSheet.current = false; });
     };
 
     return {
@@ -453,6 +469,9 @@ export function useCardPreview(
       onMouseEnter: open,
       onMouseLeave: cancel,
       onFocus: open,
+      // A narrow desktop uses a tooltip for a quick scan, but hover alone
+      // must not be the only way to reach the full detail sheet.
+      onClick: openSheet,
       onBlur: cancel,
     };
   }, [ctx, source, presentation, sheetOnClick, imageOnly, finish]);
@@ -832,7 +851,7 @@ function CardSheet() {
   return (
     <Dialog
       open
-      onClose={() => ctx.hide()}
+      onClose={() => ctx.hide(true)}
       label="Card detail"
       portal={false}
       className="m-0 mt-auto max-h-[85dvh] w-full max-w-none rounded-t-2xl sm:mx-auto sm:my-auto sm:max-w-2xl sm:rounded-2xl"
@@ -841,7 +860,7 @@ function CardSheet() {
         <div className="mb-3 flex justify-end">
           <button
             type="button"
-            onClick={() => ctx.hide()}
+            onClick={() => ctx.hide(true)}
             aria-label="Close"
             className="inline-flex size-9 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
           >
@@ -938,7 +957,7 @@ function CardDetail({ card }: { card: Card }) {
       <div>
         <div className="flex items-start justify-between gap-2">
           <h2 className="text-sm font-semibold leading-snug">{name}</h2>
-          {manaCost ? <ManaCost cost={manaCost} /> : null}
+          {manaCost ? <span className="justify-self-end"><ManaCost cost={manaCost} /></span> : null}
         </div>
         {typeLine ? <p className="mt-0.5 text-xs text-ink-muted">{typeLine}</p> : null}
       </div>
@@ -1057,7 +1076,7 @@ function ExternalLink({ href, children }: { href: string; children: React.ReactN
  * Left: the image, the flip control for a double-faced card, and the three
  * places to look it up or buy it. Right: the name and mana cost, the price,
  * the rules and set detail, then the printing switcher and the
- * add-to-collection / add-to-deck panel beneath it. Below `sm` the grid
+ * add-to-collection / add-to-deck controls beside the price. Below `sm` the grid
  * collapses and it reads top to bottom like the narrow sheet it replaced.
  *
  * Owns `faceIndex` because a flip changes both columns at once — the image on
@@ -1140,29 +1159,20 @@ function CardWide({ card }: { card: Card }) {
         </div>
       </div>
 
-      {/* Right column: name, price, detail, then the ways to act on it. */}
+      {/* Right column: identity in two compact rows, rules, then ownership and actions. */}
       <div className="mt-4 space-y-3 sm:mt-0">
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <h2 className="text-base font-semibold leading-snug">{name}</h2>
-            {manaCost ? <ManaCost cost={manaCost} /> : null}
-          </div>
-          {typeLine ? <p className="mt-0.5 text-xs text-ink-muted">{typeLine}</p> : null}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1.5">
+          <h2 className="text-base font-semibold leading-snug">{name}</h2>
+          {manaCost ? <span className="justify-self-end"><ManaCost cost={manaCost} /></span> : null}
+          {typeLine ? <p className="text-xs text-ink-muted">{typeLine}</p> : <span />}
+          {hasPrice ? (
+            <p className="flex flex-wrap justify-self-end gap-x-2 text-sm tabular-nums">
+              {priceNonfoil !== null ? <span className="font-semibold">{formatPrice(priceNonfoil)}</span> : null}
+              {priceFoil !== null ? <span title="Foil"><FoilMark finish="foil" />{formatPrice(priceFoil)}</span> : null}
+              {priceEtched !== null ? <span title="Etched foil"><FoilMark finish="etched" />{formatPrice(priceEtched)}</span> : null}
+            </p>
+          ) : null}
         </div>
-
-        {hasPrice ? (
-          <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
-            {priceNonfoil !== null ? (
-              <span className="font-semibold tabular-nums">{formatPrice(priceNonfoil)}</span>
-            ) : null}
-            {priceFoil !== null ? (
-              <span className="text-ink-muted tabular-nums">{formatPrice(priceFoil)} foil</span>
-            ) : null}
-            {priceEtched !== null ? (
-              <span className="text-ink-muted tabular-nums">{formatPrice(priceEtched)} etched</span>
-            ) : null}
-          </p>
-        ) : null}
 
         {oracleText ? (
           <p className="whitespace-pre-line text-xs leading-relaxed">{oracleText}</p>
@@ -1182,43 +1192,25 @@ function CardWide({ card }: { card: Card }) {
 
         {!flippable ? <OtherHalves faces={faces} /> : null}
 
+        <CardActions card={card} />
+
         {/* The printing switcher sits directly under the rules text, above the
             set/number detail it belongs with. CardWide itself is keyed on the
             name, so paging through printings keeps this (and its fetch) mounted;
             a different card remounts the lot. */}
         <CardPrintingPicker card={card} />
 
-        <dl className="space-y-1.5 border-t border-border pt-3 text-xs">
-          <Row label="Set">
-            <span className="block">{card.set_name ?? card.set_code.toUpperCase()}</span>
-            <span className="mt-0.5 flex items-center gap-1.5 text-ink-muted">
-              <SetSymbol code={card.set_code} />({card.set_code.toUpperCase()})
-            </span>
-          </Row>
-          <Row label="Number">#{card.collector_number}</Row>
-          {card.rarity ? (
-            <Row label="Rarity">{RARITY_LABEL[card.rarity] ?? card.rarity}</Row>
-          ) : null}
-          {card.released_at ? <Row label="Released">{card.released_at}</Row> : null}
-          {artist ? <Row label="Artist">{artist}</Row> : null}
-          {card.cmc !== null && card.cmc !== undefined ? (
-            <Row label="Mana value">{card.cmc}</Row>
-          ) : null}
-          <Row label="Language">{languageLabel(card.lang)}</Row>
-          <Row label="Finishes">
-            <span className="flex flex-wrap gap-1">
-              {card.available_finishes.map((f) => (
-                <Badge key={f}>{f}</Badge>
-              ))}
-            </span>
-          </Row>
-          {card.keywords && card.keywords.length > 0 ? (
-            <Row label="Keywords">{card.keywords.join(", ")}</Row>
-          ) : null}
-          {card.digital ? <Row label="Digital">Not a paper printing</Row> : null}
+        <dl className="grid grid-cols-2 gap-x-5 gap-y-2 border-t border-border pt-3 text-xs">
+          <Meta label="Set"><span className="flex items-center gap-1"><SetSymbol code={card.set_code} />{card.set_name ?? card.set_code.toUpperCase()} #{card.collector_number}</span></Meta>
+          {card.rarity ? <Meta label="Rarity">{RARITY_LABEL[card.rarity] ?? card.rarity}</Meta> : null}
+          {card.released_at ? <Meta label="Released">{card.released_at}</Meta> : null}
+          {artist ? <Meta label="Artist">{artist}</Meta> : null}
+          {card.cmc !== null && card.cmc !== undefined ? <Meta label="Mana value">{card.cmc}</Meta> : null}
+          <Meta label="Language">{languageLabel(card.lang)}</Meta>
+          {card.available_finishes.length > 0 ? <Meta label="Finishes">{card.available_finishes.join(", ")}</Meta> : null}
+          {card.keywords && card.keywords.length > 0 ? <Meta label="Keywords">{card.keywords.join(", ")}</Meta> : null}
+          {card.digital ? <Meta label="Format">Digital only</Meta> : null}
         </dl>
-
-        <CardActions card={card} />
       </div>
     </div>
   );
@@ -1304,10 +1296,11 @@ function CardPrintingPicker({ card }: { card: Card }) {
 function CardActions({ card }: { card: Card }) {
   const [data, setData] = useState<ActionsData | null>(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [mode, setMode] = useState<"collection" | "deck" | null>(null);
+  const [mode, setMode] = useState<"collection" | "deck" | "wish" | null>(null);
 
   const [addState, addAction, adding] = useActionState(addCardInstance, EMPTY_STATE);
   const [deckState, deckAction, addingDeck] = useActionState(addDeckCard, EMPTY_DECK_STATE);
+  const [wishState, wishAction, addingWish] = useActionState(addWant, EMPTY_SOCIAL_STATE);
 
   useEffect(() => {
     let alive = true;
@@ -1336,29 +1329,33 @@ function CardActions({ card }: { card: Card }) {
   const wishlisted = data?.wishlisted ?? null;
 
   return (
-    <div className="space-y-3 border-t border-border pt-3">
-      {owned ? (
-        owned.total > 0 ? (
-          <p className="text-xs text-ink-muted">
-            You own {owned.total}
-            {owned.places.length > 0
-              ? ` — ${owned.places.map((pl) => `${pl.name} ×${pl.quantity}`).join(", ")}`
-              : ""}
-          </p>
-        ) : (
-          <p className="text-xs text-ink-muted">Not in your collection yet.</p>
-        )
-      ) : null}
-
-      {wishlisted ? (
-        <p className="text-xs text-ink-muted">
-          On your{" "}
-          <Link href="/wants" className="text-accent-text hover:underline">
-            wish list
-          </Link>{" "}
-          (×{wishlisted.quantity})
-        </p>
-      ) : null}
+    <div className="space-y-2 border-t border-border pt-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-muted/60 px-3 py-2">
+        <div className="min-w-0 text-xs text-ink-muted">
+          {owned ? (
+            owned.total > 0 ? (
+              <span>
+                You own {owned.total}
+                {owned.places.length > 0 ? ` · ${owned.places.map((pl) => `${pl.name} ×${pl.quantity}`).join(", ")}` : ""}
+              </span>
+            ) : <span>Not in your collection</span>
+          ) : null}
+          {wishlisted ? <span>{owned?.total ? " · " : ""}On your <Link href="/wants" className="text-accent-text hover:underline">wish list</Link> ×{wishlisted.quantity}</span> : null}
+        </div>
+        {card.last_synced_at !== "" ? (
+          <button
+            type="button"
+            onClick={() => setMode((current) => current === null ? "collection" : null)}
+            aria-expanded={mode !== null}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink shadow-sm transition-all duration-200 hover:scale-[1.03]"
+          >
+            <span aria-hidden="true" className={cx("text-base leading-none transition-transform duration-200", mode !== null && "rotate-45")}>
+              +
+            </span>
+            <span className="transition-opacity duration-150">{mode !== null ? "Cancel" : "Add"}</span>
+          </button>
+        ) : null}
+      </div>
 
       {friends.length > 0 ? (
         <div className="space-y-1">
@@ -1381,28 +1378,22 @@ function CardActions({ card }: { card: Card }) {
           This printing isn&rsquo;t in Upkeep&rsquo;s card catalog yet, so it can&rsquo;t be added to a collection or deck.
           It will be once the next nightly Scryfall sync picks it up.
         </p>
-      ) : (
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant={mode === "collection" ? "primary" : "secondary"}
-          className="text-xs"
-          onClick={() => setMode((m) => (m === "collection" ? null : "collection"))}
-        >
-          Add to collection
-        </Button>
-        {decks.length > 0 ? (
-          <Button
-            type="button"
-            variant={mode === "deck" ? "primary" : "secondary"}
-            className="text-xs"
-            onClick={() => setMode((m) => (m === "deck" ? null : "deck"))}
-          >
-            Add to a deck
-          </Button>
-        ) : null}
-      </div>
-      )}
+      ) : null}
+
+      {mode !== null && card.last_synced_at !== "" ? (
+        <div className="flex flex-wrap gap-1.5 rounded-md border border-border p-1.5">
+          {(["collection", ...(decks.length > 0 ? ["deck"] : []), "wish"] as Array<"collection" | "deck" | "wish">).map((target) => (
+            <button
+              key={target}
+              type="button"
+              onClick={() => setMode(target)}
+              className={cx("rounded px-2.5 py-1 text-xs font-medium transition-colors", mode === target ? "bg-accent text-accent-ink" : "hover:bg-surface-muted")}
+            >
+              {target === "collection" ? "Collection" : target === "deck" ? "Deck" : "Wish list"}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {mode === "collection" && card.last_synced_at !== "" ? (
         <form action={addAction} className="space-y-2 rounded-md border border-border p-2.5">
@@ -1481,24 +1472,38 @@ function CardActions({ card }: { card: Card }) {
         </form>
       ) : null}
 
-      {mode === "deck" && decks.length > 0 ? (
-        <form action={deckAction} className="space-y-2 rounded-md border border-border p-2.5">
+      {mode === "deck" && decks.length > 0 && card.last_synced_at !== "" ? (
+        <form action={deckAction} className="flex flex-wrap items-end gap-2 rounded-md border border-border p-2.5">
           <input type="hidden" name="card_id" value={card.scryfall_id} />
           <input type="hidden" name="quantity" value="1" />
-          <Field label="Deck">
-            <Select name="deck_id" defaultValue={decks[0]?.id} className="text-xs">
-              {decks.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Button type="submit" disabled={addingDeck} className="w-full text-xs">
-            {addingDeck ? "Adding…" : "Add to decklist"}
+          <div className="min-w-40 flex-1">
+            <Field label="Add to deck">
+              <Select name="deck_id" defaultValue={decks[0]?.id} className="text-xs">
+                {decks.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Button type="submit" disabled={addingDeck} className="text-xs">
+            {addingDeck ? "Adding…" : "Add"}
           </Button>
-          {deckState.error ? <p className="text-xs text-danger">{deckState.error}</p> : null}
-          {deckState.notice ? <p className="text-xs text-ink-muted">{deckState.notice}</p> : null}
+          {deckState.error ? <p className="w-full text-xs text-danger">{deckState.error}</p> : null}
+          {deckState.notice ? <p className="w-full text-xs text-ink-muted">{deckState.notice}</p> : null}
+        </form>
+      ) : null}
+
+      {mode === "wish" && card.last_synced_at !== "" ? (
+        <form action={wishAction} className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2.5">
+          <input type="hidden" name="card_id" value={card.scryfall_id} />
+          <input type="hidden" name="card_name" value={card.name} />
+          <input type="hidden" name="quantity" value="1" />
+          <span className="min-w-0 flex-1 text-xs text-ink-muted">Add one copy to your wish list.</span>
+          <Button type="submit" disabled={addingWish} className="text-xs">{addingWish ? "Adding…" : "Add"}</Button>
+          {wishState.error ? <p className="w-full text-xs text-danger">{wishState.error}</p> : null}
+          {wishState.notice ? <p className="w-full text-xs text-ink-muted">{wishState.notice}</p> : null}
         </form>
       ) : null}
     </div>
@@ -1510,6 +1515,15 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="flex gap-2">
       <dt className="w-20 shrink-0 text-ink-muted">{label}</dt>
       <dd className="min-w-0 flex-1">{children}</dd>
+    </div>
+  );
+}
+
+function Meta({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-medium text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 truncate text-ink">{children}</dd>
     </div>
   );
 }

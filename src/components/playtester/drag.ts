@@ -164,9 +164,14 @@ export function createBoardDrag(host: BoardHost) {
     }
 
     function onMove(ev: PointerEvent) {
-      pointer = { x: ev.clientX, y: ev.clientY, alt: ev.altKey };
+      // Browsers can batch several high-frequency pointer samples into one
+      // event. Paint the newest sample, rather than the older dispatched one,
+      // so the card stays visually attached to a fast pointer or trackpad.
+      const samples = ev.getCoalescedEvents?.();
+      const latest = samples && samples.length > 0 ? samples[samples.length - 1] : ev;
+      pointer = { x: latest.clientX, y: latest.clientY, alt: latest.altKey };
       if (!dragging) {
-        if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < DRAG_THRESHOLD_PX) return;
+        if (Math.hypot(latest.clientX - start.x, latest.clientY - start.y) < DRAG_THRESHOLD_PX) return;
         begin();
       }
       if (!raf) raf = requestAnimationFrame(apply);
@@ -177,7 +182,10 @@ export function createBoardDrag(host: BoardHost) {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
       window.clearTimeout(longPress);
-      if (raf) cancelAnimationFrame(raf);
+      if (raf) {
+        cancelAnimationFrame(raf);
+        apply();
+      }
       const inspecting = ui.get().inspect;
       if (inspecting?.big) setUi(ui, { inspect: null });
 
@@ -187,14 +195,26 @@ export function createBoardDrag(host: BoardHost) {
         else if (!cancelled && wasSelected && additive) store.toggleSelected(id);
         return;
       }
+      const clearTransforms = () => {
+        for (const m of movers) {
+          m.el.style.transform = "";
+          m.el.style.willChange = "";
+          m.el.style.zIndex = "";
+        }
+      };
       for (const m of movers) {
         delete m.el.dataset.dragging;
-        m.el.style.transform = "";
-        m.el.style.willChange = "";
-        m.el.style.zIndex = "";
       }
       setUi(ui, { dragging: false, hoverZone: null, guides: { x: null, y: null } });
-      if (cancelled) return;
+      if (cancelled) {
+        clearTransforms();
+        return;
+      }
+
+      // Let the board commit its new position before removing the temporary
+      // transform. Clearing it first causes one visible frame at the old spot
+      // on a busy board, which reads as a snap-back at the end of a drag.
+      requestAnimationFrame(clearTransforms);
 
       const ids = movers.map((m) => m.id);
       if (hover) {
@@ -327,8 +347,10 @@ export function startHandDrag(
     setUi(ui, { hoverZone: target });
   }
   function onMove(ev: PointerEvent) {
-    last = { x: ev.clientX, y: ev.clientY };
-    shiftHeld = ev.shiftKey;
+    const samples = ev.getCoalescedEvents?.();
+    const latest = samples && samples.length > 0 ? samples[samples.length - 1] : ev;
+    last = { x: latest.clientX, y: latest.clientY };
+    shiftHeld = latest.shiftKey;
     if (!dragging) {
       if (Math.hypot(last.x - start.x, last.y - start.y) < DRAG_THRESHOLD_PX) return;
       window.clearTimeout(longPress);
@@ -337,7 +359,11 @@ export function startHandDrag(
       const box = source.getBoundingClientRect();
       ghost = source.cloneNode(true) as HTMLElement;
       ghost.removeAttribute("id");
-      ghost.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;pointer-events:none;z-index:2000;opacity:.92;margin:0;will-change:transform;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))`;
+      // The source is a hand card and deliberately has a transform transition
+      // for its hover lift. A clone inherits that transition, which made the
+      // drag ghost chase the pointer 150ms behind it. The ghost is a direct
+      // manipulation surface, so it must update with no easing at all.
+      ghost.style.cssText = `position:fixed;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;pointer-events:none;z-index:2000;opacity:.92;margin:0;will-change:transform;transition:none;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45))`;
       ghost.setAttribute("aria-hidden", "true");
       document.body.appendChild(ghost);
       source.style.opacity = "0.35";

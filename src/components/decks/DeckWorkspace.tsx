@@ -804,25 +804,25 @@ function RowActions({
                 </form>
               ) : null}
 
-              <form action={setDeckCardQuantity} onSubmit={close}>
+              <form action={setDeckCardQuantity} onSubmit={close} className="flex items-end gap-2 border-y border-border px-3 py-2">
                 <input type="hidden" name="entry_id" value={entry.id} />
                 <input type="hidden" name="deck_id" value={deckId} />
-                <input type="hidden" name="quantity" value={entry.quantity + 1} />
-                <button type="submit" role="menuitem" className={item}>
-                  Ask for one more
+                <label className="min-w-0 flex-1 text-xs text-ink-muted">
+                  Quantity
+                  <input
+                    name="quantity"
+                    type="number"
+                    min={1}
+                    max={9999}
+                    defaultValue={entry.quantity}
+                    aria-label={`Quantity for ${displayName || "card"}`}
+                    className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1 text-xs text-ink"
+                  />
+                </label>
+                <button type="submit" role="menuitem" className="rounded border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-surface-muted">
+                  Set
                 </button>
               </form>
-
-              {entry.quantity > 1 ? (
-                <form action={setDeckCardQuantity} onSubmit={close}>
-                  <input type="hidden" name="entry_id" value={entry.id} />
-                  <input type="hidden" name="deck_id" value={deckId} />
-                  <input type="hidden" name="quantity" value={entry.quantity - 1} />
-                  <button type="submit" role="menuitem" className={item}>
-                    Ask for one fewer
-                  </button>
-                </form>
-              ) : null}
 
               <form action={commanderAction} onSubmit={close}>
                 <input type="hidden" name="deck_id" value={deckId} />
