@@ -4,6 +4,8 @@ import type { Printing } from '@upkeep/scan-core';
 export type CardDetailsTarget = {
   name: string;
   printingId?: string | null;
+  /** Per-open identity: an ambiguous scan needs a deliberate printing choice. */
+  printingCheck?: { required: boolean };
   /**
    * Set by quick scan when the printing is worth checking against the card's
    * picture. The sheet opens at once on `printingId`; it then compares `photoUri`

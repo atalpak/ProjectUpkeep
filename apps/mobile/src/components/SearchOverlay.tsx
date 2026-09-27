@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, ScrollView, StyleSheet, Text, TextInput,
+  ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, Linking, ScrollView, StyleSheet, Text, TextInput,
   useWindowDimensions, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  COLORS, EMPTY_ADVANCED_FILTER, advancedFacetCount, isAdvancedFilterActive, looksLikeScryfallSyntax, parseScryfallQuery,
+  COLORS, EMPTY_ADVANCED_FILTER, advancedFacetCount,
   type AdvancedCardFilter, type Color, type ColorMode, type NumericOp,
 } from '@upkeep/domain';
-import { searchCards, type CardSearchResult } from '../cardSearch';
+import { mobileSearchQuery, searchCards, type CardSearchPage, type CardSearchResult } from '../cardSearch';
 import { recordRecentSearch, readRecentSearches } from '../recentSearches';
 import { useApp } from '../AppProvider';
 import { Button, Choices, Tappable } from './ui';
@@ -28,7 +28,6 @@ const CMC_OPS: NumericOp[] = ['eq', 'gte', 'lte'];
 const CMC_LABELS: Record<string, string> = { eq: '=', gte: '≥', lte: '≤' };
 const RARITIES = ['', 'common', 'uncommon', 'rare', 'mythic'];
 const RARITY_LABELS: Record<string, string> = { '': 'Any', common: 'Common', uncommon: 'Uncommon', rare: 'Rare', mythic: 'Mythic' };
-const DEBOUNCE_MS = 450;
 // The filters panel's ceiling; on a short screen it is held to 40% of the height instead,
 // so the results below it never disappear behind an open panel.
 const FILTERS_MAX_HEIGHT = 320;
@@ -60,8 +59,9 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
   const [showFilters, setShowFilters] = useState(false);
   const [ownedOnly, setOwnedOnly] = useState(false);
   const [recent, setRecent] = useState<string[]>([]);
-  const [state, setState] = useState<{ results: CardSearchResult[]; total: number; capped: boolean; error: string | null; loading: boolean; ran: boolean }>(
-    { results: [], total: 0, capped: false, error: null, loading: false, ran: false },
+  const [submitted, setSubmitted] = useState<{ q: string; owned: boolean; page: number } | null>(null);
+  const [state, setState] = useState<CardSearchPage & { loading: boolean; ran: boolean }>(
+    { results: [], total: null, nextPage: null, warnings: [], error: null, loading: false, ran: false },
   );
   const [zoomed, setZoomed] = useState<CardSearchResult | null>(null);
   const requestId = useRef(0);
@@ -78,37 +78,34 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
         .start(({ finished }) => {
           if (!finished) return;
           setMounted(false);
-          setQuery(''); setFacets(EMPTY_FACETS); setCmcText(''); setShowFilters(false); setOwnedOnly(false); setZoomed(null);
+          setSubmitted(null); setQuery(''); setFacets(EMPTY_FACETS); setCmcText(''); setShowFilters(false); setOwnedOnly(false); setZoomed(null);
           requestId.current += 1;
-          setState({ results: [], total: 0, capped: false, error: null, loading: false, ran: false });
+          setState({ results: [], total: null, nextPage: null, warnings: [], error: null, loading: false, ran: false });
         });
     }
   }, [visible, reducedMotion, progress]);
 
-  // Typed syntax ("c:r cmc<=2 goblin") speaks for the whole query, exactly as
-  // on the web; otherwise the box is the name and the panel supplies the rest.
-  const parsed = useMemo(() => (looksLikeScryfallSyntax(query) ? parseScryfallQuery(query) : null), [query]);
-  const filter: AdvancedCardFilter = useMemo(() => parsed?.filter ?? { ...facets, name: query.trim() }, [parsed, facets, query]);
-  // A bare name needs two characters; any facet is enough on its own -- and
-  // "owned only" is itself enough to run a browse-what-I-have search with no
-  // name or filter at all.
-  const runnable = isAdvancedFilterActive({ ...filter, name: '' }) || filter.name.trim().length >= 2 || ownedOnly;
+  const searchQuery = useMemo(() => mobileSearchQuery(query, facets), [query, facets]);
+  const runnable = searchQuery.trim().length > 0 || ownedOnly;
+
+  function submit() {
+    if (!runnable) return;
+    Keyboard.dismiss();
+    setZoomed(null);
+    setSubmitted({ q: searchQuery, owned: ownedOnly, page: 1 });
+  }
 
   useEffect(() => {
-    if (!visible) return;
     const id = ++requestId.current;
-    if (!runnable) { setState({ results: [], total: 0, capped: false, error: null, loading: false, ran: false }); return; }
-    setState(s => ({ ...s, loading: true, error: null }));
-    const timer = setTimeout(() => {
-      void searchCards(filter, 60, { ownedOnly, userId: userId ?? undefined }).then(r => {
-        if (id === requestId.current) setState({ results: r.results, total: r.total, capped: r.capped, error: r.error, loading: false, ran: true });
-        // A search that actually ran and came back, not every keystroke --
-        // the debounce above already keeps this to settled lookups.
-        if (id === requestId.current && !r.error && query.trim()) void recordRecentSearch(query.trim()).then(setRecent);
-      });
-    }, DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [filter, runnable, visible, ownedOnly, userId, query]);
+    if (!visible || !submitted) return;
+    setState({ results: [], total: null, nextPage: null, warnings: [], loading: true, error: null, ran: false });
+    void searchCards(submitted.q, submitted.page, submitted.owned).then(r => {
+      if (id !== requestId.current) return;
+      setState({ ...r, loading: false, ran: true });
+      if (!r.error && submitted.q) void recordRecentSearch(submitted.q).then(setRecent);
+    });
+    return () => { requestId.current += 1; };
+  }, [visible, submitted]);
 
   function pickRecent(term: string) {
     setQuery(term);
@@ -148,6 +145,7 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
               style={styles.input}
               value={query}
               onChangeText={setQuery}
+              onSubmitEditing={submit}
               placeholder="Search cards"
               placeholderTextColor={text.secondary}
               returnKeyType="search"
@@ -166,10 +164,10 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
         </View>
 
         <View style={styles.toggleRow}>
-          <Tappable feedback="dim" accessibilityRole="button" accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={styles.filtersToggle} disabled={!!parsed}>
+          <Tappable feedback="dim" accessibilityRole="button" accessibilityState={{ expanded: showFilters }} onPress={() => setShowFilters(v => !v)} style={styles.filtersToggle}>
             <Ionicons name="options-outline" size={18} color={text.primary} />
-            <Text style={styles.filtersLabel}>{parsed ? 'Using your typed syntax' : facetCount ? `Filters (${facetCount})` : 'Filters'}</Text>
-            {!parsed && <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={16} color={text.secondary} />}
+            <Text style={styles.filtersLabel}>{facetCount ? `Filters (${facetCount})` : 'Filters'}</Text>
+            <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={16} color={text.secondary} />
           </Tappable>
           {!!userId && (
             <Tappable feedback="dim" accessibilityRole="checkbox" accessibilityState={{ checked: ownedOnly }} accessibilityLabel="Owned only" onPress={() => setOwnedOnly(v => !v)} style={[styles.ownedPill, ownedOnly && styles.ownedPillOn]}>
@@ -179,7 +177,7 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
           )}
         </View>
 
-        {showFilters && !parsed && (
+        {showFilters && (
           <ScrollView style={[styles.filters, { maxHeight: Math.min(FILTERS_MAX_HEIGHT, screenHeight * 0.4) }]} contentContainerStyle={styles.filtersBody} keyboardShouldPersistTaps="handled">
             <Text style={styles.groupLabel}>Colors</Text>
             <View style={styles.colorRow}>
@@ -218,10 +216,11 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
           </ScrollView>
         )}
 
-        {!!parsed?.unsupported.length && <Text style={styles.note}>Not understood, so ignored: {parsed.unsupported.join(' ')}</Text>}
+        <Button label="Search" onPress={submit} disabled={!runnable || state.loading} />
+        {state.warnings.map((warning, i) => <Text key={i} style={styles.note}>{warning}</Text>)}
 
         <View style={styles.results}>
-          {!runnable ? (
+          {!state.ran && !state.loading ? (
             recent.length > 0 ? (
               <View>
                 <Text style={styles.groupLabel}>Recent searches</Text>
@@ -240,26 +239,39 @@ export function SearchOverlay({ visible, onClose }: { visible: boolean; onClose(
           ) : state.loading && state.results.length === 0 ? (
             <ActivityIndicator color={text.secondary} style={styles.spinner} />
           ) : state.ran && state.results.length === 0 ? (
-            <Text style={styles.hint}>Nothing matches that.</Text>
+            <Text style={styles.hint}>{submitted?.owned ? "No owned matches on this page. Use Next to check later results." : "Nothing matches that."}</Text>
           ) : (
             <FlatList
               data={state.results}
-              keyExtractor={r => r.name}
+              keyExtractor={r => r.sampleCardId}
               numColumns={COLUMNS}
               columnWrapperStyle={styles.gridRow}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
-              ListHeaderComponent={state.total > 0 ? (
-                <Text style={styles.count}>{state.capped ? 'Too many matches to show them all. Add a filter or a bit more of the name to narrow it down.' : state.total > state.results.length ? `Showing ${state.results.length} of ${state.total} cards. Narrow the search to see the rest.` : `${state.total} card${state.total === 1 ? '' : 's'}`}</Text>
-              ) : null}
+              ListHeaderComponent={state.total !== null ? (
+                <Text style={styles.count}>{state.total} matching cards · page {submitted?.page ?? 1}</Text>
+              ) : <Text style={styles.count}>Owned matches on page {submitted?.page ?? 1}</Text>}
               renderItem={({ item }) => <SearchTile item={item} tile={tile} onOpen={() => { Keyboard.dismiss(); setZoomed(item); }} />}
               contentContainerStyle={styles.gridContent}
             />
           )}
         </View>
+        {submitted && state.ran && (
+          <View style={styles.row}>
+            <Button secondary label="Previous" disabled={state.loading || submitted.page <= 1} onPress={() => setSubmitted({ ...submitted, page: submitted.page - 1 })} />
+            <Button secondary label="Next" disabled={state.loading || state.nextPage === null} onPress={() => { if (state.nextPage) setSubmitted({ ...submitted, page: state.nextPage }); }} />
+            {state.error && <Button secondary label="Retry" disabled={state.loading} onPress={() => setSubmitted({ ...submitted })} />}
+          </View>
+        )}
+        {zoomed && !zoomed.local && (
+          <View>
+            <Text style={styles.note}>This printing is not available for collection actions. View its details on Scryfall.</Text>
+            <Button label="View on Scryfall" onPress={() => { void Linking.openURL(zoomed.scryfallUri); }} />
+          </View>
+        )}
       </Animated.View>
 
-      <CardDetails name={zoomed?.name ?? null} onClose={() => setZoomed(null)} />
+      <CardDetails name={zoomed?.local ? zoomed.name : null} printingId={zoomed?.sampleCardId} onClose={() => setZoomed(null)} />
     </View>
   );
 }
@@ -275,7 +287,7 @@ function SearchTile({ item, tile, onOpen }: { item: CardSearchResult; tile: numb
         ? <Image source={{ uri: face.image }} onError={face.onImageError} style={[styles.thumb, { width: tile, height: tile / CARD_ASPECT }]} />
         : <View style={[styles.thumb, styles.thumbEmpty, { width: tile, height: tile / CARD_ASPECT }]}><Text style={styles.thumbName}>{name}</Text></View>}
       <Text numberOfLines={2} style={styles.cardName}>{name}</Text>
-      {item.printingCount > 1 && <Text style={styles.printings}>{item.printingCount} printings</Text>}
+      <Text style={styles.printings}>{item.setLabel}</Text>
       {face.canFlip && <FlipBadge onPress={face.flip} otherName={face.otherName} />}
     </Tappable>
   );

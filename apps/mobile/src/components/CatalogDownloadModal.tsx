@@ -41,12 +41,12 @@ export function CatalogDownloadModal() {
     return () => clearTimeout(timer);
   }, [app.catalogBusy, app.catalogError]);
 
-  const idle = !app.catalogBusy && !app.catalogError && !ready;
+  const idle = !app.catalogLoading && !app.catalogBusy && !app.catalogError && !ready;
   const asking = app.demo && !declined && idle;
   const update = app.catalogUpdate;
   const offeringUpdate = !!update && !app.demo && !updateLater && idle;
   const visible = app.catalogBusy || !!app.catalogError || ready || asking || offeringUpdate;
-  if (!visible) return null;
+  if (app.catalogLoading || !visible) return null;
 
   const progress = app.catalogProgress;
   const downloading = progress?.phase === 'downloading' ? progress : null;

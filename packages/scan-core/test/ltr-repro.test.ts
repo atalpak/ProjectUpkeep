@@ -10,8 +10,8 @@ import { CardIndex, ScanPipeline, artCandidates, bestGuessPrinting, printingHint
  * nonfoil+foil, and differs only in number and RELEASE DATE -- the #5xx/#6xx
  * printings came out 2023-11-03, the base ones 2023-06-23.
  *
- * These tests pin what the code does today, so the diagnosis is reproducible:
- * they describe behaviour, they do not endorse it.
+ * These tests preserve the unresolved no-footer diagnosis and the regression
+ * fix that prevents a creature's power/toughness from hiding its real footer.
  */
 const mk = (n: number, oracle: string, name: string, collectorNumber: string, releasedAt: string, rarity: string): Printing => ({
   id: `00000000-0000-4000-8000-0000000001${String(n).padStart(2, '0')}`, oracleId: `00000000-0000-4000-8000-00000000f${oracle}`, name, aliases: [],
@@ -64,11 +64,40 @@ test('a footer with the right set but a wrong number is not a guess either: stil
   assert.equal(guess('Book of Mazarbul', ['LTR • EN']).ranking.printingConfidence, 'none');
 });
 
-test('a P/T box read above the footer can outrank the real number (the first "n/m" wins)', () => {
+test('a P/T box above the footer cannot outrank the real collector number', () => {
   // printingRegion is the bottom 28% of the card, which includes a creature's power/toughness box.
   const footer = ['4/4', '0216/0281 U', 'LTR • EN'];
-  assert.equal(printingHints(footer, index.setCodes).collectorNumber, '4');
-  assert.equal(guess('The Mouth of Sauron', footer).top, '667');
+  assert.equal(printingHints(footer, index.setCodes).collectorNumber, '0216');
+  assert.equal(guess('The Mouth of Sauron', footer).top, '216');
+  assert.equal(guess('The Mouth of Sauron', footer).ranking.printingConfidence, 'exact');
+  assert.equal(guess('The Mouth of Sauron', ['0216/0281 U', 'LTR • EN', '4/4']).top, '216');
+});
+
+test('Oliphaunt borderless footer beats its P/T; Book of Mazarbul stays exact', () => {
+  const oli = guess('Oliphaunt', ['6/4', 'C 0426', 'LTR • EN']);
+  assert.equal(oli.top, '426');
+  assert.equal(oli.ranking.printingConfidence, 'exact');
+  assert.equal(guess('Oliphaunt', ['C 0426', 'LTR • EN', '6/4']).top, '426');
+  assert.equal(guess('Book of Mazarbul', ['U 0116', 'LTR • EN']).top, '116');
+});
+
+test('the main scan pipeline selects the exact creature printing despite P/T text', () => {
+  const pipeline = new ScanPipeline(index, {} as never);
+  for (const [name, footer, expected] of [
+    ['The Mouth of Sauron', ['4/4', '0216/0281 U', 'LTR EN'], '216'],
+    ['Oliphaunt', ['6/4', 'C 0426', 'LTR EN'], '426'],
+    ['Book of Mazarbul', ['U 0116', 'LTR EN'], '116'],
+  ] as const) {
+    const candidates = pipeline.matchEvidence({ lines: [name], printingLines: [...footer] }).candidates;
+    assert.equal(candidates[0]?.printing.collectorNumber, expected);
+    assert.equal(candidates[0]?.evidence, 'printing');
+  }
+});
+
+test('a number-only footer resolves Mouth 216 rather than authorizing the name-only default', () => {
+  const ranking = guess('The Mouth of Sauron', ['U 0216']).ranking;
+  assert.equal(ranking.printingConfidence, 'partial');
+  assert.equal(bestGuessPrinting(ranking)?.collectorNumber, '216');
 });
 
 test('the picture check runs when the footer was not exact, and not at all when it was', () => {

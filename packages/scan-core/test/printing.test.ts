@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, bestGuessPrinting, artCandidates, artSwitchTarget, artSwitchNow, usableArt, withTimeout, regularFirst, thumbnailUri, finishSummary, ART_CONFIDENCE_RATIO, ART_OVERRIDE_FOOTER_RATIO, type CatalogBundle, type Printing } from '../src';
+import { CardIndex, ScanPipeline, printingHints, rankPrintings, artVerdict, artShortlist, bestGuessPrinting, printingNeedsChoice, artCandidates, artSwitchTarget, artSwitchNow, usableArt, withTimeout, regularFirst, thumbnailUri, finishSummary, ART_CONFIDENCE_RATIO, ART_OVERRIDE_FOOTER_RATIO, type CatalogBundle, type Printing } from '../src';
 
 const oracle = '00000000-0000-4000-8000-00000000aaaa';
 const mk = (n: number, setCode: string, collectorNumber: string, extra: Partial<Printing> = {}): Printing => ({
@@ -17,6 +17,26 @@ const sets = new Set(all.map(p => p.setCode));
 test('printingHints: number and set on separate footer lines, with a rarity letter', () => {
   assert.deepEqual(printingHints(['M 0718', 'FDN • EN'], sets), { setCode: 'FDN', collectorNumber: '0718', rarity: 'mythic', language: 'en' });
   assert.deepEqual(printingHints(['0718 R', 'FDN · EN'], sets), { setCode: 'FDN', collectorNumber: '0718', rarity: 'rare', language: 'en' });
+});
+
+test('printingHints: P/T is ignored and real footer context outranks unrelated numbers', () => {
+  assert.equal(printingHints(['4/4', 'U 0216', 'LTR EN'], new Set(['ltr'])).collectorNumber, '0216');
+  assert.equal(printingHints(['4', 'U 0216', 'LTR EN'], new Set(['ltr'])).collectorNumber, '0216');
+  assert.equal(printingHints(['4/4']).collectorNumber, undefined);
+  assert.equal(printingHints(['*/4']).collectorNumber, undefined);
+  assert.equal(printingHints(['1/280']).collectorNumber, '1');
+  assert.equal(printingHints(['0004/0281 U']).collectorNumber, '0004');
+  assert.equal(printingHints(['1/9 U']).collectorNumber, '1');
+  assert.equal(printingHints(['1/9 LTR'], new Set(['ltr'])).collectorNumber, '1');
+  assert.equal(printingHints(['4', '2XM 123'], new Set(['2xm'])).collectorNumber, '123');
+  assert.equal(printingHints(['4/4', 'LTR EN'], new Set(['ltr'])).collectorNumber, undefined);
+  assert.equal(printingHints(['4/4', 'U 0116', 'LTR EN'], new Set(['ltr'])).collectorNumber, '0116');
+});
+
+test('corrupted copyright numbers and the C MEE logo are not collector or rarity evidence', () => {
+  assert.deepEqual(printingHints(['C MEE', 'LTR • EN NO RANDA GALAEGON', '** & C 3023 Wisanto of the Coan'], new Set(['ltr'])), { setCode: 'LTR', language: 'en' });
+  assert.deepEqual(printingHints(['C MEE', 'LTR • EN a Rason Guuaco', '** 6 C 200Nmaca df far Cear'], new Set(['ltr'])), { setCode: 'LTR', language: 'en' });
+  assert.equal(printingHints(['U 0118', 'LTR EN'], new Set(['ltr'])).collectorNumber, '0118', 'never invent 116 from a misread 118');
 });
 
 test('printingHints: the older "number/print run" footer, and the one-line form', () => {
@@ -130,6 +150,14 @@ test('bestGuessPrinting: exact, partial and unique name one; nothing else guesse
   assert.equal(bestGuessPrinting(rankPrintings([fdn], {}))?.id, fdn.id);
   assert.equal(bestGuessPrinting(rankPrintings(all, {})), null, 'no footer: the caller uses its default');
   assert.equal(bestGuessPrinting(rankPrintings(all, { rarity: 'rare' })), null, 'rarity alone is not a guess');
+});
+
+test('an ambiguous name-only scan needs a printing choice, unlike exact, partial or unique reads', () => {
+  assert.equal(printingNeedsChoice(rankPrintings(all, {})), true);
+  assert.equal(printingNeedsChoice(rankPrintings(all, { rarity: 'rare' })), true);
+  assert.equal(printingNeedsChoice(rankPrintings(all, { setCode: 'FDN', collectorNumber: '718' })), false);
+  assert.equal(printingNeedsChoice(rankPrintings(all, { collectorNumber: '76' })), false);
+  assert.equal(printingNeedsChoice(rankPrintings([fdn], {})), false);
 });
 
 test('artCandidates: skipped when the footer settled it, or the picture could not cover every printing', () => {
@@ -258,4 +286,11 @@ test('finishSummary reads a lone finish as "only" and several as a list', () => 
   assert.equal(finishSummary(['nonfoil', 'foil']), 'Nonfoil / Foil');
   assert.equal(finishSummary(['nonfoil', 'foil', 'etched']), 'Nonfoil / Foil / Etched');
   assert.equal(finishSummary([]), '');
+});
+
+test('mixed collector OCR letters normalize without changing digits or suffixes', () => {
+  const ltr = new Set(['ltr']);
+  assert.equal(printingHints(['U OI16', 'LTR EN'], ltr).collectorNumber, '0116');
+  assert.equal(printingHints(['U 0118', 'LTR EN'], ltr).collectorNumber, '0118');
+  assert.equal(printingHints(['U 10i', 'LTR EN'], ltr).collectorNumber, '10I');
 });

@@ -9,7 +9,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function isUuid(value: unknown): value is string { return typeof value === 'string' && uuid.test(value); }
 
 /** Validate before replacing a previously usable catalog. No unchecked JSON casts. */
-export function parseCatalog(value: unknown): CatalogBundle {
+function* validateCatalog(value: unknown): Generator<void, CatalogBundle> {
   const b = value as CatalogBundle;
   if (!b || b.schemaVersion !== 1 || typeof b.version !== 'string' || !b.version.trim() ||
       typeof b.generatedAt !== 'string' || !Number.isFinite(Date.parse(b.generatedAt)) ||
@@ -26,9 +26,21 @@ export function parseCatalog(value: unknown): CatalogBundle {
       (p.releasedAt !== undefined && typeof p.releasedAt !== 'string') ||
       (p.rarity !== undefined && typeof p.rarity !== 'string')) throw new Error('Invalid printing in catalog');
     ids.add(p.id);
+    yield;
   }
   return b;
 }
+
+/** Validate synchronously for existing scanner/tool callers. */
+export function parseCatalog(value: unknown): CatalogBundle {
+  const validation = validateCatalog(value);
+  let step = validation.next();
+  while (!step.done) step = validation.next();
+  return step.value;
+}
+
+const DEFER_BUILD = Symbol('validated asynchronous build');
+const yieldToUI = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
 /** Build once per bundle. Inverted trigram postings avoid scoring the entire catalog per frame. */
 export class CardIndex {
@@ -47,28 +59,55 @@ export class CardIndex {
    * and leaves the choice to the person.
    */
   private footer = new Map<string, Printing[]>();
-  constructor(value: unknown) {
-    this.bundle = parseCatalog(value);
-    for (const p of this.bundle.printings) {
-      this.byId.set(p.id, p);
-      this.sets.add(p.setCode.toLowerCase());
-      if (!this.byOracle.has(p.oracleId)) this.byOracle.set(p.oracleId, []);
-      this.byOracle.get(p.oracleId)!.push(p);
-      const footerKey = `${p.setCode.toLowerCase()}#${canonicalNumber(p.collectorNumber)}`;
-      if (!this.footer.has(footerKey)) this.footer.set(footerKey, []);
-      this.footer.get(footerKey)!.push(p);
-      for (const alias of [p.name, ...p.aliases]) {
-        const key = normalizeName(alias);
-        if (!key) continue;
-        if (!this.names.has(key)) {
-          this.names.set(key, new Set());
-          for (const g of grams(key)) {
-            if (!this.postings.has(g)) this.postings.set(g, new Set());
-            this.postings.get(g)!.add(key);
-          }
-        }
-        this.names.get(key)!.add(p.id);
+  constructor(value: unknown, internal?: typeof DEFER_BUILD) {
+    this.bundle = internal === DEFER_BUILD ? value as CatalogBundle : parseCatalog(value);
+    if (internal !== DEFER_BUILD) for (const p of this.bundle.printings) this.addPrinting(p);
+  }
+
+  /** Validate and index in bounded batches so native UI and auth can make progress. */
+  static async createAsync(value: unknown, yieldControl: () => Promise<void> = yieldToUI): Promise<CardIndex> {
+    const validation = validateCatalog(value);
+    let step = validation.next();
+    let count = 0;
+    let deadline = Date.now() + 8;
+    while (!step.done) {
+      if (++count % 1000 === 0 || Date.now() >= deadline) {
+        await yieldControl();
+        deadline = Date.now() + 8;
       }
+      step = validation.next();
+    }
+    const index = new CardIndex(step.value, DEFER_BUILD);
+    count = 0; deadline = Date.now() + 8;
+    for (const p of index.bundle.printings) {
+      index.addPrinting(p);
+      if (++count % 1000 === 0 || Date.now() >= deadline) {
+        await yieldControl();
+        deadline = Date.now() + 8;
+      }
+    }
+    return index;
+  }
+
+  private addPrinting(p: Printing): void {
+    this.byId.set(p.id, p);
+    this.sets.add(p.setCode.toLowerCase());
+    if (!this.byOracle.has(p.oracleId)) this.byOracle.set(p.oracleId, []);
+    this.byOracle.get(p.oracleId)!.push(p);
+    const footerKey = `${p.setCode.toLowerCase()}#${canonicalNumber(p.collectorNumber)}`;
+    if (!this.footer.has(footerKey)) this.footer.set(footerKey, []);
+    this.footer.get(footerKey)!.push(p);
+    for (const alias of [p.name, ...p.aliases]) {
+      const key = normalizeName(alias);
+      if (!key) continue;
+      if (!this.names.has(key)) {
+        this.names.set(key, new Set());
+        for (const g of grams(key)) {
+          if (!this.postings.has(g)) this.postings.set(g, new Set());
+          this.postings.get(g)!.add(key);
+        }
+      }
+      this.names.get(key)!.add(p.id);
     }
   }
   get(id: string) { return this.byId.get(id); }

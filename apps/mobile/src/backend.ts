@@ -43,6 +43,19 @@ export const backend = url && key ? createClient(url, key, {
   } },
 }) : null;
 
+/** Password reauthentication must not replace another screen's active session. */
+export function createPasswordClient() {
+  return url && key ? createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: async (input, init) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15_000);
+      try { return await fetch(input, { ...init, signal: controller.signal }); }
+      finally { clearTimeout(timer); }
+    } },
+  }) : null;
+}
+
 // Phase 3a: the scanner now merges into an existing stack the same way the web
 // app does (packages/upkeep-domain's stacking policy), applied atomically
 // through migration 36's apply_stack_addition RPC — see

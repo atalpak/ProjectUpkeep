@@ -1,154 +1,78 @@
-import { matchesAdvancedCard, type AdvancedCardFilter } from '@upkeep/domain';
+import { specFromParams, specToParams, type AdvancedCardFilter, type CatalogCard, type SearchResponse } from '@upkeep/domain';
 import { backend } from './backend';
-
-// Advanced card search over the whole Scryfall `cards` table -- every printing
-// that exists, not just what anyone owns -- the mobile twin of the web app's
-// src/lib/cards/search.ts. It queries Supabase rather than the on-device
-// catalog because that catalog only carries what the scanner needs (names,
-// sets, finishes, art), not colours, mana value, types or rules text.
-//
-// `cards` is public Scryfall data, so there is deliberately no owner scoping
-// here (see .claude/rules/data-access.md); this is not a collection query.
+import { WEB_URL } from './auth';
 
 export type CardSearchResult = {
   name: string;
-  printingCount: number;
-  /** Small crop, for the results grid. */
   imageSmall: string | null;
-  /** Full-size art, for the enlarged view. */
   image: string | null;
   sampleCardId: string;
-  flavorName: string | null;
-  /** The sample printing's layout; with the name it is what decides whether the tile can flip. */
   layout: string | null;
+  local: boolean;
+  scryfallUri: string;
+  setLabel: string;
+};
+export type CardSearchPage = {
+  results: CardSearchResult[];
+  total: number | null;
+  nextPage: number | null;
+  warnings: string[];
+  error: string | null;
 };
 
-type Row = {
-  name: string;
-  flavor_name: string | null;
-  image_uri: string | null;
-  image_uri_small: string | null;
-  scryfall_id: string;
-  released_at: string | null;
-  colors: string[] | null;
-  loyalty: string | null;
-  layout: string | null;
-};
-
-// No ORDER BY in the query: `cards.released_at` has no index, and sorting a
-// facet-only match (tens of thousands of rows) blows the database's statement
-// timeout (measured: ~3s -> "canceling statement due to statement timeout",
-// versus ~0.4s unordered). "Newest printing as the sample" is done in
-// application code below instead.
-//
-// PostgREST silently caps one response at 1000 rows, so this pages. Colour
-// (exactly / at most) and loyalty are matched after the fetch, which is why
-// the cap is generous: too tight and older matching cards drop out unannounced.
-const PAGE = 1000;
-const FETCH_CAP = 2000;
-
-function build(filter: AdvancedCardFilter) {
-  let query = backend!
-    .from('cards')
-    .select('name, flavor_name, image_uri, image_uri_small, scryfall_id, released_at, colors, loyalty, layout')
-    .eq('digital', false);
-
-  for (const word of filter.name.trim().split(/\s+/).filter(Boolean)) query = query.ilike('name', `%${word}%`);
-  if (filter.type.trim()) query = query.ilike('type_line', `%${filter.type.trim()}%`);
-  if (filter.oracle.trim()) query = query.ilike('oracle_text', `%${filter.oracle.trim()}%`);
-  if (filter.set.trim()) query = query.eq('set_code', filter.set.trim().toLowerCase());
-  if (filter.rarity.trim()) query = query.eq('rarity', filter.rarity.trim().toLowerCase());
-  if (filter.cmc) {
-    const { op, value } = filter.cmc;
-    if (op === 'eq') query = query.eq('cmc', value);
-    else if (op === 'ne') query = query.neq('cmc', value);
-    else if (op === 'gt') query = query.gt('cmc', value);
-    else if (op === 'gte') query = query.gte('cmc', value);
-    else if (op === 'lt') query = query.lt('cmc', value);
-    else query = query.lte('cmc', value);
+/** Facets use the web's shared translator; raw syntax is never parsed locally. */
+export function mobileSearchQuery(query: string, facets: Omit<AdvancedCardFilter, 'name'>): string {
+  const params = new URLSearchParams({ q: query });
+  const letters = facets.colors.filter(c => c !== 'C').map(c => c.toLowerCase());
+  const colorless = facets.colors.includes('C');
+  params.set('colorMode', facets.colorMode);
+  for (const key of ['type', 'oracle', 'set', 'rarity'] as const) params.set(key, facets[key]);
+  if (facets.cmc) params.set('cmc', `${facets.cmc.op}:${facets.cmc.value}`);
+  const spec = specFromParams(params);
+  let colors = '';
+  if (facets.colors.length) {
+    if (!letters.length) colors = 'c:c';
+    else if (facets.colorMode === 'any') colors = `(${[...letters.map(c => `c:${c}`), ...(colorless ? ['c:c'] : [])].join(' or ')})`;
+    else if (facets.colorMode === 'atMost') colors = `c<=${letters.join('')}${colorless ? '' : ' -c:c'}`;
+    else colors = `c${facets.colorMode === 'exactly' ? '=' : '>='}${letters.join('')}${colorless ? ' c:c' : ''}`;
   }
-  // Any-overlap is the widest useful SQL pre-filter for every colour mode;
-  // matchesAdvancedCard does the exact comparison afterwards.
-  if (filter.colors.length > 0) query = query.overlaps('colors', filter.colors);
-  return query;
+  return [spec.q, colors].filter(Boolean).join(' ');
 }
 
-/**
- * Names the current user owns at least one copy of, among the given
- * candidates -- one targeted query per search rather than caching the whole
- * collection app-wide, since "owned" is a rare toggle, not the default path.
- * Scoped on `owner_user_id` explicitly (CLAUDE.md constraint 3) even though
- * `collection_entries` also legitimately surfaces a friend's tradable rows --
- * this is "what do I own", not a cross-user read.
- */
-async function ownedNamesAmong(userId: string, names: string[]): Promise<Set<string>> {
-  const owned = new Set<string>();
-  if (!backend || names.length === 0) return owned;
-  const { data, error } = await backend
-    .from('collection_entries')
-    .select('card_name')
-    .eq('owner_user_id', userId)
-    .in('card_name', names);
-  if (error) throw new Error(error.message);
-  for (const row of (data ?? []) as { card_name: string }[]) owned.add(row.card_name);
-  return owned;
+export function mapSearchCard(card: CatalogCard, localIds: string[] | null): CardSearchResult {
+  return {
+    name: card.name, sampleCardId: card.id, layout: card.layout,
+    image: card.imageNormal ?? card.faces[0]?.imageNormal ?? null,
+    imageSmall: card.imageSmall ?? card.faces[0]?.imageSmall ?? card.faces[0]?.imageNormal ?? null,
+    local: !card.digital && card.games.includes('paper') && !!localIds?.includes(card.id),
+    scryfallUri: card.scryfallUri, setLabel: `${card.set.toUpperCase()} #${card.collectorNumber}`,
+  };
 }
 
-/** One entry per card name, newest printing as the sample, sorted by name.
- *  `capped` means the match set was larger than what one search reads.
- *  `ownedOnly` narrows to names the signed-in user owns at least one copy of
- *  -- needs `userId`; silently has no effect without one (e.g. signed out). */
-export async function searchCards(
-  filter: AdvancedCardFilter,
-  limit = 60,
-  opts: { ownedOnly?: boolean; userId?: string } = {},
-): Promise<{ results: CardSearchResult[]; total: number; capped: boolean; error: string | null }> {
-  if (!backend) return { results: [], total: 0, capped: false, error: 'Search needs an internet connection and an account.' };
-
-  const rows: Row[] = [];
-  for (let from = 0; from < FETCH_CAP; from += PAGE) {
-    const { data, error } = await build(filter).range(from, from + PAGE - 1).returns<Row[]>();
-    if (error) return { results: [], total: 0, capped: false, error: error.message };
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PAGE) break;
-  }
-
-  const byName = new Map<string, CardSearchResult>();
-  const newest = new Map<string, string>();
-  for (const row of rows) {
-    if (!matchesAdvancedCard(row, filter)) continue;
-    const existing = byName.get(row.name);
-    if (existing) {
-      existing.printingCount += 1;
-      if ((row.released_at ?? '') > (newest.get(row.name) ?? '')) {
-        newest.set(row.name, row.released_at ?? '');
-        Object.assign(existing, { imageSmall: row.image_uri_small, image: row.image_uri, sampleCardId: row.scryfall_id, flavorName: row.flavor_name, layout: row.layout });
-      }
-      continue;
-    }
-    newest.set(row.name, row.released_at ?? '');
-    byName.set(row.name, {
-      name: row.name,
-      printingCount: 1,
-      imageSmall: row.image_uri_small,
-      image: row.image_uri,
-      sampleCardId: row.scryfall_id,
-      flavorName: row.flavor_name,
-      layout: row.layout,
+/** Same authenticated service, traffic gate, query semantics and pages as web. */
+export async function searchCards(q: string, page = 1, ownedOnly = false): Promise<CardSearchPage> {
+  const empty = { results: [], total: null, nextPage: null, warnings: [] };
+  if (!backend) return { ...empty, error: 'Sign in to search cards.' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const { data: { session }, error } = await backend.auth.getSession();
+    if (error || !session) return { ...empty, error: 'Sign in to search cards.' };
+    const params = specToParams({ q: q || (ownedOnly ? '*' : ''), page });
+    if (ownedOnly) params.set('owned_only', 'true');
+    const response = await fetch(`${WEB_URL}/api/cards/search?${params}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` }, signal: controller.signal,
+      redirect: 'error',
     });
-  }
-  let all = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
-
-  if (opts.ownedOnly && opts.userId) {
-    try {
-      const owned = await ownedNamesAmong(opts.userId, all.map(r => r.name));
-      all = all.filter(r => owned.has(r.name));
-    } catch (e) {
-      return { results: [], total: 0, capped: false, error: e instanceof Error ? e.message : String(e) };
-    }
-  }
-
-  // Hitting the fetch cap means printings past it were never seen.
-  return { results: all.slice(0, limit), total: all.length, capped: rows.length >= FETCH_CAP, error: null };
+    const result = await response.json() as SearchResponse & { localPrintingIds?: string[] | null };
+    if (result.status === 'error') return { ...empty, warnings: result.warnings, error: result.message };
+    if (!response.ok || result.status !== 'ok' || !Array.isArray(result.cards)) throw new Error('Invalid search response');
+    return {
+      results: result.cards.map(c => mapSearchCard(c, result.localPrintingIds ?? null)),
+      total: ownedOnly ? null : result.totalCards,
+      nextPage: result.nextPage, warnings: result.warnings, error: null,
+    };
+  } catch {
+    return { ...empty, error: 'Could not reach card search. Check your connection and try again.' };
+  } finally { clearTimeout(timer); }
 }

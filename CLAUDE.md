@@ -98,7 +98,7 @@ src/
     pg-copy.ts              COPY CSV encoding for the direct loader (no driver — pure text)
     auth/                   redirect (open-redirect guard) · invite · password
                             reauth · recovery
-    cards/                  search · search-query (local, legacy) ·
+    cards/                  search · search-query (local suggestions) ·
                             scryfall-search (+ -core, unit-tested) · search-enrichment ·
                             catalog-panel-card — submitted search runs on Scryfall's API;
                             see docs/handoffs/SEARCH_HANDOFF.md

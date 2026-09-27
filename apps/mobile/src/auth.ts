@@ -6,9 +6,9 @@
  * Each function returns a ready-to-show message instead of throwing, so the
  * screens stay free of error-shape handling.
  */
-import { backend } from './backend';
+import { backend, createPasswordClient } from './backend';
 import { errorMessage } from './errors';
-import { validateNewPassword, validateUsername } from '@upkeep/domain';
+import { reauthErrorMessage, validateNewPassword, validateUsername } from '@upkeep/domain';
 
 // Both are read as literal `process.env.EXPO_PUBLIC_*` member expressions --
 // see mobile.md; the dynamic form is not inlined into the bundle.
@@ -102,6 +102,32 @@ export async function requestPasswordReset(email: string): Promise<AuthResult> {
     return { ok: false, error: 'Could not send that email just now. Wait a moment and try again.' };
   }
   return { ok: true, notice: 'If an account exists for that address, a reset link is on its way. Open it on the web to choose a new password.' };
+}
+
+/** Changing a password always proves the current password first. */
+export async function changePassword(userId: string, input: { current: string; password: string; confirm: string }): Promise<AuthResult> {
+  if (!backend) return { ok: false, error: 'This build is not connected to Upkeep.' };
+  if (!input.current) return { ok: false, error: 'Enter your current password.' };
+  const check = validateNewPassword(input.password, input.confirm);
+  if (!check.ok) return check;
+  try {
+    const { data: { user }, error: userError } = await backend.auth.getUser();
+    if (userError || !user || user.id !== userId) return { ok: false, error: 'Sign in again before changing your password.' };
+    if (!user.email || !user.identities?.some(identity => identity.provider === 'email')) return { ok: false, error: 'Use password reset to set a password for this account.' };
+    const passwordClient = createPasswordClient();
+    if (!passwordClient) return { ok: false, error: 'This build is not connected to Upkeep.' };
+    const { data, error } = await passwordClient.auth.signInWithPassword({ email: user.email, password: input.current });
+    if (error) {
+      if (error.status === 0 || /network|fetch|timeout/i.test(error.message)) return { ok: false, error: 'Could not verify your password. Check your connection and try again.' };
+      return { ok: false, error: reauthErrorMessage(error) };
+    }
+    if (data.user?.id !== userId) return { ok: false, error: 'Your account changed. Sign in again before changing your password.' };
+    // A native session is shared across screens. Refuse an account switch during reauthentication.
+    const { data: current, error: currentError } = await backend.auth.getUser();
+    if (currentError || current.user?.id !== userId) return { ok: false, error: 'Your account changed. Try again.' };
+    const { error: updateError } = await passwordClient.auth.updateUser({ password: input.password });
+    return updateError ? { ok: false, error: errorMessage(updateError) } : { ok: true, notice: 'Password changed.' };
+  } catch { return { ok: false, error: 'Could not change your password. Check your connection and try again.' }; }
 }
 
 /**

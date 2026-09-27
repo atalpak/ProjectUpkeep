@@ -61,8 +61,7 @@ publisher) and must never reach the browser.
 
 Optional: `SIGNUP_INVITE_CODE` requires an invite code to sign up (server-only);
 `SCRYFALL_SEARCH_CONTACT` is put in the User-Agent Scryfall requires for search
-requests; `SCRYFALL_SEARCH_ENABLED=false` switches `/search` back to the older
-local search. See `.env.example`.
+requests. See `.env.example`.
 
 ### 3. Apply the schema
 

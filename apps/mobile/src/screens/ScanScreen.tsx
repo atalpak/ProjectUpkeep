@@ -7,7 +7,7 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import { ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, scanBand, validateDraft, type Candidate, type CollectionDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type ScanBand, clipLines, describeCandidates, hintsForLog, printingHints, printingLabel } from '@upkeep/scan-core';
+import { ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, scanBand, validateDraft, type Candidate, type CollectionDraft, type Condition, type ConfirmedScan, type Finish, type Printing, type ScanBand, clipLines, describeCandidates, hintsForLog, printingHints, printingLabel, printingNeedsChoice, rankPrintings, bestGuessPrinting } from '@upkeep/scan-core';
 import { logScan, newScanLogId } from '../scanLog';
 import { UpkeepScannerView, readText, scannerViewAvailable, visionAvailable, type CardReadEvent, type ScannerViewHandle } from '@upkeep/vision';
 import { writer } from '../backend';
@@ -55,7 +55,7 @@ type ScanMode = 'single' | 'continuous';
 type SheetState =
   | { kind: 'reading' }
   | { kind: 'unreadable' }
-  | { kind: 'match'; printing: Printing; candidates: Candidate[]; band: ScanBand; stagedId: string | null; languageHint?: string };
+  | { kind: 'match'; printing: Printing; candidates: Candidate[]; band: ScanBand; stagedId: string | null; needsPrintingChoice: boolean; languageHint?: string };
 
 /**
  * The FOIL tile's purple. Deliberately NOT a theme token: the brand palette
@@ -145,7 +145,7 @@ export function ScanScreen() {
   }, [isFocused, permission, requestPermission]);
 
   const scannerActive = !!permission?.granted && isFocused && !suspended && app.active
-    && !app.disabled && !sessionReviewOpen && !app.review;
+    && !app.catalogLoading && !app.disabled && !sessionReviewOpen && !pickerOpen && !app.review;
 
   // The native lock needs confidence >= 0.70 but the outline draws at less, so
   // a steady low-confidence card would sit on "Reading" forever. After a few
@@ -232,6 +232,7 @@ export function ScanScreen() {
    * the old JS `lastSeen` check was trying and failing to approximate.
    */
   function onCardRead(event: { nativeEvent: CardReadEvent }) {
+    if (!scannerActive || pickerOpen) return;
     const { title, lines, printingLines, source } = event.nativeEvent;
     const result = pipeline.matchEvidence({ lines, printingLines });
     const scoped = lockedSetCode
@@ -239,35 +240,42 @@ export function ScanScreen() {
       : result.candidates;
     const band = scanBand(scoped);
     // Scan diagnostics (Settings): describes this read, changes nothing about it. Only built when the switch is on.
-    logScan(() => {
+    const recordRead = (suggested?: Printing, requiresChoice = false) => logScan(() => {
       const top = scoped[0];
       const hints = printingHints(printingLines, app.index.setCodes);
       return {
         id: newScanLogId(), at: Date.now(), source: source === 'guide' ? 'scan/guide' : 'scan/outline', title: title ?? '',
         printingLines: clipLines(printingLines), hints: hintsForLog(hints),
-        match: band === 'none' ? 'no match' : `band ${band}; top ${top!.printing.name} score ${top!.score.toFixed(2)} ${top!.evidence}${lockedSetCode ? `; set lock ${lockedSetCode}` : ''}; ${mode} mode`,
-        candidates: describeCandidates(scoped), guess: top ? { printing: printingLabel(top.printing), why: top.evidence === 'printing' ? 'top candidate matched the footer set + number' : 'top candidate is a name match only; ties broken by the default order (plain number, nonfoil, NEWEST release, lowest number)' } : null,
-        artPlanned: null, ...(top ? { suggestedPrinting: printingLabel(top.printing) } : {}),
+        match: band === 'none' ? 'no match' : `band ${band}; top ${top!.printing.name} score ${top!.score.toFixed(2)} ${top!.evidence}${lockedSetCode ? `; set lock ${lockedSetCode}` : ''}; ${mode} mode${requiresChoice ? '; printing choice required, not staged' : ''}`,
+        candidates: describeCandidates(scoped), guess: suggested ? { printing: printingLabel(suggested), why: requiresChoice ? 'unconfirmed preview; choose a printing before staging' : "resolved from footer evidence or the card's only catalog printing" } : null,
+        artPlanned: null, ...(suggested ? { suggestedPrinting: printingLabel(suggested) } : {}),
       };
     });
     if (band === 'none') {
+      recordRead();
       // Quiet: an unreadable frame is the common case, not an error. No
       // message, no Mort reaction, nothing staged.
       setSheet({ kind: 'unreadable' });
       return;
     }
-    const printing = scoped[0]!.printing;
+    const allPrintings = app.index.printingsOf(scoped[0]!.printing.oracleId);
+    const ranking = rankPrintings(allPrintings, printingHints(printingLines, app.index.setCodes));
+    const resolvedPrinting = bestGuessPrinting(ranking);
+    const conflictsWithLock = !!resolvedPrinting && !!lockedSetCode && resolvedPrinting.setCode !== lockedSetCode;
+    const printing = (!conflictsWithLock && resolvedPrinting) || scoped[0]!.printing;
     setLastScannedSetCode(printing.setCode);
     mort.react(band === 'confident' ? 'scan_success' : 'scan_uncertain');
-    // Continuous stages immediately and lets the sheet correct it; single
+    // Continuous stages identified printings; ambiguous reads wait for a choice. Single
     // shows the match and waits for an explicit Add, which is how the
     // original's single mode worked (its shutter opened a detail screen
     // rather than adding behind the player's back). Either way the languageHint
     // comes off this same read, so it is carried into the sheet for single
     // mode's deferred Add (see addFromSheet) rather than only reaching
     // continuous mode's immediate stage.
-    const stagedId = mode === 'continuous' ? stageFromCapture(printing, band, result.languageHint) : null;
-    setSheet({ kind: 'match', printing, candidates: scoped, band, stagedId, languageHint: result.languageHint });
+    const needsPrintingChoice = printingNeedsChoice(ranking) || conflictsWithLock;
+    recordRead(printing, needsPrintingChoice);
+    const stagedId = mode === 'continuous' && !needsPrintingChoice ? stageFromCapture(printing, band, result.languageHint) : null;
+    setSheet({ kind: 'match', printing, candidates: scoped, band, stagedId, needsPrintingChoice, languageHint: result.languageHint });
   }
 
   // The last card read has physically left the frame (the native gate saw it
@@ -318,6 +326,7 @@ export function ScanScreen() {
   /** Single mode's explicit "Add" — stages what the sheet is showing. */
   function addFromSheet() {
     if (sheet?.kind !== 'match' || sheet.stagedId) return;
+    if (sheet.needsPrintingChoice) { setPickerOpen(true); return; }
     const stagedId = stageFromCapture(sheet.printing, sheet.band, sheet.languageHint);
     setSheet({ ...sheet, stagedId });
   }
@@ -356,7 +365,7 @@ export function ScanScreen() {
   function choosePrinting(printing: Printing) {
     setPickerOpen(false);
     if (sheet?.kind !== 'match') return;
-    setSheet({ ...sheet, printing });
+    setSheet({ ...sheet, printing, needsPrintingChoice: false });
     if (!sheet.stagedId) return;
     patchStagedRow(sheet.stagedId, row => {
       const finish: Finish = printing.finishes.includes(row.draft.finish) ? row.draft.finish : printing.finishes[0]!;
@@ -457,6 +466,16 @@ export function ScanScreen() {
   }
 
   if (app.review) return <RecoveryPanel />;
+
+  if (app.catalogLoading) {
+    return (
+      <View style={styles.panel}>
+        <MortStage size="M" />
+        <Text style={styles.panelTitle}>Preparing card database</Text>
+        <Text style={styles.panelBody}>You can browse your collection while scanning gets ready.</Text>
+      </View>
+    );
+  }
 
   if (app.catalogBusy) {
     return (
@@ -719,7 +738,7 @@ function ResultSheet({ sheet, stale, row, bottomInset, onOpenPicker, onToggleFoi
   const { printing, band, stagedId } = sheet;
   const foil = row?.draft.finish === 'foil';
   const canFoil = printing.finishes.includes('foil') && printing.finishes.includes('nonfoil');
-  const status = band === 'confident' ? 'CARD & PRINTING CONFIRMED' : 'CARD FOUND · CHOOSE PRINTING';
+  const status = sheet.needsPrintingChoice ? 'CARD FOUND · CHOOSE PRINTING' : band === 'confident' ? 'CARD & PRINTING CONFIRMED' : 'PRINTING SELECTED';
 
   return (
     <View style={[styles.sheet, padding]}>
@@ -744,8 +763,8 @@ function ResultSheet({ sheet, stale, row, bottomInset, onOpenPicker, onToggleFoi
           <Text style={styles.plusText}>+1</Text>
         </Pressable>
       ) : (
-        <Pressable accessibilityRole="button" accessibilityLabel={`Add ${printing.name} to this session`} style={styles.addTile} onPress={onAdd}>
-          <Text style={styles.addText}>Add</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={sheet.needsPrintingChoice ? `Choose the printing of ${printing.name}` : `Add ${printing.name} to this session`} style={styles.addTile} onPress={onAdd}>
+          <Text style={styles.addText}>{sheet.needsPrintingChoice ? 'Choose' : 'Add'}</Text>
         </Pressable>
       )}
       <Pressable

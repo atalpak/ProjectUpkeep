@@ -17,26 +17,50 @@ export const demoBundle: CatalogBundle = {
 // Two slots preserve the last usable bundle even if the app dies halfway through a write.
 const slot = (n: number) => new File(Paths.document, `upkeep-catalog-${n}.json`);
 let activeSlot = 0;
-/** Dev-only: the ~40 MB bundle is parsed on the JS thread and its cost on a real phone was unmeasured. */
-function timeParse(what: string, started: number) {
-  if (__DEV__) console.log(`[catalog] ${what}: parse took ${Date.now() - started} ms`);
+/** Startup timings are dev-only and contain no account or scan data. */
+function timePhase(what: string, started: number) {
+  if (__DEV__) console.log(`[catalog] ${what}: ${Date.now() - started} ms`);
 }
-export function loadCatalog(): CardIndex {
+async function indexText(text: string, source: string): Promise<CardIndex> {
+  let started = Date.now();
+  const value: unknown = JSON.parse(text);
+  timePhase(`${source} JSON`, started);
+  started = Date.now();
+  const index = await CardIndex.createAsync(value);
+  timePhase(`${source} validation/index`, started);
+  return index;
+}
+export async function loadCatalog(): Promise<CardIndex> {
   const slots = [0,1].sort((a,b) => (slot(b).modificationTime ?? 0)-(slot(a).modificationTime ?? 0));
   for (const n of slots) {
     try {
+      if (!slot(n).exists) continue;
       const started = Date.now();
-      const index = new CardIndex(JSON.parse(slot(n).textSync()));
-      timeParse('load', started);
+      const text = await slot(n).text();
+      timePhase('local file read', started);
+      const index = await indexText(text, 'local');
       activeSlot = n;
       return index;
     } catch (e) {
-      // Falls back to the other slot, but a corrupt bundle is a real failure worth a trail.
       reportError(e, 'catalog.load');
     }
   }
   return new CardIndex(demoBundle);
 }
+
+let startupFlight: Promise<CardIndex> | null = null;
+/** Share work across repeated mounts, without permanently caching an obsolete index. */
+export function prepareCatalog(includeBundled: boolean): Promise<CardIndex> {
+  if (startupFlight) return startupFlight;
+  startupFlight = (async () => {
+    // Allow the shell, auth subscription and loading copy to paint first.
+    await new Promise<void>(resolve => setTimeout(resolve, 60));
+    const index = await loadCatalog();
+    return index.bundle.version === 'demo-only' && includeBundled ? await installBundledCatalog() ?? index : index;
+  })().finally(() => { startupFlight = null; });
+  return startupFlight;
+}
+
 export type CatalogProgress =
   | { phase: 'downloading'; received: number; /** From content-length; null when the server did not say. */ total: number | null }
   | { phase: 'preparing' };
@@ -87,9 +111,7 @@ export async function refreshCatalog(onProgress?: (progress: CatalogProgress) =>
     // say so first and give React a beat to paint it.
     onProgress?.({ phase: 'preparing' });
     await new Promise(resolve => setTimeout(resolve, 60));
-    const parseStarted = Date.now();
-    const index = new CardIndex(JSON.parse(text));
-    timeParse('download', parseStarted);
+    const index = await indexText(text, 'download');
     const nextSlot = 1-activeSlot;
     slot(nextSlot).write(text);
     activeSlot = nextSlot;
@@ -128,9 +150,8 @@ export async function installBundledCatalog(): Promise<CardIndex | null> {
     await asset.downloadAsync();
     const uri = asset.localUri ?? asset.uri;
     const text = await new File(uri).text();
-    const parseStarted = Date.now();
-    const index = new CardIndex(JSON.parse(text));
-    timeParse('bundled', parseStarted);
+    await new Promise<void>(resolve => setTimeout(resolve, 0));
+    const index = await indexText(text, 'bundled');
     const nextSlot = 1 - activeSlot;
     slot(nextSlot).write(text);
     activeSlot = nextSlot;

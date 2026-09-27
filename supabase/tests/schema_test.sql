@@ -4504,6 +4504,75 @@ begin
   assert has_function_privilege('authenticated', 'public.claim_scryfall_slot(integer,integer)', 'EXECUTE'), 'authenticated can claim';
 end $$;
 
+-- 30. Notification preferences: recipient controls future alerts; defaults preserve behavior.
+reset role;
+insert into auth.users(id,email,raw_user_meta_data) values
+('71111111-1111-4111-8111-111111111111','settings_alice@example.com','{"username":"settings_alice"}'),
+('72222222-2222-4222-8222-222222222222','settings_bob@example.com','{"username":"settings_bob"}');
+do $$
+declare n integer; kind text;
+begin
+  foreach kind in array array['trade_proposed','trade_countered','trade_accepted','trade_declined','trade_cancelled','friend_request','friend_accepted'] loop
+    insert into public.notifications(user_id, actor_id, type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222',kind);
+  end loop;
+  select count(*) into n from public.notifications where user_id='71111111-1111-4111-8111-111111111111' and trade_id is null and friendship_id is null;
+  assert n >= 7, 'absent preferences preserve every alert category';
+end $$;
+set role authenticated;
+select set_config('request.jwt.claim.sub','71111111-1111-4111-8111-111111111111', true);
+insert into public.notification_preferences(user_id, trade_offers) values ('71111111-1111-4111-8111-111111111111',false);
+do $$
+begin
+  assert (select trade_updates and friendships from public.notification_preferences), 'unspecified categories default enabled';
+  begin
+    insert into public.notification_preferences(user_id) values ('72222222-2222-4222-8222-222222222222');
+    raise exception 'other user insert succeeded';
+  exception when insufficient_privilege then null; end;
+  begin
+    update public.notification_preferences set user_id='72222222-2222-4222-8222-222222222222';
+    raise exception 'row reassignment succeeded';
+  exception when insufficient_privilege then null; end;
+end $$;
+select set_config('request.jwt.claim.sub','72222222-2222-4222-8222-222222222222', true);
+do $$
+begin
+  assert not exists(select 1 from public.notification_preferences), 'other user cannot read preferences';
+  update public.notification_preferences set trade_offers=true where user_id='71111111-1111-4111-8111-111111111111';
+  assert not found, 'other user cannot update preferences';
+end $$;
+reset role;
+do $$
+declare before_n integer; after_n integer; kind text;
+begin
+  select count(*) into before_n from public.notifications where user_id='71111111-1111-4111-8111-111111111111';
+  foreach kind in array array['trade_proposed','trade_countered'] loop
+    insert into public.notifications(user_id,actor_id,type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222',kind);
+  end loop;
+  select count(*) into after_n from public.notifications where user_id='71111111-1111-4111-8111-111111111111';
+  assert after_n=before_n, 'muted offers produce no new inbox rows; old rows survive';
+  insert into public.notifications(user_id,actor_id,type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222','trade_accepted');
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n+1, 'unmuted category still inserts';
+  insert into public.notifications(user_id,actor_id,type) values ('72222222-2222-4222-8222-222222222222','71111111-1111-4111-8111-111111111111','trade_proposed');
+  assert found, 'actor mute does not suppress recipient alert';
+  update public.notification_preferences set trade_updates=false, friendships=false where user_id='71111111-1111-4111-8111-111111111111';
+  select count(*) into before_n from public.notifications where user_id='71111111-1111-4111-8111-111111111111';
+  foreach kind in array array['trade_accepted','trade_declined','trade_cancelled','friend_request','friend_accepted'] loop
+    insert into public.notifications(user_id,actor_id,type) values ('71111111-1111-4111-8111-111111111111','72222222-2222-4222-8222-222222222222',kind);
+  end loop;
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n, 'every muted category is suppressed';
+  -- Exercise the existing producer, not just direct inserts.
+  insert into public.trades(proposer_id,recipient_id,status) values ('72222222-2222-4222-8222-222222222222','71111111-1111-4111-8111-111111111111','proposed');
+  assert found, 'trade proposal succeeds even when alert is muted';
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n, 'real trade producer honors preferences';
+  insert into public.friendships(requester_id,addressee_id,status) values ('72222222-2222-4222-8222-222222222222','71111111-1111-4111-8111-111111111111','pending');
+  assert found, 'friend request succeeds even when alert is muted';
+  assert (select count(*) from public.notifications where user_id='71111111-1111-4111-8111-111111111111')=before_n, 'real friendship producer honors preferences';
+  insert into auth.users(id,email,raw_user_meta_data) values ('99999999-9999-4999-8999-999999999999','preferences@example.com','{"username":"preferences_test"}');
+  insert into public.notification_preferences(user_id) values ('99999999-9999-4999-8999-999999999999');
+  delete from auth.users where id='99999999-9999-4999-8999-999999999999';
+  assert not exists(select 1 from public.notification_preferences where user_id='99999999-9999-4999-8999-999999999999'), 'account deletion cascades preferences';
+end $$;
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

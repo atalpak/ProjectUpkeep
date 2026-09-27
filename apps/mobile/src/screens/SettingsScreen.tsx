@@ -5,6 +5,7 @@ import { useApp } from '../AppProvider';
 import { backend } from '../backend';
 import { PRIVACY_URL, TERMS_URL, deleteOwnAccount } from '../auth';
 import { Button, Choices, Chevron, GroupRow, ListGroup, Tappable, TextField } from '../components/ui';
+import { NotificationSettings, PasswordSettings } from '../components/AccountSettings';
 import { PageTitle } from '../components/PageTitle';
 import { ScanLogScreen } from './ScanLogScreen';
 import { makeStyles, usePreferences, type ThemeMode } from '../preferences';
@@ -20,7 +21,7 @@ const SLOT_LABELS = ['Left 1', 'Left 2', 'Right 1', 'Right 2'];
 
 export function SettingsScreen() {
   const styles = useStyles();
-  const { userId, disabled, signOut, setMessage, syncCatalog, demo, index, checkForCatalogUpdate } = useApp();
+  const { userId, disabled, signOut, setMessage, syncCatalog, catalogLoading, demo, index, checkForCatalogUpdate } = useApp();
   const [updateStatus, setUpdateStatus] = useState('');
   const { mode, setMode, slots, setSlot, resetSlots, setWelcomeSeen, scanDiagnostics, setScanDiagnostics } = usePreferences();
   const [logOpen, setLogOpen] = useState(false);
@@ -46,13 +47,14 @@ export function SettingsScreen() {
 
   useEffect(() => {
     let alive = true;
+    setEmail(null);
     if (!backend || !userId) return;
     void backend.auth.getUser().then(({ data }) => { if (alive) setEmail(data.user?.email ?? null); }, () => {});
     return () => { alive = false; };
   }, [userId]);
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <PageTitle>{PAGES.Settings.title}</PageTitle>
       <Text style={styles.heading}>Appearance</Text>
       <Choices values={MODES} selected={mode} labels={MODE_LABELS} onSelect={v => setMode(v as ThemeMode)} />
@@ -91,6 +93,10 @@ export function SettingsScreen() {
         <GroupRow accessibilityRole="link" onPress={() => void Linking.openURL(TERMS_URL)}><Text style={styles.rowText}>Terms of Service</Text><Chevron /></GroupRow>
         <GroupRow accessibilityRole="link" onPress={() => void Linking.openURL(PRIVACY_URL)}><Text style={styles.rowText}>Privacy Policy</Text><Chevron /></GroupRow>
       </ListGroup>
+      {!!userId && <>
+        <PasswordSettings key={`password-${userId}`} userId={userId} email={email} />
+        <NotificationSettings key={`alerts-${userId}`} userId={userId} />
+      </>}
       <Button label="Sign out" secondary disabled={disabled || !userId} onPress={() => void signOut()} />
 
       {!!userId && (
@@ -114,16 +120,16 @@ export function SettingsScreen() {
 
       <Text style={styles.heading}>Card database</Text>
       <Text style={styles.body}>
-        {demo
+        {catalogLoading ? 'Preparing card database…' : demo
           ? 'No card database on this phone yet. The scanner needs it to recognize cards.'
           : `The scanner matches cards against a copy stored on this phone. Yours is from ${new Date(index.bundle.generatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}.`}
       </Text>
-      {demo
+      {!catalogLoading && (demo
         ? <Button label="Download card database" disabled={disabled} onPress={() => void syncCatalog()} />
         : <Button secondary label="Check for updates" disabled={disabled} onPress={() => {
           setUpdateStatus('Checking…');
           void checkForCatalogUpdate(true).then(r => setUpdateStatus(r.status === 'current' ? 'You’re up to date.' : r.status === 'available' ? '' : 'Couldn’t check just now. Try again later.'));
-        }} />}
+        }} />)}
       {!!updateStatus && <Text style={styles.body}>{updateStatus}</Text>}
     </ScrollView>
   );

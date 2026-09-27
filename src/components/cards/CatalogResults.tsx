@@ -19,7 +19,7 @@ import {
 
 import { useCardPanel } from "@/components/CardPanel";
 import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
-import { MagnifierTile, useTileSize } from "@/components/cards/SearchResultsGrid";
+import { MagnifierTile, useTileSize } from "@/components/cards/SearchTiles";
 import { SizePicker, TILE_SIZES } from "@/components/cards/TileSizePicker";
 import { ManaCost } from "@/components/ManaCost";
 import { Badge, Banner, EmptyState, Select, cx } from "@/components/ui";

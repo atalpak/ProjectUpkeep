@@ -5,7 +5,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flushStatus, initialPacer, isScanStatus, paceStatus, describeRejection, printingHints, quickMatch, quickRejectionHint, rankPrintings, clipLines, describeCandidates, describeRanking, explainGuess, hintsForLog, type PacerState, type ScanLogEntry, type ScanStatus } from '@upkeep/scan-core';
+import { SCAN_STATUS_TEXT, ScanPipeline, artCandidates, bestGuessPrinting, flushStatus, initialPacer, isScanStatus, paceStatus, describeRejection, printingHints, printingNeedsChoice, quickMatch, quickRejectionHint, rankPrintings, clipLines, describeCandidates, describeRanking, explainGuess, hintsForLog, type PacerState, type ScanLogEntry, type ScanStatus } from '@upkeep/scan-core';
 import { UpkeepScannerView, cardImageRankingAvailable, readText, scannerViewAvailable, type CardReadEvent } from '@upkeep/vision';
 import { useApp } from '../AppProvider';
 import { useOpenCardDetails } from '../cardDetailsHost';
@@ -72,7 +72,7 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
   // and if one opens while the hint shows, the hint hides -- without being
   // marked seen, so it returns after the idle delay once that sheet closes.
   const overlayOpen = useAnyOverlayOpen() || !!app.review;
-  const hintEligible = welcomeSeen && !scanHintSeen && !app.catalogBusy && !app.catalogUpdate && !overlayOpen && current !== 'Scan';
+  const hintEligible = welcomeSeen && !scanHintSeen && !app.catalogLoading && !app.catalogBusy && !app.catalogUpdate && !overlayOpen && current !== 'Scan';
   const [hintReady, setHintReady] = useState(false);
   useEffect(() => {
     if (!hintEligible) { setHintReady(false); return; }
@@ -196,10 +196,11 @@ function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: 
   const hoverRef = useRef<FanOption | null>(null);
   const actions = useRef({ onPress, onSearch, onFanOpen });
   actions.current = { onPress, onSearch, onFanOpen };
-  const canQuick = scannerViewAvailable && !!permission?.granted && !app.demo && app.active && !app.disabled;
+  const canQuick = scannerViewAvailable && !!permission?.granted && !app.catalogLoading && !app.demo && app.active && !app.disabled;
   const blocker = !scannerViewAvailable ? 'Quick scan needs the live scanner (iPhone).'
     : !permission ? 'Checking camera access…'
     : !permission.granted ? 'Open the Scan tab once to allow the camera.'
+    : app.catalogLoading ? 'Preparing card database…'
     : app.demo ? 'Card database not downloaded yet.'
     : 'Busy right now. Try again in a moment.';
   const env = useRef({ canQuick, pipeline, openDetails, blocker, index: app.index });
@@ -328,7 +329,7 @@ function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: 
     doneRef.current = true;
     stopQuick();
     closeFan();
-    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined, logId });
+    env.current.openDetails({ name: match.printing.name, printingId: guess?.id ?? null, printingCheck: { required: printingNeedsChoice(ranking) }, scan: artPool && imageUri ? { photoUri: imageUri, candidates: artPool } : undefined, logId });
   }
 
   function openFan() {

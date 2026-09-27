@@ -13,6 +13,16 @@ All milestones A-F are built except the named limitations below. The tables and 
 
 Still open: set `SCRYFALL_SEARCH_CONTACT` in Vercel; manual a11y/IME/mobile checks; website's automatic no-result widening and price-search printing swap are NOT copied (offered as links / documented policy); friend availability and set gallery ARE built.
 
+## Current local follow-up (2026-09-26)
+
+- Removed the legacy web page/form/result grid and `SCRYFALL_SEARCH_ENABLED` rollback flag. Local header name suggestions remain; reusable tile preferences and magnifier moved to `SearchTiles.tsx`. Legacy URL translation remains compatible.
+- Mobile catalog search submits raw query text and facets via the same `/api/cards/search` service. The endpoint now validates native bearer sessions using the anon key and the same user-scoped client for the shared traffic gate. Web cookie auth remains supported; invalid supplied authorization never falls back to cookies.
+- Mobile search runs on Search/keyboard submission, shows upstream errors/warnings, supports numbered Previous/Next pages and Retry, and preserves upstream printing order/IDs. Owned-only filters each upstream page; empty pages retain navigation and no owned total is claimed. Collection ownership reads page stack rows to avoid the PostgREST response cap.
+- Exact local printing results open that printing in CardDetails, including one outside the capped printing list; upstream-only/non-paper results offer View on Scryfall. Missing eligibility data fails closed for collection actions.
+- Validation: web unit suite 1,040 passed; domain suite 61 passed; mobile suite and typechecks passed; production build passed with `next build --webpack` (Turbopack could not bind its helper port in this environment). Lint has no errors and the two existing AppProvider hook warnings.
+- Web endpoint deployed and promoted on 2026-09-26 to `https://project-upkeep.vercel.app` (deployment `dpl_3xK7LHzg83KdaW7EcGvDwB9Pk1eJ`). The signed Release app containing these mobile changes is already installed on the owner's iPhone 13 mini. No native module or search database migration is added. Owner subsequently confirmed phone search checks working; individual steps were not separately reported. Historical next-step entries below are superseded where they conflict with this section.
+- Deployment snapshot excluded the pre-existing playtest layout/test/handoff edits. Snapshot validation: 1,040 web tests passed, typecheck passed, lint had no errors and two existing mobile hook warnings; Vercel production build passed. Live production probes verified missing, malformed and invalid bearer sessions receive 401 JSON with `kind: unauthorized`, and `/login` returns 200. A valid signed-in live search was not exercised: no owner credentials were used and anonymous Supabase sessions are disabled. The phone checklist covers raw queries, paging, ownership filtering and exact-printing eligibility.
+
 ## Live probe findings (Milestone A, 2026-09-26)
 - Syntax error: HTTP 400 JSON `{code:bad_request, details, warnings[]}` (e.g. `foo:bar` -> "All of your terms were ignored", warnings name the keyword).
 - No match: HTTP 404 JSON `{code:not_found}` -> treated as normal empty result.
