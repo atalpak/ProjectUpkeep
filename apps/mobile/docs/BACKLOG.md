@@ -58,6 +58,8 @@ Say so again wherever it would otherwise read like invented demand.
 | 35 | Retire legacy web catalog-search fallback | — | Low | **Done (2026-09-26)** — removal deployed; local header suggestions and shared tile controls retained. | web search |
 | 36 | Complete mobile catalog pagination | — | Medium | **Done (2026-09-26)** — numbered Previous/Next, owned-only navigation, errors and Retry installed; owner confirmed phone search checks working. | `SearchOverlay.tsx` |
 
+| 37 | Landing redesign and first-login web guided tour, replayable in Settings | Med | Medium | **Landing live (2026-09-27)** — approved binder-inspired design deployed to projectupkeep.app with twelve value propositions, light/dark support, and mobile layout verification. Onboarding remains deferred at owner request. | `docs/briefs/LANDING_ONBOARDING_REDESIGN.md`, `docs/prototypes/landing-onboarding.html` |
+
 Items 26–28 were added 2026-09-24 at the owner's request, appended rather than re-ranked (same rule as 24 and 25 above); all three are phone UI polish, and none has been verified on a device, per item 4.
 
 Items 5, 6 and 8 (old numbering) are fully shipped as of 2026-09-22 (PRs #71–#76) and
