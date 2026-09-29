@@ -25,14 +25,14 @@ export function AppearanceSettings() {
       />
 
       <Row
-        label="Card details"
+        label="Explorer"
         description={
           mode === "sidebar"
-            ? "Shown in a sidebar while you hover a card."
-            : "Shown in a tooltip after a short hover, leaving the page full width."
+            ? "Open beside the page for cards, decks, locations and your wish list."
+            : "Closed; card previews appear on hover and the page uses the full width."
         }
-        control={<CardPreviewToggle className="xl:inline-flex" />}
-        // The toggle hides itself below xl, where neither mode applies.
+        control={<CardPreviewToggle className="lg:inline-flex" />}
+        // The toggle hides itself below lg, where neither mode applies.
         note="Desktop only — on a touch screen, tapping a card opens its details."
       />
     </dl>

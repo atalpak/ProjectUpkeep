@@ -17,7 +17,8 @@ import {
   type SearchSuccess,
 } from "@upkeep/domain";
 
-import { useCardPanel } from "@/components/CardPanel";
+import { useCardPanel, useCardPreview } from "@/components/CardPanel";
+import { CARD_DRAG_TYPE } from "@/lib/ui/card-drag";
 import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
 import { MagnifierTile, useTileSize } from "@/components/cards/SearchTiles";
 import { SizePicker, TILE_SIZES } from "@/components/cards/TileSizePicker";
@@ -175,11 +176,11 @@ export function CatalogResults({
           <EmptyHelp spec={spec} hrefFor={hrefFor} />
         </div>
       ) : display === "grid" ? (
-        <GridView cards={response.cards} ownership={ownership} friends={friends} toPanel={toPanel} />
+        <GridView cards={response.cards} ownership={ownership} friends={friends} toPanel={toPanel} local={local} />
       ) : display === "checklist" ? (
-        <ChecklistView cards={response.cards} ownership={ownership} friends={friends} toPanel={toPanel} />
+        <ChecklistView cards={response.cards} ownership={ownership} friends={friends} toPanel={toPanel} local={local} />
       ) : (
-        <DetailView cards={response.cards} ownership={ownership} friends={friends} toPanel={toPanel} withImage={display === "full"} />
+        <DetailView cards={response.cards} ownership={ownership} friends={friends} toPanel={toPanel} withImage={display === "full"} local={local} />
       )}
 
       <nav aria-label="Result pages" className="flex justify-between text-sm">
@@ -226,28 +227,29 @@ function OwnedBadge({ note }: { note: OwnershipNote | undefined }) {
 
 type Friends = Record<string, FriendNote[]> | null;
 
-function GridView({ cards, ownership, friends, toPanel }: { cards: CatalogCard[]; ownership: Record<string, OwnershipNote> | null; friends: Friends; toPanel: (c: CatalogCard) => Card | string }) {
+function GridView({ cards, ownership, friends, toPanel, local }: { cards: CatalogCard[]; ownership: Record<string, OwnershipNote> | null; friends: Friends; toPanel: (c: CatalogCard) => Card | string; local: Set<string> | null }) {
   const [size, setSize] = useTileSize();
   return (
     <div className="space-y-3">
       <div className="flex justify-end"><SizePicker size={size} onChange={setSize} /></div>
       <ul className="grid gap-5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[size].minmax}, 1fr))` }}>
         {cards.map((c) => (
-          <GridTile key={cardKey(c)} card={c} note={ownership?.[c.id]} friendNotes={friends?.[c.id]} panelCard={toPanel(c)} imageWidth={TILE_SIZES[size].imageWidth} />
+          <GridTile key={cardKey(c)} card={c} note={ownership?.[c.id]} friendNotes={friends?.[c.id]} panelCard={toPanel(c)} imageWidth={TILE_SIZES[size].imageWidth} local={local?.has(c.id) ?? false} />
         ))}
       </ul>
     </div>
   );
 }
 
-function GridTile({ card, note, friendNotes, panelCard, imageWidth }: { card: CatalogCard; note: OwnershipNote | undefined; friendNotes: FriendNote[] | undefined; panelCard: Card | string; imageWidth: string }) {
+function GridTile({ card, note, friendNotes, panelCard, imageWidth, local }: { card: CatalogCard; note: OwnershipNote | undefined; friendNotes: FriendNote[] | undefined; panelCard: Card | string; imageWidth: string; local: boolean }) {
   const { open } = useCardPanel();
+  const preview = useCardPreview(panelCard, { sheetOnClick: false });
   const face = useCardFace(
     { name: card.name, flavor_name: card.flavorName ?? null, layout: card.layout, card_faces: catalogCardToPanelCard(card).card_faces, image_uri: card.imageLarge ?? card.imageNormal, image_uri_small: card.imageSmall },
     "normal",
   );
   return (
-    <li className="relative">
+    <li {...preview} draggable onDragStart={(event) => { event.dataTransfer.setData(CARD_DRAG_TYPE, JSON.stringify({ kind: "catalog", cardId: card.id, name: card.name, local })); event.dataTransfer.effectAllowed = "copy"; }} className="relative motion-safe:transition-transform active:scale-[0.98]">
       <MagnifierTile
         image={face.image ?? card.imageLarge ?? card.imageNormal}
         label={`${face.name ?? displayName(card)}, ${card.setName} ${card.collectorNumber}`}
@@ -280,8 +282,8 @@ function priceOf(c: CatalogCard): string {
   return c.prices.usd ? `$${c.prices.usd}` : c.prices.eur ? `€${c.prices.eur}` : "—";
 }
 
-function ChecklistView({ cards, ownership, friends, toPanel }: { cards: CatalogCard[]; ownership: Record<string, OwnershipNote> | null; friends: Friends; toPanel: (c: CatalogCard) => Card | string }) {
-  const { open } = useCardPanel();
+function ChecklistView({ cards, ownership, friends, toPanel, local }: { cards: CatalogCard[]; ownership: Record<string, OwnershipNote> | null; friends: Friends; toPanel: (c: CatalogCard) => Card | string; local: Set<string> | null }) {
+  const { open, preview } = useCardPanel();
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -291,7 +293,7 @@ function ChecklistView({ cards, ownership, friends, toPanel }: { cards: CatalogC
         </thead>
         <tbody>
           {cards.map((c) => (
-            <tr key={cardKey(c)} className="border-t border-border">
+            <tr key={cardKey(c)} draggable onMouseEnter={() => preview(toPanel(c))} onFocus={() => preview(toPanel(c))} onDragStart={(event) => { event.dataTransfer.setData(CARD_DRAG_TYPE, JSON.stringify({ kind: "catalog", cardId: c.id, name: c.name, local: local?.has(c.id) ?? false })); event.dataTransfer.effectAllowed = "copy"; }} className="cursor-grab border-t border-border active:cursor-grabbing">
               <td className="py-1 pr-3 uppercase text-ink-muted">{c.set} {c.collectorNumber}</td>
               <td className="pr-3">
                 <button type="button" className="text-left text-accent-text hover:underline" onClick={() => open(toPanel(c))}>{displayName(c)}</button>
@@ -309,14 +311,14 @@ function ChecklistView({ cards, ownership, friends, toPanel }: { cards: CatalogC
   );
 }
 
-function DetailView({ cards, ownership, friends, toPanel, withImage }: { cards: CatalogCard[]; ownership: Record<string, OwnershipNote> | null; friends: Friends; toPanel: (c: CatalogCard) => Card | string; withImage: boolean }) {
-  const { open } = useCardPanel();
+function DetailView({ cards, ownership, friends, toPanel, withImage, local }: { cards: CatalogCard[]; ownership: Record<string, OwnershipNote> | null; friends: Friends; toPanel: (c: CatalogCard) => Card | string; withImage: boolean; local: Set<string> | null }) {
+  const { open, preview } = useCardPanel();
   return (
     <ul className={cx("grid gap-4", withImage ? "md:grid-cols-2" : "md:grid-cols-3")}>
       {cards.map((c) => {
         const faces = c.faces.length ? c.faces : [{ name: c.name, manaCost: c.manaCost, typeLine: c.typeLine, oracleText: c.oracleText } as CatalogCard["faces"][number]];
         return (
-          <li key={cardKey(c)} className="flex gap-3 rounded-lg border border-border p-3">
+          <li key={cardKey(c)} draggable onMouseEnter={() => preview(toPanel(c))} onFocus={() => preview(toPanel(c))} onDragStart={(event) => { event.dataTransfer.setData(CARD_DRAG_TYPE, JSON.stringify({ kind: "catalog", cardId: c.id, name: c.name, local: local?.has(c.id) ?? false })); event.dataTransfer.effectAllowed = "copy"; }} className="flex cursor-grab gap-3 rounded-lg border border-border p-3 active:cursor-grabbing">
             {withImage && c.imageNormal ? (
               <button type="button" onClick={() => open(toPanel(c))} className="relative aspect-[488/680] w-32 shrink-0 overflow-hidden rounded-md">
                 <Image src={c.imageNormal} alt={displayName(c)} fill sizes="128px" className="object-cover" unoptimized />

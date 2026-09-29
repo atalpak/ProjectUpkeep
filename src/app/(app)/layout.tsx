@@ -6,6 +6,7 @@ import { getUnreadNotificationCount } from "@/lib/social/queries";
 import { AccountMenu } from "@/components/AccountMenu";
 import { AppNavDrawer, AppNavLinks } from "@/components/AppNav";
 import { CardPanelProvider, CardPanelOutlet } from "@/components/CardPanel";
+import { CardPreviewToggle } from "@/components/CardPreviewMode";
 import { FeedbackButton } from "@/components/FeedbackButton";
 import { HeaderSearch } from "@/components/HeaderSearch";
 import { PageTransition } from "@/components/PageTransition";
@@ -31,15 +32,15 @@ export default async function AppLayout({
 
   return (
     <CardPanelProvider>
-      <div className="min-h-screen">
+      <div className="min-h-screen [--app-header-height:4.125rem]">
         {/* Sticky so the nav stays reachable down a long collection list.
             Fully opaque, not translucent: a page can now scroll a full-bleed
             background image under it (the deck page's commander-art banner),
             and a blurred/translucent nav let that art show through enough to
             blend into the bar rather than read as a header the content
             scrolls behind. */}
-        <header className="sticky top-0 z-20 border-b border-border bg-surface">
-          <nav className="flex w-full items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-20 h-[var(--app-header-height)] border-b border-border bg-surface">
+          <nav className="flex h-full w-full items-center gap-4 px-4 sm:px-6 lg:px-8">
             <Link href="/dashboard">
               <Wordmark />
             </Link>
@@ -54,6 +55,7 @@ export default async function AppLayout({
             <HeaderSearch />
 
             <div className="flex items-center gap-2">
+              <CardPreviewToggle />
               {/* Alerts sits in the right cluster rather than the nav so the
                   unread count reads as a status, not another destination. It stays
                   visible at every width — being told about a trade is the point. */}
@@ -70,19 +72,15 @@ export default async function AppLayout({
           </nav>
         </header>
 
-        {/* When the card sidebar is showing it is a sibling of the content rather
-            than an overlay, so hovering a card never covers the list being read.
-            It renders nothing at all on routes with no cards, on narrow windows,
-            on touch, and when the reader has switched to the hover tooltip — and
-            because `main` is `flex-1`, the width comes straight back in each of
-            those cases. The provider wraps the header too, so the search box can
-            open the card popup. */}
-        {/* Same padding as the nav above, so page content and the nav share
-            left and right edges at every width. Full-bleed rather than a
-            centred column — wide pages (the collection table especially) use
-            the whole window; individual narrow pages cap their own width. */}
-        <div className="flex w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-          <main className="min-w-0 flex-1">
+        {/* The explorer is a sibling of the content rather than an overlay, so
+            card details and drop destinations never cover the list being read.
+            It keeps its place while scrolling and animates its width when the
+            reader opens or closes it. Because `main` is `flex-1`, the page
+            grows into that space as the explorer closes. */}
+        {/* Padding belongs to the page, while the explorer occupies a separate
+            edge-to-edge column with its own scroll area. */}
+        <div className="flex w-full">
+          <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
             <PageTransition>{children}</PageTransition>
           </main>
           <CardPanelOutlet />

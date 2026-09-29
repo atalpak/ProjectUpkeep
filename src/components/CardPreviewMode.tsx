@@ -72,7 +72,7 @@ export function useCardPreviewMode(): CardPreviewMode {
 /**
  * The header switch.
  *
- * Hidden below `xl`, where neither mode applies — there is no docked sidebar at
+ * Hidden below `lg`, where neither mode applies — there is no docked sidebar at
  * that width and touch gets a sheet either way, so offering the choice would be
  * offering a setting that does nothing.
  */
@@ -81,8 +81,8 @@ export function CardPreviewToggle({ className }: { className?: string }) {
   const showing = mode === "sidebar";
 
   const label = showing
-    ? "Hide the card sidebar (show details on hover instead)"
-    : "Show the card sidebar";
+    ? "Close explorer (show card previews on hover)"
+    : "Open explorer";
 
   return (
     <button
@@ -93,7 +93,7 @@ export function CardPreviewToggle({ className }: { className?: string }) {
       title={label}
       className={cx(
         "hidden size-9 items-center justify-center rounded-md border border-border",
-        "transition-colors hover:bg-surface-muted hover:text-ink xl:inline-flex",
+        "transition-colors hover:bg-surface-muted hover:text-ink lg:inline-flex",
         showing ? "text-ink" : "text-ink-muted",
         className,
       )}
