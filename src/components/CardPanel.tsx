@@ -37,6 +37,7 @@ import { FoilShine } from "@/components/FoilShine";
 import { isFlipCard } from "@/lib/cards/faces";
 import { ManaCost } from "@/components/ManaCost";
 import { SetSymbol } from "@/components/SetSymbol";
+import { SidebarWorkspace } from "@/components/SidebarWorkspace";
 import { Badge, Button, cx, Dialog, Field, Input, Select } from "@/components/ui";
 
 /**
@@ -45,7 +46,7 @@ import { Badge, Button, cx, Dialog, Field, Input, Select } from "@/components/ui
  * One provider, one renderer, three presentations — chosen at interaction time
  * from the pointer, the viewport and the user's preference:
  *
- *   - `sidebar`  — the docked column on the right. Desktop default, xl+ only.
+ *   - `sidebar`  — the docked explorer on the right. Desktop default, lg+ only.
  *   - `tooltip`  — a floating panel that appears after a deliberate hover pause
  *                  and vanishes when the pointer leaves. Used when the reader
  *                  has switched the sidebar off, and on narrower desktop windows
@@ -313,7 +314,7 @@ export function useMediaQuery(query: string): boolean {
  */
 function usePresentation(): Presentation {
   const coarse = useMediaQuery("(pointer: coarse)");
-  const wide = useMediaQuery("(min-width: 80rem)"); // Tailwind's xl
+  const wide = useMediaQuery("(min-width: 64rem)"); // Tailwind's lg
   const mode = useCardPreviewMode();
 
   if (coarse) return "sheet";
@@ -330,12 +331,9 @@ function usePresentation(): Presentation {
  * Two lists because `/decks` and `/decks/[id]` disagree: the index is a list of
  * deck names with nothing to hover, while a deck itself is full of cards.
  *
- * `/search` has cards, but nothing there wires up `useCardPreview` — its
- * results grid opens the full popup on click (`useCardPanel`, always a
- * sheet, not a hover) — so the sidebar column would sit reserved and empty,
- * costing the grid width for a hover interaction the page never offers.
+ * Search results now preview here and can be dragged into the workspace.
  */
-const NO_CARDS_EXACT = ["/decks", "/settings", "/search"];
+const NO_CARDS_EXACT = ["/decks", "/settings"];
 const NO_CARDS_PREFIX = ["/friends", "/locations", "/notifications", "/settings"];
 
 function routeHasCards(pathname: string): boolean {
@@ -360,11 +358,11 @@ export function CardPanelOutlet() {
 
   if (!ctx) return null;
 
-  const sidebarWanted = mode === "sidebar" && routeHasCards(pathname);
+  const sidebarAvailable = routeHasCards(pathname);
 
   return (
     <>
-      {sidebarWanted ? <CardSidebar card={ctx.card} state={ctx.state} /> : null}
+      {sidebarAvailable ? <CardSidebar card={ctx.card} state={ctx.state} open={mode === "sidebar"} /> : null}
       {ctx.presentation === "tooltip" ? <CardTooltip /> : null}
       {ctx.presentation === "sheet" ? <CardSheet /> : null}
     </>
@@ -466,10 +464,13 @@ export function useCardPreview(
  * and let me act on it" path — the search results use it — so it always opens
  * the sheet, which is the presentation that carries the action panel.
  */
-export function useCardPanel(): { open: (source: Card | string) => void } {
+export function useCardPanel(): { open: (source: Card | string) => void; preview: (source: Card | string) => void } {
   const ctx = useContext(Ctx);
   return useMemo(
-    () => ({ open: (source) => ctx?.show(source, "sheet") }),
+    () => ({
+      open: (source) => ctx?.show(source, "sheet"),
+      preview: (source) => ctx?.show(source, "sidebar"),
+    }),
     [ctx],
   );
 }
@@ -639,24 +640,32 @@ function CardDetails({
 function CardSidebar({
   card,
   state,
+  open,
 }: {
   card: Card | null;
   state: "idle" | "loading" | "ready" | "missing";
+  open: boolean;
 }) {
-  // Only rendered at all when the mode and the route both want it — see
-  // CardPanelOutlet. The xl guard remains so a window narrowed after load stops
-  // reserving the column rather than squeezing the table.
+  // Keep the flex sibling mounted while closed: animating its width makes the
+  // page give the explorer space and reclaim it in the reverse direction.
   return (
     <aside
       aria-live="polite"
-      aria-label="Card detail"
-      className="sticky top-20 hidden h-[calc(100vh-6rem)] w-1/5 shrink-0 overflow-y-auto xl:block xl:pl-8"
+      aria-label="Explorer"
+      aria-hidden={!open}
+      inert={!open}
+      className={cx("sticky hidden shrink-0 overflow-hidden border-border-strong lg:block motion-safe:transition-[width] motion-safe:duration-300 motion-safe:ease-out", open && "border-l-2")}
+      style={{
+        top: "var(--app-header-height)",
+        height: "calc(100dvh - var(--app-header-height))",
+        width: open ? "clamp(18rem, 28vw, 22rem)" : "0px",
+      }}
     >
-      {/* The column is a fifth of the page and usually wider than a card, so the
-          content is capped and centred — otherwise the image stretches and the
-          slack piles up on one side. */}
-      <div className="mx-auto max-w-[18rem]">
-        <CardDetails card={card} state={state} />
+      <div className={cx("h-full motion-safe:transition-[transform,opacity] motion-safe:duration-300 motion-safe:ease-out", open ? "translate-x-0 opacity-100" : "translate-x-8 opacity-0")}
+        style={{ width: "clamp(18rem, 28vw, 22rem)" }}>
+        <SidebarWorkspace
+          details={state === "idle" ? <p className="py-8 text-center text-sm text-ink-muted">Hover a card to see it here.</p> : <CardDetails card={card} state={state} />}
+        />
       </div>
     </aside>
   );

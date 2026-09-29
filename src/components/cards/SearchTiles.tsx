@@ -116,6 +116,7 @@ export function MagnifierTile({
         <Image
           src={image}
           alt=""
+          draggable={false}
           fill
           sizes={`(min-width: 1024px) ${imageWidth}, (min-width: 640px) 40vw, 50vw`}
           className="object-cover"

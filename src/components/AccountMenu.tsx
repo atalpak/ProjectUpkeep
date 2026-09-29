@@ -92,7 +92,7 @@ export function AccountMenu({ label }: { label: string }) {
           role="menu"
           className="absolute right-0 top-full z-30 mt-1 w-56 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl"
         >
-          {/* xl-only for the reason CardPreviewMode's own header gives: below
+          {/* lg-only for the reason CardPreviewMode's own header gives: below
               that width there is no docked sidebar to switch off, touch gets
               a sheet regardless, and the choice would do nothing. */}
           <button
@@ -100,9 +100,9 @@ export function AccountMenu({ label }: { label: string }) {
             role="menuitemcheckbox"
             aria-checked={sidebarOn}
             onClick={() => setCardPreviewMode(sidebarOn ? "tooltip" : "sidebar")}
-            className="hidden w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted coarse:min-h-11 xl:flex"
+            className="hidden w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted coarse:min-h-11 lg:flex"
           >
-            Card sidebar
+            Explorer
             <StateBox checked={sidebarOn} />
           </button>
 

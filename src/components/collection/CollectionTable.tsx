@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -24,6 +24,7 @@ import { SetSymbol } from "@/components/SetSymbol";
 import { displayPrice, formatPrice, priceFor } from "@/lib/collection/pricing";
 import { BulkBar } from "@/components/collection/BulkBar";
 import { LocationSelect } from "@/components/LocationSelect";
+import { CARD_DRAG_TYPE } from "@/lib/ui/card-drag";
 import {
   COLUMNS,
   DEFAULT_COLUMNS,
@@ -587,6 +588,19 @@ function MobileRow({
 // One row
 // ---------------------------------------------------------------------------
 
+function startCopyDrag(event: DragEvent<HTMLElement>, row: CardInstanceWithCard) {
+  if (row.locations?.type === "deck") {
+    event.preventDefault();
+    return;
+  }
+  event.dataTransfer.setData(CARD_DRAG_TYPE, JSON.stringify({
+    kind: "copy",
+    instanceId: row.id,
+    name: row.cards?.name ?? "Card",
+  }));
+  event.dataTransfer.effectAllowed = "move";
+}
+
 function Row({
   row,
   columns,
@@ -618,7 +632,8 @@ function Row({
 
   return (
     <>
-      <tr className={cx("hover:bg-surface-muted", selected && "bg-accent-soft")}>
+      <tr draggable={row.locations?.type !== "deck"} onDragStart={(event) => startCopyDrag(event, row)}
+        className={cx("hover:bg-surface-muted", row.locations?.type !== "deck" && "cursor-grab active:cursor-grabbing", selected && "bg-accent-soft")}>
         <td className="px-3 py-2">
           <input
             type="checkbox"
@@ -1376,7 +1391,8 @@ function GalleryTile({
   const name = face.name ?? "Unknown printing";
 
   return (
-    <li className="space-y-1.5">
+    <li draggable={row.locations?.type !== "deck"} onDragStart={(event) => startCopyDrag(event, row)}
+      className={cx("space-y-1.5", row.locations?.type !== "deck" && "cursor-grab active:cursor-grabbing")}>
       {/* The flip control is a sibling of the tile's button, not inside it. */}
       <div className="relative">
         <button
@@ -1390,6 +1406,7 @@ function GalleryTile({
             <Image
               src={image}
               alt=""
+              draggable={false}
               fill
               sizes={`(min-width: 1024px) ${imageWidth}, (min-width: 640px) 40vw, 50vw`}
               className="object-cover"
