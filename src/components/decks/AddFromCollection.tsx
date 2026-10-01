@@ -91,7 +91,7 @@ function StackRow({
   pending: boolean;
 }) {
   const card = stack.cards;
-  const preview = useCardPreview(card);
+  const preview = useCardPreview(card, { finish: stack.finish });
   const [quantity, setQuantity] = useState(1);
 
   return (

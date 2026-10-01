@@ -348,6 +348,7 @@ function Preview({
               <div key={row.line} className="flex items-center gap-3 px-3 py-2">
                 <CardPreviewTarget
                   card={row.cardId}
+                  finish={row.finish}
                   className="relative h-11 w-8 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
                 >
                   {row.imageUri ? (

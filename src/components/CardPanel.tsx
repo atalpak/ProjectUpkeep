@@ -20,6 +20,8 @@ import { addCardInstance } from "@/app/(app)/collection/actions";
 import { EMPTY_STATE } from "@/app/(app)/collection/action-state";
 import { addDeckCard } from "@/app/(app)/decks/actions";
 import { EMPTY_DECK_STATE } from "@/app/(app)/decks/deck-state";
+import { addWant } from "@/app/(app)/wants/actions";
+import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import type { Card, CardFace, LocationType } from "@/lib/types";
 import {
   CONDITIONS,
@@ -98,30 +100,20 @@ type PanelContext = {
   activeId: string | null;
   card: Card | null;
   state: "idle" | "loading" | "ready" | "missing";
+  imageUrl: string | null;
+  imageState: "idle" | "loading" | "ready" | "missing";
+  imageAlt: string;
   /** How the active card is currently being shown, if at all. */
   presentation: Presentation | null;
   /** The element the tooltip is positioned against. */
   anchor: HTMLElement | null;
-  /** The tooltip should show just the image, no name/text/actions — the
-   *  collection table's quick glance. Meaningless outside "tooltip". */
+  /** Hover previews show the image alone. Tap sheets still show full details. */
   imageOnly: boolean;
-  /** The specific copy's finish, when the caller knows it (a collection row
-   *  does; a bare printing lookup does not) — lets the imageOnly glance carry
-   *  the same foil shimmer FoilMark shows in the row itself. */
+  /** Finish of the specific copy, for the image's foil treatment. */
   finish: string | null;
 };
 
 const Ctx = createContext<PanelContext | null>(null);
-
-/**
- * How long the pointer must rest on a card before we go and fetch it.
- *
- * Only applies to the fetching path. When the caller already has the card —
- * which is every list built from a page that loaded the card columns — there is
- * nothing to spend the delay protecting, so the panel updates on the same frame
- * as the hover.
- */
-const HOVER_DELAY_MS = 90;
 
 /**
  * How long the pointer must rest before the tooltip appears.
@@ -136,6 +128,7 @@ const TOOLTIP_DELAY_MS = 650;
 export function CardPanelProvider({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cards, setCards] = useState<Record<string, Card | "missing">>({});
+  const [images, setImages] = useState<Record<string, string | null | "missing">>({});
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [imageOnly, setImageOnly] = useState(false);
@@ -155,9 +148,8 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
    * already on screen. Handing the object over is the difference between a
    * second and a frame.
    *
-   * An id is the slow path, and only that path pays HOVER_DELAY_MS. The tooltip
-   * adds its own, longer delay before calling this at all, so the two are not
-   * additive in the case that matters.
+   * Hovering an id starts its lookup immediately; card objects already in the
+   * page render their image without a request.
    */
   const show = useCallback(
     (
@@ -179,6 +171,12 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
             ? prev
             : { ...prev, [source.scryfall_id]: source },
         );
+        const imageUrl = source.image_uri ?? source.image_uri_small;
+        setImages((prev) =>
+          prev[source.scryfall_id] === imageUrl
+            ? prev
+            : { ...prev, [source.scryfall_id]: imageUrl },
+        );
         setActiveId(source.scryfall_id);
         return;
       }
@@ -198,8 +196,14 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
           delete next[cardId];
           return next;
         });
+        setImages((prev) => {
+          if (prev[cardId] !== "missing") return prev;
+          const next = { ...prev };
+          delete next[cardId];
+          return next;
+        });
         setActiveId(cardId);
-      }, HOVER_DELAY_MS);
+      }, 0);
     },
     [],
   );
@@ -217,13 +221,37 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!activeId || cards[activeId]) return;
+    if (!activeId) return;
 
     const wanted = activeId;
     let cancelled = false;
 
     (async () => {
       try {
+        if (imageOnly) {
+          if (Object.prototype.hasOwnProperty.call(images, wanted)) return;
+          const knownCard = cards[wanted];
+          if (knownCard && knownCard !== "missing") {
+            setImages((prev) => ({
+              ...prev,
+              [wanted]: knownCard.image_uri ?? knownCard.image_uri_small,
+            }));
+            return;
+          }
+          const response = await fetch(`/api/card-images/${wanted}?size=normal`, { cache: "force-cache" });
+          const body = await response.json();
+          if (cancelled) return;
+          setImages((prev) => ({
+            ...prev,
+            [wanted]:
+              response.ok && (typeof body.imageUrl === "string" || body.imageUrl === null)
+                ? body.imageUrl
+                : "missing",
+          }));
+          return;
+        }
+
+        if (cards[wanted]) return;
         // `cache: "no-store"` makes the browser skip its HTTP cache for this
         // request entirely.
         //
@@ -249,9 +277,25 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [activeId, cards]);
+  }, [activeId, cards, imageOnly, images]);
 
   const entry = activeId ? cards[activeId] : undefined;
+  const imageEntry = activeId ? images[activeId] : undefined;
+  const imageUrl =
+    typeof imageEntry === "string"
+      ? imageEntry
+      : imageEntry === "missing"
+        ? null
+        : entry && entry !== "missing"
+          ? entry.image_uri ?? entry.image_uri_small
+          : null;
+  const imageState = !activeId
+    ? "idle"
+    : imageEntry === "missing"
+      ? "missing"
+      : imageEntry !== undefined || (entry && entry !== "missing")
+        ? "ready"
+        : "loading";
 
   const value = useMemo<PanelContext>(
     () => ({
@@ -260,12 +304,15 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
       activeId,
       card: entry && entry !== "missing" ? entry : null,
       state: !activeId ? "idle" : entry === "missing" ? "missing" : entry ? "ready" : "loading",
+      imageUrl,
+      imageState,
+      imageAlt: entry && entry !== "missing" ? cardDisplayName(entry) : "",
       presentation,
       anchor,
       imageOnly,
       finish,
     }),
-    [show, hide, activeId, entry, presentation, anchor, imageOnly, finish],
+    [show, hide, activeId, entry, imageUrl, imageState, presentation, anchor, imageOnly, finish],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -362,7 +409,14 @@ export function CardPanelOutlet() {
 
   return (
     <>
-      {sidebarAvailable ? <CardSidebar card={ctx.card} state={ctx.state} open={mode === "sidebar"} /> : null}
+      {sidebarAvailable ? (
+        <CardSidebar
+          card={ctx.card}
+          state={ctx.state}
+          open={mode === "sidebar"}
+          finish={ctx.finish}
+        />
+      ) : null}
       {ctx.presentation === "tooltip" ? <CardTooltip /> : null}
       {ctx.presentation === "sheet" ? <CardSheet /> : null}
     </>
@@ -389,17 +443,13 @@ export function useCardPreview(
   source: Card | string | null | undefined,
   {
     sheetOnClick = true,
-    imageOnly = false,
+    imageOnly = true,
     finish = null,
   }: {
     sheetOnClick?: boolean;
-    /** Tooltip only: skip the deliberate pause and show just the image, not
-     *  the full details — the collection table's "click for details" hover.
-     *  Sidebar and sheet are unaffected; those never open on a bare hover
-     *  pause in the first place. */
+    /** Hover previews show just the card image; touch sheets still show details. */
     imageOnly?: boolean;
-    /** This specific copy's finish, so an imageOnly glance can carry the same
-     *  foil shimmer the row itself shows. Ignored unless imageOnly is set. */
+    /** Finish of the specific copy, when known. */
     finish?: string | null;
   } = {},
 ) {
@@ -424,13 +474,15 @@ export function useCardPreview(
     }
 
     if (presentation === "sidebar") {
-      const trigger = () => ctx.show(source, "sidebar");
+      // The Explorer's Card tab is the detail view, even though hover tooltips
+      // elsewhere stay image-only. Fetch the card record so its rules and
+      // attributes appear alongside the high-resolution image.
+      const trigger = () => ctx.show(source, "sidebar", null, false, finish);
       return { ...base, onMouseEnter: trigger, onFocus: trigger };
     }
 
-    // Tooltip: a deliberate pause opens it, and leaving closes it at once —
-    // except imageOnly, which is a quick glance, not a summoned detail panel,
-    // so it opens on the same frame as the hover instead of waiting it out.
+    // Image-only previews are a quick glance, so they open on the same frame as
+    // the hover instead of waiting for the detail-tooltip pause.
     const open = (event: { currentTarget: HTMLElement }) => {
       const element = event.currentTarget;
       if (timer.current) clearTimeout(timer.current);
@@ -506,18 +558,20 @@ export function CardDetailsDock() {
  */
 export function CardPreviewTarget({
   card,
+  finish,
   className,
   focusable = true,
   stopClickPropagation = false,
   children,
 }: {
   card: Card | string | null | undefined;
+  finish?: string | null;
   className?: string;
   focusable?: boolean;
   stopClickPropagation?: boolean;
   children: React.ReactNode;
 }) {
-  const preview = useCardPreview(card) as { onClick?: () => void } & Record<string, unknown>;
+  const preview = useCardPreview(card, { finish }) as { onClick?: () => void } & Record<string, unknown>;
   const onClick =
     stopClickPropagation && preview.onClick
       ? (event: React.MouseEvent<HTMLSpanElement>) => {
@@ -542,11 +596,13 @@ export function CardPreviewTarget({
  */
 export function CardPreviewLink({
   card,
+  finish,
   href,
   className,
   children,
 }: {
   card: Card | string | null | undefined;
+  finish?: string | null;
   href: string;
   className?: string;
   children: React.ReactNode;
@@ -554,7 +610,7 @@ export function CardPreviewLink({
   // No sheet on tap: this is a link, and a touch user tapping it means to go
   // where it points. Opening a card sheet over a navigation would be two
   // answers to one gesture.
-  const preview = useCardPreview(card, { sheetOnClick: false });
+  const preview = useCardPreview(card, { sheetOnClick: false, finish });
   return (
     <Link href={href} {...preview} className={className}>
       {children}
@@ -575,12 +631,14 @@ export function CardPreviewLink({
 function CardDetails({
   card,
   state,
+  finish = null,
   idleMessage = "Hover a card to see it here.",
   interactive = false,
   wide = false,
 }: {
   card: Card | null;
   state: "idle" | "loading" | "ready" | "missing";
+  finish?: string | null;
   idleMessage?: string;
   /** Show the printing switcher and the add-to-collection / add-to-deck panel. */
   interactive?: boolean;
@@ -616,7 +674,7 @@ function CardDetails({
         {/* Keyed so a new card remounts: the flipped-face state belongs to the
             card being shown, and resetting it in an effect would render the old
             face for a frame first. */}
-        <CardDetail key={card.scryfall_id} card={card} />
+        <CardDetail key={card.scryfall_id} card={card} finish={finish} />
         {/* Keyed on the name, not the printing: switching printing keeps this
             mounted (same fetches), a different card remounts it clean. */}
         {interactive ? <CardActions key={card.name} card={card} /> : null}
@@ -641,10 +699,12 @@ function CardSidebar({
   card,
   state,
   open,
+  finish,
 }: {
   card: Card | null;
   state: "idle" | "loading" | "ready" | "missing";
   open: boolean;
+  finish: string | null;
 }) {
   // Keep the flex sibling mounted while closed: animating its width makes the
   // page give the explorer space and reclaim it in the reverse direction.
@@ -664,7 +724,13 @@ function CardSidebar({
       <div className={cx("h-full motion-safe:transition-[transform,opacity] motion-safe:duration-300 motion-safe:ease-out", open ? "translate-x-0 opacity-100" : "translate-x-8 opacity-0")}
         style={{ width: "clamp(18rem, 28vw, 22rem)" }}>
         <SidebarWorkspace
-          details={state === "idle" ? <p className="py-8 text-center text-sm text-ink-muted">Hover a card to see it here.</p> : <CardDetails card={card} state={state} />}
+          details={
+            state === "idle" ? (
+              <p className="py-8 text-center text-sm text-ink-muted">Hover a card to see it here.</p>
+            ) : (
+              <CardDetails card={card} state={state} finish={finish} />
+            )
+          }
         />
       </div>
     </aside>
@@ -770,7 +836,7 @@ function CardTooltip() {
         visibility: position ? "visible" : "hidden",
       }}
     >
-      {ctx.imageOnly ? <CardImageOnly card={ctx.card} state={ctx.state} finish={ctx.finish} /> : (
+      {ctx.imageOnly ? <CardImageOnly imageUrl={ctx.imageUrl} state={ctx.imageState} alt={ctx.imageAlt} finish={ctx.finish} /> : (
         <CardDetails card={ctx.card} state={ctx.state} />
       )}
     </div>,
@@ -778,37 +844,31 @@ function CardTooltip() {
   );
 }
 
-/** The quick-glance tooltip: art only, no name, text or actions — click the
- *  card for those. Deliberately not `CardDetails`, which always renders the
- *  full write-up; this is the "no need for the details" hover the collection
- *  table asks for. */
+/** Art only, with the copy's finish shimmer when it is foil, etched or glossy. */
 function CardImageOnly({
-  card,
+  imageUrl,
   state,
+  alt,
   finish,
 }: {
-  card: Card | null;
+  imageUrl: string | null;
   state: "idle" | "loading" | "ready" | "missing";
+  alt: string;
   finish: string | null;
 }) {
-  if (state !== "ready" || !card) {
+  if (state !== "ready") {
     return <div className="aspect-[488/680] animate-pulse bg-surface-muted" />;
   }
 
-  const image = card.image_uri ?? card.image_uri_small;
-  if (!image) {
-    return (
-      <div className="flex aspect-[488/680] items-center justify-center text-xs text-ink-muted">
-        No image
-      </div>
-    );
+  if (!imageUrl) {
+    return <div className="aspect-[488/680] bg-surface-muted" />;
   }
 
   return (
     <div className="relative aspect-[488/680]">
       <Image
-        src={image}
-        alt={cardDisplayName(card)}
+        src={imageUrl}
+        alt={alt}
         fill
         sizes="18rem"
         className="object-cover"
@@ -882,7 +942,7 @@ const RARITY_LABEL: Record<string, string> = {
   bonus: "Bonus",
 };
 
-function CardDetail({ card }: { card: Card }) {
+function CardDetail({ card, finish = null }: { card: Card; finish?: string | null }) {
   const faces = card.card_faces ?? null;
   // Only a card with two printed sides gets the flip control; a split or
   // adventure card is one picture, so it stays on its first face here and its
@@ -932,6 +992,7 @@ function CardDetail({ card }: { card: Card }) {
             No image
           </div>
         )}
+        {image && finish ? <FoilShine finish={finish} /> : null}
       </div>
 
       {faces && flippable ? (
@@ -972,11 +1033,12 @@ function CardDetail({ card }: { card: Card }) {
 
       {!flippable ? <OtherHalves faces={faces} /> : null}
 
-      <dl className="space-y-1.5 border-t border-border pt-3 text-xs">
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-border pt-2 text-xs sm:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]">
         <Row label="Set">
-          <span className="block">{card.set_name ?? card.set_code.toUpperCase()}</span>
-          <span className="mt-0.5 flex items-center gap-1.5 text-ink-muted">
-            <SetSymbol code={card.set_code} />({card.set_code.toUpperCase()})
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate">{card.set_name ?? card.set_code.toUpperCase()}</span>
+            <SetSymbol code={card.set_code} />
+            <span className="shrink-0 text-ink-muted">({card.set_code.toUpperCase()})</span>
           </span>
         </Row>
         <Row label="Number">#{card.collector_number}</Row>
@@ -997,7 +1059,7 @@ function CardDetail({ card }: { card: Card }) {
           </span>
         </Row>
         {card.keywords && card.keywords.length > 0 ? (
-          <Row label="Keywords">{card.keywords.join(", ")}</Row>
+          <Row label="Keywords" wide>{card.keywords.join(", ")}</Row>
         ) : null}
         {card.digital ? <Row label="Digital">Not a paper printing</Row> : null}
       </dl>
@@ -1197,11 +1259,12 @@ function CardWide({ card }: { card: Card }) {
             a different card remounts the lot. */}
         <CardPrintingPicker card={card} />
 
-        <dl className="space-y-1.5 border-t border-border pt-3 text-xs">
+        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-border pt-2 text-xs sm:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]">
           <Row label="Set">
-            <span className="block">{card.set_name ?? card.set_code.toUpperCase()}</span>
-            <span className="mt-0.5 flex items-center gap-1.5 text-ink-muted">
-              <SetSymbol code={card.set_code} />({card.set_code.toUpperCase()})
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="truncate">{card.set_name ?? card.set_code.toUpperCase()}</span>
+              <SetSymbol code={card.set_code} />
+              <span className="shrink-0 text-ink-muted">({card.set_code.toUpperCase()})</span>
             </span>
           </Row>
           <Row label="Number">#{card.collector_number}</Row>
@@ -1222,7 +1285,7 @@ function CardWide({ card }: { card: Card }) {
             </span>
           </Row>
           {card.keywords && card.keywords.length > 0 ? (
-            <Row label="Keywords">{card.keywords.join(", ")}</Row>
+            <Row label="Keywords" wide>{card.keywords.join(", ")}</Row>
           ) : null}
           {card.digital ? <Row label="Digital">Not a paper printing</Row> : null}
         </dl>
@@ -1266,7 +1329,9 @@ const EMPTY_ACTIONS: ActionsData = {
  */
 function CardPrintingPicker({ card }: { card: Card }) {
   const ctx = useContext(Ctx);
-  const [printings, setPrintings] = useState<PrintingRow[] | null>(null);
+  const [printings, setPrintings] = useState<PrintingRow[] | null>(
+    () => printingCache.get(card.name) ?? null,
+  );
 
   useEffect(() => {
     let alive = true;
@@ -1275,9 +1340,16 @@ function CardPrintingPicker({ card }: { card: Card }) {
         const p = await fetch(
           `/api/cards/printings?name=${encodeURIComponent(card.name)}`,
         ).then((r) => r.json());
-        if (alive) setPrintings((p?.printings ?? []) as PrintingRow[]);
+        if (alive) {
+          const rows = (p?.printings ?? []) as PrintingRow[];
+          printingCache.set(card.name, rows);
+          setPrintings(rows);
+        }
       } catch {
-        if (alive) setPrintings([]);
+        if (alive) {
+          printingCache.set(card.name, []);
+          setPrintings([]);
+        }
       }
     })();
     return () => {
@@ -1285,7 +1357,15 @@ function CardPrintingPicker({ card }: { card: Card }) {
     };
   }, [card.name]);
 
-  if (!printings || printings.length <= 1) return null;
+  if (printings === null) {
+    return (
+      <div className="space-y-1 pt-1" aria-live="polite">
+        <span className="text-xs font-medium text-ink-muted">Printing</span>
+        <p className="text-xs text-ink-muted">Loading printings…</p>
+      </div>
+    );
+  }
+  if (printings.length <= 1) return null;
 
   return (
     <div className="pt-1">
@@ -1302,6 +1382,10 @@ function CardPrintingPicker({ card }: { card: Card }) {
   );
 }
 
+/** Reused while the card-detail panel stays open, so reopening a card with
+ *  previously loaded printings does not wait on the same request again. */
+const printingCache = new Map<string, PrintingRow[]>();
+
 /**
  * The interactive tail of the card popup: what you own and the two ways to act
  * on it. The printing switcher is its own component (CardPrintingPicker) so it
@@ -1317,6 +1401,7 @@ function CardActions({ card }: { card: Card }) {
 
   const [addState, addAction, adding] = useActionState(addCardInstance, EMPTY_STATE);
   const [deckState, deckAction, addingDeck] = useActionState(addDeckCard, EMPTY_DECK_STATE);
+  const [wishState, wishAction, addingWant] = useActionState(addWant, EMPTY_SOCIAL_STATE);
 
   useEffect(() => {
     let alive = true;
@@ -1359,13 +1444,13 @@ function CardActions({ card }: { card: Card }) {
         )
       ) : null}
 
-      {wishlisted ? (
+      {wishlisted || wishState.notice ? (
         <p className="text-xs text-ink-muted">
           On your{" "}
           <Link href="/wants" className="text-accent-text hover:underline">
             wish list
           </Link>{" "}
-          (×{wishlisted.quantity})
+          {wishlisted ? `(×${wishlisted.quantity})` : ""}
         </p>
       ) : null}
 
@@ -1391,26 +1476,39 @@ function CardActions({ card }: { card: Card }) {
           It will be once the next nightly Scryfall sync picks it up.
         </p>
       ) : (
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant={mode === "collection" ? "primary" : "secondary"}
-          className="text-xs"
-          onClick={() => setMode((m) => (m === "collection" ? null : "collection"))}
-        >
-          Add to collection
-        </Button>
-        {decks.length > 0 ? (
-          <Button
-            type="button"
-            variant={mode === "deck" ? "primary" : "secondary"}
-            className="text-xs"
-            onClick={() => setMode((m) => (m === "deck" ? null : "deck"))}
-          >
-            Add to a deck
-          </Button>
-        ) : null}
-      </div>
+        <>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={mode === "collection" ? "primary" : "secondary"}
+              className="text-xs"
+              onClick={() => setMode((m) => (m === "collection" ? null : "collection"))}
+            >
+              Add to collection
+            </Button>
+            {!wishlisted && !wishState.notice ? (
+              <form action={wishAction}>
+                <input type="hidden" name="card_id" value={card.scryfall_id} />
+                <input type="hidden" name="card_name" value={card.name} />
+                <input type="hidden" name="quantity" value="1" />
+                <Button type="submit" variant="secondary" disabled={addingWant} className="text-xs">
+                  {addingWant ? "Adding…" : "Add to wish list"}
+                </Button>
+              </form>
+            ) : null}
+            {decks.length > 0 ? (
+              <Button
+                type="button"
+                variant={mode === "deck" ? "primary" : "secondary"}
+                className="text-xs"
+                onClick={() => setMode((m) => (m === "deck" ? null : "deck"))}
+              >
+                Add to a deck
+              </Button>
+            ) : null}
+          </div>
+          {wishState.error ? <p className="text-xs text-danger">{wishState.error}</p> : null}
+        </>
       )}
 
       {mode === "collection" && card.last_synced_at !== "" ? (
@@ -1514,11 +1612,19 @@ function CardActions({ card }: { card: Card }) {
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  children,
+  wide = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
   return (
-    <div className="flex gap-2">
-      <dt className="w-20 shrink-0 text-ink-muted">{label}</dt>
-      <dd className="min-w-0 flex-1">{children}</dd>
-    </div>
+    <>
+      <dt className="text-ink-muted leading-tight">{label}</dt>
+      <dd className={cx("min-w-0 leading-tight", wide && "sm:col-span-3")}>{children}</dd>
+    </>
   );
 }

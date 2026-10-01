@@ -203,7 +203,7 @@ function OfferRow({
   onQuantity: (quantity: number) => void;
 }) {
   const card = row.cards;
-  const preview = useCardPreview(card);
+  const preview = useCardPreview(card, { finish: row.finish });
   const selected = quantity > 0;
 
   return (

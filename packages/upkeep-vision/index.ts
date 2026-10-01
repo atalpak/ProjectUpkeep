@@ -64,6 +64,10 @@ export type ScannerViewProps = ViewProps & {
    *  card to hold still. Native prop: needs a native rebuild, ignored by an
    *  older build. */
   fastDetection?: boolean;
+  /** Keep tracking the card outline, but read only after captureNow(). */
+  manualCaptureOnly?: boolean;
+  /** Controls the back camera's continuous light while the scanner is active. */
+  torchEnabled?: boolean;
   /** Quick scan: bump this each time a read is rejected. The scanner then clears
    *  its "one read per physical card" gate ~0.4s later and reads the card that is
    *  still in frame again, instead of waiting for it to be taken away. Native

@@ -21,7 +21,6 @@ import { EMPTY_SOCIAL_STATE } from "@/app/(app)/social-state";
 import { useCardPreview } from "@/components/CardPanel";
 import { FlipButton, useCardFace } from "@/components/cards/FlipCard";
 import { PRINTING_ROW_CLASS, PrintingRow, type PrintingOption } from "@/components/cards/PrintingPicker";
-import { useViewportFit } from "@/hooks/useViewportFit";
 import { FoilMark } from "@/components/FoilMark";
 import { ManaCost } from "@/components/ManaCost";
 import { Price, PriceToggle } from "@/components/PriceToggle";
@@ -29,7 +28,7 @@ import { displayPrice } from "@/lib/collection/pricing";
 import { AddToDeckList } from "@/components/decks/AddToDeckList";
 import { AddToWishList } from "@/components/decks/AddToWishList";
 import { DeckStateMark, type FriendSupplyView } from "@/components/decks/DeckStateMark";
-import { Badge, Banner, Button, Card as Panel, EmptyState, Select, cx } from "@/components/ui";
+import { Badge, Banner, Button, Card as Panel, EmptyState, FloatingMenu, Input, Select, cx } from "@/components/ui";
 import { availabilityFor, cardKey, type Availability } from "@/lib/collection/availability";
 import { countsFor, type EntryState } from "@/lib/collection/deck-state";
 import {
@@ -523,13 +522,13 @@ function ListRow({
   onToggleSelected: () => void;
 }) {
   const card = entry.cards;
-  const preview = useCardPreview(card);
+  const markFinish = entry.sleevedFinishes.find((f) => f !== "nonfoil");
+  const preview = useCardPreview(card, { finish: markFinish });
   const state = entry.entryState;
 
   // A list entry has no finish of its own — but if the copies sleeved for it
   // are all one non-plain finish, show that: the mark next to the name and the
   // price at that finish. Mixed finishes fall back to non-foil for the price.
-  const markFinish = entry.sleevedFinishes.find((f) => f !== "nonfoil");
   const rowPrice = displayPrice(card, priceFinishFor(entry));
 
   return (
@@ -644,16 +643,14 @@ function RowActions({
   const displayName = entry.cards ? cardDisplayName(entry.cards) : "";
   const menuId = useId();
   const [open, setOpen] = useState(false);
+  const [editingQuantity, setEditingQuantity] = useState(false);
   const [showPrintings, setShowPrintings] = useState(false);
   const [printings, setPrintings] = useState<Printing[] | null>(null);
   const [loadingPrintings, setLoadingPrintings] = useState(false);
-  const container = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const panel = useRef<HTMLDivElement>(null);
-  useViewportFit(open, panel, trigger);
 
-  const close = () => {
+  const closeMenu = () => {
     setOpen(false);
+    setEditingQuantity(false);
     setShowPrintings(false);
   };
 
@@ -667,6 +664,7 @@ function RowActions({
     function onOtherOpen(event: Event) {
       if ((event as CustomEvent<string>).detail !== menuId) {
         setOpen(false);
+        setEditingQuantity(false);
         setShowPrintings(false);
       }
     }
@@ -674,28 +672,8 @@ function RowActions({
     return () => window.removeEventListener(ROW_MENU_OPEN, onOtherOpen);
   }, [menuId]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    function onPointerDown(event: MouseEvent) {
-      if (!container.current?.contains(event.target as Node)) close();
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        close();
-        trigger.current?.focus();
-      }
-    }
-
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
   async function loadPrintings() {
+    setEditingQuantity(false);
     setShowPrintings(true);
     if (printings || loadingPrintings || !name) return;
     setLoadingPrintings(true);
@@ -711,142 +689,169 @@ function RowActions({
   }
 
   const item =
-    "block w-full px-3 py-2 text-left text-xs transition-colors hover:bg-surface-muted disabled:opacity-40";
+    "block w-full px-3 py-2 text-left text-xs transition-colors hover:bg-accent-soft focus-visible:bg-accent-soft disabled:opacity-40";
 
   return (
-    <div ref={container} className="relative shrink-0">
-      <button
-        ref={trigger}
-        type="button"
-        onClick={() => (open ? close() : openMenu())}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Actions for ${displayName || "card"}`}
-        className={cx(
-          "rounded px-1.5 text-sm leading-none text-ink-muted transition-colors hover:text-ink",
-          open && "text-ink",
+    <div className="shrink-0">
+      <FloatingMenu
+        open={open}
+        onOpenChange={(next) => {
+          if (next) openMenu();
+          else closeMenu();
+        }}
+        panelClassName={cx(
+          "mt-1 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl",
+          // The printing list carries long set names — let it grow to fit,
+          // capped at the viewport, rather than truncating.
+          showPrintings ? "w-max min-w-56 max-w-[min(24rem,calc(100vw-1.5rem))]" : "w-56",
+        )}
+        trigger={({ toggle, setTriggerRef }) => (
+          <button
+            ref={setTriggerRef}
+            type="button"
+            onClick={toggle}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            aria-label={`Actions for ${displayName || "card"}`}
+            className={cx(
+              "rounded px-1.5 text-sm leading-none text-ink-muted transition-colors hover:text-ink",
+              open && "text-ink",
+            )}
+          >
+            ⋯
+          </button>
         )}
       >
-        ⋯
-      </button>
-
-      {open ? (
-        <div
-          ref={panel}
-          role="menu"
-          className={cx(
-            "absolute right-0 top-full z-30 mt-1 overflow-hidden rounded-lg border border-border bg-surface-raised shadow-xl",
-            // The printing list carries long set names — let it grow to fit,
-            // capped at the viewport, rather than truncating.
-            showPrintings ? "w-max min-w-56 max-w-[min(24rem,calc(100vw-1.5rem))]" : "w-56",
-          )}
-        >
-          {showPrintings ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setShowPrintings(false)}
-                className="block w-full border-b border-border px-3 py-2 text-left text-xs text-ink-muted transition-colors hover:bg-surface-muted"
-              >
-                ← Back
-              </button>
-              <div className="max-h-64 overflow-y-auto">
-                {loadingPrintings ? (
-                  <p className="px-3 py-2 text-xs text-ink-muted">Loading printings…</p>
-                ) : !printings || printings.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-ink-muted">No printings found.</p>
-                ) : (
-                  printings.map((p) => {
-                    const current = p.scryfall_id === entry.card_id;
-                    return (
-                      <form key={p.scryfall_id} action={setDeckCardPrinting} onSubmit={close}>
-                        <input type="hidden" name="entry_id" value={entry.id} />
-                        <input type="hidden" name="deck_id" value={deckId} />
-                        <input type="hidden" name="card_id" value={p.scryfall_id} />
-                        <button
-                          type="submit"
-                          disabled={current}
-                          className={cx(
-                            PRINTING_ROW_CLASS,
-                            "flex w-full items-center px-3 py-1.5 text-left transition-colors hover:bg-surface-muted disabled:hover:bg-transparent",
-                            current && "bg-accent-soft",
-                          )}
-                        >
-                          <PrintingRow printing={p} current={current} />
-                        </button>
-                      </form>
-                    );
-                  })
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              {state.sleevable > 0 ? (
-                <form action={sleeve} onSubmit={close}>
-                  <input type="hidden" name="deck_id" value={deckId} />
-                  <input type="hidden" name="card_id" value={entry.card_id} />
-                  <input type="hidden" name="quantity" value={state.sleevable} />
-                  <button type="submit" role="menuitem" disabled={sleeving} className={item}>
-                    Sleeve {state.sleevable} from your collection
-                  </button>
-                </form>
-              ) : null}
-
-              {state.sleeved > 0 ? (
-                <form action={unsleeveCard} onSubmit={close}>
-                  <input type="hidden" name="deck_id" value={deckId} />
-                  <input type="hidden" name="card_id" value={entry.card_id} />
-                  <input type="hidden" name="quantity" value={state.sleeved} />
-                  <button type="submit" role="menuitem" className={item}>
-                    Return {state.sleeved} to your collection
-                  </button>
-                </form>
-              ) : null}
-
-              <form action={setDeckCardQuantity} onSubmit={close}>
-                <input type="hidden" name="entry_id" value={entry.id} />
-                <input type="hidden" name="deck_id" value={deckId} />
-                <input type="hidden" name="quantity" value={entry.quantity + 1} />
-                <button type="submit" role="menuitem" className={item}>
-                  Ask for one more
+        {({ close }) => (
+          <div role="menu">
+            {showPrintings ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowPrintings(false)}
+                  className="block w-full border-b border-border px-3 py-2 text-left text-xs text-ink-muted transition-colors hover:bg-accent-soft focus-visible:bg-accent-soft"
+                >
+                  ← Back
                 </button>
-              </form>
+                <div className="max-h-64 overflow-y-auto">
+                  {loadingPrintings ? (
+                    <p className="px-3 py-2 text-xs text-ink-muted">Loading printings…</p>
+                  ) : !printings || printings.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-ink-muted">No printings found.</p>
+                  ) : (
+                    printings.map((p) => {
+                      const current = p.scryfall_id === entry.card_id;
+                      return (
+                        <form key={p.scryfall_id} action={setDeckCardPrinting} onSubmit={close}>
+                          <input type="hidden" name="entry_id" value={entry.id} />
+                          <input type="hidden" name="deck_id" value={deckId} />
+                          <input type="hidden" name="card_id" value={p.scryfall_id} />
+                          <button
+                            type="submit"
+                            disabled={current}
+                            className={cx(
+                              PRINTING_ROW_CLASS,
+                              "flex w-full items-center px-3 py-1.5 text-left transition-colors hover:bg-accent-soft focus-visible:bg-accent-soft disabled:hover:bg-transparent",
+                              current && "bg-accent-soft",
+                            )}
+                          >
+                            <PrintingRow printing={p} current={current} />
+                          </button>
+                        </form>
+                      );
+                    })
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                {state.sleevable > 0 ? (
+                  <form action={sleeve} onSubmit={close}>
+                    <input type="hidden" name="deck_id" value={deckId} />
+                    <input type="hidden" name="card_id" value={entry.card_id} />
+                    <input type="hidden" name="quantity" value={state.sleevable} />
+                    <button type="submit" role="menuitem" disabled={sleeving} className={item}>
+                      Sleeve {state.sleevable} from your collection
+                    </button>
+                  </form>
+                ) : null}
 
-              {entry.quantity > 1 ? (
-                <form action={setDeckCardQuantity} onSubmit={close}>
+                {state.sleeved > 0 ? (
+                  <form action={unsleeveCard} onSubmit={close}>
+                    <input type="hidden" name="deck_id" value={deckId} />
+                    <input type="hidden" name="card_id" value={entry.card_id} />
+                    <input type="hidden" name="quantity" value={state.sleeved} />
+                    <button type="submit" role="menuitem" className={item}>
+                      Return {state.sleeved} to your collection
+                    </button>
+                  </form>
+                ) : null}
+
+                {editingQuantity ? (
+                  <form
+                    action={setDeckCardQuantity}
+                    onSubmit={close}
+                    className="flex items-center gap-2 border-b border-border p-2"
+                  >
+                    <input type="hidden" name="entry_id" value={entry.id} />
+                    <input type="hidden" name="deck_id" value={deckId} />
+                    <label className="sr-only" htmlFor={`deck-quantity-${menuId}`}>
+                      Quantity
+                    </label>
+                    <Input
+                      id={`deck-quantity-${menuId}`}
+                      type="number"
+                      name="quantity"
+                      min={1}
+                      step={1}
+                      required
+                      defaultValue={entry.quantity}
+                      style={{ width: "5rem", borderColor: "var(--border-strong)" }}
+                      className="min-w-0 flex-none px-2 py-1"
+                    />
+                    <button
+                      type="submit"
+                      role="menuitem"
+                      className="shrink-0 rounded-md bg-accent px-3 py-2 text-xs font-medium text-accent-ink transition-colors hover:brightness-95"
+                    >
+                      Update
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={cx(item, "border-b border-border")}
+                    onClick={() => setEditingQuantity(true)}
+                  >
+                    Edit quantity
+                  </button>
+                )}
+
+                <form action={commanderAction} onSubmit={close}>
+                  <input type="hidden" name="deck_id" value={deckId} />
+                  <input type="hidden" name="card_id" value={isCommander ? "" : entry.card_id} />
+                  <button type="submit" role="menuitem" disabled={commanderPending} className={item}>
+                    {isCommander ? "Clear commander" : "Set as commander"}
+                  </button>
+                </form>
+
+                <button type="button" role="menuitem" className={item} onClick={loadPrintings}>
+                  Change printing…
+                </button>
+
+                <form action={removeDeckCard} onSubmit={close} className="border-t border-border">
                   <input type="hidden" name="entry_id" value={entry.id} />
                   <input type="hidden" name="deck_id" value={deckId} />
-                  <input type="hidden" name="quantity" value={entry.quantity - 1} />
-                  <button type="submit" role="menuitem" className={item}>
-                    Ask for one fewer
+                  <button type="submit" role="menuitem" className={cx(item, "text-danger")}>
+                    Remove from deck list
                   </button>
                 </form>
-              ) : null}
-
-              <form action={commanderAction} onSubmit={close}>
-                <input type="hidden" name="deck_id" value={deckId} />
-                <input type="hidden" name="card_id" value={isCommander ? "" : entry.card_id} />
-                <button type="submit" role="menuitem" disabled={commanderPending} className={item}>
-                  {isCommander ? "Clear commander" : "Set as commander"}
-                </button>
-              </form>
-
-              <button type="button" role="menuitem" className={item} onClick={loadPrintings}>
-                Change printing…
-              </button>
-
-              <form action={removeDeckCard} onSubmit={close} className="border-t border-border">
-                <input type="hidden" name="entry_id" value={entry.id} />
-                <input type="hidden" name="deck_id" value={deckId} />
-                <button type="submit" role="menuitem" className={cx(item, "text-danger")}>
-                  Remove from the list
-                </button>
-              </form>
-            </>
-          )}
-        </div>
-      ) : null}
+              </>
+            )}
+          </div>
+        )}
+      </FloatingMenu>
     </div>
   );
 }
@@ -944,7 +949,8 @@ function GalleryCard({
   onToggleSelected: () => void;
 }) {
   const card = entry.cards;
-  const preview = useCardPreview(card);
+  const markFinish = entry.sleevedFinishes.find((f) => f !== "nonfoil");
+  const preview = useCardPreview(card, { finish: markFinish });
   const face = useCardFace(card, "normal");
   const image = face.image;
   const state = entry.entryState;

@@ -9,13 +9,15 @@ import {
   deleteLocation,
   renameLocation,
 } from "@/app/(app)/locations/actions";
+import { setDeckPublic } from "@/app/(app)/decks/actions";
 import { EMPTY_LOCATION_STATE } from "@/app/(app)/locations/action-state";
 import { setLocationTradable } from "@/app/(app)/friends/actions";
 import { FloatingMenu } from "@/components/FloatingMenu";
 import { artCropUrl } from "@/lib/collection/art";
 import { formatPrice } from "@/lib/collection/pricing";
+import { UNSORTED } from "@/lib/collection/filters";
 import type { LocationStats } from "@/lib/collection/queries";
-import { Badge, Banner, Button, Card as Panel, Input, Select, cx } from "@/components/ui";
+import { Banner, Button, Card as Panel, Input, Select, cx } from "@/components/ui";
 import {
   LOCATION_COLOR_HEX,
   LOCATION_COLORS,
@@ -41,59 +43,6 @@ import {
  */
 
 /**
- * A glyph per location type.
- *
- * Deliberately shapes rather than colours: a binder, a box and a deck are
- * different objects on a shelf, and the difference should survive being read
- * quickly, in either theme, by someone who does not distinguish hues.
- */
-const TYPE_GLYPHS: Record<LocationType, string> = {
-  binder: "▤",
-  box: "▥",
-  deck: "◈",
-  other: "▪",
-};
-
-function TypeMark({ type }: { type: LocationType }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-muted text-base text-ink-muted"
-    >
-      {TYPE_GLYPHS[type]}
-    </span>
-  );
-}
-
-/** Up to five cards from the location, overlapped like a fanned stack. */
-function Peek({ images, name }: { images: string[]; name: string }) {
-  if (images.length === 0) return null;
-
-  return (
-    <div className="hidden shrink-0 items-center sm:flex" aria-hidden="true" title={`Cards in ${name}`}>
-      {images.map((src, i) => (
-        <Image
-          key={`${src}-${i}`}
-          src={src}
-          alt=""
-          width={146}
-          height={204}
-          unoptimized
-          // Overlapped rather than spaced: five cards in a row would be wider
-          // than the name beside them, and a fan reads as "a stack of cards"
-          // at a glance where a grid reads as "five things".
-          className={cx(
-            "h-11 w-8 rounded-[3px] border border-border object-cover object-top",
-            i > 0 && "-ml-5",
-          )}
-        />
-      ))}
-    </div>
-  );
-}
-
-
-/**
  * The switch that makes a location's cards visible to friends.
  *
  * It lived only on the Friends page, five sections down, which is a strange
@@ -112,11 +61,11 @@ function TradableToggle({ location }: { location: Location }) {
         type="submit"
         role="switch"
         aria-checked={on}
-        aria-label={on ? `Close ${location.name} to trade` : `Open ${location.name} for trade`}
+        aria-label={on ? `Make ${location.name} private` : `Make ${location.name} public`}
         title={
           on
-            ? "Friends can see the cards in here. Click to make it private."
-            : "Private. Click to let friends see these cards for trade."
+            ? "Cards in this location are visible to friends. Click to make it private."
+            : "Private. Click to make these cards visible to friends."
         }
         className={cx(
           "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors coarse:min-h-11",
@@ -139,26 +88,49 @@ function TradableToggle({ location }: { location: Location }) {
             )}
           />
         </span>
-        {on ? "Open for trade" : "Private"}
+        {on ? "Public" : "Private"}
       </button>
     </form>
   );
 }
 
-/**
- * Read-only badge for a deck shared with friends (migration 35). The switch
- * itself lives on the deck's own page (`DeckVisibilityToggle` in
- * DeckBanner.tsx), not here — this is just visible state, the same way a
- * deck's row/tile shows facts about itself without offering to edit them.
- */
-function SharedDeckBadge() {
+/** Toggle whether a deck list is visible to accepted friends. */
+function DeckPublicToggle({ location }: { location: Location }) {
+  const on = location.is_public;
+
   return (
-    <span
-      title="Accepted friends can see this deck's card list."
-      className="inline-flex items-center gap-1.5 rounded-full border border-accent bg-accent-soft px-2.5 py-1 text-xs font-medium text-ink"
-    >
-      Shared with friends
-    </span>
+    <form action={setDeckPublic} className="shrink-0">
+      <input type="hidden" name="deck_id" value={location.id} />
+      <input type="hidden" name="is_public" value={on ? "false" : "true"} />
+      <button
+        type="submit"
+        role="switch"
+        aria-checked={on}
+        aria-label={on ? `Make ${location.name} private` : `Make ${location.name} public`}
+        title={
+          on
+            ? "Accepted friends can see this deck list. Click to make it private."
+            : "Private. Click to make this deck list visible to accepted friends."
+        }
+        className={cx(
+          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors coarse:min-h-11",
+          on
+            ? "border-accent bg-accent-soft text-ink"
+            : "border-border text-ink-muted hover:bg-surface-muted",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className={cx(
+            "flex h-3.5 w-6 shrink-0 items-center rounded-full px-0.5 transition-colors",
+            on ? "bg-accent" : "bg-surface-muted",
+          )}
+        >
+          <span className={cx("size-2.5 rounded-full bg-surface transition-transform", on && "translate-x-2.5")} />
+        </span>
+        {on ? "Public" : "Private"}
+      </button>
+    </form>
   );
 }
 
@@ -232,155 +204,92 @@ function LocationRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [state, action, pending] = useActionState(renameLocation, EMPTY_LOCATION_STATE);
 
-  // A successful save closes the form the same way Cancel does. Adjusted
-  // during render rather than in an effect — React's own pattern for "react
-  // to a prop/state change" without an extra render pass — and keyed on the
-  // state object itself, not state.notice's text, so two saves in a row that
-  // both land on "Saved." still each trigger this.
   const [handledState, setHandledState] = useState(state);
   if (state !== handledState) {
     setHandledState(state);
     if (state.notice) setEditing(false);
   }
 
+  // Match the tile's user-chosen colour as a narrow left-edge accent.
+  const accent = location.color ? LOCATION_COLOR_HEX[location.color] : null;
+  const commanderArt = location.type === "deck" ? artCropUrl(images[0] ?? null) : null;
+
   return (
-    <div className={cx("py-3", nested && "border-t border-border pl-6")}>
-      <div className="flex items-start gap-3">
-        <TypeMark type={location.type} />
+    <div
+      className={cx("relative min-w-[48rem] overflow-hidden border-l-[3px] border-l-border py-2 pl-3 pr-2", nested && "ml-5 border-t border-t-border")}
+      style={accent ? { borderLeftColor: accent } : undefined}
+    >
+      {commanderArt ? (
+        <Image
+          src={commanderArt}
+          alt=""
+          fill
+          unoptimized
+          sizes="48rem"
+          className="pointer-events-none absolute inset-0 object-cover opacity-[0.09]"
+        />
+      ) : null}
+      <div className="relative grid grid-cols-[minmax(10rem,1.2fr)_minmax(13rem,1.5fr)_9rem_2rem] items-center gap-x-3">
+        <Link
+          href={`/collection?location=${location.id}`}
+          className="min-w-0 truncate text-sm font-medium hover:underline"
+          title={location.name}
+        >
+          {location.name}
+        </Link>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <Link
-                href={`/collection?location=${location.id}`}
-                className="truncate font-medium hover:underline"
-              >
-                {location.name}
-              </Link>
-              <Badge>{LOCATION_TYPE_LABELS[location.type]}</Badge>
-            </div>
+        <div className="flex min-w-0 items-center gap-x-2 whitespace-nowrap text-xs text-ink-muted">
+          <span className="shrink-0 tabular-nums">
+            <span className="font-medium text-ink">{count}</span> card{count === 1 ? "" : "s"}
+          </span>
+          {stats && stats.distinct > 0 && stats.distinct < count ? (
+            <span
+              className="truncate tabular-nums"
+              title={`${stats.distinct} unique cards, in ${stats.stacks} stack${stats.stacks === 1 ? "" : "s"}`}
+            >
+              · {stats.distinct} unique
+            </span>
+          ) : null}
+          {stats && stats.value > 0 ? (
+            <span
+              className="shrink-0 tabular-nums"
+              title={
+                stats.unpriced > 0
+                  ? "Estimated value; some cards have no listed price"
+                  : undefined
+              }
+            >
+              · {formatPrice(stats.value)}{stats.unpriced > 0 ? "+" : ""}
+            </span>
+          ) : null}
+        </div>
 
-            <LocationMenu
-              location={location}
-              open={menuOpen}
-              setOpen={setMenuOpen}
-              onRename={() => {
-                setEditing((v) => !v);
-                setMenuOpen(false);
-              }}
-            />
-          </div>
+        <div className="justify-self-end">
+          {location.type !== "deck" ? (
+            <TradableToggle location={location} />
+          ) : (
+            <DeckPublicToggle location={location} />
+          )}
+        </div>
 
-          {/*
-            Three facts on one line, where a progress bar used to be.
-
-            The bar was wrong, not just redundant: a bar implies a capacity, and
-            a box does not have one. Drawn against the fullest location it said
-            "Commons holds more than Lands", which is the same thing the two
-            numbers beside it already said, in a form that looked like a
-            measurement against some limit.
-
-            What replaces it is what someone actually wants to know about a
-            binder before opening it: how much is in there, how varied it is —
-            a brick of one common and a box of singles are different objects —
-            and what it is worth, which is the first question in any trade.
-
-            Wraps rather than squeezing: on a phone the facts take their own
-            line and the switch drops below, instead of six things fighting
-            over 375px and the peek sliding over the name.
-          */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <div className="flex min-w-40 flex-1 flex-wrap items-center gap-x-2 text-xs text-ink-muted">
-              <span className="tabular-nums">
-                <span className="font-medium text-ink">{count}</span> card
-                {count === 1 ? "" : "s"}
-              </span>
-
-              {/*
-                "different cards", spelled out, not a bare "different".
-
-                Clicking through to the collection shows "188 cards in 142
-                stacks", and the first reading of "138 different" next to it is
-                that one of the two is wrong. Neither is: 138 is card names,
-                142 is stacks, and four of these cards are here as both a foil
-                and a non-foil, which cannot share a stack. Naming the unit on
-                both sides is what stops the two numbers looking like a
-                contradiction; the title spells out the reconciliation for
-                anyone who still wonders.
-              */}
-              {stats && stats.distinct > 0 && stats.distinct < count ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span
-                    className="tabular-nums"
-                    title={`${stats.distinct} different cards, in ${stats.stacks} stack${
-                      stats.stacks === 1 ? "" : "s"
-                    } — the same card in two finishes or two printings is two stacks`}
-                  >
-                    {stats.distinct} different cards
-                  </span>
-                </>
-              ) : null}
-
-              {stats && stats.value > 0 ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span
-                    className="tabular-nums"
-                    title={
-                      stats.unpriced > 0
-                        ? `${stats.unpriced} card${
-                            stats.unpriced === 1 ? " has" : "s have"
-                          } no listed price, so this is a floor`
-                        : undefined
-                    }
-                  >
-                    {formatPrice(stats.value)}
-                    {stats.unpriced > 0 ? "+" : ""}
-                  </span>
-                </>
-              ) : null}
-
-              {/*
-                The one thing five small thumbnails cannot say on their own:
-                which of them is the impressive one. Named rather than left to
-                be spotted in the peek — the peek is decorative and hidden
-                below `sm`, this is the fact itself.
-              */}
-              {stats?.topCard ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="min-w-0 truncate" title={`The most valuable card in ${location.name}`}>
-                    Top: {stats.topCard.name}, {formatPrice(stats.topCard.value)}
-                  </span>
-                </>
-              ) : null}
-            </div>
-
-            {/* Decorative, and the first thing to go when space is tight. */}
-            <Peek images={images} name={location.name} />
-
-            {/* A deck's contents are visible to friends through the trade
-                binder switch too, but opening a built deck for trade is almost
-                never what someone means, so it is not offered here.
-
-                The slot keeps its width when empty, from `sm` up: without it a
-                deck row's card peek slides into the space a box row spends on
-                its switch, and the list stops reading as columns. On a phone
-                the row wraps anyway, so the reservation would just be a hole. */}
-            <div className="sm:w-[8.5rem] sm:shrink-0">
-              {location.type !== "deck" ? (
-                <TradableToggle location={location} />
-              ) : location.is_public ? (
-                <SharedDeckBadge />
-              ) : null}
-            </div>
-          </div>
+        <div className="justify-self-end">
+          <LocationMenu
+            location={location}
+            open={menuOpen}
+            setOpen={setMenuOpen}
+            onRename={() => {
+              setEditing((v) => !v);
+              setMenuOpen(false);
+            }}
+          />
         </div>
       </div>
 
       {editing ? (
-        <form action={action} className="mt-3 flex flex-wrap items-end gap-2">
+        <form
+          action={action}
+          className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3"
+        >
           <input type="hidden" name="location_id" value={location.id} />
           <label className="space-y-1">
             <span className="text-xs font-medium text-ink-muted">Name</span>
@@ -518,9 +427,9 @@ function LocationTile({
 
         {location.type !== "deck" ? (
           <TradableToggle location={location} />
-        ) : location.is_public ? (
-          <SharedDeckBadge />
-        ) : null}
+        ) : (
+          <DeckPublicToggle location={location} />
+        )}
 
         {editing ? (
           <form action={action} className="flex flex-wrap items-end gap-2 border-t border-border pt-2.5">
@@ -628,6 +537,7 @@ export function LocationManager({
   peek,
   counts,
   stats,
+  unsortedCount,
 }: {
   tree: LocationNode[];
   /** Valid parents. Only top-level locations qualify — nesting is one deep. */
@@ -635,6 +545,7 @@ export function LocationManager({
   peek: Map<string, string[]>;
   counts: Map<string, number>;
   stats: Map<string, LocationStats>;
+  unsortedCount: number;
 }) {
   const [state, action, pending] = useActionState(createLocation, EMPTY_LOCATION_STATE);
   const [adding, setAdding] = useState(tree.length === 0);
@@ -689,7 +600,7 @@ export function LocationManager({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-display text-base font-semibold tracking-tight">
-          Your locations{tree.length > 0 ? ` (${tree.length})` : ""}
+          Your locations ({tree.length + 1})
         </h2>
 
         <div className="flex items-center gap-2">
@@ -764,6 +675,22 @@ export function LocationManager({
         </Panel>
       ) : null}
 
+      {view === "tiles" ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <UnsortedLocation
+            view={view}
+            count={unsortedCount}
+            stats={stats.get(UNSORTED)}
+          />
+        </div>
+      ) : (
+        <UnsortedLocation
+          view={view}
+          count={unsortedCount}
+          stats={stats.get(UNSORTED)}
+        />
+      )}
+
       {sections.map((section) => {
         const collapsed = collapsedTypes.has(section.type);
         return (
@@ -804,7 +731,7 @@ export function LocationManager({
             </button>
 
             {collapsed ? null : view === "list" ? (
-              <Panel className="divide-y divide-border p-0 px-4">
+              <Panel className="divide-y divide-border overflow-x-auto p-0">
                 {section.nodes.map((node) => (
                   <div key={node.id}>
                     <LocationRow
@@ -857,6 +784,84 @@ export function LocationManager({
         );
       })}
     </div>
+  );
+}
+
+/** Unsorted is the virtual location for cards without a physical container. */
+function UnsortedLocation({
+  view,
+  count,
+  stats,
+}: {
+  view: LocationView;
+  count: number;
+  stats?: LocationStats;
+}) {
+  if (view === "list") {
+    return (
+      <Panel className="mb-4 overflow-x-auto p-0">
+        <div className="grid min-w-[48rem] grid-cols-[minmax(10rem,1.2fr)_minmax(13rem,1.5fr)_9rem_2rem] items-center gap-x-3 border-l-[3px] border-border py-2.5 pl-3 pr-2">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <Link href={`/collection?location=${UNSORTED}`} className="shrink-0 text-sm font-medium hover:underline">
+              Unsorted
+            </Link>
+            <span className="truncate text-xs text-ink-muted">Cards without a location</span>
+          </div>
+          <LocationSummary count={count} stats={stats} compact />
+          <span />
+        </div>
+      </Panel>
+    );
+  }
+
+  return (
+    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-border bg-surface p-3 transition-colors hover:border-accent/50">
+      <Image
+        src="/images/unsorted-magic-card-backs.jpg"
+        alt=""
+        fill
+        sizes="(min-width: 1280px) 20vw, (min-width: 640px) 33vw, 50vw"
+        className="object-cover"
+      />
+      <div className="absolute inset-0 bg-black/50" />
+      <div className="relative flex h-full flex-col justify-between gap-2 text-white">
+        <div>
+          <Link href={`/collection?location=${UNSORTED}`} className="block truncate font-medium hover:underline">
+            Unsorted
+          </Link>
+          <span className="block text-[11px] text-white/75">Cards without a location</span>
+        </div>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <LocationSummary count={count} stats={stats} dark />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LocationSummary({
+  count,
+  stats,
+  dark = false,
+  compact = false,
+}: {
+  count: number;
+  stats?: LocationStats;
+  dark?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <span className={cx("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs", compact && "flex-nowrap whitespace-nowrap", dark ? "text-white/80" : "text-ink-muted")}>
+      <span className="tabular-nums">
+        <span className={cx("font-medium", dark ? "text-white" : "text-ink")}>{count}</span> card{count === 1 ? "" : "s"}
+      </span>
+      {stats && stats.value > 0 ? (
+        <span className="tabular-nums">
+          {formatPrice(stats.value)}
+          {stats.unpriced > 0 ? "+" : ""}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

@@ -20,11 +20,8 @@ type Location = { id: string; name: string };
  * a nav route, for the same reason the old ReviewCard stayed in-screen:
  * nothing here should be casually swiped away mid-review.
  *
- * Price is deliberately absent from each row: `Printing` (packages/scan-core)
- * carries no price field, and the mobile catalog bundle has no Scryfall
- * price data wired in anywhere the way `src/lib/scryfall.ts` does for the
- * web app — showing a price here would mean inventing a new fetch path,
- * which this pass was explicitly told not to do.
+ * This review screen focuses on edits and saving. The live scan screen fetches
+ * prices for its running session value; unavailable prices stay unlabeled here.
  */
 export function ScanSessionSummary({
   staged, locations, index, committing, onEdit, onChangePrinting, onDelete, onClear, onCommit, onAddManual, onScanMore, onMessage,

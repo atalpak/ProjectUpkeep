@@ -11,6 +11,7 @@ import { ConfirmScan, ScanPipeline, CONDITIONS, LANGUAGES, finishSummary, thumbn
 import { logScan, newScanLogId } from '../scanLog';
 import { UpkeepScannerView, readText, scannerViewAvailable, visionAvailable, type CardReadEvent, type ScannerViewHandle } from '@upkeep/vision';
 import { writer } from '../backend';
+import { fetchPrinting, type CardPrinting } from '../cardDetails';
 import { useApp, type LastUsedDraft } from '../AppProvider';
 import { errorMessage } from '../errors';
 import { pendingKey } from '../storage';
@@ -20,7 +21,7 @@ import { Button, DismissingNotice } from '../components/ui';
 import { ScanQuickBar } from '../components/ScanQuickBar';
 import { ScanSessionSummary } from './ScanSessionSummary';
 import type { TabParamList } from '../navigation';
-import { accent, brand, radius, space, state as stateColor, surface, text, type as typeTokens } from '../theme';
+import { accent, brand, radius, space, surface, text, type as typeTokens } from '../theme';
 import { makeStyles } from '../preferences';
 
 /**
@@ -44,6 +45,15 @@ import { makeStyles } from '../preferences';
 export type StagedCard = { id: string; printing: Printing; draft: CollectionDraft; band: ScanBand; attempted?: boolean };
 
 type ScanMode = 'single' | 'continuous';
+const SCAN_MODE_KEY = 'upkeep-scan-mode';
+
+function cardPrice(card: CardPrinting | undefined, finish: Finish): number | null {
+  if (!card) return null;
+  return finish === 'foil' ? card.priceUsdFoil ?? card.priceUsd
+    : finish === 'etched' ? card.priceUsdEtched ?? card.priceUsd
+    : card.priceUsd;
+}
+const money = (value: number) => `$${value.toFixed(2)}`;
 
 /**
  * What the bottom sheet is showing. `reading` is the real window between the
@@ -57,15 +67,6 @@ type SheetState =
   | { kind: 'unreadable' }
   | { kind: 'match'; printing: Printing; candidates: Candidate[]; band: ScanBand; stagedId: string | null; needsPrintingChoice: boolean; languageHint?: string };
 
-/**
- * The FOIL tile's purple. Deliberately NOT a theme token: the brand palette
- * has no purple at all, and this one tile is a direct port of the original
- * scanner's foil affordance (which players recognise) rather than a new
- * brand colour that other screens should start reaching for. If foil ever
- * needs a colour anywhere else, that is the moment it becomes a token.
- */
-const FOIL_PURPLE = '#584A70';
-const FOIL_PURPLE_ON = '#8C79B8';
 
 /**
  * The scan tab. Per the 2026-09-18 rebuild: a live, native card scanner.
@@ -90,7 +91,11 @@ export function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [suspended, setSuspended] = useState(false);
   const [mode, setMode] = useState<ScanMode>('continuous');
+  const [modeReady, setModeReady] = useState(false);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [pricedCards, setPricedCards] = useState<Record<string, CardPrinting>>({});
   const [staged, setStaged] = useState<StagedCard[]>([]);
+  const [lastScannedId, setLastScannedId] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SheetState | null>(null);
   const [outlineFound, setOutlineFound] = useState(false);
   // Mirrors outlineFound for native event handlers, which can fire before the
@@ -104,7 +109,6 @@ export function ScanScreen() {
   const [committing, setCommitting] = useState(false);
   // Defaults the NEXT read uses; they never touch an already-staged row
   // (that's the pencil edit in the session-review screen instead).
-  const [quickFinish, setQuickFinish] = useState<Finish | undefined>(undefined);
   const [quickLanguage, setQuickLanguage] = useState<string | undefined>(undefined);
   const [quickQuantity, setQuickQuantity] = useState(1);
   const [lockedSetCode, setLockedSetCode] = useState<string | null>(null);
@@ -119,6 +123,44 @@ export function ScanScreen() {
   // confirm was scoped to one session -- see collection.ts's header comment.
   // A batch commit reuses one instance across every staged row's save() call.
   const sessionConfirm = useRef<ConfirmScan | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void SecureStore.getItemAsync(SCAN_MODE_KEY).then(saved => {
+      if (alive && (saved === 'single' || saved === 'continuous')) setMode(saved);
+    }).catch(() => {}).finally(() => { if (alive) setModeReady(true); });
+    return () => { alive = false; };
+  }, []);
+  function selectMode(next: ScanMode) {
+    if (next === mode) return;
+    setMode(next);
+    setSheet(null);
+    outlineFoundRef.current = false;
+    setOutlineFound(false);
+    cardGone.current = true;
+    void SecureStore.setItemAsync(SCAN_MODE_KEY, next).catch(() => {});
+  }
+
+  const priceIds = [...new Set([
+    ...staged.map(s => s.printing.id),
+    ...(sheet?.kind === 'match' ? [sheet.printing.id] : []),
+  ])].join(',');
+  useEffect(() => {
+    if (!priceIds) return;
+    let alive = true;
+    for (const id of priceIds.split(',')) {
+      if (pricedCards[id]) continue;
+      void fetchPrinting(id).then(card => {
+        if (alive && card) setPricedCards(prev => ({ ...prev, [id]: card }));
+      });
+    }
+    return () => { alive = false; };
+  }, [priceIds]);
+  const scannedCount = staged.reduce((sum, row) => sum + row.draft.quantity, 0);
+  const knownValue = staged.reduce((sum, row) => sum + (cardPrice(pricedCards[row.printing.id], row.draft.finish) ?? 0) * row.draft.quantity, 0);
+  const pricedCount = staged.reduce((sum, row) => sum + (cardPrice(pricedCards[row.printing.id], row.draft.finish) == null ? 0 : row.draft.quantity), 0);
+  const lastScannedRow = staged.find(row => row.id === lastScannedId) ?? staged[0] ?? null;
+  const canToggleLastFoil = !!lastScannedRow && lastScannedRow.printing.finishes.includes('foil') && lastScannedRow.printing.finishes.includes('nonfoil');
 
   const stopScanner = useRef(() => setSuspended(true));
   useEffect(() => {
@@ -144,7 +186,7 @@ export function ScanScreen() {
     void requestPermission();
   }, [isFocused, permission, requestPermission]);
 
-  const scannerActive = !!permission?.granted && isFocused && !suspended && app.active
+  const scannerActive = modeReady && !!permission?.granted && isFocused && !suspended && app.active
     && !app.catalogLoading && !app.disabled && !sessionReviewOpen && !pickerOpen && !app.review;
 
   // The native lock needs confidence >= 0.70 but the outline draws at less, so
@@ -199,15 +241,15 @@ export function ScanScreen() {
    * setting, consistent with printing.ts's "the person can always overrule
    * both" design for the footer-based printing guess. */
   function stageFromCapture(printing: Printing, band: ScanBand, languageHint?: string): string | null {
-    const finish: Finish = quickFinish && printing.finishes.includes(quickFinish) ? quickFinish
-      : app.lastUsedDraft?.finish && printing.finishes.includes(app.lastUsedDraft.finish) ? app.lastUsedDraft.finish
-      : printing.finishes[0]!;
+    const finish: Finish = printing.finishes.includes('nonfoil') ? 'nonfoil' : printing.finishes[0]!;
     const condition: Condition = app.lastUsedDraft?.condition ?? CONDITIONS[0];
     const language = quickLanguage ?? languageHint ?? app.lastUsedDraft?.language ?? LANGUAGES[0];
     const location_id = app.lastUsedDraft?.location_id ?? null;
     try {
       const draft = validateDraft({ card_id: printing.id, finish, condition, language, quantity: quickQuantity, location_id, notes: null }, printing);
-      return stageCard(printing, draft, band);
+      const id = stageCard(printing, draft, band);
+      setLastScannedId(id);
+      return id;
     } catch (e) { app.setMessage(errorMessage(e)); return null; }
   }
 
@@ -234,6 +276,8 @@ export function ScanScreen() {
   function onCardRead(event: { nativeEvent: CardReadEvent }) {
     if (!scannerActive || pickerOpen) return;
     const { title, lines, printingLines, source } = event.nativeEvent;
+    // A continuous read already in flight can finish just after switching modes.
+    if (mode === 'single' && source !== 'guide') return;
     const result = pipeline.matchEvidence({ lines, printingLines });
     const scoped = lockedSetCode
       ? (() => { const filtered = result.candidates.filter(c => c.printing.setCode === lockedSetCode); return filtered.length ? filtered : result.candidates; })()
@@ -246,8 +290,8 @@ export function ScanScreen() {
       return {
         id: newScanLogId(), at: Date.now(), source: source === 'guide' ? 'scan/guide' : 'scan/outline', title: title ?? '',
         printingLines: clipLines(printingLines), hints: hintsForLog(hints),
-        match: band === 'none' ? 'no match' : `band ${band}; top ${top!.printing.name} score ${top!.score.toFixed(2)} ${top!.evidence}${lockedSetCode ? `; set lock ${lockedSetCode}` : ''}; ${mode} mode${requiresChoice ? '; printing choice required, not staged' : ''}`,
-        candidates: describeCandidates(scoped), guess: suggested ? { printing: printingLabel(suggested), why: requiresChoice ? 'unconfirmed preview; choose a printing before staging' : "resolved from footer evidence or the card's only catalog printing" } : null,
+        match: band === 'none' ? 'no match' : `band ${band}; top ${top!.printing.name} score ${top!.score.toFixed(2)} ${top!.evidence}${lockedSetCode ? `; set lock ${lockedSetCode}` : ''}; ${mode} mode${requiresChoice ? '; printing should be reviewed' : ''}`,
+        candidates: describeCandidates(scoped), guess: suggested ? { printing: printingLabel(suggested), why: requiresChoice ? 'staged as best guess; review the printing' : "resolved from footer evidence or the card's only catalog printing" } : null,
         artPlanned: null, ...(suggested ? { suggestedPrinting: printingLabel(suggested) } : {}),
       };
     });
@@ -265,16 +309,11 @@ export function ScanScreen() {
     const printing = (!conflictsWithLock && resolvedPrinting) || scoped[0]!.printing;
     setLastScannedSetCode(printing.setCode);
     mort.react(band === 'confident' ? 'scan_success' : 'scan_uncertain');
-    // Continuous stages identified printings; ambiguous reads wait for a choice. Single
-    // shows the match and waits for an explicit Add, which is how the
-    // original's single mode worked (its shutter opened a detail screen
-    // rather than adding behind the player's back). Either way the languageHint
-    // comes off this same read, so it is carried into the sheet for single
-    // mode's deferred Add (see addFromSheet) rather than only reaching
-    // continuous mode's immediate stage.
+    // Both modes stage the read immediately. An uncertain printing stays
+    // editable in the result sheet and session review.
     const needsPrintingChoice = printingNeedsChoice(ranking) || conflictsWithLock;
     recordRead(printing, needsPrintingChoice);
-    const stagedId = mode === 'continuous' && !needsPrintingChoice ? stageFromCapture(printing, band, result.languageHint) : null;
+    const stagedId = stageFromCapture(printing, band, result.languageHint);
     setSheet({ kind: 'match', printing, candidates: scoped, band, stagedId, needsPrintingChoice, languageHint: result.languageHint });
   }
 
@@ -284,6 +323,7 @@ export function ScanScreen() {
   // to "reading" for a card that will never be read again.
   const cardGone = useRef(true);
   function onCardLost() {
+    if (mode === 'single') return;
     // An outline still up means a new card went down without the frame ever
     // emptying: it is already in view (so not "gone"), and the old match must
     // not stay on screen for the ~300ms until its read lands.
@@ -311,6 +351,7 @@ export function ScanScreen() {
     const found = event.nativeEvent.found;
     outlineFoundRef.current = found;
     setOutlineFound(found);
+    if (mode === 'single') return;
     if (found) {
       // A new card: drop the previous card's name immediately instead of
       // showing it while the new one is still being read.
@@ -321,14 +362,6 @@ export function ScanScreen() {
       // leave "reading" up forever waiting for a read that isn't coming.
       setSheet(prev => (prev?.kind === 'reading' ? null : prev));
     }
-  }
-
-  /** Single mode's explicit "Add" — stages what the sheet is showing. */
-  function addFromSheet() {
-    if (sheet?.kind !== 'match' || sheet.stagedId) return;
-    if (sheet.needsPrintingChoice) { setPickerOpen(true); return; }
-    const stagedId = stageFromCapture(sheet.printing, sheet.band, sheet.languageHint);
-    setSheet({ ...sheet, stagedId });
   }
 
   function patchStagedRow(id: string, change: (row: StagedCard) => StagedCard) {
@@ -343,10 +376,9 @@ export function ScanScreen() {
     }));
   }
 
-  /** The FOIL tile. Only offered for a printing that actually has both. */
-  function toggleFoil() {
-    if (sheet?.kind !== 'match' || !sheet.stagedId) return;
-    patchStagedRow(sheet.stagedId, row => {
+  /** Toggles the last staged card when this printing offers both finishes. */
+  function toggleFoil(id: string) {
+    patchStagedRow(id, row => {
       const next: Finish = row.draft.finish === 'foil' ? 'nonfoil' : 'foil';
       if (!row.printing.finishes.includes(next)) throw new Error(`This printing is ${row.draft.finish} only.`);
       return { ...row, draft: validateDraft({ ...row.draft, finish: next }, row.printing) };
@@ -354,9 +386,8 @@ export function ScanScreen() {
   }
 
   /** Another copy of the card the sheet is showing. */
-  function addAnotherCopy() {
-    if (sheet?.kind !== 'match' || !sheet.stagedId) return;
-    patchStagedRow(sheet.stagedId, row => ({ ...row, draft: { ...row.draft, quantity: row.draft.quantity + 1 } }));
+  function addAnotherCopy(id: string) {
+    patchStagedRow(id, row => ({ ...row, draft: { ...row.draft, quantity: row.draft.quantity + 1 } }));
   }
 
   /** Swaps the staged row onto a different printing of the same card. The
@@ -393,11 +424,13 @@ export function ScanScreen() {
 
   function deleteStaged(id: string) {
     updateStaged(prev => prev.filter(s => s.id !== id));
+    if (id === lastScannedId) setLastScannedId(null);
     setSheet(prev => (prev?.kind === 'match' && prev.stagedId === id ? null : prev));
   }
 
   function clearStaged() {
     updateStaged(() => []);
+    setLastScannedId(null);
     setSheet(null);
   }
 
@@ -553,37 +586,44 @@ export function ScanScreen() {
     <View style={styles.full}>
       <LiveViewPresence onGone={resetLiveState} />
       <UpkeepScannerView
+        key={mode}
         ref={scanner}
         style={StyleSheet.absoluteFill}
         active={scannerActive}
+        manualCaptureOnly={mode === 'single'}
+        torchEnabled={torchEnabled}
         onCardRead={onCardRead}
         onOutlineChange={onOutlineChange}
         onCardLost={onCardLost}
         onScannerError={e => app.setMessage(e.nativeEvent.message)}
       />
 
-      <View style={[styles.topBar, { paddingTop: insets.top }]}>
-        <View style={styles.topRow}>
-          <IconButton label="Back to your collection" name="arrow-back" onPress={() => navigation.navigate('Collection')} />
-          <Text style={styles.topTitle}>Scan cards</Text>
-          <View style={styles.badgeWrap}>
-            <IconButton label={`Session list, ${staged.length} cards scanned`} name="list" onPress={() => setSessionReviewOpen(true)} />
-            {staged.length > 0 && (
-              <View pointerEvents="none" style={styles.badge}><Text style={styles.badgeCount}>{staged.length}</Text></View>
-            )}
-          </View>
-          <IconButton label="Scan settings" name="options-outline" onPress={() => setSettingsOpen(v => !v)} />
-        </View>
+      <View style={[styles.topBar, { top: insets.top + space.sm }]}>
+        <IconButton label="Back to your collection" name="arrow-back" onPress={() => navigation.navigate('Collection')} />
         <View style={styles.modeRow}>
-          <ModeGlyph label="Single card mode" icon="filter-1" selected={mode === 'single'} onPress={() => setMode('single')} />
-          <ModeGlyph label="Continuous scanning mode" icon="playlist-add" selected={mode === 'continuous'} onPress={() => setMode('continuous')} />
+          <ModeGlyph label="Single card mode" title="Single" icon="filter-1" selected={mode === 'single'} onPress={() => selectMode('single')} />
+          <ModeGlyph label="Continuous scanning mode" title="Continuous" icon="playlist-add" selected={mode === 'continuous'} onPress={() => selectMode('continuous')} />
+        </View>
+        <View style={styles.badgeWrap}>
+          <IconButton label={`Review scanned cards, ${scannedCount} copies`} name="albums-outline" onPress={() => setSessionReviewOpen(true)} />
+          {scannedCount > 0 && <View pointerEvents="none" style={styles.badge}><Text style={styles.badgeCount}>{scannedCount}</Text></View>}
+        </View>
+      </View>
+      <View style={[styles.utilityRow, { top: insets.top + 62 }]}>
+        <View style={styles.totalBox}>
+          <Text style={styles.totalPrice}>{pricedCount || scannedCount === 0 ? money(knownValue) : '—'}</Text>
+          <Text style={styles.totalLabel}>{pricedCount === scannedCount ? `${scannedCount} scanned` : pricedCount ? `Known value · ${scannedCount} scanned` : `${scannedCount} scanned · value unavailable`}</Text>
+        </View>
+        <View style={styles.utilityButtons}>
+        <IconButton label={torchEnabled ? 'Turn flashlight off' : 'Turn flashlight on'} name={torchEnabled ? 'flash' : 'flash-outline'} onPress={() => setTorchEnabled(v => !v)} />
+        <IconButton label="Scan settings" name="settings-outline" onPress={() => setSettingsOpen(v => !v)} />
         </View>
       </View>
 
       {/* The app shell's banner is hidden while the live view is up (see
           App.tsx), so a message has to surface here or nowhere. */}
       {!!app.message && (
-        <Pressable style={[styles.banner, { top: insets.top + 104 }]} onPress={() => app.setMessage('')}>
+        <Pressable style={[styles.banner, { top: insets.top + 120 }]} onPress={() => app.setMessage('')}>
           <DismissingNotice style={styles.bannerText} onDone={() => app.setMessage('')}>{app.message}</DismissingNotice>
         </Pressable>
       )}
@@ -592,11 +632,13 @@ export function ScanScreen() {
         // Capped above the result sheet and scrollable: the language chips wrap to
         // as many rows as the width needs, and on a short phone (or landscape) an
         // uncapped panel ran down behind the sheet with nothing to scroll it into reach.
-        <View style={[styles.settings, { top: insets.top + 104, maxHeight: Math.max(160, windowHeight - (insets.top + 104) - (SHEET_RESERVE + insets.bottom)) }]}>
+        <View style={[styles.settings, { top: insets.top + 116, maxHeight: Math.max(160, windowHeight - (insets.top + 116) - (SHEET_RESERVE + insets.bottom)) }]}>
+          <View style={styles.settingsHeader}>
+            <Text style={styles.settingsTitle}>Scan settings</Text>
+            <IconButton label="Close scan settings" name="close" onPress={() => setSettingsOpen(false)} />
+          </View>
           <ScrollView keyboardShouldPersistTaps="handled">
           <ScanQuickBar
-            finish={quickFinish}
-            onSelectFinish={setQuickFinish}
             language={quickLanguage}
             onSelectLanguage={setQuickLanguage}
             lockedSetCode={lockedSetCode}
@@ -606,26 +648,6 @@ export function ScanScreen() {
             onChangeQuantity={setQuickQuantity}
           />
           </ScrollView>
-        </View>
-      )}
-
-      {(!outlineFound || mode === 'single' || readingStale) && (
-        <View style={styles.idle} pointerEvents="box-none">
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Scan the card inside the gold corner marks"
-            style={styles.scanPill}
-            onPress={() => void scanner.current?.captureNow()}
-          >
-            <Ionicons name="camera-outline" size={18} color={text.onAccent} />
-            <Text style={styles.scanPillText}>Scan card</Text>
-          </Pressable>
-          {!outlineFound && (
-            <>
-              <Text style={styles.hint}>Point the camera at one card</Text>
-              <Text style={styles.hintSmall}>Fit the card inside the gold corner marks.</Text>
-            </>
-          )}
         </View>
       )}
 
@@ -644,13 +666,34 @@ export function ScanScreen() {
           sheet={sheet}
           stale={readingStale}
           row={stagedRow}
+          price={cardPrice(pricedCards[sheet.kind === 'match' ? sheet.printing.id : ''], stagedRow?.draft.finish ?? 'nonfoil')}
           bottomInset={insets.bottom}
           onOpenPicker={() => setPickerOpen(true)}
-          onToggleFoil={toggleFoil}
-          onAddAnother={addAnotherCopy}
-          onAdd={addFromSheet}
         />
       )}
+      <View style={[styles.bottomArea, { bottom: insets.bottom + space.sm }]}>
+        {!sheet && !outlineFound && <Text style={styles.bottomHint}>Fit one card inside the gold corners</Text>}
+        <View style={styles.bottomControls}>
+          {(mode === 'single' || !outlineFound || readingStale || sheet?.kind === 'unreadable') ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Capture card" style={styles.captureButton} onPress={() => {
+              setSheet({ kind: 'reading' });
+              setReadingEpoch(e => e + 1);
+              void scanner.current?.captureNow();
+            }}>
+              <Ionicons name="camera-outline" size={19} color={text.onAccent} />
+              <Text style={styles.captureText}>Capture</Text>
+            </Pressable>
+          ) : <View style={styles.autoLabel}><Ionicons name="scan-outline" size={18} color={brand.parchment} /><Text style={styles.autoText}>Auto scan</Text></View>}
+          <Pressable accessibilityRole="button" accessibilityLabel={lastScannedRow?.draft.finish === 'foil' ? `Remove foil from ${lastScannedRow.printing.name}` : `Make ${lastScannedRow?.printing.name ?? 'last card'} foil`} accessibilityState={{ disabled: !canToggleLastFoil, selected: lastScannedRow?.draft.finish === 'foil' }} disabled={!canToggleLastFoil} style={[styles.bottomAction, lastScannedRow?.draft.finish === 'foil' && styles.bottomActionOn, !canToggleLastFoil && styles.disabledAction]} onPress={() => { if (lastScannedRow) toggleFoil(lastScannedRow.id); }}>
+            <Image source={require('../assets/foil-f.png')} style={styles.foilGlyph} />
+            <Text style={styles.bottomActionText}>Foil</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Add another copy of ${lastScannedRow?.printing.name ?? 'last card'}`} accessibilityState={{ disabled: !lastScannedRow }} disabled={!lastScannedRow} style={[styles.bottomAction, !lastScannedRow && styles.disabledAction]} onPress={() => { if (lastScannedRow) addAnotherCopy(lastScannedRow.id); }}>
+            <Ionicons name="add" size={22} color={brand.parchment} />
+            <Text style={styles.bottomActionText}>+1</Text>
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 }
@@ -684,8 +727,8 @@ function IconButton({ label, name, onPress }: { label: string; name: keyof typeo
   );
 }
 
-function ModeGlyph({ label, icon, selected, onPress }: {
-  label: string; icon: keyof typeof MaterialIcons.glyphMap; selected: boolean; onPress(): void;
+function ModeGlyph({ label, title, icon, selected, onPress }: {
+  label: string; title: string; icon: keyof typeof MaterialIcons.glyphMap; selected: boolean; onPress(): void;
 }) {
   const styles = useStyles();
   return (
@@ -696,88 +739,72 @@ function ModeGlyph({ label, icon, selected, onPress }: {
       style={[styles.modeGlyph, selected && styles.modeGlyphSelected]}
       onPress={onPress}
     >
-      <MaterialIcons name={icon} size={24} color={selected ? accent.DEFAULT : brand.parchment} />
+      <MaterialIcons name={icon} size={19} color={selected ? accent.DEFAULT : brand.parchment} />
+      <Text style={[styles.modeText, selected && styles.modeTextSelected]}>{title}</Text>
     </Pressable>
   );
 }
 
 /**
- * The bottom sheet: thumbnail, status line, card name, and the FOIL tile.
+ * The result sheet: thumbnail, status, card name, printing and price.
  * It stays on screen after the card leaves the frame (the original did too),
  * so the printing picker and the foil toggle remain reachable for the card
  * just scanned rather than vanishing with it.
  */
-function ResultSheet({ sheet, stale, row, bottomInset, onOpenPicker, onToggleFoil, onAddAnother, onAdd }: {
-  sheet: SheetState; stale: boolean; row: StagedCard | null; bottomInset: number;
-  onOpenPicker(): void; onToggleFoil(): void; onAddAnother(): void; onAdd(): void;
+function ResultSheet({ sheet, stale, row, price, bottomInset, onOpenPicker }: {
+  sheet: SheetState; stale: boolean; row: StagedCard | null; price: number | null; bottomInset: number;
+  onOpenPicker(): void;
 }) {
   const styles = useStyles();
-  const padding = { paddingBottom: space.md + bottomInset };
+  const position = { bottom: bottomInset + 76 };
   if (sheet.kind === 'reading') {
     return (
-      <View style={[styles.sheet, padding]}>
-        <View style={styles.thumbPlaceholder} />
-        <View style={styles.sheetBody}>
-          <Text style={styles.sheetStatus}>READING CARD</Text>
-          <Text style={styles.sheetName}>{stale ? 'Hold it steady, or tap Scan card' : 'Hold it steady…'}</Text>
+      <View style={[styles.sheet, position]}>
+        <View style={styles.resultCard}>
+          <View style={styles.thumbPlaceholder} />
+          <View style={styles.sheetBody}>
+            <Text style={styles.sheetStatus}>READING CARD</Text>
+            <Text style={styles.sheetName}>{stale ? 'Hold it steady, or tap Capture' : 'Hold it steady…'}</Text>
+          </View>
         </View>
       </View>
     );
   }
   if (sheet.kind === 'unreadable') {
     return (
-      <View style={[styles.sheet, padding]}>
-        <View style={styles.thumbPlaceholder} />
-        <View style={styles.sheetBody}>
-          <Text style={styles.sheetNote}>Couldn&apos;t read that one — try again or tap Scan card.</Text>
+      <View style={[styles.sheet, position]}>
+        <View style={styles.resultCard}>
+          <View style={styles.thumbPlaceholder} />
+          <View style={styles.sheetBody}>
+            <Text style={styles.sheetNote}>Couldn&apos;t read that one — try again or tap Capture.</Text>
+          </View>
         </View>
       </View>
     );
   }
 
-  const { printing, band, stagedId } = sheet;
-  const foil = row?.draft.finish === 'foil';
-  const canFoil = printing.finishes.includes('foil') && printing.finishes.includes('nonfoil');
-  const status = sheet.needsPrintingChoice ? 'CARD FOUND · CHOOSE PRINTING' : band === 'confident' ? 'CARD & PRINTING CONFIRMED' : 'PRINTING SELECTED';
+  const { printing, band } = sheet;
+  const status = sheet.needsPrintingChoice ? 'SCANNED · CHECK PRINTING' : band === 'confident' ? 'SCANNED' : 'SCANNED · REVIEW MATCH';
+  const rarityColor = printing.rarity === 'mythic' ? '#E67342' : printing.rarity === 'rare' ? '#D7B65B' : printing.rarity === 'uncommon' ? '#B8BEC6' : '#D9D1C2';
 
   return (
-    <View style={[styles.sheet, padding]}>
-      {printing.imageUri
-        ? <Image source={{ uri: printing.imageUri }} style={styles.thumb} accessibilityIgnoresInvertColors />
-        : <View style={styles.thumbPlaceholder} />}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${printing.name}. Tap to select a different printing.`}
-        style={styles.sheetBody}
-        onPress={onOpenPicker}
-      >
-        <Text style={styles.sheetStatus} numberOfLines={1}>{status}</Text>
-        <Text style={styles.sheetName} numberOfLines={1}>{printing.name}</Text>
-        <Text style={styles.sheetCaption} numberOfLines={1}>
-          {row ? `${printing.setCode.toUpperCase()} #${printing.collectorNumber} · qty ${row.draft.quantity} · tap to change version`
-            : 'Tap to select the correct version'}
-        </Text>
-      </Pressable>
-      {stagedId ? (
-        <Pressable accessibilityRole="button" accessibilityLabel={`Add another copy of ${printing.name}`} style={styles.plusTile} onPress={onAddAnother}>
-          <Text style={styles.plusText}>+1</Text>
+    <View style={[styles.sheet, position]}>
+      <View style={styles.resultCard}>
+        {printing.imageUri
+          ? <Image source={{ uri: printing.imageUri }} style={styles.thumb} accessibilityIgnoresInvertColors />
+          : <View style={styles.thumbPlaceholder} />}
+        <Pressable accessibilityRole="button" accessibilityLabel={`${printing.name}. Tap to select a different printing.`} style={styles.sheetBody} onPress={onOpenPicker}>
+          <Text style={styles.sheetStatus} numberOfLines={1}>{status}</Text>
+          <Text style={styles.sheetName} numberOfLines={2}>{printing.name}</Text>
+          <View style={styles.setLine}>
+            <Ionicons name="layers-outline" size={13} color={rarityColor} />
+            <Text style={[styles.setBadge, { color: rarityColor, borderColor: rarityColor }]}>{printing.setCode.toUpperCase()}</Text>
+            <Text style={styles.sheetCaption} numberOfLines={1}>#{printing.collectorNumber}{row ? ` · ${row.draft.quantity} ${row.draft.quantity === 1 ? 'copy' : 'copies'}` : ''}</Text>
+          </View>
+          <Text style={styles.price}>{price == null ? 'Price unavailable' : `Market ${money(price)}`}</Text>
         </Pressable>
-      ) : (
-        <Pressable accessibilityRole="button" accessibilityLabel={sheet.needsPrintingChoice ? `Choose the printing of ${printing.name}` : `Add ${printing.name} to this session`} style={styles.addTile} onPress={onAdd}>
-          <Text style={styles.addText}>{sheet.needsPrintingChoice ? 'Choose' : 'Add'}</Text>
-        </Pressable>
-      )}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ selected: foil, disabled: !stagedId || !canFoil }}
-        accessibilityLabel={foil ? 'Remove the foil tag' : 'Tag this card as foil'}
-        disabled={!stagedId || !canFoil}
-        style={[styles.foilTile, foil && styles.foilTileOn, (!stagedId || !canFoil) && styles.foilTileOff]}
-        onPress={onToggleFoil}
-      >
-        <Ionicons name={foil ? 'star' : 'star-outline'} size={26} color={brand.parchment} />
-        <Text style={styles.foilText}>{foil ? 'FOILED' : 'FOIL'}</Text>
-      </Pressable>
+        <Ionicons name="chevron-forward" size={20} color={brand.parchment} />
+      </View>
     </View>
   );
 }
@@ -882,11 +909,11 @@ function RecoveryPanel() {
   );
 }
 
-const SHEET_DARK = 'rgba(37,39,38,0.97)';
+const SHEET_DARK = 'rgba(34,34,34,0.76)';
 // Height the result sheet takes at the bottom, before the safe-area inset: what the
 // printing list and the scan settings panel must stay clear of.
-const SHEET_RESERVE = 110;
-const BAR_DARK = 'rgba(31,31,31,0.82)';
+const SHEET_RESERVE = 192;
+const BAR_DARK = 'rgba(34,34,34,0.65)';
 
 const useStyles = makeStyles(() => StyleSheet.create({
   full: { flex: 1, backgroundColor: brand.ink },
@@ -895,43 +922,53 @@ const useStyles = makeStyles(() => StyleSheet.create({
   panelTitle: { color: text.primary, fontSize: 21, textAlign: 'center', fontWeight: '600' },
   panelBody: { color: text.secondary, fontSize: 13, textAlign: 'center' },
 
-  topBar: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: BAR_DARK },
-  topRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.sm, gap: space.xs },
-  topTitle: { flex: 1, textAlign: 'center', color: brand.parchment, fontSize: 18, fontWeight: '700' },
+  topBar: { position: 'absolute', left: space.md, right: space.md, height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: BAR_DARK, borderRadius: radius.md, paddingHorizontal: space.xs },
+  utilityRow: { position: 'absolute', left: space.md, right: space.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm },
+  utilityButtons: { flexDirection: 'row', backgroundColor: BAR_DARK, borderRadius: radius.md, paddingHorizontal: space.xs },
+  totalBox: { minHeight: 48, flex: 1, justifyContent: 'center', paddingHorizontal: space.md, backgroundColor: BAR_DARK, borderRadius: radius.md },
+  totalPrice: { color: brand.parchment, fontSize: 20, fontWeight: '800' },
+  totalLabel: { color: brand.bone, fontSize: 10 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   badgeWrap: { width: 44, height: 44 },
-  badge: { position: 'absolute', top: 0, right: 0, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: radius.pill, backgroundColor: stateColor.error, alignItems: 'center', justifyContent: 'center' },
-  badgeCount: { color: brand.parchment, fontSize: 11, fontWeight: '800' },
-  modeRow: { flexDirection: 'row', justifyContent: 'center', paddingBottom: space.xs },
-  modeGlyph: { width: 48, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm },
-  modeGlyphSelected: { backgroundColor: 'rgba(201,163,74,0.18)' },
+  badge: { position: 'absolute', top: 0, right: -4, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: radius.pill, backgroundColor: accent.DEFAULT, alignItems: 'center', justifyContent: 'center' },
+  badgeCount: { color: brand.ink, fontSize: 11, fontWeight: '800' },
+  modeRow: { flexDirection: 'row', justifyContent: 'center', gap: 2 },
+  modeGlyph: { minWidth: 88, height: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: radius.sm },
+  modeGlyphSelected: { backgroundColor: 'rgba(201,163,74,0.26)' },
+  modeText: { color: brand.parchment, fontSize: 11, fontWeight: '700' },
+  modeTextSelected: { color: accent.DEFAULT },
 
   banner: { position: 'absolute', left: space.md, right: space.md },
   bannerText: { backgroundColor: surface.raised, borderRadius: radius.md, padding: space.sm, overflow: 'hidden' },
   settings: { position: 'absolute', left: space.md, right: space.md },
+  settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: SHEET_DARK, borderTopLeftRadius: radius.md, borderTopRightRadius: radius.md, paddingLeft: space.md },
+  settingsTitle: { color: brand.parchment, fontSize: 15, fontWeight: '700' },
 
-  idle: { position: 'absolute', left: 0, right: 0, bottom: 150, alignItems: 'center', gap: space.sm },
-  scanPill: { flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44, paddingHorizontal: space.xl, borderRadius: radius.pill, backgroundColor: accent.DEFAULT },
-  scanPillText: { color: text.onAccent, fontSize: 16, fontWeight: '700' },
-  hint: { color: brand.parchment, fontSize: 17, fontWeight: '600', marginTop: space.lg, textAlign: 'center' },
-  hintSmall: { color: brand.bone, fontSize: 13, textAlign: 'center' },
+  bottomArea: { position: 'absolute', left: space.md, right: space.md, alignItems: 'center' },
+  bottomHint: { color: brand.parchment, fontSize: 12, fontWeight: '600', marginBottom: space.sm, backgroundColor: BAR_DARK, paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.sm, overflow: 'hidden' },
+  bottomControls: { width: '100%', height: 56, flexDirection: 'row', alignItems: 'center', gap: space.xs, backgroundColor: BAR_DARK, borderRadius: radius.md, padding: 4 },
+  captureButton: { flex: 1, height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs, backgroundColor: accent.DEFAULT, borderRadius: radius.sm },
+  captureText: { color: text.onAccent, fontSize: 15, fontWeight: '800' },
+  autoLabel: { flex: 1, height: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs },
+  autoText: { color: brand.parchment, fontSize: 13, fontWeight: '700' },
+  bottomAction: { height: 48, minWidth: 64, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 2, borderRadius: radius.sm, paddingHorizontal: 5 },
+  bottomActionOn: { backgroundColor: 'rgba(201,163,74,0.24)' },
+  disabledAction: { opacity: 0.35 },
+  bottomActionText: { color: brand.parchment, fontSize: 12, fontWeight: '700' },
+  foilGlyph: { width: 34, height: 34 },
 
-  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md, paddingTop: space.md, backgroundColor: SHEET_DARK },
-  thumb: { width: 50, height: 72, borderRadius: radius.sm },
-  thumbPlaceholder: { width: 50, height: 72, borderRadius: radius.sm, backgroundColor: 'rgba(245,237,224,0.12)' },
+  sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: space.xs, paddingHorizontal: space.md, paddingTop: space.sm },
+  resultCard: { flexDirection: 'row', alignItems: 'center', gap: space.sm, backgroundColor: SHEET_DARK, borderRadius: radius.lg, padding: space.sm },
+  thumb: { width: 52, height: 74, borderRadius: radius.sm },
+  thumbPlaceholder: { width: 52, height: 74, borderRadius: radius.sm, backgroundColor: 'rgba(245,237,224,0.12)' },
   sheetBody: { flex: 1, justifyContent: 'center', gap: 3 },
-  sheetStatus: { color: stateColor.success, fontSize: 10, letterSpacing: 0.8, fontWeight: '800' },
-  sheetName: { color: brand.parchment, fontSize: 16, fontWeight: '800' },
+  sheetStatus: { color: accent.DEFAULT, fontSize: 9, letterSpacing: 0.8, fontWeight: '800' },
+  sheetName: { color: brand.parchment, fontSize: 14, fontWeight: '800' },
   sheetCaption: { color: brand.bone, fontSize: 11 },
+  setLine: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  setBadge: { borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: 4, fontSize: 10, fontWeight: '800' },
+  price: { color: brand.parchment, fontSize: 12, fontWeight: '700' },
   sheetNote: { color: brand.bone, fontSize: 13 },
-  plusTile: { minWidth: 44, height: 72, paddingHorizontal: space.sm, borderRadius: radius.md, backgroundColor: 'rgba(245,237,224,0.12)', alignItems: 'center', justifyContent: 'center' },
-  plusText: { color: brand.parchment, fontSize: 15, fontWeight: '800' },
-  addTile: { minWidth: 56, height: 72, paddingHorizontal: space.sm, borderRadius: radius.md, backgroundColor: accent.DEFAULT, alignItems: 'center', justifyContent: 'center' },
-  addText: { color: text.onAccent, fontSize: 15, fontWeight: '800' },
-  foilTile: { width: 66, height: 72, borderRadius: radius.md, backgroundColor: FOIL_PURPLE, alignItems: 'center', justifyContent: 'center', gap: 3 },
-  foilTileOn: { backgroundColor: FOIL_PURPLE_ON },
-  foilTileOff: { opacity: 0.45 },
-  foilText: { color: brand.parchment, fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
 
   picker: { position: 'absolute', left: space.md, right: space.md, top: '22%', backgroundColor: SHEET_DARK, borderRadius: radius.lg, padding: space.sm },
   pickerHeader: { flexDirection: 'row', alignItems: 'center', paddingLeft: space.sm },

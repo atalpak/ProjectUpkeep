@@ -32,11 +32,11 @@ function DeckVisibilityToggle({ deck, dark }: { deck: Location; dark: boolean })
         type="submit"
         role="switch"
         aria-checked={on}
-        aria-label={on ? `Stop sharing ${deck.name} with friends` : `Share ${deck.name} with friends`}
+        aria-label={on ? `Make ${deck.name} private` : `Make ${deck.name} public`}
         title={
           on
-            ? "Accepted friends can see this deck's list. Click to make it private again."
-            : "Private. Click to let accepted friends see this deck's card list."
+            ? "This deck list is visible to accepted friends. Click to make it private."
+            : "Private. Click to make this deck list visible to accepted friends."
         }
         className={cx(
           "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors coarse:min-h-11",
@@ -64,7 +64,7 @@ function DeckVisibilityToggle({ deck, dark }: { deck: Location; dark: boolean })
             )}
           />
         </span>
-        {on ? "Shared with friends" : "Private"}
+        {on ? "Public" : "Private"}
       </button>
     </form>
   );

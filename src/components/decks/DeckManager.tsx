@@ -14,6 +14,7 @@ import type { DeckSummary } from "@/lib/collection/queries";
 /** The deck list, plus the form for starting a new one. */
 export function DeckManager({ decks }: { decks: DeckSummary[] }) {
   const [state, action, pending] = useActionState(createDeck, EMPTY_DECK_STATE);
+  const [view, setView] = useState<"tiles" | "list">("tiles");
 
   return (
     <div className="space-y-5">
@@ -43,12 +44,67 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
           collection — those copies stop counting as available.
         </EmptyState>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {decks.map((deck) => (
-            <DeckCard key={deck.id} deck={deck} />
-          ))}
-        </div>
+        <>
+          <div className="flex justify-end">
+            <div className="inline-flex overflow-hidden rounded-md border border-border">
+              {(["tiles", "list"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setView(option)}
+                  aria-pressed={view === option}
+                  className={cx(
+                    "px-2.5 py-1.5 text-xs font-medium capitalize transition-colors",
+                    view === option ? "bg-accent text-accent-ink" : "hover:bg-surface-muted",
+                  )}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {view === "tiles" ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {decks.map((deck) => <DeckCard key={deck.id} deck={deck} />)}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {decks.map((deck) => <DeckListRow key={deck.id} deck={deck} />)}
+            </div>
+          )}
+        </>
       )}
+    </div>
+  );
+}
+
+function DeckListRow({ deck }: { deck: DeckSummary }) {
+  const complete = deck.cardCount > 0 && deck.sleevedCount >= deck.cardCount;
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3">
+      <div className="min-w-0 flex-1">
+        <Link href={`/decks/${deck.id}`} className="block truncate font-medium hover:underline">
+          {deck.name}
+        </Link>
+        <p className="truncate text-xs text-ink-muted">
+          {deck.commanderName ?? `${deck.uniqueCount} unique cards`}
+          {deck.format ? ` · ${deck.format}` : ""}
+        </p>
+        {deck.tags.length > 0 ? (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {deck.tags.map((tag) => (
+              <span key={tag} className="rounded-full border border-border bg-surface-muted px-1.5 py-0.5 text-[10px] leading-tight text-ink-muted">
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <span className="shrink-0 text-right text-xs tabular-nums text-ink-muted">
+        {complete ? "Ready to play" : `${deck.sleevedCount} / ${deck.cardCount} sleeved`}
+      </span>
+      <DeleteDeckButton deckId={deck.id} deckName={deck.name} dark={false} />
     </div>
   );
 }
@@ -59,10 +115,8 @@ export function DeckManager({ decks }: { decks: DeckSummary[] }) {
  * (`artCropUrl` in `@/lib/collection/art`) already give a deck: the
  * commander's art crop washes the whole tile behind a flat dark scrim, so a
  * grid of decks reads as a shelf of distinct covers rather than a stack of
- * identical grey cards. Four fit a row on desktop (`xl:grid-cols-4` on the
- * parent grid) because there is no room left for anything but the essentials
- * once the tile is that compact: name, commander (or unique-card count),
- * and how much of the list is actually sleeved.
+ * identical grey cards. The wider tile grid leaves enough room for the deck's
+ * tags and progress at a glance.
  *
  * Delete stays behind the ⋯ menu: still one click away, never the loudest
  * thing on the tile.
@@ -73,11 +127,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
   const art = artCropUrl(deck.commanderImage);
 
   return (
-    // aspect-[9/8], not the [3/4] a Magic card's own proportions would suggest —
-    // a full card's worth of height left the name/progress row fighting the art
-    // for space. 9/8 trims that by a third while staying tall enough for the art
-    // to still read as art rather than a sliver.
-    <div className="relative aspect-[9/8] overflow-hidden rounded-2xl border border-border transition-colors hover:border-accent/50">
+    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-border transition-colors hover:border-accent/50">
       {art ? (
         <>
           <Image
@@ -149,9 +199,19 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
         </div>
 
         <div className="space-y-1.5">
-          <p className="truncate font-display text-xl font-bold leading-tight tracking-tight">
+          <p className="truncate font-display text-lg font-bold leading-tight tracking-tight">
             {deck.name}
           </p>
+
+          {deck.tags.length > 0 ? (
+            <div className="flex max-h-9 flex-wrap gap-1 overflow-hidden">
+              {deck.tags.map((tag) => (
+                <span key={tag} className={cx("rounded-full border px-1.5 py-0.5 text-[10px] leading-tight", art ? "border-white/35 bg-black/20 text-white/90" : "border-border bg-surface/80 text-ink-muted")}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {deck.cardCount > 0 ? (
             <div className="space-y-1">

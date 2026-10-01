@@ -252,7 +252,7 @@ function ItemColumn({ title, items }: { title: string; items: TradeSideItem[] })
 function ItemRow({ item }: { item: TradeSideItem }) {
   // The snapshot is the identity; the live instance only adds nothing new here.
   const card = item.card;
-  const preview = useCardPreview(card);
+  const preview = useCardPreview(card, { finish: item.finish });
   const dp = displayPrice(card, item.finish ?? "nonfoil");
 
   return (

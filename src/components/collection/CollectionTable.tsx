@@ -221,11 +221,10 @@ export function CollectionTable({
         </p>
 
         <div className="flex flex-1 items-center justify-end gap-2">
-          {/* Sorting lives in the column headers, which the stacked mobile list
-              does not have — so below sm it gets a control of its own rather
-              than losing the ability entirely. Only meaningful in table view:
-              the image grid has no headers to sort under to begin with. */}
-          <div className={cx("min-w-0 max-w-44 flex-1 sm:hidden", view !== "table" && "hidden")}>
+          {/* The table uses sortable headers except on small screens, where
+              this picker stands in for them. Image view has no headers, so it
+              keeps the picker at every size. */}
+          <div className={cx("min-w-0 max-w-44 flex-1", view === "table" && "sm:hidden")}>
             <Select
               aria-label="Sort by"
               className="text-xs"
@@ -502,7 +501,7 @@ function MobileRow({
   onReprintToggle: () => void;
 }) {
   const card = row.cards;
-  const preview = useCardPreview(card);
+  const preview = useCardPreview(card, { finish: row.finish });
   const { open } = useCardPanel();
 
   return (
@@ -625,10 +624,7 @@ function Row({
   onReprintToggle: () => void;
 }) {
   const card = row.cards;
-  // imageOnly: the table row is dense and already names the card in text, so
-  // a hover only needs to answer "what does this look like" instantly — the
-  // full write-up is one click away via the same button's onClick.
-  const preview = useCardPreview(card, { imageOnly: true, finish: row.finish });
+  const preview = useCardPreview(card, { finish: row.finish });
 
   return (
     <>

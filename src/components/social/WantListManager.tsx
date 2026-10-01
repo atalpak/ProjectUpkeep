@@ -332,7 +332,7 @@ function AddWant() {
   const readyCount = drafts.filter((d) => d.card !== null).length;
 
   return (
-    <Panel className="space-y-4">
+    <Panel className="space-y-3">
       <div className="space-y-1">
         <span className="text-xs font-medium text-ink-muted">Add a card to your wish list</span>
         <Input
@@ -381,7 +381,7 @@ function AddWant() {
       ) : null}
 
       {drafts.length > 0 ? (
-        <ul className="space-y-2">
+        <ul className="space-y-1.5">
           {drafts.map((draft) => (
             <DraftRowView
               key={draft.draftId}
@@ -394,14 +394,14 @@ function AddWant() {
         </ul>
       ) : null}
 
-      <form action={action} className="flex flex-wrap items-center gap-3">
+      <form action={action} className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="rows" value={rowsJson} />
         {/* Deliberately bigger than a normal action button — this now commits
             everything queued above, not one quick add. */}
         <Button
           type="submit"
           disabled={pending || readyCount === 0}
-          className="px-6 py-3 text-base"
+          className="px-4 py-2 text-sm"
         >
           {pending
             ? "Adding…"
@@ -431,51 +431,53 @@ function DraftRowView({
 }) {
   const { card } = draft;
   const price = card ? displayPrice(card, "nonfoil") : null;
+  const imageUri = card?.image_uri ?? card?.image_uri_small;
 
   return (
-    <li className="rounded-lg border border-border bg-surface p-3">
-      <div className="flex gap-3">
+    <li className="rounded-lg border border-border bg-surface p-2">
+      <div className="flex gap-2">
         <CardPreviewTarget
           card={card ?? undefined}
-          className="relative block aspect-[488/680] w-12 shrink-0 overflow-hidden rounded border border-border bg-surface-muted"
+          className="relative block aspect-[488/680] w-11 shrink-0 overflow-hidden rounded-md border border-border bg-surface-muted shadow-sm"
         >
-          {card?.image_uri_small ? (
+          {imageUri ? (
             <Image
-              src={card.image_uri_small}
+              src={imageUri}
               alt=""
               fill
-              sizes="3rem"
-              className="object-cover"
+              sizes="2.75rem"
+              className="object-cover object-top"
+              loading="eager"
               unoptimized
             />
           ) : null}
         </CardPreviewTarget>
 
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="font-medium">{card ? card.name : draft.name}</span>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{card ? card.name : draft.name}</span>
             {price && price.value !== null ? (
-              <span className="text-xs tabular-nums text-ink-muted">
+              <span className="shrink-0 text-xs tabular-nums text-ink-muted">
                 {price.approximate ? "~" : ""}
                 {formatPrice(price.value)}
               </span>
             ) : null}
 
-            <div className="ml-auto flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
                 onClick={() => onQuantityChange(draft.quantity - 1)}
                 disabled={draft.quantity <= 1}
-                className="size-7 rounded border border-border text-sm disabled:opacity-40 coarse:size-11"
+                className="size-6 rounded border border-border text-xs disabled:opacity-40"
                 aria-label={`One fewer ${draft.name}`}
               >
                 −
               </button>
-              <span className="w-6 text-center text-sm tabular-nums">{draft.quantity}</span>
+              <span className="w-5 text-center text-xs tabular-nums">{draft.quantity}</span>
               <button
                 type="button"
                 onClick={() => onQuantityChange(draft.quantity + 1)}
-                className="size-7 rounded border border-border text-sm coarse:size-11"
+                className="size-6 rounded border border-border text-xs"
                 aria-label={`One more ${draft.name}`}
               >
                 +
@@ -498,17 +500,20 @@ function DraftRowView({
               value={card.scryfall_id}
               onChange={onSwitchPrinting}
               label={`Printing of ${draft.name}`}
-              className="w-full max-w-sm"
+              className="w-full max-w-lg"
+              compact
             />
+          ) : draft.printings === null ? (
+            <p className="text-[11px] text-ink-muted">Loading printings…</p>
           ) : null}
 
-          <div className="text-sm">
+          <div className="text-xs">
             {!card ? (
-              <span className="text-ink-muted">Loading…</span>
+              <span className="text-ink-muted">Loading card…</span>
             ) : draft.loadingSuppliers ? (
               <span className="text-ink-muted">Checking your circle…</span>
             ) : draft.suppliers.length === 0 ? (
-              <span className="text-ink-muted">No one in your circle has this open for trade.</span>
+              <span className="text-ink-muted">No one in your circle has this for trade.</span>
             ) : (
               <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                 <Badge>Available</Badge>

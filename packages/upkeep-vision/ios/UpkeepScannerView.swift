@@ -145,6 +145,17 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       sessionQueue.async { [weak self] in self?.applyPreset() }
     }
   }
+  public var manualCaptureOnly = false {
+    didSet {
+      guard manualCaptureOnly != oldValue else { return }
+      // A card held through a mode change must not inherit the previous
+      // mode's release gate or stability history.
+      frameQueue.async { [weak self] in self?.resetTracking() }
+    }
+  }
+  public var torchEnabled = false {
+    didSet { sessionQueue.async { [weak self] in self?.applyTorch() } }
+  }
   private var awaitingRelease = false
   /// Bumped whenever a locked card stops being "the card": released, swapped,
   /// or the scanner stopped. A quick-scan read waiting out its green hold
@@ -235,6 +246,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
       self.session.startRunning()
       // Starting can reset what was configured before it ran.
       if let device = self.captureDevice { self.configureDevice(device) }
+      self.applyTorch()
     }
   }
 
@@ -242,6 +254,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     frameQueue.async { self.resetTracking() }
     sessionQueue.async { [weak self] in
       guard let self else { return }
+      self.setTorch(false)
       self.output.setSampleBufferDelegate(nil, queue: nil)
       if self.session.isRunning { self.session.stopRunning() }
     }
@@ -275,6 +288,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     session.commitConfiguration()
 
     configureDevice(device)
+    applyTorch()
     DispatchQueue.main.async { self.orientPreview() }
     configured = true
     return true
@@ -319,6 +333,17 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
     if device.isExposurePointOfInterestSupported { device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) }
     device.videoZoomFactor = zoomFactor(for: device)
+  }
+
+  private func applyTorch() { setTorch(active && torchEnabled) }
+
+  private func setTorch(_ enabled: Bool) {
+    guard let device = captureDevice, device.hasTorch,
+          (try? device.lockForConfiguration()) != nil else { return }
+    defer { device.unlockForConfiguration() }
+    if enabled {
+      if device.torchMode != .on { try? device.setTorchModeOn(level: AVCaptureDevice.maxAvailableTorchLevel) }
+    } else if device.torchMode != .off { device.torchMode = .off }
   }
 
   private func zoomFactor(for device: AVCaptureDevice) -> CGFloat {
@@ -449,7 +474,7 @@ public final class UpkeepScannerView: ExpoView, AVCaptureVideoDataOutputSampleBu
     updateOutline(tracker.shown)
     // Only the card the outline is following may be read, so what is read is
     // always what the player sees outlined.
-    guard let card, let corners, steady, tracker.follows(corners) else { return }
+    guard !manualCaptureOnly, let card, let corners, steady, tracker.follows(corners) else { return }
     let centre = CGPoint(x: card.boundingBox.midX, y: card.boundingBox.midY)
     if awaitingRelease {
       guard let previous = lastReadCentre,

@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { LANGUAGES, type Finish } from '@upkeep/scan-core';
+import { LANGUAGES } from '@upkeep/scan-core';
 import { Choices } from './ui';
 import { accent, border, fontFamily, radius, space, surface, text as textColor } from '../theme';
 import { makeStyles } from '../preferences';
 
 /**
  * The scanner's quick options — modeled on ManaBox's own quick-controls row:
- * a foil/normal toggle, a set-lock chip, a language chip and a quantity
+ * a set-lock chip, a language chip and a quantity
  * stepper. These set the defaults the NEXT read uses; they never touch a card
- * already staged (that's the sheet's FOIL/+1 controls for the card just
- * scanned, or the pencil edit in the session-review screen).
+ * already staged (that's the footer's F/+1 controls for the last card,
+ * or the edit controls in the session-review screen).
  *
  * As of the 2026-09-18 live-scanner rebuild this is shown from the top bar's
  * settings icon rather than pinned above the preview: a full-bleed camera
@@ -18,10 +18,8 @@ import { makeStyles } from '../preferences';
  * and these are set-once-per-session options, not per-card ones.
  */
 export function ScanQuickBar({
-  finish, onSelectFinish, language, onSelectLanguage, lockedSetCode, canLock, onToggleLock, quantity, onChangeQuantity,
+  language, onSelectLanguage, lockedSetCode, canLock, onToggleLock, quantity, onChangeQuantity,
 }: {
-  finish: Finish | undefined;
-  onSelectFinish(finish: Finish): void;
   language: string | undefined;
   onSelectLanguage(language: string): void;
   lockedSetCode: string | null;
@@ -45,12 +43,6 @@ export function ScanQuickBar({
         </View>
       )}
       <View style={styles.bar}>
-        <Choices
-          values={['nonfoil', 'foil']}
-          selected={finish}
-          onSelect={v => onSelectFinish(v as Finish)}
-          labels={{ nonfoil: 'Normal', foil: 'Foil' }}
-        />
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ disabled: !canLock && !lockedSetCode, selected: !!lockedSetCode }}

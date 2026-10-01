@@ -433,6 +433,7 @@ function RecentlyAdded({ summary }: { summary: Summary }) {
             <li key={instance.id}>
               <CardPreviewLink
                 card={card}
+                finish={instance.finish}
                 href={`/collection?q=${encodeURIComponent(card?.name ?? "")}`}
                 className="group block"
               >

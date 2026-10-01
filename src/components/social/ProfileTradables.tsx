@@ -170,7 +170,7 @@ export function ProfileTradables({
 
 function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
   const card = row.cards;
-  const preview = useCardPreview(card);
+  const preview = useCardPreview(card, { finish: row.finish });
   const face = useCardFace(card, "normal");
   const image = face.image;
 
@@ -211,7 +211,7 @@ function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
 
 function TradableRow({ row }: { row: CardInstanceWithCard }) {
   const card = row.cards;
-  const preview = useCardPreview(card);
+  const preview = useCardPreview(card, { finish: row.finish });
 
   return (
     <div className="flex items-center gap-2 px-3 py-2">

@@ -466,7 +466,11 @@ export const getLocationTree = async (): Promise<{
   const supabase = await createClient();
 
   const owner = await ownerId();
-  const [{ data: locations, error: locError }, { data: instances, error: instError }, peekRows] =
+  const [
+    { data: locations, error: locError },
+    { data: instances, error: instError },
+    peekRows,
+  ] =
     await Promise.all([
       supabase.from("locations").select("*").eq("user_id", owner).order("name", { ascending: true }),
       supabase.from("card_instances").select("location_id, quantity").eq("owner_user_id", owner),
@@ -485,7 +489,6 @@ export const getLocationTree = async (): Promise<{
 
   if (locError) throw new Error(`Could not load locations: ${locError.message}`);
   if (instError) throw new Error(`Could not load collection: ${instError.message}`);
-
   const { tree, unsortedCount } = summarise(
     (locations ?? []) as Location[],
     (instances ?? []) as CountableInstance[],

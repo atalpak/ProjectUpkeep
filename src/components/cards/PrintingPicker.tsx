@@ -80,6 +80,7 @@ export function PrintingPicker({
   onChange,
   label,
   className,
+  compact = false,
 }: {
   printings: PrintingOption[];
   value: string;
@@ -87,6 +88,8 @@ export function PrintingPicker({
   /** Accessible name for the button, e.g. "Printing of Lightning Bolt". */
   label: string;
   className?: string;
+  /** A single-line selector for compact draft rows; the option list remains detailed. */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const listId = useId();
@@ -132,7 +135,14 @@ export function PrintingPicker({
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5 text-left transition-colors hover:bg-surface-muted coarse:min-h-11"
       >
-        <PrintingRow printing={selected} />
+        {compact ? (
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-medium">{printingSummary(selected).title}</span>
+            <span className="block truncate text-[11px] text-ink-muted">{printingSummary(selected).detail}</span>
+          </span>
+        ) : (
+          <PrintingRow printing={selected} />
+        )}
         <svg
           aria-hidden="true"
           viewBox="0 0 24 24"
