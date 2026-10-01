@@ -282,10 +282,10 @@ export function CardPanelProvider({ children }: { children: React.ReactNode }) {
   const entry = activeId ? cards[activeId] : undefined;
   const imageEntry = activeId ? images[activeId] : undefined;
   const imageUrl =
-    typeof imageEntry === "string"
-      ? imageEntry
-      : imageEntry === "missing"
-        ? null
+    imageEntry === "missing"
+      ? null
+      : typeof imageEntry === "string"
+        ? imageEntry
         : entry && entry !== "missing"
           ? entry.image_uri ?? entry.image_uri_small
           : null;
