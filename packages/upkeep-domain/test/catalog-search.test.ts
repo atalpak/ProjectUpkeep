@@ -68,6 +68,14 @@ test("builder: grouped OR, separate clauses, colorless, no hidden paper/prefer",
   assert.equal(builderToQuery({ sets: ["lea", "leb"], rarities: ["r"] }), "(e:lea or e:leb) r:r");
   assert.equal(builderToQuery({ oracle: { value: 'say "hi"', mode: "phrase" } }), 'o:"say \\"hi\\""');
   assert.equal(builderToQuery({ oracle: { value: "draw card", mode: "words" } }), "o:draw o:card");
+  const tags = [
+    { id: "1", label: "Activated ability", slug: "activated-ability" },
+    { id: "2", label: "Spot removal", slug: "spot-removal" },
+    { id: "", label: "", slug: "" },
+  ];
+  assert.equal(builderToQuery({ oracleTags: tags }), "otag:activated-ability otag:spot-removal");
+  assert.equal(builderToQuery({ oracleTags: tags, oracleTagMatch: "any" }), "(otag:activated-ability or otag:spot-removal)");
+  assert.equal(builderToQuery({ oracleTags: [tags[2]!] }), "");
   assert.equal(builderToQuery({ name: { value: "Sol Ring", mode: "phrase", exact: true } }), '!"Sol Ring"');
   assert.equal(builderToQuery({ lore: { value: "urza", mode: "words" } }), "lore:urza");
   assert.equal(builderToQuery({ stats: [{ field: "mv", op: ">=", value: "2" }, { field: "mv", op: "<=", value: "4" }] }),

@@ -11,10 +11,12 @@ export function OracleTagPicker({
   selectedId,
   initialLabel,
   onChange,
+  inputLabel = "Oracle tag",
 }: {
   selectedId: string;
   initialLabel: string;
-  onChange: (id: string, label: string) => void;
+  onChange: (id: string, label: string, slug: string) => void;
+  inputLabel?: string;
 }) {
   const [query, setQuery] = useState(initialLabel);
   const [results, setResults] = useState<TagOption[]>([]);
@@ -54,17 +56,18 @@ export function OracleTagPicker({
           setQuery(event.target.value);
           setResults([]);
           setError("");
-          onChange("", "");
+          setSyncedLabel("");
+          onChange("", "", "");
         }}
         placeholder="Search card roles or themes"
-        aria-label="Oracle tag"
+        aria-label={inputLabel}
         autoComplete="off"
       />
       {selectedId ? (
         <button
           type="button"
           className="text-xs text-accent-text underline"
-          onClick={() => { setQuery(""); onChange("", ""); }}
+          onClick={() => { setQuery(""); setSyncedLabel(""); onChange("", "", ""); }}
         >
           Clear tag
         </button>
@@ -82,7 +85,8 @@ export function OracleTagPicker({
               onClick={() => {
                 setQuery(tag.label);
                 setResults([]);
-                onChange(tag.id, tag.label);
+                setSyncedLabel(tag.label);
+                onChange(tag.id, tag.label, tag.slug);
               }}
             >
               {tag.label}
