@@ -33,3 +33,19 @@ If either feed fails, leave the tables in place and inspect its failed run.
 The loader stages and validates a complete feed before an atomic refresh; a
 failed transaction leaves the prior public rows intact. The existing printing
 sync, mobile catalog, and Oracle loader keep running independently.
+
+## Production result (2026-10-03)
+
+- PR #110 merged at `aef0c65`. Main branch CI passed, including the linked
+  production migration check, and Vercel reported a successful deployment.
+- Migrations 52 and 53 were already present in the live profile schema but
+  missing from migration history. Their columns, constraints, foreign key, and
+  featured-deck seed were checked before marking those versions applied. The
+  normal linked push then applied migration 54 alone.
+- The first manual workflow run succeeded for both new feeds: 4,560 tags,
+  235,026 tag-card links, and 79,663 distinct rulings. All three tables returned
+  rows through the public anonymous API. A tag search, matching card-link
+  lookup, and ruling read also succeeded. A second workflow run skipped both
+  unchanged exports.
+- A signed-in visual check of the collection picker and card panels remains
+  useful because the owner account was not available in this release session.
