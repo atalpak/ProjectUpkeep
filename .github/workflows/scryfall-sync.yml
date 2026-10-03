@@ -139,3 +139,20 @@ jobs:
       - name: Oracle load failed (warning only)
         if: ${{ !cancelled() && steps.oracle.outcome == 'failure' }}
         run: echo "::warning title=oracle_cards load failed::The direct-Postgres oracle_cards load failed. The printings sync and the catalog are unaffected. See the step log and the newest oracle_cards row in scryfall_sync_runs."
+
+      # Tags and rulings are independent public feeds. Their loader requires
+      # migration 54; its failure cannot interrupt printing/catalog updates.
+      - name: Load oracle tags and rulings (direct Postgres)
+        id: auxiliary
+        if: ${{ !cancelled() && env.HAS_LOADER_DB == 'true' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          SCRYFALL_SYNC_DATABASE_URL: ${{ secrets.SCRYFALL_SYNC_DATABASE_URL }}
+          SCRYFALL_SYNC_DATABASE_CA: ${{ secrets.SCRYFALL_SYNC_DATABASE_CA }}
+          SCRYFALL_CONTACT: "project-upkeep (+https://github.com/${{ github.repository }})"
+        run: npm run sync:auxiliary ${{ inputs.force && '-- --force' || '' }}
+
+      - name: Tag or ruling load failed (warning only)
+        if: ${{ !cancelled() && steps.auxiliary.outcome == 'failure' }}
+        run: echo "::warning title=Tag or ruling load failed::The printing sync and catalog are unaffected. Check the auxiliary loader log and its scryfall_sync_runs rows."

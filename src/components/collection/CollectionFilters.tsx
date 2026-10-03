@@ -22,6 +22,7 @@ import {
 import { Button, Field, Input, Select, cx } from "@/components/ui";
 import { ManaSymbol } from "@/components/ManaCost";
 import { groupLocationsByType } from "@/components/LocationSelect";
+import { OracleTagPicker } from "@/components/collection/OracleTagPicker";
 import {
   CONDITIONS,
   CONDITION_LABELS,
@@ -47,14 +48,22 @@ export function CollectionFilters({
   initial,
   locations,
   sets,
+  selectedTagLabel,
 }: {
   initial: CollectionFilter;
   locations: Location[];
   sets: Array<{ code: string; name: string }>;
+  selectedTagLabel: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<CollectionFilter>(initial);
+  const [draftTagLabel, setDraftTagLabel] = useState(selectedTagLabel);
+  const [syncedTagLabel, setSyncedTagLabel] = useState(selectedTagLabel);
+  if (syncedTagLabel !== selectedTagLabel) {
+    setSyncedTagLabel(selectedTagLabel);
+    setDraftTagLabel(selectedTagLabel);
+  }
 
   const activeCount = activeFilterCount(initial);
   const set = <K extends keyof CollectionFilter>(key: K, value: CollectionFilter[K]) =>
@@ -106,6 +115,7 @@ export function CollectionFilters({
 
   function clear() {
     setDraft(EMPTY_FILTER);
+    setDraftTagLabel("");
     router.push("/collection");
     setOpen(false);
   }
@@ -205,6 +215,17 @@ export function CollectionFilters({
                 value={draft.type}
                 onChange={(e) => set("type", e.target.value)}
                 placeholder="Creature — Goblin"
+              />
+            </Field>
+
+            <Field label="Oracle tag" hint="Choose a card role or theme from Scryfall's tags.">
+              <OracleTagPicker
+                selectedId={draft.oracleTag}
+                initialLabel={draftTagLabel}
+                onChange={(id, label) => {
+                  set("oracleTag", id);
+                  setDraftTagLabel(label);
+                }}
               />
             </Field>
           </div>

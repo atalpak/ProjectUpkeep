@@ -4575,6 +4575,72 @@ begin
   assert not exists(select 1 from public.notification_preferences where user_id='99999999-9999-4999-8999-999999999999'), 'account deletion cascades preferences';
 end $$;
 
+-- 31. Oracle tags and rulings are public catalog data, writable only by the
+-- direct loader. Feed identities may exist before the oracle_cards row does.
+reset role;
+insert into public.oracle_tags(id,label,slug,aliases,parent_ids,child_ids)
+values ('11111111-aaaa-4aaa-8aaa-111111111111','Tutor Giant','tutor-giant',
+        array['giant-tutor'],array[]::uuid[],array[]::uuid[]);
+insert into public.oracle_tag_cards(tag_id,oracle_id,weight)
+values ('11111111-aaaa-4aaa-8aaa-111111111111',
+        '33333333-aaaa-4aaa-8aaa-333333333333','median');
+insert into public.oracle_rulings(content_hash,oracle_id,source,published_at,comment)
+values (repeat('a',64),'33333333-aaaa-4aaa-8aaa-333333333333',
+        'wotc','2026-10-03','A public ruling.');
+do $$
+declare relation text; client text;
+begin
+  foreach relation in array array['oracle_tags','oracle_tag_cards','oracle_rulings'] loop
+    assert (select relrowsecurity from pg_class where oid=('public.'||relation)::regclass),
+      relation||' must enforce RLS';
+    foreach client in array array['anon','authenticated','service_role'] loop
+      assert has_table_privilege(client,'public.'||relation,'select'),
+        client||' must read '||relation;
+      assert not has_table_privilege(client,'public.'||relation,'insert'),
+        client||' must not insert '||relation;
+      assert not has_table_privilege(client,'public.'||relation,'update'),
+        client||' must not update '||relation;
+      assert not has_table_privilege(client,'public.'||relation,'delete'),
+        client||' must not delete '||relation;
+    end loop;
+  end loop;
+  assert not has_table_privilege('scryfall_loader','public.card_instances','select'),
+    'catalog loader must not read customer copies';
+end $$;
+set role anon;
+do $$
+begin
+  assert (select count(*) from public.oracle_tags)=1, 'anonymous tag read';
+  assert (select count(*) from public.oracle_tag_cards)=1, 'anonymous tag link read';
+  assert (select count(*) from public.oracle_rulings)=1, 'anonymous ruling read';
+end $$;
+reset role;
+set role scryfall_loader;
+insert into public.scryfall_sync_runs(bulk_type,status)
+values ('oracle_tags','running');
+do $$
+begin
+  begin
+    insert into public.scryfall_sync_runs(bulk_type,status)
+    values ('default_cards','running');
+    raise exception 'catalog loader forged a printing run';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+insert into public.oracle_tags(id,label,slug)
+values ('22222222-aaaa-4aaa-8aaa-222222222222','Creature','creature');
+insert into public.oracle_tag_cards(tag_id,oracle_id,weight)
+values ('22222222-aaaa-4aaa-8aaa-222222222222',
+        '33333333-aaaa-4aaa-8aaa-333333333333','strong');
+insert into public.oracle_rulings(content_hash,oracle_id,source,published_at,comment)
+values (repeat('b',64),'33333333-aaaa-4aaa-8aaa-333333333333',
+        'scryfall','2026-10-03','A second ruling.');
+delete from public.oracle_tag_cards where tag_id='22222222-aaaa-4aaa-8aaa-222222222222';
+delete from public.oracle_rulings where content_hash=repeat('b',64);
+delete from public.oracle_tags where id='22222222-aaaa-4aaa-8aaa-222222222222';
+reset role;
+
+
 rollback;
 
 \echo 'schema_test.sql: all assertions passed'

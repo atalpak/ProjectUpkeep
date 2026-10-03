@@ -16,6 +16,7 @@ import {
   applyFilter,
   filterFromParams,
   filterToParams,
+  isSqlOnly,
   matchesFilter,
   statToNumber,
   type CollectionFilter,
@@ -101,6 +102,16 @@ const f = (overrides: Partial<CollectionFilter>): CollectionFilter => ({
 test("an empty filter matches everything", () => {
   assert.equal(matchesFilter(row(), EMPTY_FILTER), true);
   assert.equal(activeFilterCount(EMPTY_FILTER), 0);
+});
+
+test("an Oracle tag survives the URL and uses the in-memory collection path", () => {
+  const id = "00155182-3099-4742-be68-f8b4ea259d78";
+  const selected = f({ oracleTag: id });
+  assert.equal(filterToParams(selected).get("tag"), id);
+  assert.equal(filterFromParams({ tag: id }).oracleTag, id);
+  assert.equal(filterFromParams({ tag: "bad" }).oracleTag, "");
+  assert.equal(activeFilterCount(selected), 1);
+  assert.equal(isSqlOnly(selected), false);
 });
 
 // ---------------------------------------------------------------------------

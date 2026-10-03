@@ -78,6 +78,8 @@ export type CollectionFilter = {
   name: string;
   /** Set code. */
   set: string;
+  /** Scryfall oracle tag UUID, such as a card role or theme. */
+  oracleTag: string;
   /** Substring match on rules text; wrap in quotes for an exact phrase. */
   oracle: string;
   /** Substring match on the type line. */
@@ -121,6 +123,7 @@ export type CollectionFilter = {
 export const EMPTY_FILTER: CollectionFilter = {
   name: "",
   set: "",
+  oracleTag: "",
   oracle: "",
   type: "",
   colors: [],
@@ -181,6 +184,9 @@ export function filterFromParams(
   return {
     name: get("q") ?? "",
     set: get("set") ?? "",
+    oracleTag: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(get("tag") ?? "")
+      ? get("tag")!
+      : "",
     oracle: get("oracle") ?? "",
     type: get("type") ?? "",
     colors: asColors(get("colors")),
@@ -212,6 +218,7 @@ export function filterToParams(filter: CollectionFilter): URLSearchParams {
 
   set("q", filter.name);
   set("set", filter.set);
+  set("tag", filter.oracleTag);
   set("oracle", filter.oracle);
   set("type", filter.type);
   if (filter.colors.length > 0) {
@@ -284,6 +291,7 @@ export const isFilterActive = (filter: CollectionFilter): boolean =>
  */
 const JS_ONLY_KEYS = [
   "oracle",
+  "oracleTag",
   "colors",
   "colorIdentity",
   "manaCost",
