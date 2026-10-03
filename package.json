@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "sync:scryfall": "tsx scripts/sync-scryfall.ts",
     "sync:oracle": "tsx scripts/sync-oracle-direct.ts",
+    "sync:auxiliary": "tsx scripts/sync-scryfall-auxiliary.ts",
     "db:reset": "npx --yes supabase db reset",
     "db:push": "npx --yes supabase db push",
     "test": "tsx --test scripts/*.test.ts",

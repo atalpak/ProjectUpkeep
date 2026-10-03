@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import {
   getAvailabilityForCards,
   getCollection,
+  getCollectionTagLabel,
   getCollectionSets,
   getLocations,
 } from "@/lib/collection/queries";
@@ -41,10 +42,11 @@ export default async function CollectionPage({
   const requestedPage = Number.parseInt(one("page") ?? "0", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 0;
 
-  const [collection, locations, sets] = await Promise.all([
+  const [collection, locations, sets, selectedTagLabel] = await Promise.all([
     getCollection(filter, { sort, page }),
     getLocations(),
     getCollectionSets(),
+    getCollectionTagLabel(filter.oracleTag),
   ]);
 
   // Has to wait for the rows: availability is only fetched for the cards on
@@ -111,7 +113,7 @@ export default async function CollectionPage({
         }
       />
 
-      <CollectionFilters initial={filter} locations={locations} sets={sets} />
+      <CollectionFilters initial={filter} locations={locations} sets={sets} selectedTagLabel={selectedTagLabel} />
 
       {collection.truncated ? (
         <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-ink-muted">

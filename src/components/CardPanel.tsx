@@ -35,6 +35,7 @@ import {
 import { formatPrice, priceFor } from "@/lib/collection/pricing";
 import { useCardPreviewMode } from "@/components/CardPreviewMode";
 import { PrintingPicker, type PrintingOption } from "@/components/cards/PrintingPicker";
+import { CardRulings } from "@/components/cards/CardRulings";
 import { FoilShine } from "@/components/FoilShine";
 import { isFlipCard } from "@/lib/cards/faces";
 import { ManaCost } from "@/components/ManaCost";
@@ -1033,6 +1034,8 @@ function CardDetail({ card, finish = null }: { card: Card; finish?: string | nul
 
       {!flippable ? <OtherHalves faces={faces} /> : null}
 
+      <CardRulings key={card.oracle_id} oracleId={card.oracle_id} />
+
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 border-t border-border pt-2 text-xs sm:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]">
         <Row label="Set">
           <span className="flex min-w-0 items-center gap-1">
@@ -1252,6 +1255,8 @@ function CardWide({ card }: { card: Card }) {
         ) : null}
 
         {!flippable ? <OtherHalves faces={faces} /> : null}
+
+        <CardRulings key={card.oracle_id} oracleId={card.oracle_id} />
 
         {/* The printing switcher sits directly under the rules text, above the
             set/number detail it belongs with. CardWide itself is keyed on the

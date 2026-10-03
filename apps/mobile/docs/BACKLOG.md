@@ -21,7 +21,7 @@ Say so again wherever it would otherwise read like invented demand.
 
 | # | Item | Ease | Impact | Status | Where |
 |---|---|---|---|---|---|
-| 1 | Daily sync: the database write is failing, not just the export step | Med | High | **Phase 0 fix proven (2026-09-24)** — first `--force` run wrote all 118,389 rows (batches shrank to 32, no failure); the next scheduled run wrote 55,946 rows, left 62,443 alone, had **zero timeouts / no batch shrinking**, and ran in 7m42s (was ~11m, failing on ~half of runs). Not "near zero" as first expected: about half of all printings change price on a given day. **Rebuild phases 1–2 shipped and live (2026-09-25, #98):** `oracle_cards` table loaded over a direct Postgres connection (session pooler, verified TLS against Supabase Root 2021 CA, least-privilege `scryfall_loader` role): 38,690 cards, legalities stored compactly, DB 344 -> 387 MB of 500. Secrets `SCRYFALL_SYNC_DATABASE_URL` and `SCRYFALL_SYNC_DATABASE_CA` are set. Still open, in the architect's order: rename `cards` -> `card_printings` behind a compatibility view named `cards` (needs a brief sync pause; protects the installed phone build), then drop the moved columns + reclaim space (~-130MB), then rulings and oracle tags (item 9), then move the printings load to COPY. Item 25 can now build on `oracle_cards.legalities` | `scripts/sync-scryfall.ts`, migrations 33, 42 |
+| 1 | Daily Scryfall sync and card storage repair | — | High | **Done (2026-09-27; rechecked 2026-10-03)** — migrations 50–51, the compatible `cards` view, exact rules overrides, and production heap compaction completed. The latest five scheduled workflows through Oct 3 succeeded; the Oct 3 printing load wrote 47,505 rows with no reported split or retry, and the Oracle load also succeeded. Direct PostgreSQL COPY for printings is optional follow-up #39. | `docs/operations/CARD_STORAGE_RELEASE.md`, `scripts/sync-scryfall.ts` |
 | 2 | ~~Collection actions still create duplicate rows outside `bulkMerge`~~ | — | — | **Done (2026-09-23)** — migration 41 (`apply_stack_rekey`) + every web call site rewired onto it | `collection/actions.ts`, `bulk-actions.ts`, `decks/actions.ts` |
 | 3 | ~~Migration 40 not applied in production~~ | — | — | **Done (2026-09-22)** — applied, PR #78 adds a CI check so it can't recur silently | — |
 | 4 | One real session on a physical iPhone | Owner only | High | Blocks ~10 other items | scanner, item 8 steps 3–4, dark mode |
@@ -29,7 +29,7 @@ Say so again wherever it would otherwise read like invented demand.
 | 6 | ~~Phone: move a copy to another binder/box from the card details sheet~~ | — | — | **Done (2026-09-23)** — unverified on a device, see item 4 | `CardDetails.tsx`, `apply_stack_move` |
 | 7 | ~~Migration 20: test the deck-list shortfall's 2nd and 3rd tiers~~ | — | — | **Done (2026-09-23)** — `schema_test.sql` section 22 | `schema_test.sql` |
 | 8 | Rest of the scanner alternate-art plan | Med | Med–High | Mostly blocked on #4 | `SCANNER_ALTERNATE_ART_PLAN.md` |
-| 9 | Import all Scryfall data, including oracle tags (otags) | Med–Hard | Med–High | Blocked on #1 | sync + schema + search |
+| 9 | Import Scryfall oracle tags and rulings; filter the collection by tag | Med–Hard | Med–High | **Doing (2026-10-03)** — migration 54, a direct bulk loader, a collection tag filter, and on-demand card rulings are implemented on `codex/oracle-tags-rulings`. Full current feeds loaded into a temporary PostgreSQL 16 database; production migration and release remain. | `supabase/migrations/00000000000054_oracle_tags_and_rulings.sql`, `scripts/sync-scryfall-auxiliary.ts`, `src/components/collection/OracleTagPicker.tsx` |
 | 10 | Mobile UI refinement brief (7 items) | Varies | Medium | All seven priorities built and merged (2026-09-24, PRs #87–#90, #93, #94). **Unverified on a device** — remaining work is the brief's visual QA checklist (small widths, large text, light/dark) on a phone, tracked under item 4 | `apps/mobile/src/theme.ts`, `components/ui.tsx`, `components/ListRow.tsx`, `AppHeader.tsx`, `MenuSheet.tsx`, `SettingsScreen.tsx` + brief |
 | 11 | Phone deck gaps: add-to-deck from card sheet, deck wish list, stats, export, playtest | Med each | Low–Med | Open — depends on owner's habits | `apps/mobile/src/screens/DeckDetailScreen.tsx` |
 | 12 | Phone quick-add straight to a deck | Easy–Med | Low–Med | Partly done | `ScanScreen.tsx` |
@@ -60,10 +60,12 @@ Say so again wherever it would otherwise read like invented demand.
 
 | 37 | Landing redesign and first-login web guided tour, replayable in Settings | Med | Medium | **Landing live (2026-09-27)** — approved binder-inspired design deployed to projectupkeep.app with twelve value propositions, light/dark support, and mobile layout verification. Onboarding remains deferred at owner request. | `docs/briefs/LANDING_ONBOARDING_REDESIGN.md`, `docs/prototypes/landing-onboarding.html` |
 | 38 | Clear the four existing lint warnings | Easy–Med | Low–Med | Ready — review the React hook dependencies and function identities before changing the effects or context memo; remove the unused import. Re-run lint, type checks, and relevant mobile tests. Added 2026-10-03 at the owner's request. | `apps/mobile/src/AppProvider.tsx`, `apps/mobile/src/screens/ScanScreen.tsx`, `src/components/decks/DeckWorkspace.tsx` |
+| 39 | Move the healthy printing sync to direct PostgreSQL COPY | Med–Hard | Low while the nightly job stays healthy | Later — optional performance work; measure a sustained write bottleneck before replacing the proven PostgREST ingest path. | `scripts/sync-scryfall.ts`, `scripts/sync-oracle-direct.ts` |
 
 Items 26–28 were added 2026-09-24 at the owner's request, appended rather than re-ranked (same rule as 24 and 25 above); all three are phone UI polish, and none has been verified on a device, per item 4.
 
 Item 38 was appended as a follow-up, not re-ranked against the existing roadmap.
+Item 39 preserves the optional direct-COPY idea after item 1 was closed; it is not a reason to interrupt the healthy nightly sync.
 
 Items 5, 6 and 8 (old numbering) are fully shipped as of 2026-09-22 (PRs #71–#76) and
 are dropped from this table — see "Owner decisions" below for what future work should
@@ -761,7 +763,7 @@ impact map and owner sign-off before implementation.
   - **Not yet started:** no implementer work has begun on item 25. This
     entry records the architect's impact map and the owner's sign-off only.
 
-- **9 (otags), re-scoped.** Otags are a real, free, official Scryfall bulk file
+- **9 (otags), re-scoped; unblocked by item 1's completed storage repair.** Otags are a real, free, official Scryfall bulk file
   (`oracle_tags`, ~5.7MB gzipped, daily, no rate limit, 99.4% coverage) — genuinely
   Moderate, not Hard. Plan unchanged: two tables keyed on the tag UUID (slugs aren't
   stable), a separate `scripts/sync-oracle-tags.ts`, a new migration, first feature a

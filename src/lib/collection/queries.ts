@@ -296,7 +296,31 @@ export async function getCollection(
   if (error) throw new Error(`Could not load collection: ${error.message}`);
 
   const loaded = ((data ?? []) as unknown as CollectionEntryRow[]).map(toCardInstanceWithCard);
-  const matchedRows = sortRows(applyFilter(loaded, filter), sort);
+  let matchedRows = applyFilter(loaded, filter);
+  if (filter.oracleTag) {
+    // One tag may cover thousands of cards. PostgREST caps each response, so
+    // keyset-page the tag links and match by Oracle ID across every printing.
+    const oracleIds = new Set<string>();
+    let after: string | null = null;
+    for (;;) {
+      let query = supabase
+        .from("oracle_tag_cards")
+        .select("oracle_id")
+        .eq("tag_id", filter.oracleTag)
+        .order("oracle_id")
+        .limit(1000);
+      if (after) query = query.gt("oracle_id", after);
+      const links = await query;
+      if (links.error) throw new Error(`Could not load oracle tag: ${links.error.message}`);
+      if (!links.data?.length) break;
+      for (const link of links.data) oracleIds.add(link.oracle_id);
+      after = links.data[links.data.length - 1].oracle_id;
+    }
+    matchedRows = matchedRows.filter((row) =>
+      Boolean(row.cards?.oracle_id && oracleIds.has(row.cards.oracle_id)),
+    );
+  }
+  matchedRows = sortRows(matchedRows, sort);
 
   const pageCount = Math.max(1, Math.ceil(matchedRows.length / pageSize));
   const page = Math.min(Math.max(0, options.page ?? 0), pageCount - 1);
@@ -315,6 +339,19 @@ export async function getCollection(
     pageCount,
     inMemory: true,
   };
+}
+
+/** Label for an active tag in a shareable collection URL. */
+export async function getCollectionTagLabel(tagId: string): Promise<string> {
+  if (!tagId) return "";
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("oracle_tags")
+    .select("label")
+    .eq("id", tagId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load oracle tag: ${error.message}`);
+  return data?.label ?? "";
 }
 
 /** Distinct sets present in the collection, for the set dropdown. */
