@@ -59,8 +59,11 @@ Say so again wherever it would otherwise read like invented demand.
 | 36 | Complete mobile catalog pagination | — | Medium | **Done (2026-09-26)** — numbered Previous/Next, owned-only navigation, errors and Retry installed; owner confirmed phone search checks working. | `SearchOverlay.tsx` |
 
 | 37 | Landing redesign and first-login web guided tour, replayable in Settings | Med | Medium | **Landing live (2026-09-27)** — approved binder-inspired design deployed to projectupkeep.app with twelve value propositions, light/dark support, and mobile layout verification. Onboarding remains deferred at owner request. | `docs/briefs/LANDING_ONBOARDING_REDESIGN.md`, `docs/prototypes/landing-onboarding.html` |
+| 38 | Clear the four existing lint warnings | Easy–Med | Low–Med | Ready — review the React hook dependencies and function identities before changing the effects or context memo; remove the unused import. Re-run lint, type checks, and relevant mobile tests. Added 2026-10-03 at the owner's request. | `apps/mobile/src/AppProvider.tsx`, `apps/mobile/src/screens/ScanScreen.tsx`, `src/components/decks/DeckWorkspace.tsx` |
 
 Items 26–28 were added 2026-09-24 at the owner's request, appended rather than re-ranked (same rule as 24 and 25 above); all three are phone UI polish, and none has been verified on a device, per item 4.
+
+Item 38 was appended as a follow-up, not re-ranked against the existing roadmap.
 
 Items 5, 6 and 8 (old numbering) are fully shipped as of 2026-09-22 (PRs #71–#76) and
 are dropped from this table — see "Owner decisions" below for what future work should
