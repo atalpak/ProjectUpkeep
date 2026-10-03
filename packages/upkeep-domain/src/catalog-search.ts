@@ -287,6 +287,8 @@ export type BuilderRow = { field: string; op: string; value: string };
 export type BuilderModel = {
   name?: BuilderText & { exact?: boolean };
   oracle?: BuilderText & { full?: boolean };
+  oracleTags?: { id: string; label: string; slug: string }[];
+  oracleTagMatch?: "all" | "any";
   types?: { include: string[]; exclude: string[]; anyOf?: boolean };
   colors?: { letters: string[]; mode: "exact" | "includes" | "atMost"; colorless?: boolean };
   identity?: { letters: string[]; mode: "exact" | "includes" | "atMost" };
@@ -307,7 +309,7 @@ export type BuilderModel = {
   order?: string;
   direction?: "asc" | "desc";
   prefer?: string;
-  /** Extra raw clauses appended verbatim (regex, tags, unknown operators). */
+  /** Extra raw clauses appended verbatim (regex and unknown operators). */
   rawTail?: string;
 };
 
@@ -334,6 +336,10 @@ export function builderToQuery(m: BuilderModel): string {
     else out.push(...v.split(/\s+/).map(quoteValue));
   }
   out.push(...words(m.oracle?.full ? "fo" : "o", m.oracle));
+  const oracleTagClauses = (m.oracleTags ?? [])
+    .filter((tag) => tag.slug.trim())
+    .map((tag) => `otag:${quoteValue(tag.slug.trim())}`);
+  out.push(...(m.oracleTagMatch === "any" ? [group(oracleTagClauses)] : oracleTagClauses));
   if (m.types) {
     const inc = m.types.include.filter(Boolean).map((t) => `t:${quoteValue(t)}`);
     out.push(...(m.types.anyOf ? [group(inc)] : inc));
