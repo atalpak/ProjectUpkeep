@@ -47,5 +47,6 @@ sync, mobile catalog, and Oracle loader keep running independently.
   rows through the public anonymous API. A tag search, matching card-link
   lookup, and ruling read also succeeded. A second workflow run skipped both
   unchanged exports.
-- A signed-in visual check of the collection picker and card panels remains
-  useful because the owner account was not available in this release session.
+- In the owner's signed-in browser, choosing the `activated ability` tag
+  filtered the collection to 201 cards (130 unique). Magnifying Glass displayed
+  three rulings, while Scene of the Crime displayed `No rulings recorded`.
