@@ -14,6 +14,7 @@ import {
 } from "@upkeep/domain";
 
 import { ManaSymbol } from "@/components/ManaCost";
+import { OracleTagPicker } from "@/components/collection/OracleTagPicker";
 import { Button, Input, Select, cx } from "@/components/ui";
 
 /**
@@ -292,6 +293,43 @@ function Builder({ model, onChange }: { model: BuilderModel; onChange: (m: Build
           onValue={(v) => patch({ oracle: { ...oracle, value: v } })} onMode={(m) => patch({ oracle: { ...oracle, mode: m } })}
           extra={<Chip on={!!oracle.full} onClick={() => patch({ oracle: { ...oracle, full: !oracle.full } })}>With reminder text</Chip>}
         />
+        <Row label="Oracle tags">
+          <div className="space-y-2">
+            {(model.oracleTags ?? []).map((tag, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <OracleTagPicker
+                    selectedId={tag.id}
+                    initialLabel={tag.label}
+                    inputLabel={`Oracle tag ${i + 1}`}
+                    onChange={(id, label, slug) => patch({
+                      oracleTags: (model.oracleTags ?? []).map((current, j) => j === i ? { id, label, slug } : current),
+                    })}
+                  />
+                </div>
+                <button
+                  type="button"
+                  aria-label={`Remove Oracle tag ${i + 1}`}
+                  onClick={() => patch({ oracleTags: (model.oracleTags ?? []).filter((_, j) => j !== i) })}
+                  className="rounded px-2 text-lg text-ink-muted hover:text-ink"
+                >×</button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => patch({ oracleTags: [...(model.oracleTags ?? []), { id: "", label: "", slug: "" }] })}
+              className="text-sm text-accent-text hover:underline"
+            >+ Add Oracle tag</button>
+            {(model.oracleTags ?? []).length > 1 ? (
+              <Segmented
+                label="Oracle tag matching"
+                value={model.oracleTagMatch ?? "all"}
+                options={[["all", "All tags"], ["any", "Any tag"]]}
+                onChange={(match) => patch({ oracleTagMatch: match })}
+              />
+            ) : null}
+          </div>
+        </Row>
         <Row label="Types">
           <div className="flex flex-wrap items-center gap-2">
             <Input aria-label="Types" value={types.include.join(", ")} onChange={(e) => patch({ types: { ...types, include: csv(e.target.value) } })} placeholder="legendary, elf" className="min-w-40 flex-1" />
