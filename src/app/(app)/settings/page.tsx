@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { createClient, getCurrentUser } from "@/lib/supabase/server";
-import { getMyTosStatus } from "@/lib/social/queries";
+import { getCurrentUser } from "@/lib/supabase/server";
+import { getMyTosStatus, getProfileDetailsById, getPublicDecks } from "@/lib/social/queries";
 import { CURRENT_TOS_VERSION, hasAcceptedTos } from "@/lib/social/tos";
 import {
   EmailForm,
@@ -11,6 +11,7 @@ import {
 } from "@/components/settings/AccountForms";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { DeleteAccountForm } from "@/components/settings/DeleteAccountForm";
+import { ProfileDetailsForm } from "@/components/settings/ProfileDetailsForm";
 import { Card as Panel, PageHeader } from "@/components/ui";
 
 export const metadata = { title: "Settings · Project Upkeep" };
@@ -27,10 +28,10 @@ export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const supabase = await createClient();
-  const [{ data: profile }, tos] = await Promise.all([
-    supabase.from("profiles").select("username, created_at").eq("id", user.id).maybeSingle(),
+  const [profile, tos, sharedDecks] = await Promise.all([
+    getProfileDetailsById(user.id),
     getMyTosStatus(),
+    getPublicDecks(user.id),
   ]);
 
   const accepted = hasAcceptedTos(tos);
@@ -44,19 +45,28 @@ export default async function SettingsPage() {
       />
 
       <Section
+        id="profile"
         title="Profile"
-        description="Your username is the only thing other users can see about you before you are friends."
+        description="Your name, avatar, bio and favorites are visible to signed-in members. Shared decks, wishes and trade cards are visible only to friends."
       >
         <UsernameForm current={profile?.username ?? ""} />
+        {profile ? (
+          <div className="border-t border-border pt-5">
+            <ProfileDetailsForm
+              profile={profile}
+              decks={sharedDecks.map(({ id, name }) => ({ id, name }))}
+            />
+          </div>
+        ) : null}
         {profile?.username ? (
           <p className="text-sm">
             <Link
               href={`/u/${encodeURIComponent(profile.username)}`}
               className="text-accent-text underline"
             >
-              View your public profile
+              View your profile
             </Link>{" "}
-            <span className="text-ink-muted">— a preview of what friends see of your trade binder.</span>
+            <span className="text-ink-muted">— see the page as yourself or preview it as a friend.</span>
           </p>
         ) : null}
       </Section>
@@ -108,7 +118,7 @@ export default async function SettingsPage() {
 
       <Section
         title="Your data"
-        description="Everything here belongs to your account and is visible only to you, except cards in a container you have marked tradable."
+        description="Your collection stays private except cards you mark tradable and decklists you share with friends. Friends can also see your wish list."
       >
         <ul className="space-y-1 text-sm">
           <li>
@@ -158,16 +168,18 @@ export default async function SettingsPage() {
 }
 
 function Section({
+  id,
   title,
   description,
   children,
 }: {
+  id?: string;
   title: string;
   description: string;
   children: React.ReactNode;
 }) {
   return (
-    <Panel className="space-y-4">
+    <Panel id={id} className="scroll-mt-24 space-y-4">
       <div>
         <h2 className="text-sm font-semibold">{title}</h2>
         <p className="mt-0.5 text-sm text-ink-muted">{description}</p>

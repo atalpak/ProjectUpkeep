@@ -7,8 +7,7 @@ import { makeStyles } from '../preferences';
 
 /**
  * The scanner's quick options — modeled on ManaBox's own quick-controls row:
- * a set-lock chip, a language chip and a quantity
- * stepper. These set the defaults the NEXT read uses; they never touch a card
+ * a language chip and a quantity stepper. These set the defaults the NEXT read uses; they never touch a card
  * already staged (that's the footer's F/+1 controls for the last card,
  * or the edit controls in the session-review screen).
  *
@@ -18,13 +17,10 @@ import { makeStyles } from '../preferences';
  * and these are set-once-per-session options, not per-card ones.
  */
 export function ScanQuickBar({
-  language, onSelectLanguage, lockedSetCode, canLock, onToggleLock, quantity, onChangeQuantity,
+  language, onSelectLanguage, quantity, onChangeQuantity,
 }: {
   language: string | undefined;
   onSelectLanguage(language: string): void;
-  lockedSetCode: string | null;
-  canLock: boolean;
-  onToggleLock(): void;
   quantity: number;
   onChangeQuantity(quantity: number): void;
 }) {
@@ -43,15 +39,6 @@ export function ScanQuickBar({
         </View>
       )}
       <View style={styles.bar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canLock && !lockedSetCode, selected: !!lockedSetCode }}
-          disabled={!canLock && !lockedSetCode}
-          onPress={onToggleLock}
-          style={[styles.chip, !!lockedSetCode && styles.chipLocked, !canLock && !lockedSetCode && styles.chipDisabled]}
-        >
-          <Text style={styles.chipText}>{lockedSetCode ? lockedSetCode.toUpperCase() : 'Lock set'}</Text>
-        </Pressable>
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ expanded: languagePickerOpen }}
@@ -79,7 +66,6 @@ const useStyles = makeStyles(() => StyleSheet.create({
   languagePicker: { marginBottom: space.sm, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, borderRadius: radius.md, padding: space.sm },
   chip: { paddingVertical: 8, paddingHorizontal: 11, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised },
   chipLocked: { backgroundColor: accent.soft, borderColor: accent.DEFAULT },
-  chipDisabled: { opacity: 0.4 },
   chipText: { fontSize: 13, fontFamily: fontFamily.bodySemiBold, fontWeight: '600', color: textColor.primary },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto' },
   stepperButton: { width: 30, height: 30, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, alignItems: 'center', justifyContent: 'center' },

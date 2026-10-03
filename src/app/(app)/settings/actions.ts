@@ -6,6 +6,7 @@ import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { validateNewPassword } from "@/lib/auth/password";
 import { reauthErrorMessage } from "@/lib/auth/reauth";
 import type { SettingsState } from "@/app/(app)/settings/action-state";
+import { AVATAR_STYLES, FAVORITE_COLORS, FAVORITE_FORMATS } from "@/lib/social/profile";
 
 /**
  * Account maintenance.
@@ -76,6 +77,72 @@ export async function updateUsername(
   // The name appears in the header, on trades and on friend requests.
   revalidatePath("/", "layout");
   return ok("Username updated.");
+}
+
+// ---------------------------------------------------------------------------
+// Member profile
+// ---------------------------------------------------------------------------
+
+export async function updateProfileDetails(
+  _prev: SettingsState,
+  formData: FormData,
+): Promise<SettingsState> {
+  const user = await getCurrentUser();
+  if (!user) return fail("You need to be signed in.");
+
+  const bio = String(formData.get("bio") ?? "").trim();
+  const avatar = String(formData.get("avatar_style") ?? "slate");
+  const formats = [...new Set(formData.getAll("favorite_formats").map(String))];
+  const colors = [...new Set(formData.getAll("favorite_colors").map(String))];
+  const featuredDeckIds = [...new Set(formData.getAll("featured_deck_ids").map((value) => String(value).trim()))];
+
+  if (bio.length > 160) return fail("Keep your bio to 160 characters or fewer.");
+  if (!AVATAR_STYLES.some((style) => style === avatar)) return fail("Choose an avatar color.");
+  if (formats.length > 3 || formats.some((format) => !FAVORITE_FORMATS.some((choice) => choice === format))) {
+    return fail("Choose up to three listed formats.");
+  }
+  if (colors.length > 5 || colors.some((color) => !FAVORITE_COLORS.some((choice) => choice === color))) {
+    return fail("Choose colors from the five mana colors.");
+  }
+  if (featuredDeckIds.length > 5 || featuredDeckIds.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+    return fail("Choose up to five shared decks.");
+  }
+
+  const supabase = await createClient();
+  if (featuredDeckIds.length > 0) {
+    const { data: decks, error: deckError } = await supabase
+      .from("locations")
+      .select("id")
+      .in("id", featuredDeckIds)
+      .eq("user_id", user.id)
+      .eq("type", "deck")
+      .eq("is_public", true);
+    if (deckError || decks?.length !== featuredDeckIds.length) {
+      return fail("Every featured deck must be yours and shared with friends.");
+    }
+  }
+
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .update({
+      bio,
+      avatar_style: avatar,
+      favorite_formats: formats,
+      favorite_colors: colors,
+      featured_deck_ids: featuredDeckIds,
+      pinned_deck_id: featuredDeckIds[0] ?? null,
+    })
+    .eq("id", user.id)
+    .select("username")
+    .single();
+
+  if (error) {
+    if (error.message.includes("featured_deck_ids")) return fail("Featured decks need database migration 53 before they can be saved.");
+    return fail(error.message);
+  }
+  revalidatePath("/settings");
+  revalidatePath(`/u/${encodeURIComponent(profile.username)}`);
+  return ok("Profile updated.");
 }
 
 // ---------------------------------------------------------------------------

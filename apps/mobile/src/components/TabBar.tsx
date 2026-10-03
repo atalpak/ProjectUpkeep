@@ -47,6 +47,7 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
 
   const order: PageId[] = [slots[0], slots[1], 'Scan', slots[2], slots[3]];
   const current = state.routes[state.index]?.name as PageId | undefined;
+  const overCamera = current === 'Scan' && app.scannerLive;
 
   function onLayout(e: LayoutChangeEvent) { setBarWidth(e.nativeEvent.layout.width); }
 
@@ -85,9 +86,9 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
       accessibilityRole="tablist"
       onLayout={onLayout}
       pointerEvents="box-none"
-      style={[styles.bar, { height: PROTRUDE + BAR_HEIGHT + bottom, paddingBottom: bottom, paddingTop: PROTRUDE, paddingHorizontal: ROW_INSET }]}
+      style={[styles.bar, overCamera && styles.cameraBar, { height: PROTRUDE + BAR_HEIGHT + bottom, paddingBottom: bottom, paddingTop: PROTRUDE, paddingHorizontal: ROW_INSET }]}
     >
-      <View pointerEvents="none" style={styles.background} />
+      <View pointerEvents="none" style={[styles.background, overCamera && styles.cameraBackground]} />
       <ScanHint visible={hintEligible && hintReady} bottom={barHeight + space.sm} onDismiss={() => setScanHintSeen(true)} />
       {order.map((page, i) => {
         const info = PAGES[page];
@@ -101,6 +102,7 @@ export function TabBar({ state, navigation, insets }: BottomTabBarProps) {
             selected={selected}
             label={info.short ?? info.title}
             iconName={selected ? info.filled : info.outline}
+            overCamera={overCamera}
             onPress={() => go(page)}
           />
         );
@@ -196,7 +198,9 @@ function ScanButton({ width, selected, onPress, onSearch, onFanOpen }: { width: 
   const hoverRef = useRef<FanOption | null>(null);
   const actions = useRef({ onPress, onSearch, onFanOpen });
   actions.current = { onPress, onSearch, onFanOpen };
-  const canQuick = scannerViewAvailable && !!permission?.granted && !app.catalogLoading && !app.demo && app.active && !app.disabled;
+  // Scan already owns the camera on its own tab; never start the bar's
+  // hold-to-scan preview over the live scanner.
+  const canQuick = !selected && scannerViewAvailable && !!permission?.granted && !app.catalogLoading && !app.demo && app.active && !app.disabled;
   const blocker = !scannerViewAvailable ? 'Quick scan needs the live scanner (iPhone).'
     : !permission ? 'Checking camera access…'
     : !permission.granted ? 'Open the Scan tab once to allow the camera.'
@@ -491,8 +495,8 @@ function FanOption({ label, icon, hovered, dx, fan }: {
   );
 }
 
-function TabBarItem({ width, selected, label, iconName, onPress }: {
-  width: number; selected: boolean; label: string; iconName: keyof typeof Ionicons.glyphMap; onPress(): void;
+function TabBarItem({ width, selected, label, iconName, overCamera, onPress }: {
+  width: number; selected: boolean; label: string; iconName: keyof typeof Ionicons.glyphMap; overCamera: boolean; onPress(): void;
 }) {
   const styles = useStyles();
   const pressed = useRef(new Animated.Value(0)).current;
@@ -510,8 +514,8 @@ function TabBarItem({ width, selected, label, iconName, onPress }: {
       style={[styles.item, width > 0 && { flex: 0, width }]}
     >
       <Animated.View style={[styles.itemPressed, { opacity: pressed }]} />
-      <Ionicons name={iconName} size={24} color={selected ? text.primary : text.secondary} />
-      <Text numberOfLines={1} style={[type.label, { color: selected ? text.primary : text.secondary, marginTop: 2 }]}>{label}</Text>
+      <Ionicons name={iconName} size={24} color={overCamera ? brand.parchment : selected ? text.primary : text.secondary} />
+      <Text numberOfLines={1} style={[type.label, { color: overCamera ? brand.parchment : selected ? text.primary : text.secondary, marginTop: 2 }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -542,6 +546,7 @@ export function ScreenFade({ children }: { children: React.ReactNode }) {
 
 const useStyles = makeStyles(() => StyleSheet.create({
   bar: { flexDirection: 'row' },
+  cameraBar: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   background: {
     position: 'absolute',
     top: PROTRUDE,
@@ -552,6 +557,7 @@ const useStyles = makeStyles(() => StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: border.hairline,
   },
+  cameraBackground: { backgroundColor: 'rgba(31,31,31,0.82)', borderTopColor: 'rgba(245,237,224,0.16)' },
   item: { flex: 1, minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   itemPressed: { position: 'absolute', top: 4, bottom: 4, left: 4, right: 4, borderRadius: radius.md, backgroundColor: surface.sunken },
   // The gold Scan button is always gold -- it is the app's primary action, not a

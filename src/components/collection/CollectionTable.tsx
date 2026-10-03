@@ -283,7 +283,7 @@ export function CollectionTable({
           {/* Below sm, one card per entry. A six-column table is 40rem wide at
               its narrowest, which on a phone is a page you read by dragging
               sideways — so that width is spent going down the screen instead. */}
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border sm:hidden">
+          <ul className="retro-frame divide-y divide-border overflow-hidden rounded-lg border border-border sm:hidden">
             {pageRows.map((row) => (
               <MobileRow
                 key={row.id}
@@ -306,7 +306,7 @@ export function CollectionTable({
             ))}
           </ul>
 
-          <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
+          <div className="retro-frame hidden overflow-x-auto rounded-lg border border-border sm:block">
             <table className="w-full min-w-[40rem] text-sm">
               <thead className="border-b border-border bg-surface-muted text-left">
                 <tr>
@@ -1395,7 +1395,7 @@ function GalleryTile({
           type="button"
           onClick={() => card && open(card)}
           disabled={!card}
-          aria-label={name}
+          aria-label={row.quantity > 1 ? `${name}, ${row.quantity} copies` : name}
           className="relative block aspect-[488/680] w-full overflow-hidden rounded-lg border border-border bg-surface-muted"
         >
           {image ? (
@@ -1411,25 +1411,23 @@ function GalleryTile({
             />
           ) : null}
           <FoilShine finish={row.finish} />
+          {row.quantity > 1 ? (
+            <span className="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-sm border border-border bg-surface-raised px-2 py-0.5 text-xs font-semibold tabular-nums text-ink shadow-sm">
+              ×{row.quantity}
+            </span>
+          ) : null}
         </button>
         {face.canFlip ? <FlipButton onFlip={face.flip} otherName={face.otherName} /> : null}
       </div>
 
-      <div className="space-y-1 text-xs">
-        <div className="flex items-center justify-between gap-1.5">
-          <p className="min-w-0 flex-1 truncate font-medium" title={name}>
-            {name}
-          </p>
-          <span className="shrink-0 font-medium tabular-nums">×{row.quantity}</span>
-        </div>
-
-        <div className="flex items-center justify-between gap-1.5">
-          <span className="flex min-w-0 items-center gap-1.5 truncate text-ink-muted">
-            <SetSymbol code={card?.set_code} size={12} />
-            <span className="truncate">{row.locations?.name ?? "Unsorted"}</span>
-          </span>
-          <PriceCell row={row} />
-        </div>
+      <div className="flex items-center justify-between gap-1.5 text-xs">
+        <span className="flex min-w-0 items-center gap-1.5 text-ink-muted">
+          <SetSymbol code={card?.set_code} size={12} />
+          <span className="shrink-0 uppercase">{card?.set_code ?? "—"}</span>
+          <span aria-hidden="true">·</span>
+          <span className="truncate" title={row.locations?.name ?? "Unsorted"}>{row.locations?.name ?? "Unsorted"}</span>
+        </span>
+        <PriceCell row={row} />
       </div>
     </li>
   );

@@ -6,26 +6,19 @@ import { useEffect, useRef, useState } from "react";
 import { signOut } from "@/app/auth/actions";
 import { allPlaytestKeys } from "@/lib/playtest/recovery";
 import { setCardPreviewMode, useCardPreviewMode } from "@/components/CardPreviewMode";
-import { toggleDarkTheme, useIsDarkTheme } from "@/components/ThemeToggle";
 import { useViewportFit } from "@/hooks/useViewportFit";
 import { cx } from "@/components/ui";
 
 /**
  * The account control in the header.
  *
- * Was a "Sign out" button sitting next to a separate username link. Now the
- * username *is* the button, and it drops down the two things you would want it
- * for: your settings, and the way out. One target instead of two, and the
- * destructive one is a click deeper rather than always on show.
+ * The username opens quick account navigation. Sign-out stays a click deeper
+ * than the everyday profile and settings links.
  *
- * The card-sidebar and theme rows joined it later: below `lg` this menu does
- * not exist at all (the drawer takes over), so it is the only place a mouse
- * user reaches those two settings without a trip to Settings' Appearance
- * section. Both go through the same read/write helpers the header's own
- * toggles use — see CardPreviewMode.tsx and ThemeToggle.tsx — rather than
- * keeping a second copy of that state here.
+ * The Explorer row remains a quick desktop preference. Theme choices live in
+ * Settings > Appearance, where all three options have visual previews.
  */
-export function AccountMenu({ label }: { label: string }) {
+export function AccountMenu({ label, username }: { label: string; username: string | null }) {
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -33,7 +26,6 @@ export function AccountMenu({ label }: { label: string }) {
   useViewportFit(open, panel, trigger);
 
   const sidebarOn = useCardPreviewMode() === "sidebar";
-  const darkOn = useIsDarkTheme();
 
   useEffect(() => {
     if (!open) return;
@@ -106,17 +98,16 @@ export function AccountMenu({ label }: { label: string }) {
             <StateBox checked={sidebarOn} />
           </button>
 
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={darkOn}
-            onClick={toggleDarkTheme}
-            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-surface-muted coarse:min-h-11"
-          >
-            Dark theme
-            <StateBox checked={darkOn} />
-          </button>
-
+          {username ? (
+            <Link
+              href={`/u/${encodeURIComponent(username)}`}
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="block border-t border-border px-3 py-2 text-sm transition-colors hover:bg-surface-muted"
+            >
+              My profile
+            </Link>
+          ) : null}
           <Link
             href="/settings"
             role="menuitem"

@@ -28,7 +28,7 @@ export default function PrivacyPage() {
 
       <div className="space-y-2">
         <h1 className="font-brand text-xl font-semibold tracking-tight">Privacy</h1>
-        <p className="text-sm text-ink-muted">Last updated: 25 September 2026</p>
+        <p className="text-sm text-ink-muted">Last updated: 30 September 2026</p>
       </div>
 
       <div className="space-y-4 text-sm leading-relaxed">
@@ -42,6 +42,9 @@ export default function PrivacyPage() {
           <ul className="list-disc space-y-1 pl-5">
             <li>
               Your email address and a username — to sign you in and let friends find you.
+            </li>
+            <li>
+              Any profile bio, avatar color, favorite formats or mana colors you choose to add.
             </li>
             <li>
               Your collection data — cards, quantities, conditions, and the physical
@@ -66,7 +69,8 @@ export default function PrivacyPage() {
           <h2 className="font-semibold">How it&rsquo;s stored</h2>
           <p>
             Account data lives in a Supabase (PostgreSQL) database with row-level security.
-            You can read your own data, friends&rsquo; tradable binders where permitted, and
+            Signed-in members can see your username and optional profile details. Friends can
+            see the decks you share, your wish list and cards you mark tradable. You can read your own data and
             redacted playtest tables whose links you hold. Local playtest recovery and preferences
             stay in your browser. Passwords are handled by Supabase Auth and are never stored by
             the app directly.
@@ -87,7 +91,7 @@ export default function PrivacyPage() {
           <p>
             No third-party analytics, no advertising, no tracking pixels. Your data is never
             sold. The playtest links you create are readable by signed-in people who have the link; other data is
-            shared only where the app describes it, such as tradable binders for friends. Cookies are used only to sign you in
+            shared only where the app describes it, including the profile and friend-only sections. Cookies are used only to sign you in
             and keep your session secure.
           </p>
         </section>

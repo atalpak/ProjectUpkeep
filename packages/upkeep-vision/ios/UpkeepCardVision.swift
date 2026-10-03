@@ -16,10 +16,10 @@ import Vision
  */
 enum UpkeepCardVision {
   /// Matches the on-screen gold corner guide, and is also the area the manual
-  /// "Scan card" button reads. One rectangle for both means what the player
+  /// single-mode camera tap reads. One rectangle for both means what the player
   /// aims at is exactly what OCR sees on a full-art card whose edge Vision
   /// cannot find. Vision's normalized space: origin bottom-left.
-  static let guideBox = CGRect(x: 0.17, y: 0.25, width: 0.66, height: 0.52)
+  static let guideBox = CGRect(x: 0.17, y: 0.267, width: 0.66, height: 0.52)
 
   /// The best card-shaped rectangle in the frame, or nil. `allowContrastRetry`
   /// is the caller's rate limiter: a card whose art runs to its border can

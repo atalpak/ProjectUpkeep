@@ -140,6 +140,15 @@ export function AppNavDrawer({ username }: { username: string | null }) {
           </nav>
 
           <div className="space-y-3 border-t border-border p-4">
+            {username ? (
+              <Link
+                href={`/u/${encodeURIComponent(username)}`}
+                onClick={close}
+                className="block rounded-md px-3 py-2.5 text-sm text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
+              >
+                My profile
+              </Link>
+            ) : null}
             {/* The account link the desktop header puts on the username. */}
             <Link
               href="/settings"

@@ -1,35 +1,28 @@
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, FlatList, Image, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CONDITIONS, LANGUAGES, finishSummary, thumbnailUri, type CardIndex, type Candidate, type CollectionDraft, type Condition, type Finish, type Printing } from '@upkeep/scan-core';
 import { isSameCard, reconcileFinish } from '@upkeep/domain';
 import { Button, Choices, Tappable, TextField } from '../components/ui';
 import { ListRow } from '../components/ListRow';
-import { MortStage } from '../mort/MortStage';
 import type { StagedCard } from './ScanScreen';
-import { border, iconButtonSize, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
+import { accent, border, duration, fontFamily, radius, space, surface, text as textColor, type as typeTokens } from '../theme';
 import { makeStyles } from '../preferences';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
 type Location = { id: string; name: string };
 
-/**
- * The session-review screen — ManaBox's "N cards scanned" overview. Nothing
- * here is written to the database: every row is a `StagedCard` still living
- * only in ScanScreen's state, so edit/delete are synchronous local mutations
- * and "Add to" is the one action that actually commits (see ScanScreen's
- * commitAll). Rendered by ScanScreen behind `sessionReviewOpen` rather than
- * a nav route, for the same reason the old ReviewCard stayed in-screen:
- * nothing here should be casually swiped away mid-review.
- *
- * This review screen focuses on edits and saving. The live scan screen fetches
- * prices for its running session value; unavailable prices stay unlabeled here.
- */
 export function ScanSessionSummary({
-  staged, locations, index, committing, onEdit, onChangePrinting, onDelete, onClear, onCommit, onAddManual, onScanMore, onMessage,
+  visible, bottom, staged, locations, index, committing, priceForRow, onEdit, onChangePrinting, onDelete, onClear, onCommit, onAddManual, onScanMore, onMessage,
 }: {
+  visible: boolean;
+  bottom: number;
   staged: StagedCard[];
   locations: Location[];
   index: CardIndex;
   committing: boolean;
+  priceForRow(item: StagedCard): number | null;
   onEdit(id: string, patch: Partial<CollectionDraft>): void;
   onChangePrinting(id: string, printing: Printing, finish: Finish): void;
   onDelete(id: string): void;
@@ -40,91 +33,98 @@ export function ScanSessionSummary({
   onMessage(text: string): void;
 }) {
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const reducedMotion = useReducedMotion();
+  const progress = useRef(new Animated.Value(0)).current;
+  const [mounted, setMounted] = useState(visible);
   const [editing, setEditing] = useState<StagedCard | null>(null);
   const [query, setQuery] = useState('');
   const [addingOpen, setAddingOpen] = useState(false);
 
-  const filtered = query.trim()
-    ? staged.filter(s => s.printing.name.toLowerCase().includes(query.trim().toLowerCase()))
+  useEffect(() => {
+    if (visible) {
+      setMounted(true);
+      Animated.timing(progress, { toValue: 1, duration: reducedMotion ? 0 : duration.quick, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    } else {
+      Animated.timing(progress, { toValue: 0, duration: reducedMotion ? 0 : duration.micro, easing: Easing.in(Easing.cubic), useNativeDriver: true })
+        .start(({ finished }) => { if (finished) { setMounted(false); setEditing(null); setAddingOpen(false); setQuery(''); } });
+    }
+    return () => progress.stopAnimation();
+  }, [visible, reducedMotion, progress]);
+
+  if (!mounted) return null;
+
+  const needle = query.trim().toLowerCase();
+  const filtered = needle
+    ? staged.filter(s => `${s.printing.name} ${s.printing.setName ?? ''} ${s.printing.setCode} ${s.printing.collectorNumber}`.toLowerCase().includes(needle))
     : staged;
+  const count = staged.reduce((sum, item) => sum + item.draft.quantity, 0);
+  const subview = addingOpen || editing;
+  const closeSubview = () => { setAddingOpen(false); setEditing(null); };
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <View style={styles.header}>
-        <MortStage size="S" />
-        <View style={styles.grow}>
-          <Text style={styles.section}>{staged.length} card{staged.length === 1 ? '' : 's'} scanned</Text>
-          <Text style={styles.body}>Nothing here is saved yet — review, then Add to your collection.</Text>
-        </View>
-        <Button secondary label="Camera" disabled={committing} onPress={onScanMore} />
-      </View>
-
-      <View style={styles.row}>
-        <TextField tone="canvas"
-          accessibilityLabel="Filter this session"
-          style={styles.grow}
-          placeholder="Filter by name"
-          value={query}
-          onChangeText={setQuery}
-        />
-        <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel="Add a card by name" disabled={committing} style={styles.addButton} onPress={() => setAddingOpen(true)}>
-          <Text style={styles.addButtonText}>+</Text>
-        </Tappable>
-      </View>
-
-      {addingOpen && (
-        <ManualAddSheet
-          index={index}
-          onAdd={printing => { onAddManual(printing); setAddingOpen(false); }}
-          onCancel={() => setAddingOpen(false)}
-        />
-      )}
-
-      {editing && (
-        <EditSheet
-          item={editing}
-          locations={locations}
-          index={index}
-          onCancel={() => setEditing(null)}
-          onSave={patch => { onEdit(editing.id, patch); setEditing(null); }}
-          onChangePrinting={(printing, finish) => { onChangePrinting(editing.id, printing, finish); setEditing(null); }}
-          onMessage={onMessage}
-        />
-      )}
-
-      {!staged.length && <Text style={styles.body}>Nothing scanned yet. Point the camera at a card, or add one by name above.</Text>}
-      {!!staged.length && !filtered.length && <Text style={styles.body}>No staged card matches "{query}".</Text>}
-      {filtered.map(item => (
-        <View key={item.id} style={styles.stagedRow}>
-          <Tappable feedback="dim" style={styles.grow} disabled={committing} onPress={() => setEditing(item)}>
-            <ListRow
-              title={item.printing.name}
-              subtitle={rowSubtitle(item)}
-              imageUri={item.printing.imageUri}
-            />
+    <View style={[styles.overlay, { top: insets.top + space.xl, bottom }]}>
+      <Animated.View style={[styles.overlayShade, { opacity: progress }]} pointerEvents="none" />
+      <Animated.View style={[styles.panel, { transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [height, 0] }) }] }]}>
+        <View style={styles.grabber} />
+        <View style={styles.panelHeader}>
+          <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={subview ? 'Back to scan list' : 'Close scan list'} style={styles.headerAction} onPress={subview ? closeSubview : onScanMore}>
+            <Ionicons name={subview ? 'arrow-back' : 'chevron-down'} size={24} color={textColor.primary} />
           </Tappable>
-          <View style={styles.rowActions}>
-            <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Edit ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => setEditing(item)}>
-              <Text style={styles.iconText}>✎</Text>
-            </Tappable>
-            <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Remove ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => onDelete(item.id)}>
-              <Text style={styles.iconText}>🗑</Text>
-            </Tappable>
-          </View>
+          <Text style={styles.panelTitle}>{addingOpen ? 'Add a card' : editing ? 'Edit scanned card' : `${count} card${count === 1 ? '' : 's'} scanned`}</Text>
+          <View style={styles.headerAction} />
         </View>
-      ))}
-
-      <View style={styles.footer}>
-        <View style={styles.grow}><Button secondary label="Clear" disabled={!staged.length || committing} onPress={onClear} /></View>
-        <View style={styles.grow}><Button label={committing ? 'Adding…' : `Add to collection (${staged.length})`} disabled={!staged.length || committing} onPress={onCommit} /></View>
-      </View>
-    </ScrollView>
+        {subview ? (
+          <ScrollView contentContainerStyle={styles.formContent} keyboardShouldPersistTaps="handled">
+            {addingOpen && <ManualAddSheet index={index} onAdd={printing => { onAddManual(printing); setAddingOpen(false); }} onCancel={closeSubview} />}
+            {editing && <EditSheet item={editing} locations={locations} index={index} onCancel={closeSubview} onSave={patch => { onEdit(editing.id, patch); setEditing(null); }} onChangePrinting={(printing, finish) => { onChangePrinting(editing.id, printing, finish); setEditing(null); }} onMessage={onMessage} />}
+          </ScrollView>
+        ) : (
+          <>
+            <View style={styles.searchRow}>
+              <View style={styles.searchField}>
+                <Ionicons name="search-outline" size={21} color={textColor.secondary} />
+                <TextInput accessibilityLabel="Search scanned cards" placeholder="Search cards" placeholderTextColor={textColor.secondary} style={styles.searchInput} value={query} onChangeText={setQuery} autoCorrect={false} />
+                {!!query && <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQuery('')}><Ionicons name="close-circle" size={19} color={textColor.secondary} /></Tappable>}
+              </View>
+              <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel="Add a card by name" disabled={committing} style={styles.addButton} onPress={() => setAddingOpen(true)}>
+                <Ionicons name="add" size={28} color={textColor.primary} />
+              </Tappable>
+            </View>
+            <FlatList
+              data={filtered}
+              keyExtractor={item => item.id}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.listContent}
+              ListEmptyComponent={<Text style={styles.emptyText}>{staged.length ? 'No scanned cards match your search.' : 'No cards scanned yet. Add one by name or return to the camera.'}</Text>}
+              renderItem={({ item }) => (
+                <View style={styles.stagedRow}>
+                  <Tappable feedback="dim" style={styles.cardMain} disabled={committing} onPress={() => setEditing(item)}>
+                    <Image source={item.printing.imageUri ? { uri: thumbnailUri(item.printing.imageUri) ?? item.printing.imageUri } : undefined} style={styles.cardImage} resizeMode="cover" />
+                    <View style={styles.cardInfo}>
+                      <Text numberOfLines={2} style={styles.cardName}>{item.draft.quantity}× {item.printing.name}</Text>
+                      <Text numberOfLines={2} style={styles.cardSet}>{item.printing.setName ?? item.printing.setCode.toUpperCase()} · {item.printing.setCode.toUpperCase()} #{item.printing.collectorNumber}</Text>
+                      <Text numberOfLines={1} style={styles.cardMeta}>{item.draft.language.toUpperCase()} · {item.draft.condition} · {item.draft.finish}{item.band === 'uncertain' ? ' · Verify printing' : ''}</Text>
+                      <Text style={styles.cardPrice}>{priceForRow(item) == null ? 'Price unavailable' : `Est. $${((priceForRow(item) ?? 0) * item.draft.quantity).toFixed(2)}`}</Text>
+                    </View>
+                  </Tappable>
+                  <View style={styles.rowActions}>
+                    <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Edit ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => setEditing(item)}><Ionicons name="create-outline" size={22} color={textColor.primary} /></Tappable>
+                    <Tappable feedback="dim" accessibilityRole="button" accessibilityLabel={`Remove ${item.printing.name}`} disabled={committing} style={styles.iconButton} onPress={() => onDelete(item.id)}><Ionicons name="trash-outline" size={21} color={textColor.secondary} /></Tappable>
+                  </View>
+                </View>
+              )}
+            />
+            <View style={styles.footer}>
+              <View style={styles.grow}><Button secondary label="Clear" disabled={!staged.length || committing} onPress={onClear} /></View>
+              <View style={styles.grow}><Button label={committing ? 'Adding…' : `Add to collection (${count})`} disabled={!staged.length || committing} onPress={onCommit} /></View>
+            </View>
+          </>
+        )}
+      </Animated.View>
+    </View>
   );
-}
-
-function rowSubtitle(item: StagedCard): string {
-  const uncertain = item.band === 'uncertain' ? ' · verify printing' : '';
-  return `${item.printing.setCode.toUpperCase()} #${item.printing.collectorNumber} · qty ${item.draft.quantity} · ${item.draft.finish}/${item.draft.condition} · ${item.draft.language.toUpperCase()}${uncertain}`;
 }
 
 /** Manual "+" add — the old idle screen's find-a-card-by-name search, moved
@@ -332,20 +332,36 @@ function sameCardPrintings(index: CardIndex, current: Printing, setCode: string,
 }
 
 const useStyles = makeStyles(() => StyleSheet.create({
-  page: { padding: space.xl, paddingBottom: 40, gap: space.md },
-  header: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  overlay: { position: 'absolute', left: 0, right: 0, zIndex: 30 },
+  overlayShade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.3)' },
+  panel: { flex: 1, backgroundColor: surface.canvas, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, overflow: 'hidden' },
+  grabber: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, marginTop: space.sm, backgroundColor: border.strong },
+  panelHeader: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.md },
+  panelTitle: { ...typeTokens.title, color: textColor.primary, textAlign: 'center', flex: 1 },
+  headerAction: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  searchRow: { flexDirection: 'row', gap: space.sm, alignItems: 'center', paddingHorizontal: space.md, paddingBottom: space.md },
+  searchField: { flex: 1, height: 46, borderRadius: radius.lg, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.md },
+  searchInput: { flex: 1, minWidth: 0, height: '100%', color: textColor.primary, fontFamily: fontFamily.body, fontSize: 16 },
+  listContent: { paddingHorizontal: space.md, paddingBottom: space.lg, flexGrow: 1 },
+  emptyText: { ...typeTokens.body, color: textColor.secondary, textAlign: 'center', paddingTop: space.xl },
+  stagedRow: { flexDirection: 'row', alignItems: 'stretch', paddingVertical: space.sm, borderBottomWidth: 1, borderBottomColor: border.hairline, gap: space.xs },
+  cardMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  cardImage: { width: 57, height: 80, borderRadius: radius.thumb, backgroundColor: surface.raised },
+  cardInfo: { flex: 1, minWidth: 0, gap: 3 },
+  cardName: { ...typeTokens.rowTitle, color: textColor.primary },
+  cardSet: { ...typeTokens.bodySm, color: textColor.secondary },
+  cardMeta: { ...typeTokens.caption, color: textColor.secondary, textTransform: 'capitalize' },
+  cardPrice: { ...typeTokens.caption, color: accent.DEFAULT },
+  rowActions: { justifyContent: 'space-between', alignItems: 'center', width: 40 },
+  iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  footer: { flexDirection: 'row', gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.sm, borderTopWidth: 1, borderTopColor: border.hairline, backgroundColor: surface.canvas },
+  formContent: { paddingHorizontal: space.md, paddingBottom: space.xl, gap: space.md },
   section: { ...typeTokens.title, color: textColor.primary },
   body: { ...typeTokens.bodySm, color: textColor.secondary },
   label: { ...typeTokens.fieldLabel, color: textColor.primary, marginTop: space.sm },
   row: { flexDirection: 'row', gap: space.sm, alignItems: 'center' },
   grow: { flex: 1 },
-  addButton: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: surface.raised, borderWidth: 1, borderColor: border.hairline, alignItems: 'center', justifyContent: 'center' },
-  addButtonText: { ...typeTokens.title, fontSize: 22, color: textColor.primary },
-  stagedRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  rowActions: { flexDirection: 'row', gap: space.xs },
-  iconButton: { width: iconButtonSize, height: iconButtonSize, borderRadius: radius.sm, borderWidth: 1, borderColor: border.hairline, backgroundColor: surface.raised, alignItems: 'center', justifyContent: 'center' },
-  iconText: { ...typeTokens.body },
-  footer: { flexDirection: 'row', gap: space.sm, marginTop: space.md },
+  addButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   sheet: { gap: space.sm, backgroundColor: surface.raised, padding: space.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: border.hairline },
   pickerRow: { borderRadius: radius.sm, borderWidth: 1, borderColor: 'transparent', padding: 2 },
   pickerRowSelected: { borderColor: border.hairline, backgroundColor: surface.canvas },

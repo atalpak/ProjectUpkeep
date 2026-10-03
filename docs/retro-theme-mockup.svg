@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 710" role="img" aria-labelledby="title description">
+  <title id="title">Project Upkeep old-world collection theme mockup</title>
+  <desc id="description">A collection page with a weathered stone header, parchment panels, engraved borders, brass yellow buttons, and readable serif lettering.</desc>
+  <defs>
+    <linearGradient id="canvas" x2="0" y2="1"><stop stop-color="#d7d4cb"/><stop offset="1" stop-color="#b9b5aa"/></linearGradient>
+    <linearGradient id="wood" x2="0" y2="1"><stop stop-color="#d9d5ca"/><stop offset="1" stop-color="#aaa496"/></linearGradient>
+    <linearGradient id="paper" x2=".2" y2="1"><stop stop-color="#faf8f2"/><stop offset="1" stop-color="#ece9e1"/></linearGradient>
+    <linearGradient id="brass" x2="0" y2="1"><stop stop-color="#e4cf92"/><stop offset="1" stop-color="#b9943e"/></linearGradient>
+    <pattern id="grain" width="11" height="11" patternUnits="userSpaceOnUse"><path d="M0 3h11M0 8h11" stroke="#5a554c" stroke-width=".3" opacity=".16"/></pattern>
+    <style>
+      text { font-family: Palatino, "Palatino Linotype", Georgia, serif; fill: #292722; }
+      .heading { font-weight: 700; font-variant: small-caps; letter-spacing: 1px; }
+      .small { font-size: 14px; }
+      .muted { fill: #575249; }
+      .inverse { fill: #faf8f2; }
+      .frame { fill: url(#paper); stroke: #514a3f; stroke-width: 4; }
+      .inner { fill: none; stroke: #b8b1a2; stroke-width: 1.5; }
+      .rule { stroke: #8a8374; stroke-width: 1.5; }
+      .button { fill: url(#brass); stroke: #514a3f; stroke-width: 2.5; }
+    </style>
+  </defs>
+  <rect width="1120" height="710" fill="url(#canvas)"/>
+  <rect width="1120" height="710" fill="url(#grain)"/>
+  <rect x="0" y="0" width="1120" height="75" fill="url(#wood)" stroke="#514a3f" stroke-width="5"/>
+  <path d="M0 5h1120M0 67h1120" stroke="#f9f7ef" stroke-width="1.5" opacity=".85"/>
+  <rect x="27" y="21" width="33" height="33" class="button"/>
+  <path d="M35 29h17M35 37h17M35 45h12" stroke="#514a3f" stroke-width="2"/>
+  <text x="73" y="47" class="heading" font-size="24">Project Upkeep</text>
+  <text x="358" y="45" class="small">Dashboard</text>
+  <rect x="452" y="19" width="112" height="37" class="button"/>
+  <text x="463" y="44" class="heading small">Collection</text>
+  <text x="580" y="45" class="small">Locations</text>
+  <text x="677" y="45" class="small">Decks</text>
+  <text x="742" y="45" class="small">Wish List</text>
+  <rect x="879" y="20" width="143" height="34" fill="#faf8f2" stroke="#514a3f" stroke-width="2"/>
+  <text x="892" y="42" class="small muted">Search cards...</text>
+  <circle cx="1062" cy="37" r="17" fill="url(#brass)" stroke="#514a3f" stroke-width="2.5"/>
+  <text x="1056" y="44" class="heading small">A</text>
+  <path d="M37 102h225M862 102h221" stroke="#8a8374" stroke-width="1.5"/>
+  <path d="M543 94l9 8-9 8-9-8z" fill="#c9a34a" stroke="#514a3f" stroke-width="1.5"/>
+  <text x="48" y="148" class="heading" font-size="38">Collection</text>
+  <text x="50" y="173" class="small muted">Find a card. Know where it lives.</text>
+  <rect x="946" y="119" width="129" height="42" class="button"/>
+  <path d="M951 123h119M951 157h119" stroke="#f6e7ba" stroke-width="1"/>
+  <text x="968" y="146" class="heading" font-size="16">+ Add cards</text>
+  <path d="M45 194h1029M45 198h1029" class="rule"/>
+  <text x="48" y="232" class="heading" font-size="18">Your Library</text>
+  <text x="985" y="232" class="small muted">124 cards</text>
+  <rect x="47" y="254" width="489" height="43" fill="#faf9f4" stroke="#514a3f" stroke-width="2.5"/>
+  <path d="M50 258h483" stroke="#bbb4a8" stroke-width="2"/>
+  <text x="64" y="281" class="small muted">Search by card name</text>
+  <rect x="552" y="254" width="140" height="43" fill="url(#paper)" stroke="#514a3f" stroke-width="2.5"/>
+  <text x="568" y="281" class="heading small">Advanced ▾</text>
+  <rect x="707" y="254" width="83" height="43" class="button"/>
+  <text x="726" y="281" class="heading small">Apply</text>
+  <rect x="941" y="254" width="64" height="43" fill="#514a3f" stroke="#38342d" stroke-width="2"/>
+  <text x="955" y="281" class="inverse" font-size="15" font-weight="700">List</text>
+  <rect x="1005" y="254" width="67" height="43" fill="url(#paper)" stroke="#514a3f" stroke-width="2"/>
+  <text x="1017" y="281" class="heading small">Grid</text>
+  <rect x="43" y="326" width="1034" height="324" fill="#625b50" opacity=".3"/>
+  <rect x="47" y="319" width="1025" height="327" class="frame"/>
+  <rect x="53" y="325" width="1013" height="315" class="inner"/>
+  <g fill="#8a8374"><circle cx="59" cy="331" r="1.5"/><circle cx="1060" cy="331" r="1.5"/><circle cx="59" cy="634" r="1.5"/><circle cx="1060" cy="634" r="1.5"/></g>
+  <rect x="55" y="327" width="1009" height="50" fill="url(#wood)"/>
+  <path d="M56 376h1008M56 378h1008" class="rule"/>
+  <text x="70" y="358" class="heading small">□</text>
+  <text x="107" y="358" class="heading small">Card Name</text>
+  <text x="562" y="358" class="heading small">Set</text>
+  <text x="744" y="358" class="heading small">Finish</text>
+  <text x="850" y="358" class="heading small">Location</text>
+  <text x="1005" y="358" class="heading small">Qty</text>
+  <g class="small">
+    <text x="70" y="416">□</text><text x="107" y="416" font-weight="700">Sol Ring</text><text x="562" y="416">Commander Legends</text><text x="744" y="416">Normal</text><text x="850" y="416">Blue binder</text><text x="1014" y="416">2</text>
+    <text x="70" y="471">□</text><text x="107" y="471" font-weight="700">Arcane Signet</text><text x="562" y="471">Commander 2021</text><text x="744" y="471">Foil ✦</text><text x="850" y="471">Deck box A</text><text x="1014" y="471">1</text>
+    <text x="70" y="526">□</text><text x="107" y="526" font-weight="700">Swords to Plowshares</text><text x="562" y="526">Double Masters</text><text x="744" y="526">Normal</text><text x="850" y="526">White binder</text><text x="1014" y="526">3</text>
+    <text x="70" y="581">□</text><text x="107" y="581" font-weight="700">Command Tower</text><text x="562" y="581">Commander Masters</text><text x="744" y="581">Normal</text><text x="850" y="581">Deck box B</text><text x="1014" y="581">1</text>
+    <text x="70" y="629">□</text><text x="107" y="629" font-weight="700">Lightning Greaves</text><text x="562" y="629">Mirrodin</text><text x="744" y="629">Normal</text><text x="850" y="629">Trade binder</text><text x="1014" y="629">1</text>
+  </g>
+  <g stroke="#8a8374" opacity=".5"><path d="M56 433h1008M56 488h1008M56 543h1008M56 598h1008"/></g>
+  <text x="47" y="687" class="small muted">RETRO THEME CONCEPT  /  PALE PARCHMENT + WEATHERED STONE + BRASS</text>
+</svg>

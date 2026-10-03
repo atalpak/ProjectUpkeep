@@ -172,6 +172,246 @@
   color-scheme: dark;
 }
 
+/* Old-world inventory styling: pale parchment, weathered stone and brass. */
+.retro {
+  --canvas: #cbc8bf;
+  --surface: #f3f0e8;
+  --surface-muted: #ddd9ce;
+  --surface-raised: #faf8f2;
+  --surface-inverse: #38352e;
+  --border: #8a8374;
+  --border-strong: #514a3f;
+  --ink: #292722;
+  --ink-muted: #575249;
+  --text-inverse: #faf8f2;
+  --accent: #c9a34a;
+  --accent-ink: #262219;
+  --accent-soft: #eee5ce;
+  --accent-text: #745311;
+  --focus-ring: #684a0e;
+  --danger: #a34134;
+  --danger-text: #8b3226;
+  --success: #49643a;
+  --warning: #c9a34a;
+  --scrim: rgb(27 25 21 / 0.72);
+  --shadow-card: inset 1px 1px 0 #fffefa, inset -2px -2px 0 #b8b1a2, 0 2px 5px #36312940;
+  --shadow-raised: inset 1px 1px 0 #fffefa, inset -3px -3px 0 #b8b1a2, 0 4px 9px #36312944;
+  color-scheme: light;
+}
+
+html.retro body {
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  background-image:
+    radial-gradient(ellipse at 50% 35%, transparent 55%, rgb(52 48 41 / 0.1)),
+    repeating-linear-gradient(112deg, transparent 0 12px, rgb(255 255 255 / 0.04) 13px 14px);
+  background-attachment: fixed;
+}
+
+html.retro .font-display,
+html.retro .font-brand {
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+html.retro :is(h2, h3) {
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  font-variant: small-caps;
+  letter-spacing: 0.025em;
+}
+
+/* Make rectangular UI genuinely square in this theme. Circular status dots,
+   mana pips and Magic card art remain outside these selectors. */
+html.retro :is(button, a, input, select, textarea, dialog, div, section, article, ul, li, form, details):is(.rounded, .rounded-sm, .rounded-md, .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl),
+html.retro :is(button, a, input, select, textarea).rounded-full,
+html.retro :is(.retro-panel, .retro-frame, .retro-control, .retro-field, .theme-choice) {
+  border-radius: 0;
+}
+
+html.retro .retro-panel,
+html.retro .retro-frame,
+html.retro dialog,
+html.retro [role="menu"] {
+  border: 3px double var(--border-strong);
+  box-shadow: var(--shadow-raised);
+  background-image: linear-gradient(140deg, rgb(255 255 255 / 0.24), transparent 48%, rgb(65 60 51 / 0.035));
+}
+
+html.retro :is(.retro-panel, .retro-frame) {
+  background-image:
+    radial-gradient(circle at 9px 9px, #8a8374 0 1px, transparent 2px),
+    radial-gradient(circle at calc(100% - 9px) 9px, #8a8374 0 1px, transparent 2px),
+    radial-gradient(circle at 9px calc(100% - 9px), #8a8374 0 1px, transparent 2px),
+    radial-gradient(circle at calc(100% - 9px) calc(100% - 9px), #8a8374 0 1px, transparent 2px),
+    linear-gradient(140deg, rgb(255 255 255 / 0.24), transparent 48%, rgb(65 60 51 / 0.035));
+}
+
+html.retro .retro-tile {
+  border: 2px solid var(--border-strong);
+  box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3px var(--border), 0 3px 6px #36312944;
+}
+
+html.retro .retro-frame { background-color: var(--surface); }
+html.retro .retro-frame thead {
+  border-bottom: 2px solid var(--border-strong);
+  background: linear-gradient(#e2ded3, #ccc6b9);
+}
+html.retro .retro-frame th {
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+  font-variant: small-caps;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+html.retro .retro-control,
+html.retro .retro-field {
+  border: 2px solid var(--border-strong);
+}
+
+html.retro .retro-control {
+  font-family: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+
+html.retro .retro-control:not(:disabled) {
+  box-shadow: inset 1px 1px 0 #fffefa, inset -2px -2px 0 #a79a80, 0 1px 2px #36312944;
+  background-image: linear-gradient(rgb(255 255 255 / 0.18), rgb(80 72 56 / 0.05));
+}
+
+html.retro .retro-control:not(:disabled):active {
+  box-shadow: inset 2px 2px 3px #4a433780;
+  transform: translateY(1px);
+}
+
+html.retro .retro-field {
+  background: #faf9f4;
+  box-shadow: inset 2px 2px 2px #4d483d26, 1px 1px 0 #fff;
+}
+
+html.retro header.sticky {
+  border-bottom: 4px double var(--border-strong);
+  background: linear-gradient(#d9d5ca, #aaa496);
+  box-shadow: inset 0 1px 0 #f9f7ef, 0 3px 7px #36312955;
+}
+
+html.retro header.sticky a[aria-current="page"] {
+  border: 1px solid var(--border-strong);
+  background: linear-gradient(#ead79b, #c9a34a);
+  box-shadow: inset 1px 1px 0 #fff6d7, inset -1px -1px 0 #947334;
+}
+
+html.retro h1.font-display {
+  font-variant: small-caps;
+  letter-spacing: 0.025em;
+  text-shadow: 1px 1px 0 #faf8f2;
+}
+
+html.retro .retro-page-header {
+  position: relative;
+  padding-bottom: 18px;
+  border-bottom: 3px double var(--border);
+}
+
+html.retro .retro-page-header::after {
+  position: absolute;
+  bottom: -6px;
+  left: calc(50% - 5px);
+  width: 10px;
+  height: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--accent);
+  content: "";
+  transform: rotate(45deg);
+}
+
+html.retro .retro-badge {
+  border-radius: 0;
+  background: var(--surface-muted);
+  box-shadow: inset 1px 1px 0 #fffefa;
+  font-family: Georgia, Cambria, "Times New Roman", serif;
+}
+
+html.retro .rounded-full.border,
+html.retro .rounded-lg.border,
+html.retro .rounded-xl.border,
+html.retro .rounded-2xl.border {
+  border-color: var(--border-strong);
+}
+
+html.retro .retro-avatar {
+  border-radius: 0;
+}
+
+/* The theme picker doubles as a quick visual mockup of the three styles. */
+.theme-choice {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.theme-choice-selected {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+html.retro .theme-choice {
+  border: 2px solid var(--border-strong);
+  border-radius: 0;
+  box-shadow: var(--shadow-card);
+}
+.theme-choice-check {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  font-size: 12px;
+}
+.theme-choice-selected .theme-choice-check {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.theme-preview {
+  display: block;
+  overflow: hidden;
+  min-height: 126px;
+  border: 1px solid var(--preview-border);
+  border-radius: var(--preview-radius);
+  background: var(--preview-bg);
+  color: var(--preview-ink);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 9px;
+  line-height: 1.2;
+}
+.theme-preview-light { --preview-bg: #f5ede0; --preview-paper: #fdf8ef; --preview-muted: #eae0cf; --preview-border: #d9d1c2; --preview-ink: #1f1f1f; --preview-accent: #c9a34a; --preview-radius: 8px; }
+.theme-preview-dark { --preview-bg: #141310; --preview-paper: #1f1f1f; --preview-muted: #2a2722; --preview-border: #4e463a; --preview-ink: #f5ede0; --preview-accent: #d9b45f; --preview-radius: 8px; }
+.theme-preview-retro { --preview-bg: #cbc8bf; --preview-paper: #f3f0e8; --preview-muted: #ddd9ce; --preview-border: #514a3f; --preview-ink: #292722; --preview-accent: #c9a34a; --preview-radius: 0px; font-family: Georgia, Cambria, "Times New Roman", serif; border: 3px double var(--preview-border); box-shadow: inset 1px 1px 0 #fffefa; }
+.theme-preview-bar {
+  display: flex;
+  height: 22px;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  border-bottom: 1px solid var(--preview-border);
+  background: var(--preview-paper);
+}
+.theme-preview-retro .theme-preview-bar { border-bottom: 3px double var(--preview-border); background: linear-gradient(#d9d5ca, #aaa496); }
+.theme-preview-bar i { width: 5px; height: 5px; border-radius: 50%; background: var(--preview-accent); }
+.theme-preview-bar b { margin-left: 5px; font-size: 8px; letter-spacing: -0.02em; }
+.theme-preview-body { display: grid; gap: 6px; padding: 12px 10px; }
+.theme-preview-title { display: flex; align-items: baseline; justify-content: space-between; font-size: 12px; font-weight: 800; }
+.theme-preview-title small { font-size: 7px; font-weight: 400; }
+.theme-preview-rule { height: 1px; background: var(--preview-border); }
+.theme-preview-retro .theme-preview-rule { height: 2px; background: linear-gradient(90deg, transparent, var(--preview-border), transparent); }
+.theme-preview-actions { display: flex; gap: 4px; }
+.theme-preview-actions em { padding: 3px 5px; border: 1px solid var(--preview-border); border-radius: var(--preview-radius); background: var(--preview-paper); font-style: normal; }
+.theme-preview-actions em:first-child { background: var(--preview-accent); color: #20201e; }
+.theme-preview-row { display: flex; justify-content: space-between; padding: 3px 5px; border: 1px solid var(--preview-border); border-radius: var(--preview-radius); background: var(--preview-paper); }
+.theme-preview-retro .theme-preview-row { border-width: 1px; box-shadow: inset 1px 1px 0 #fffefa, inset -1px -1px 0 #b8b1a2; }
+.theme-preview-retro .theme-preview-actions em:first-child { background: linear-gradient(#e4cf92, #b9943e); }
+
 /*
  * Drives the `dark:` variant off the class the toggle sets, rather than off the
  * media query. The class is applied before first paint (see ThemeScript), and

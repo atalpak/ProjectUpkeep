@@ -42,7 +42,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    // suppressHydrationWarning: ThemeScript adds `class="dark"` to <html>
+    // suppressHydrationWarning: ThemeScript adds `dark` or `retro` to <html>
     // before React hydrates, so the server and client markup differ here by
     // design. It is scoped to this element only.
     <html

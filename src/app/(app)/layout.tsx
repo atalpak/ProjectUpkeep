@@ -61,13 +61,13 @@ export default async function AppLayout({
                   visible at every width — being told about a trade is the point. */}
               <AlertsMenu unread={unread} />
 
-              {/* The username, and behind it the card-sidebar and theme
-                  switches, Settings and Log out. Below lg these live in the
+              {/* The username, and behind it the card-sidebar switch,
+                  profile, Settings and Log out. Below lg these live in the
                   drawer instead, so the bar keeps to the logo, search, alerts
                   and the hamburger. */}
-              <AccountMenu label={profile?.username ?? user.email ?? "Account"} />
+              <AccountMenu label={profile?.username ?? user.email ?? "Account"} username={profile?.username ?? null} />
 
-              <AppNavDrawer username={profile?.username ?? user.email ?? null} />
+              <AppNavDrawer username={profile?.username ?? null} />
             </div>
           </nav>
         </header>

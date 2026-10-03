@@ -15,8 +15,8 @@ import Script from "next/script";
  * code", and it does not re-run on navigation, which is what we want anyway.
  *
  * The visitor's explicit choice wins; with no stored choice we seed from the OS
- * so a first visit still looks right. The toggle itself is a plain two-state
- * switch, so once a choice is made it sticks until they change it.
+ * so a first visit still looks right. Settings can then save light, dark, or
+ * retro; the quick toggle still switches between light and dark.
  */
 export const THEME_STORAGE_KEY = "project-upkeep-theme";
 
@@ -24,10 +24,11 @@ const SCRIPT = `
 (function () {
   try {
     var stored = localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});
-    var dark = stored
-      ? stored === "dark"
-      : window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.classList.toggle("dark", dark);
+    var theme = stored === "retro" || stored === "dark" || stored === "light"
+      ? stored
+      : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.classList.toggle("retro", theme === "retro");
   } catch (e) {
     /* Private mode or blocked storage: fall through to the light default. */
   }

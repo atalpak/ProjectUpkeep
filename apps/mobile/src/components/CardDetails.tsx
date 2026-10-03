@@ -3,7 +3,7 @@ import { ActivityIndicator, Animated, Easing, FlatList, Image, Keyboard, Linking
 import * as Crypto from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, explainArt, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish, type StackMoveDraft } from '@upkeep/scan-core';
+import { CONDITIONS, ConfirmScan, FINISHES, LANGUAGES, artSwitchNow, explainArt, finishSummary, thumbnailUri, type ArtResult, type Condition, type Finish, type Printing, type StackMoveDraft } from '@upkeep/scan-core';
 import { isSameCard, reconcileFinish } from '@upkeep/domain';
 import { useApp } from '../AppProvider';
 import { reprintWriter, writer } from '../backend';
@@ -76,7 +76,7 @@ const CLOSE_DRAG_VELOCITY = 0.8;
 const CLOSE_DRAG_MIN_TRAVEL = 12;
 const OVERSCROLL_CLOSE = 70;
 
-export function CardDetails({ name, printingId, printingCheck, seed, scan, logId, ownedFinish, onChanged, onClose }: {
+export function CardDetails({ name, printingId, printingCheck, seed, scan, logId, ownedFinish, onChanged, onChoosePrinting, allowedSetCode, stagedScan, onClose }: {
   name: string | null;
   /** Open on this printing (e.g. the one you own) instead of the default. */
   printingId?: string | null;
@@ -85,6 +85,12 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
   seed?: CardSeed | null;
   /** Called after this sheet changed the collection or wish list, so the caller can refresh. */
   onChanged?(): void;
+  /** Scanner session: choosing a printing updates its staged row. */
+  onChoosePrinting?(printing: Printing): void;
+  /** Restrict the printing choices when the scanner is locked to one set. */
+  allowedSetCode?: string | null;
+  /** Show this sheet as a scan review without collection write actions. */
+  stagedScan?: boolean;
   /** Quick scan's photo and candidate printings: checked in the background, and may switch the selection (see cardDetailsHost). */
   scan?: CardDetailsTarget['scan'];
   /** Scan diagnostics only (see scanLog.ts): where to record the picture check and the printing this sheet settled on. */
@@ -98,6 +104,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
   const insets = useSafeAreaInsets();
   const { width, height: windowHeight } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
+  const bodyRef = useRef<ScrollView | null>(null);
 
   // Sheet position: 0 is open, windowHeight is off-screen. One value drives the slide-in,
   // the finger drag, the slide-out and the scrim fade, so they can never disagree.
@@ -244,6 +251,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
 
   printingsRef.current = printings;
   const selected = printings.find(p => p.id === selectedId) ?? null;
+  const availablePrintings = allowedSetCode ? printings.filter(p => p.setCode.toLowerCase() === allowedSetCode.toLowerCase()) : printings;
   const refreshUserData = useCallback(async (cardName: string, ids: string[], selected: string | null) => {
     const userId = userIdRef.current;
     if (!userId) return;
@@ -391,6 +399,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
 
   // Choosing another printing invalidates the form's finish and its operation.
   function choosePrinting(p: CardPrinting) {
+    if (allowedSetCode && p.setCode.toLowerCase() !== allowedSetCode.toLowerCase()) return;
     userPicked.current = true;
     setConfirmedFor(printingCheck);
     setArtNote(null);
@@ -398,6 +407,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
     setFaceIndex(0);
     setExtras({ state: 'idle' });
     if (adding) { setFinish(p.finishes.includes(finish) ? finish : (p.finishes[0] ?? 'nonfoil')); operationId.current = Crypto.randomUUID(); }
+    onChoosePrinting?.(toPrinting(p));
   }
 
   async function confirmAdd() {
@@ -487,7 +497,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
             <Button secondary label="Try again" onPress={() => { setLoadError(null); setLoading(true); setListTick(t => t + 1); }} />
           </View>
         ) : selected && (
-          <ScrollView contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} onScrollEndDrag={onScrollEndDrag} scrollEventThrottle={16}>
+          <ScrollView ref={bodyRef} contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + space.xxxl }]} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} onScrollEndDrag={onScrollEndDrag} scrollEventThrottle={16}>
             {!!artNote && (
               <View style={styles.artNote} accessibilityRole="alert">
                 <Text style={styles.artNoteText}>{artNote}</Text>
@@ -497,6 +507,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
               </View>
             )}
             <FoilArt uri={artUri} width={imageWidth} height={imageWidth / CARD_ASPECT} foil={foilShown} />
+            {stagedScan && <Button secondary label="Change printing" onPress={() => bodyRef.current?.scrollToEnd({ animated: true })} />}
             {needsPrintingChoice && <View style={styles.block} accessibilityRole="alert">
               <Text style={styles.muted}>Card found, but the printing could not be identified. Choose a version below or confirm that the displayed card matches yours.</Text>
               <Button secondary label={`Use ${selected.setCode.toUpperCase()} #${selected.collectorNumber}`} onPress={() => choosePrinting(selected)} />
@@ -556,7 +567,9 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
 
             {status && <Text style={[styles.status, status.kind === 'error' ? styles.statusError : styles.statusOk]} accessibilityRole="alert">{status.text}</Text>}
 
-            {!adding ? (
+            {stagedScan ? (
+              <Text style={styles.muted}>Choose a printing below to update this scan. Your scanned cards stay in the scan list until you add them.</Text>
+            ) : !adding ? (
               <View style={styles.actions}>
                 <Button label="Add to collection" onPress={startAdding} disabled={needsPrintingChoice || busy || !app.userId || selected.finishes.length === 0} />
                 <Button secondary label={busy ? 'Working…' : 'Add to wish list'} onPress={() => void wishList()} disabled={needsPrintingChoice || busy || !app.userId} />
@@ -585,7 +598,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
               </View>
             )}
 
-            <View style={styles.block}>
+            {!stagedScan && <View style={styles.block}>
               <Text style={styles.sectionTitle}>In your collection</Text>
               {ownedState === 'loading' ? <Text style={styles.muted}>Checking your collection…</Text>
                 : ownedState === 'error' ? (
@@ -608,7 +621,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
                   />
                 ))}
               {wanted > 0 && <Text style={styles.line}>On your wish list (×{wanted})</Text>}
-            </View>
+            </View>}
 
             {friends && (friends.haveForTrade.length > 0 || friends.want.length > 0) && (
               <View style={styles.block}>
@@ -659,7 +672,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
             </View>
 
             <View style={styles.block}>
-              <Text style={styles.sectionTitle}>{listState === 'loading' ? 'Loading printings…' : printings.length === 1 ? '1 printing' : `${printings.length} printings`}</Text>
+              <Text style={styles.sectionTitle}>{listState === 'loading' ? 'Loading printings…' : availablePrintings.length === 1 ? '1 printing' : `${availablePrintings.length} printings`}</Text>
               {listState === 'error' && (
                 <>
                   <Text style={styles.muted}>Couldn’t load the other printings.</Text>
@@ -668,7 +681,7 @@ export function CardDetails({ name, printingId, printingCheck, seed, scan, logId
               )}
               <FlatList
                 horizontal
-                data={printings}
+                data={availablePrintings}
                 keyExtractor={p => p.id}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chips}

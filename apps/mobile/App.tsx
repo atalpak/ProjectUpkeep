@@ -195,7 +195,6 @@ function NotificationsTab() { return <ScreenFade><NotificationsScreen /></Screen
 function ImportTab() { return <ScreenFade><ImportScreen /></ScreenFade>; }
 
 function SignedInTabs({ onMounted }: { onMounted(): void }) {
-  const app = useApp();
   // A fresh navigator always starts on Dashboard, but onStateChange does not fire
   // for its initial state -- without this, signing out and back in leaves
   // the tracked page at whatever the last one was.
@@ -204,13 +203,9 @@ function SignedInTabs({ onMounted }: { onMounted(): void }) {
     <Tab.Navigator
       id="RootTabs"
       initialRouteName="Dashboard"
-      // The live camera is full-bleed: the bar would sit on top of the preview
-      // and its own result sheet, and its top bar carries a back arrow instead.
-      // Only while the camera is actually up -- the permission, download and
-      // recovery panels on this same tab have no back arrow, so hiding the bar
-      // there would leave a user who denied camera access unable to leave the
-      // tab (or reach Settings to sign out).
-      tabBar={props => (app.scannerLive && props.state.routes[props.state.index]?.name === 'Scan') ? null : <TabBar {...props} />}
+      // The live camera draws behind the translucent navigation bar. Keeping
+      // the same tabs visible lets people leave Scan without a back button.
+      tabBar={props => <TabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
       <Tab.Screen name="Scan" component={ScanTab} />

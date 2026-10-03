@@ -9,11 +9,13 @@ import type {
   Notification,
   NotificationDetail,
   Profile,
+  ProfileDetails,
   Trade,
   TradeDetail,
   TradeItem,
 } from "@/lib/social/types";
 import type { TosStatus } from "@/lib/social/tos";
+import { profileFeaturedDeckIds } from "@/lib/social/profile";
 import type { WantExportRow } from "@/lib/social/want-export";
 import { expiringSoon, isExpired } from "@/lib/social/trade-status";
 import { isFlipCard, type FlippableCard } from "@/lib/cards/faces";
@@ -36,8 +38,8 @@ import {
  * Reads for the social half of the app.
  *
  * Every query here runs as the signed-in user, so what comes back is already
- * bounded by the policies in migration 9 — a friend's tradable binder is
- * visible, everything else about them is not. None of these functions filter by
+ * bounded by the policies in migration 9 and later sharing policies — a friend's
+ * tradable binder, wish list, and shared decklists can be visible. None of these functions filter by
  * "am I allowed to see this"; the database does, which is the only place it can
  * be trusted.
  */
@@ -122,8 +124,9 @@ export async function getFriendEdges(): Promise<{
  * Finds people by username.
  *
  * Profiles are readable by any signed-in user — that is what makes a friend
- * request possible at all — but a profile holds only a username, so this
- * exposes nothing beyond the handle someone chose to be known by.
+ * request possible at all. The search asks only for the handle and identity
+ * needed to send a request; other optional profile details are shown on the
+ * profile page.
  */
 export async function searchProfiles(query: string, limit = 10): Promise<Profile[]> {
   const term = query.trim();
@@ -177,16 +180,36 @@ export async function getMyTosStatus(): Promise<TosStatus | null> {
   };
 }
 
-export async function getProfileByUsername(username: string): Promise<Profile | null> {
+const PROFILE_DETAILS_COLUMNS = "id, username, created_at, bio, avatar_style, favorite_formats, favorite_colors, pinned_deck_id, featured_deck_ids";
+const PROFILE_DETAILS_PREVIOUS_COLUMNS = "id, username, created_at, bio, avatar_style, favorite_formats, favorite_colors, pinned_deck_id";
+
+async function getProfileDetails(field: "id" | "username", value: string): Promise<ProfileDetails | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, username, created_at")
-    .ilike("username", username)
-    .maybeSingle();
+  const read = (columns: string) => {
+    const query = supabase.from("profiles").select(columns);
+    return field === "id" ? query.eq("id", value).maybeSingle() : query.ilike("username", value).maybeSingle();
+  };
+  let { data, error } = await read(PROFILE_DETAILS_COLUMNS);
+  // Let the current profile page keep working while the owner applies migration 53.
+  if (error?.message.includes("featured_deck_ids")) {
+    ({ data, error } = await read(PROFILE_DETAILS_PREVIOUS_COLUMNS));
+  }
 
   if (error) throw new Error(`Could not load that profile: ${error.message}`);
-  return (data as Profile | null) ?? null;
+  if (!data) return null;
+  const profile = data as unknown as ProfileDetails;
+  return {
+    ...profile,
+    featured_deck_ids: profileFeaturedDeckIds(profile.featured_deck_ids, profile.pinned_deck_id),
+  };
+}
+
+export async function getProfileByUsername(username: string): Promise<ProfileDetails | null> {
+  return getProfileDetails("username", username);
+}
+
+export async function getProfileDetailsById(id: string): Promise<ProfileDetails | null> {
+  return getProfileDetails("id", id);
 }
 
 // ---------------------------------------------------------------------------

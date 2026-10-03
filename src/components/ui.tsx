@@ -52,7 +52,7 @@ export function Button({
   return (
     <button
       {...props}
-      className={cx(BUTTON_BASE, BUTTON_VARIANTS[variant], className)}
+      className={cx(BUTTON_BASE, BUTTON_VARIANTS[variant], "retro-control", className)}
     />
   );
 }
@@ -66,18 +66,18 @@ const FIELD_BASE =
   "focus:border-accent-text focus:bg-surface-raised";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
-  return <input {...props} className={cx(FIELD_BASE, className)} />;
+  return <input {...props} className={cx(FIELD_BASE, "retro-field", className)} />;
 }
 
 export function Select({ className, ...props }: ComponentProps<"select">) {
-  return <select {...props} className={cx(FIELD_BASE, className)} />;
+  return <select {...props} className={cx(FIELD_BASE, "retro-field", className)} />;
 }
 
 // Same chrome as Input. Four call sites still inline a raw <textarea>; a fifth
 // (the feedback box) tipped it into a primitive. `coarse:min-h-11` from
 // FIELD_BASE is only a floor — callers set `rows` for the real height.
 export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
-  return <textarea {...props} className={cx(FIELD_BASE, className)} />;
+  return <textarea {...props} className={cx(FIELD_BASE, "retro-field", className)} />;
 }
 
 export function Field({
@@ -103,7 +103,7 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
     <div
       {...props}
       className={cx(
-        "rounded-2xl border border-border bg-surface p-4 shadow-[var(--shadow-card)]",
+        "retro-panel rounded-2xl border border-border bg-surface p-4 shadow-[var(--shadow-card)]",
         className,
       )}
     />
@@ -219,7 +219,7 @@ export function Stat({
   hint?: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface-raised px-4 py-3.5 shadow-[var(--shadow-card)]">
+    <div className="retro-panel rounded-xl border border-border bg-surface-raised px-4 py-3.5 shadow-[var(--shadow-card)]">
       <div className="font-display text-2xl font-semibold tabular-nums tracking-tight">
         {value}
       </div>
@@ -285,7 +285,7 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="retro-page-header space-y-2">
       {backHref ? <BackLink href={backHref}>{backLabel ?? "Back"}</BackLink> : null}
 
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
@@ -361,7 +361,7 @@ export function ListRow({
 /** Small inline label, used for location types and card metadata. */
 export function Badge({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-border-strong px-2 py-0.5 text-[11px] font-medium text-ink-muted">
+    <span className="retro-badge inline-flex items-center rounded-full border border-border-strong px-2 py-0.5 text-[11px] font-medium text-ink-muted">
       {children}
     </span>
   );

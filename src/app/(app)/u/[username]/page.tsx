@@ -16,11 +16,17 @@ import {
 } from "@/lib/social/queries";
 import { tradingAllowed } from "@/lib/social/tos";
 import { mirrorTradeForCounter } from "@/lib/social/counter";
-import { describeSupplier, matchWants } from "@/lib/social/wants";
+import { matchWants, type WantRow } from "@/lib/social/wants";
 import { ProfilePublicDecks } from "@/components/social/ProfilePublicDecks";
+import { ProfileIdentity } from "@/components/social/ProfileIdentity";
+import { ProfileFriendRequest } from "@/components/social/ProfileFriendRequest";
+import { ProfileSection } from "@/components/social/ProfileSection";
+import { ProfileSectionJump } from "@/components/social/ProfileSectionJump";
 import { ProfileTradables } from "@/components/social/ProfileTradables";
+import { ProfileWants, type ProfileWantCard, type ProfileWantMatch } from "@/components/social/ProfileWants";
 import { TradableBinderPreview } from "@/components/social/TradableBinderPreview";
-import { EmptyState, PageHeader } from "@/components/ui";
+import { EmptyState } from "@/components/ui";
+import type { PublicDeckSummary } from "@/lib/social/queries";
 import { MortStage } from "@/components/mort/MortStage";
 
 export const metadata = { title: "Profile · Project Upkeep" };
@@ -39,10 +45,12 @@ export default async function ProfilePage({
   searchParams,
 }: {
   params: Promise<{ username: string }>;
-  searchParams: Promise<{ counter?: string | string[] }>;
+  searchParams: Promise<{ counter?: string | string[]; view?: string | string[] }>;
 }) {
   const { username } = await params;
-  const counterId = one((await searchParams).counter);
+  const query = await searchParams;
+  const counterId = one(query.counter);
+  const friendPreview = one(query.view) === "friend";
 
   // The profile lookup and "who am I" are independent, so resolve them together:
   // one serial phase before either the self branch or the friend-path Promise.all.
@@ -52,7 +60,7 @@ export default async function ProfilePage({
   ]);
   if (!profile) notFound();
 
-  // Your own handle: a read-only preview of what a friend sees on this page.
+  // Your own handle: the full page, with an optional friend-view preview.
   // The trade-proposal builder and want-matching below are friend-interaction
   // only — you cannot trade with yourself, and matching your binder against
   // your own wants is noise — so this branch runs none of it.
@@ -65,67 +73,53 @@ export default async function ProfilePage({
 
     const stacks = myTradableCards.length;
     const totalCards = myTradableCards.reduce((sum, r) => sum + r.quantity, 0);
+    const { featuredDecks, otherDecks } = splitFeaturedDecks(myPublicDecks, profile.featured_deck_ids);
 
     return (
       <div className="space-y-5">
-        <PageHeader
-          title="Your public profile"
-          subtitle={
-            stacks === 0
-              ? "What a friend sees when they open your profile."
-              : `What a friend sees of your trade binder — ${totalCards} card${
-                  totalCards === 1 ? "" : "s"
-                } (${stacks} unique) open for trade.`
+        <ProfileIdentity
+          profile={profile}
+          context={friendPreview ? "Friend view preview" : "Your profile"}
+          actions={
+            friendPreview ? (
+              <Link href={`/u/${encodeURIComponent(profile.username)}`} className="text-sm text-accent-text underline">Exit preview</Link>
+            ) : (
+              <>
+                <Link href="/settings#profile" className="text-sm text-accent-text underline">Edit profile</Link>
+                <Link href={`/u/${encodeURIComponent(profile.username)}?view=friend`} className="text-sm text-accent-text underline">View as friend</Link>
+              </>
+            )
           }
-          backHref="/settings"
-          backLabel="Settings"
         />
 
-        {myWants.length > 0 ? (
-          <section className="space-y-2 rounded-lg border border-border bg-surface p-4">
-            <h2 className="text-sm font-semibold">
-              Your wish list · {myWants.length} card{myWants.length === 1 ? "" : "s"}
-            </h2>
-            <ul className="flex flex-wrap gap-1.5 text-sm">
-              {myWants.map((want) => (
-                <li
-                  key={want.id}
-                  className="rounded border border-border px-1.5 py-0.5 text-ink-muted"
-                >
-                  {want.displayName}
-                  {want.quantity > 1 ? ` ×${want.quantity}` : ""}
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs text-ink-muted">
-              A friend sees this list on your profile alongside your binder.
-            </p>
-          </section>
+        {!friendPreview ? (
+          <p className="text-sm text-ink-muted">Your identity is visible to signed-in members. Your shared decks, wish list and trade binder are visible to friends.</p>
         ) : null}
 
-        {stacks === 0 ? (
-          <EmptyState
-            title="Nothing of yours is open for trade."
-            icon={<MortStage size="s" reaction="idle" animated={false} />}
-          >
-            Mark a binder or box tradable on the{" "}
-            <Link href="/locations" className="text-accent-text underline">
-              Locations page
-            </Link>{" "}
-            and it will show here.
-          </EmptyState>
-        ) : (
-          <TradableBinderPreview cards={myTradableCards} />
-        )}
+        {featuredDecks.length > 0 ? <DeckSection id="featured-deck" title={featuredDecks.length === 1 ? "Featured deck" : `Featured decks · ${featuredDecks.length}`} username={profile.username} decks={featuredDecks} open /> : null}
+        {otherDecks.length > 0 ? <DeckSection id="shared-decks" title={`Shared decks · ${otherDecks.length}`} username={profile.username} decks={otherDecks} /> : null}
 
-        {myPublicDecks.length > 0 ? (
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold">
-              Your decks · {myPublicDecks.length} shared
-            </h2>
-            <ProfilePublicDecks username={profile.username} decks={myPublicDecks} />
-          </section>
-        ) : null}
+        <ProfileSection id="wish-list" title={`Wish list · ${myWants.length} card${myWants.length === 1 ? "" : "s"}`}>
+          <ProfileWants wants={profileWantCards(myWants)} />
+        </ProfileSection>
+
+        <ProfileSection id="trade-binder" title={`Trade binder · ${totalCards} cards (${stacks} unique)`}>
+          {stacks === 0 ? (
+            <EmptyState
+              title="Nothing of yours is open for trade."
+              icon={<MortStage size="s" reaction="idle" animated={false} />}
+            >
+              Mark a binder or box tradable on the{" "}
+              <Link href="/locations" className="text-accent-text underline">
+                Locations page
+              </Link>{" "}
+              and it will show here.
+            </EmptyState>
+          ) : (
+            <TradableBinderPreview cards={myTradableCards} />
+          )}
+        </ProfileSection>
+
       </div>
     );
   }
@@ -149,12 +143,18 @@ export default async function ProfilePage({
   // Their want list, flagged with how many of each you have open for trade.
   const iCanFill = matchWants(theirWants, myTradables);
   const wantsIFill = theirWants.filter((w) => iCanFill.has(w.id)).length;
+  const wantMatches: Record<string, ProfileWantMatch> = {};
+  for (const want of theirWants) {
+    const supply = iCanFill.get(want.id)?.[0];
+    if (supply) wantMatches[want.id] = { available: supply.available, locations: supply.locations };
+  }
 
   const friendship = [...edges.friends, ...edges.incoming, ...edges.outgoing].find(
     (e) => e.profile.id === profile.id,
   );
   const isFriend = friendship?.friendship.status === "accepted";
   const tosAccepted = tradingAllowed(tos);
+  const { featuredDecks, otherDecks } = splitFeaturedDecks(theirPublicDecks, profile.featured_deck_ids);
 
   // If we arrived to counter an offer, load it and confirm it is one this user
   // may still counter and that it is with this profile.
@@ -186,98 +186,84 @@ export default async function ProfilePage({
 
   return (
     <div className="space-y-5">
-      <PageHeader
-        title={profile.username}
-        subtitle={
-          isFriend
-            ? `${theirCards.reduce((sum, c) => sum + c.quantity, 0)} cards (${
-                theirCards.length
-              } unique) open for trade`
-            : "You are not friends yet."
-        }
-        backHref="/friends"
-        backLabel="Friends"
+      <ProfileIdentity
+        profile={profile}
+        context={isFriend ? "Friend" : friendship?.direction === "incoming" ? "Sent you a friend request" : friendship?.direction === "outgoing" ? "Friend request pending" : "Member"}
+        actions={isFriend ? (
+          <ProfileSectionJump id="trade-binder">View trade binder</ProfileSectionJump>
+        ) : friendship ? (
+          <Link href="/friends" className="text-sm text-accent-text underline">Manage request</Link>
+        ) : (
+          <ProfileFriendRequest profileId={profile.id} />
+        )}
       />
 
-      {isFriend && theirWants.length > 0 ? (
-        <section className="space-y-2 rounded-lg border border-border bg-surface p-4">
-          <h2 className="text-sm font-semibold">
-            {profile.username} is after {theirWants.length} card
-            {theirWants.length === 1 ? "" : "s"}
-            {wantsIFill > 0 ? (
-              <span className="ml-2 rounded bg-accent px-1.5 py-0.5 text-[11px] font-medium text-accent-ink">
-                you have {wantsIFill}
-              </span>
-            ) : null}
-          </h2>
-          <ul className="flex flex-wrap gap-1.5 text-sm">
-            {theirWants.map((want) => {
-              const mySupply = iCanFill.get(want.id)?.[0];
-              const mine = mySupply?.available ?? 0;
-              return (
-                <li
-                  key={want.id}
-                  className={`rounded border px-1.5 py-0.5 ${
-                    mine > 0 ? "border-accent bg-accent-soft" : "border-border text-ink-muted"
-                  }`}
-                >
-                  {want.displayName}
-                  {want.quantity > 1 ? ` ×${want.quantity}` : ""}
-                  {mine > 0 ? (
-                    <span className="ml-1 text-xs">
-                      · you have {describeSupplier(mine, mySupply?.locations ?? [])}
-                    </span>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-          {wantsIFill > 0 ? (
-            <p className="text-xs text-ink-muted">
-              Highlighted cards are open in your trade binder — offer them below.
-            </p>
-          ) : null}
-        </section>
+      {isFriend && featuredDecks.length > 0 ? <DeckSection id="featured-deck" title={featuredDecks.length === 1 ? "Featured deck" : `Featured decks · ${featuredDecks.length}`} username={profile.username} decks={featuredDecks} open /> : null}
+      {isFriend && otherDecks.length > 0 ? <DeckSection id="shared-decks" title={`Shared decks · ${otherDecks.length}`} username={profile.username} decks={otherDecks} /> : null}
+
+      {isFriend ? (
+        <ProfileSection id="wish-list" title={`Wish list · ${theirWants.length} card${theirWants.length === 1 ? "" : "s"}${wantsIFill > 0 ? ` · you have ${wantsIFill}` : ""}`}>
+          <ProfileWants wants={profileWantCards(theirWants)} matches={wantMatches} />
+        </ProfileSection>
       ) : null}
 
-      {!isFriend ? (
-        <EmptyState
-          title="Only friends can see a trade binder."
-          icon={<MortStage size="s" reaction="annoyed" animated={false} />}
-        >
-          {friendship
-            ? "There is already a request between you two — check the friends page."
-            : "Send them a friend request from the friends page first."}
-        </EmptyState>
-      ) : theirCards.length === 0 ? (
-        <EmptyState
-          title={`${profile.username} has nothing open for trade.`}
-          icon={<MortStage size="s" reaction="idle" animated={false} />}
-        >
-          They need to mark a binder or box as tradable before anything shows here.
-        </EmptyState>
-      ) : (
-        <ProfileTradables
-          recipientId={profile.id}
-          recipientName={profile.username}
-          theirCards={theirCards}
-          myCards={myCards}
-          tosAccepted={tosAccepted}
-          counterOf={counterOf}
-          initialOffering={seededOffering}
-          initialRequesting={seededRequesting}
-          startTrading={Boolean(counterOf)}
-        />
-      )}
+      <ProfileSection id="trade-binder" title={isFriend ? `Trade binder · ${theirCards.reduce((sum, card) => sum + card.quantity, 0)} cards` : "Trade binder · Friends only"} open={Boolean(counterOf)}>
+        {!isFriend ? (
+          <EmptyState
+            title="Only friends can see a trade binder."
+            icon={<MortStage size="s" reaction="annoyed" animated={false} />}
+          >
+            {friendship
+              ? "There is already a request between you two — check the friends page."
+              : "Send a friend request above to see shared decks, wishes and cards."}
+          </EmptyState>
+        ) : theirCards.length === 0 ? (
+          <EmptyState
+            title={`${profile.username} has nothing open for trade.`}
+            icon={<MortStage size="s" reaction="idle" animated={false} />}
+          >
+            They need to mark a binder or box as tradable before anything shows here.
+          </EmptyState>
+        ) : (
+          <ProfileTradables
+            recipientId={profile.id}
+            recipientName={profile.username}
+            theirCards={theirCards}
+            myCards={myCards}
+            tosAccepted={tosAccepted}
+            counterOf={counterOf}
+            initialOffering={seededOffering}
+            initialRequesting={seededRequesting}
+            startTrading={Boolean(counterOf)}
+          />
+        )}
+      </ProfileSection>
 
-      {isFriend && theirPublicDecks.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="text-sm font-semibold">
-            {profile.username}&apos;s decks · {theirPublicDecks.length} shared
-          </h2>
-          <ProfilePublicDecks username={profile.username} decks={theirPublicDecks} />
-        </section>
-      ) : null}
     </div>
+  );
+}
+
+/** Never serialize private notes or the owner's deck tags into the client profile. */
+function profileWantCards(wants: WantRow[]): ProfileWantCard[] {
+  return wants.map(({ id, displayName, cardId, image, imageLarge, flip, quantity }) => ({
+    id, displayName, cardId, image, imageLarge, flip, quantity,
+  }));
+}
+
+function splitFeaturedDecks(decks: PublicDeckSummary[], ids: string[]) {
+  const byId = new Map(decks.map((deck) => [deck.id, deck]));
+  const featuredDecks = ids.flatMap((id) => {
+    const deck = byId.get(id);
+    return deck ? [deck] : [];
+  });
+  const featuredIds = new Set(featuredDecks.map((deck) => deck.id));
+  return { featuredDecks, otherDecks: decks.filter((deck) => !featuredIds.has(deck.id)) };
+}
+
+function DeckSection({ id, title, username, decks, open = false }: { id: string; title: string; username: string; decks: PublicDeckSummary[]; open?: boolean }) {
+  return (
+    <ProfileSection id={id} title={title} open={open}>
+      <ProfilePublicDecks username={username} decks={decks} />
+    </ProfileSection>
   );
 }

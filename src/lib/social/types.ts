@@ -7,11 +7,22 @@
  */
 
 import type { Card, CardInstanceWithCard } from "@/lib/types";
+import type { AvatarStyle, FavoriteColor, FavoriteFormat } from "@/lib/social/profile";
 
 export type Profile = {
   id: string;
   username: string;
   created_at: string;
+};
+
+/** The optional identity a signed-in member chooses to show on their page. */
+export type ProfileDetails = Profile & {
+  bio: string;
+  avatar_style: AvatarStyle;
+  favorite_formats: FavoriteFormat[];
+  favorite_colors: FavoriteColor[];
+  pinned_deck_id: string | null;
+  featured_deck_ids: string[];
 };
 
 export const FRIENDSHIP_STATUSES = ["pending", "accepted"] as const;

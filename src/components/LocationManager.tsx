@@ -368,7 +368,7 @@ function LocationTile({
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl border border-border bg-surface p-3"
+      className="retro-tile relative overflow-hidden rounded-2xl border border-border bg-surface p-3"
       style={accent ? { borderTopColor: accent, borderTopWidth: 3 } : undefined}
     >
       {art ? (
@@ -815,7 +815,7 @@ function UnsortedLocation({
   }
 
   return (
-    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-border bg-surface p-3 transition-colors hover:border-accent/50">
+    <div className="retro-tile relative aspect-[4/3] overflow-hidden rounded-2xl border border-border bg-surface p-3 transition-colors hover:border-accent/50">
       <Image
         src="/images/unsorted-magic-card-backs.jpg"
         alt=""

@@ -176,7 +176,7 @@ export function CollectionFilters({
       </div>
 
       {open ? (
-        <div className="space-y-4 rounded-lg border border-border bg-surface-raised p-4">
+        <div className="retro-frame space-y-4 rounded-lg border border-border bg-surface-raised p-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Field label="Set / Expansion">
               <Select value={draft.set} onChange={(e) => set("set", e.target.value)}>

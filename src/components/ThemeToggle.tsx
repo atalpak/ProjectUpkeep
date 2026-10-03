@@ -6,7 +6,7 @@ import { THEME_STORAGE_KEY } from "@/components/ThemeScript";
 import { cx } from "@/components/ui";
 
 /**
- * Two-state light/dark switch, plus the read/write pair behind it.
+ * Quick light/dark switch, plus the read/write pair behind all three themes.
  *
  * The icons swap via the `dark:` variant rather than from React state, so the
  * button renders identically on the server and the client. The one thing React
@@ -41,17 +41,31 @@ export function useIsDarkTheme(): boolean {
   return useSyncExternalStore(subscribe, isDarkNow, isDarkOnServer);
 }
 
-/** The one place that writes the theme: flips the class on <html> and
- *  persists the choice. Not exported — callers get `toggleDarkTheme` below,
- *  which is the only thing either of them actually wants and cannot be
- *  handed a stale value. */
-function setDarkTheme(dark: boolean): void {
-  document.documentElement.classList.toggle("dark", dark);
+export type Theme = "light" | "dark" | "retro";
+
+function themeNow(): Theme {
+  if (document.documentElement.classList.contains("retro")) return "retro";
+  return isDarkNow() ? "dark" : "light";
+}
+
+/** The currently applied appearance, shared by Settings and the quick toggle. */
+export function useTheme(): Theme {
+  return useSyncExternalStore(subscribe, themeNow, () => "light");
+}
+
+export function setTheme(theme: Theme): void {
+  document.documentElement.classList.toggle("dark", theme === "dark");
+  document.documentElement.classList.toggle("retro", theme === "retro");
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, dark ? "dark" : "light");
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
     /* Storage blocked: the theme still applies for this page view. */
   }
+}
+
+/** The quick toggle delegates to the same setter as Settings. */
+function setDarkTheme(dark: boolean): void {
+  setTheme(dark ? "dark" : "light");
 }
 
 /** Flip it, reading the current value fresh rather than taking it from a

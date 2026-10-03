@@ -46,18 +46,6 @@ export function ProfileTradables({
   startTrading?: boolean;
 }) {
   const [trading, setTrading] = useState(startTrading && tosAccepted);
-  const [search, setSearch] = useState("");
-  const [view, setView] = useState<BinderView>("list");
-
-  const rows = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    if (!needle) return theirCards;
-    return theirCards.filter((r) => {
-      const name = (r.cards?.name ?? "").toLowerCase();
-      const flavor = (r.cards?.flavor_name ?? "").toLowerCase();
-      return name.includes(needle) || flavor.includes(needle);
-    });
-  }, [theirCards, search]);
 
   const totalCards = theirCards.reduce((sum, r) => sum + r.quantity, 0);
 
@@ -123,12 +111,34 @@ export function ProfileTradables({
         </p>
       ) : null}
 
+      <BinderCards cards={theirCards} searchLabel="Filter their binder" />
+    </div>
+  );
+}
+
+/** Shared browsing controls for a friend's binder and the owner's preview. */
+export function BinderCards({ cards, searchLabel }: { cards: CardInstanceWithCard[]; searchLabel: string }) {
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState<BinderView>("list");
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return cards
+      .filter((row) => {
+        const name = (row.cards?.name ?? "").toLowerCase();
+        const flavor = (row.cards?.flavor_name ?? "").toLowerCase();
+        return !needle || name.includes(needle) || flavor.includes(needle);
+      })
+      .sort((a, b) => (a.cards?.name ?? "").localeCompare(b.cards?.name ?? ""));
+  }, [cards, search]);
+
+  return (
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Filter their binder"
-          aria-label="Filter their binder"
+          placeholder={searchLabel}
+          aria-label={searchLabel}
           className="min-w-48 flex-1"
         />
         <div className="inline-flex overflow-hidden rounded-md border border-border">
@@ -170,17 +180,12 @@ export function ProfileTradables({
 
 function GalleryTradable({ row }: { row: CardInstanceWithCard }) {
   const card = row.cards;
-  const preview = useCardPreview(card, { finish: row.finish });
   const face = useCardFace(card, "normal");
   const image = face.image;
 
   return (
     <li className="space-y-1">
-      <div
-        {...preview}
-        tabIndex={0}
-        className="relative aspect-[488/680] cursor-default overflow-hidden rounded-lg border border-border bg-surface-muted"
-      >
+      <div className="relative aspect-[488/680] overflow-hidden rounded-lg border border-border bg-surface-muted">
         {image ? (
           <Image
             src={image}

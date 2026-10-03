@@ -127,7 +127,7 @@ function DeckCard({ deck }: { deck: DeckSummary }) {
   const art = artCropUrl(deck.commanderImage);
 
   return (
-    <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-border transition-colors hover:border-accent/50">
+    <div className="retro-tile relative aspect-[4/3] overflow-hidden rounded-2xl border border-border transition-colors hover:border-accent/50">
       {art ? (
         <>
           <Image
