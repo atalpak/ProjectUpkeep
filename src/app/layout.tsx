@@ -4,6 +4,7 @@ import "./globals.css";
 
 import { cx } from "@/components/ui";
 import { ThemeScript } from "@/components/ThemeScript";
+import { Analytics } from "@vercel/analytics/next";
 
 // The brand pairing: Fraunces for marketing and milestone moments (see
 // `.font-brand` in globals.css) and Inter, a clean,
@@ -53,7 +54,10 @@ export default function RootLayout({
       <head>
         <ThemeScript />
       </head>
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
