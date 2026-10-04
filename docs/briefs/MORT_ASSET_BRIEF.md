@@ -1,5 +1,8 @@
 # Mort Animation Asset Brief
 
+> Historical brief. Mort has been removed from the website; the web paths and
+> integration notes below no longer apply. Mobile mascot work is separate.
+
 Instructions for producing Mort mascot art/animation with an external AI
 animation tool, so the output drops into Project Upkeep's existing mascot
 architecture with no code changes on the receiving end.

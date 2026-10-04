@@ -7,7 +7,6 @@ import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 
 import { ManaSymbol } from "@/components/ManaCost";
-import { MortStage } from "@/components/mort/MortStage";
 
 export { cx } from "@/lib/cx";
 import { cx } from "@/lib/cx";
@@ -159,11 +158,7 @@ export function Banner({ kind, children }: { kind: "error" | "success"; children
 const PIPS = ["W", "U", "B", "R", "G"];
 
 /**
- * The muted five-color mana-pip row `EmptyState` used to render inline as its
- * only decoration. Pulled out to its own component when Mort took over as the
- * default, so the handful of card-context callers that still want the pip row
- * specifically (rather than Mort, who is not always the right character for a
- * dense in-collection empty state) can pass `icon={<ManaPipRow />}`.
+ * A muted five-color mana-pip row for empty states.
  */
 export function ManaPipRow() {
   return (
@@ -183,15 +178,14 @@ export function EmptyState({
 }: {
   title: string;
   children?: ReactNode;
-  /** Defaults to a small idle Mort. Pass `false` to omit it, or a node of
-   *  your own (e.g. `<ManaPipRow />`) to show something else instead. */
+  /** Defaults to mana pips. Pass `false` to omit them, or a node of your own. */
   icon?: ReactNode | false;
   /** Rendered below `children` — buttons/links that follow up on the empty
    *  state, kept out of the prose so callers don't have to fight the
    *  `children` paragraph's own spacing to add one. */
   actions?: ReactNode;
 }) {
-  const decoration = icon === false ? null : (icon ?? <MortStage size="s" />);
+  const decoration = icon === false ? null : (icon ?? <ManaPipRow />);
 
   return (
     <div className="rounded-2xl border border-dashed border-border-strong p-8 text-center">

@@ -10,7 +10,6 @@ import { LOCATION_TYPE_LABELS, languageLabel } from "@/lib/types";
 import { CardLocator } from "@/components/collection/CardLocator";
 import { CardPreviewLink, CardPreviewTarget } from "@/components/CardPanel";
 import { Badge, EmptyState, PageHeader } from "@/components/ui";
-import { MortStage } from "@/components/mort/MortStage";
 
 export const metadata = { title: "Find a card · Project Upkeep" };
 
@@ -56,10 +55,7 @@ export default async function FindPage({
       ) : (
         <>
           {results.length === 0 ? (
-            <EmptyState
-              title={`Nothing in your collection matches “${query.trim()}”.`}
-              icon={<MortStage size="s" reaction="annoyed" />}
-            >
+            <EmptyState title={`Nothing in your collection matches “${query.trim()}”.`}>
               <p>
                 You may own it under a different name, or not yet —{" "}
                 <Link href="/collection/add" className="text-accent-text underline">

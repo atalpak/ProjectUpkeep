@@ -232,7 +232,7 @@ function GridView({ cards, ownership, friends, toPanel, local }: { cards: Catalo
   return (
     <div className="space-y-3">
       <div className="flex justify-end"><SizePicker size={size} onChange={setSize} /></div>
-      <ul className="grid gap-5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[size].minmax}, 1fr))` }}>
+      <ul className={cx("grid gap-5", TILE_SIZES[size].gridClass)}>
         {cards.map((c) => (
           <GridTile key={cardKey(c)} card={c} note={ownership?.[c.id]} friendNotes={friends?.[c.id]} panelCard={toPanel(c)} imageWidth={TILE_SIZES[size].imageWidth} local={local?.has(c.id) ?? false} />
         ))}

@@ -429,18 +429,26 @@ html.retro .theme-choice {
  */
 @custom-variant coarse (@media (pointer: coarse));
 
-/*
- * Motion tokens shared by the Mort controller (src/components/mort/*) and
- * anything else that wants a named duration instead of a guessed number.
- * Named after the brand doc's own animation tiers (§14) — micro/quick cover
- * routine UI transitions, react/moment are Mort's tier-2/tier-3 reaction and
- * "moment" holds. Same values on both themes; motion is not a colour.
- */
-:root {
-  --dur-micro: 200ms;
-  --dur-quick: 300ms;
-  --dur-react: 900ms;
-  --dur-moment: 2400ms;
+/* Card size controls need distinct phone layouts: auto-fill would stretch
+   both choices to the same single column below their desktop minimum width. */
+@layer components {
+  .card-grid-medium {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card-grid-large {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @media (min-width: 640px) {
+    .card-grid-medium {
+      grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+    }
+
+    .card-grid-large {
+      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    }
+  }
 }
 
 html,
@@ -472,9 +480,8 @@ body {
   letter-spacing: -0.011em;
 }
 
-/* Brand voice — Fraunces. Marketing headlines, milestone moments, Mort's own
-   lines. Nothing that is part of a routine task — see the brand doc §7 and
-   §12 (Project Upkeep voice vs. Mort voice). */
+/* Brand voice — Fraunces for marketing headlines and milestone moments.
+   Routine product tasks use the body and display styles instead. */
 .font-brand {
   font-family: var(--font-display), Georgia, "Times New Roman", serif;
   font-weight: 600;
@@ -607,31 +614,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .animate-page-enter,
   .animate-explorer-enter {
-    animation: none;
-  }
-}
-
-/**
- * Mort's pose cross-fade (see MortStage.tsx). A plain opacity fade, keyed to
- * the reaction so React remounts the element and restarts the animation on
- * every pose change — the same "CSS animation, not JS state" shape as
- * `.foil-mark` and `.animate-page-enter` above.
- */
-@keyframes mort-pose-enter {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.animate-mort-pose {
-  animation: mort-pose-enter var(--dur-micro) ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .animate-mort-pose {
     animation: none;
   }
 }
