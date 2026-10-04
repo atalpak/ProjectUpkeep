@@ -27,7 +27,6 @@ import { ProfileWants, type ProfileWantCard, type ProfileWantMatch } from "@/com
 import { TradableBinderPreview } from "@/components/social/TradableBinderPreview";
 import { EmptyState } from "@/components/ui";
 import type { PublicDeckSummary } from "@/lib/social/queries";
-import { MortStage } from "@/components/mort/MortStage";
 
 export const metadata = { title: "Profile · Project Upkeep" };
 
@@ -105,10 +104,7 @@ export default async function ProfilePage({
 
         <ProfileSection id="trade-binder" title={`Trade binder · ${totalCards} cards (${stacks} unique)`}>
           {stacks === 0 ? (
-            <EmptyState
-              title="Nothing of yours is open for trade."
-              icon={<MortStage size="s" reaction="idle" animated={false} />}
-            >
+            <EmptyState title="Nothing of yours is open for trade.">
               Mark a binder or box tradable on the{" "}
               <Link href="/locations" className="text-accent-text underline">
                 Locations page
@@ -209,19 +205,13 @@ export default async function ProfilePage({
 
       <ProfileSection id="trade-binder" title={isFriend ? `Trade binder · ${theirCards.reduce((sum, card) => sum + card.quantity, 0)} cards` : "Trade binder · Friends only"} open={Boolean(counterOf)}>
         {!isFriend ? (
-          <EmptyState
-            title="Only friends can see a trade binder."
-            icon={<MortStage size="s" reaction="annoyed" animated={false} />}
-          >
+          <EmptyState title="Only friends can see a trade binder.">
             {friendship
               ? "There is already a request between you two — check the friends page."
               : "Send a friend request above to see shared decks, wishes and cards."}
           </EmptyState>
         ) : theirCards.length === 0 ? (
-          <EmptyState
-            title={`${profile.username} has nothing open for trade.`}
-            icon={<MortStage size="s" reaction="idle" animated={false} />}
-          >
+          <EmptyState title={`${profile.username} has nothing open for trade.`}>
             They need to mark a binder or box as tradable before anything shows here.
           </EmptyState>
         ) : (

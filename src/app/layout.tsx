@@ -5,8 +5,8 @@ import "./globals.css";
 import { cx } from "@/components/ui";
 import { ThemeScript } from "@/components/ThemeScript";
 
-// The brand pairing: Fraunces for brand voice (marketing, Mort's lines,
-// milestone moments — see `.font-brand` in globals.css) and Inter, a clean,
+// The brand pairing: Fraunces for marketing and milestone moments (see
+// `.font-brand` in globals.css) and Inter, a clean,
 // dense grotesk, for the product itself (`.font-display`, despite the name,
 // is product chrome — see that class's own comment). Both self-hosted via
 // next/font, so there is no external request and no layout shift.

@@ -1343,10 +1343,8 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (view: ViewM
 /**
  * The collection as a grid of card art, instead of a table.
  *
- * Sized the same way `SearchResultsGrid`'s grid is — `auto-fill`/`minmax`
- * rather than a fixed column count per breakpoint, so "big enough to read"
- * holds at any window width and the same tile-size choice works from a phone
- * up to a wide desktop without a second, mobile-specific layout.
+ * Sized the same way as Advanced Search: two or one columns on phones for
+ * medium or large cards, then auto-fill columns on wider screens.
  *
  * Unlike the table, a tile carries no editor and no selection checkbox: this
  * is a way to look at the collection, not to bulk-edit it. Tapping a tile
@@ -1363,8 +1361,7 @@ function CollectionGallery({
 }) {
   return (
     <ul
-      className="grid gap-4"
-      style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE_SIZES[size].minmax}, 1fr))` }}
+      className={cx("grid gap-4", TILE_SIZES[size].gridClass)}
     >
       {rows.map((row) => (
         <GalleryTile key={row.id} row={row} imageWidth={TILE_SIZES[size].imageWidth} />

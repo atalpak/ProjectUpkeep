@@ -81,7 +81,6 @@ src/
   components/
     ui.tsx                  shared primitives — buttons, etc. Restyle here.
     auth/  cards/  collection/  decks/  settings/  social/  playtester/
-    mort/                   the Mort mascot — web mirror of apps/mobile/src/mort
     ManaCost.tsx  SetSymbol.tsx  …
   hooks/                    useReducedMotion
   lib/
@@ -116,7 +115,7 @@ src/
                             notifications · tos · types · want-export
     supabase/               client · server · session · errors
 docs/                       guides/ (specs) · handoffs/ (resume-a-feature logs) · briefs/ — see docs/README.md
-public/                     logo-light/dark.png · mort/ (pose PNGs, web mirror)
+public/                     logo-light/dark.png
 supabase/
   migrations/               numbered, applied in order — check the directory
                             for the current count rather than trusting a

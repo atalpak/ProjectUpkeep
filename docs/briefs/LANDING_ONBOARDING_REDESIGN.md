@@ -53,8 +53,8 @@ Page sequence:
 
 Use warm parchment surfaces, readable dark ink, deep green primary actions,
 restrained gold rules, editorial serif headings, and system/body fonts. Retain
-existing brand assets and Mort in a supporting role; avoid competing decorative
-scenes around every feature. Example counts must be labelled; no invented user
+existing brand assets without a mascot; avoid competing decorative scenes
+around every feature. Example counts must be labelled; no invented user
 numbers, testimonials, or promises about availability/pricing.
 
 ## Guided onboarding

@@ -477,7 +477,7 @@ export function HeaderSearch() {
         title="Advanced Search"
         className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink coarse:size-11 lg:hidden"
       >
-        <SearchIcon className="size-4" />
+        <SearchIcon className="size-5" />
       </Link>
     </div>
   );

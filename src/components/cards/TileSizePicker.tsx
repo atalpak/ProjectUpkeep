@@ -19,9 +19,11 @@ import { cx } from "@/components/ui";
 
 export type TileSize = "m" | "l";
 
-export const TILE_SIZES: Record<TileSize, { minmax: string; imageWidth: string; label: string }> = {
-  m: { minmax: "12rem", imageWidth: "16rem", label: "Medium" },
-  l: { minmax: "16rem", imageWidth: "20rem", label: "Large" },
+// On a phone, auto-fill gives both sizes a single full-width column. Fix the
+// column count there so the two choices change the actual card size.
+export const TILE_SIZES: Record<TileSize, { gridClass: string; imageWidth: string; label: string }> = {
+  m: { gridClass: "card-grid-medium", imageWidth: "16rem", label: "Medium" },
+  l: { gridClass: "card-grid-large", imageWidth: "20rem", label: "Large" },
 };
 
 export function isTileSize(value: string | null): value is TileSize {
